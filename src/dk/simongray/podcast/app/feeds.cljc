@@ -136,7 +136,7 @@
   check it again, and the guid, date and media of each item.
 
   A device that only syncs and refreshes, such as a server, can keep this
-  in place of the whole feed, with the :keep of app.library. It gives the
+  in place of the whole feed, with the :keep-fn of app.library. It gives the
   same next check, the same new episodes for profile/refresh and the same
   names for the gpodder API, but no titles, descriptions or the rest."
   [feed]
@@ -243,7 +243,7 @@
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
   - :concurrency, how many feeds to fetch at once, and :cadence
-  - :send, :timeout-seconds, :max-bytes, :user-agent and :allow?, as
+  - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
     fetch! takes them"
   ([feeds]
    (refresh! feeds {}))
@@ -256,7 +256,7 @@
    (let [at     (or at (time/now))
          guids  (vec (or feed-guids (due feeds at)))
          common (select-keys opts [:send :timeout-seconds :max-bytes
-                                   :user-agent :allow?])
+                                   :user-agent :allow-pred])
          fetch1 (fn [feed-guid]
                   (let [{:keys [url etag last-modified]} (get feeds feed-guid)
                         credentials (when credentials-of (credentials-of url))

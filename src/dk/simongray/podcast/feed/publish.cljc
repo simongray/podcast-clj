@@ -47,11 +47,11 @@
 (defn- paged
   "The documents of `feed` as a paged feed, as section 3 of RFC 5005
   defines it, with `size` items to a page. The first page is at `url`, and
-  page n is at what `page-url` gives for n."
-  [feed size url page-url]
+  page n is at what `page-url-fn` gives for n."
+  [feed size url page-url-fn]
   (let [chunks (vec (partition-all size (:rss/items feed)))
         n      (max 1 (count chunks))
-        at     #(if (= 1 %) url (page-url %))]
+        at     #(if (= 1 %) url (page-url-fn %))]
     (vec (for [k (range 1 (inc n))]
            (document feed (at k) (get chunks (dec k))
                      [["first" (at 1)]
@@ -61,35 +61,35 @@
 
 (defn- archived
   "The documents of `feed` as an archived feed, as section 4 of RFC 5005
-  defines it, at `url` and the URLs from `page-url`. Each document holds
+  defines it, at `url` and the URLs from `page-url-fn`. Each document holds
   `size` items.
 
   The subscription document at `url` has the newest items, and the
   archives come after it, the newest first. Archive n is at what
-  `page-url` gives for n, and its items are counted from the oldest item.
+  `page-url-fn` gives for n, and its items are counted from the oldest item.
 
   Section 4 says that the items of an archive don't change, and a
   document links to an archive only when the archive is complete. The
   section doesn't say how to divide the items. Here, an archive becomes a
   document once the feed has an item that's newer than all of its items.
   The items of an archive then don't change when the feed gets an item."
-  [feed size url page-url]
+  [feed size url page-url-fn]
   (let [items    (vec (:rss/items feed))
         oldest   (vec (rseq items))
         archives (quot (max 0 (dec (count items))) size)
         archive  (fn [k]
                    (let [chunk (subvec oldest (* (dec k) size) (* k size))
                          older (when (< 1 k)
-                                 (page-url (dec k)))
+                                 (page-url-fn (dec k)))
                          newer (when (< k archives)
-                                 (page-url (inc k)))]
-                     (-> (document feed (page-url k) (rseq chunk)
+                                 (page-url-fn (inc k)))]
+                     (-> (document feed (page-url-fn k) (rseq chunk)
                                    [["current" url]
                                     ["prev-archive" older]
                                     ["next-archive" newer]])
                          (assoc-in [:feed :fh/archive] true))))
         latest   (when (pos? archives)
-                   (page-url archives))]
+                   (page-url-fn archives))]
     (into [(document feed url (take size items)
                      [["prev-archive" latest]])]
           (map archive)
@@ -106,7 +106,7 @@
   - :page-size, the number of items in a document, page-size by default
   - :url, the URL of the feed, where its first document is, by default
     the atom:link rel=self of the feed
-  - :page-url, a function of a number that gives the URL of that page or
+  - :page-url-fn, a function of a number that gives the URL of that page or
     archive, by default :url with the query parameter page or archive
 
   The pages of a paged feed, as in section 3 of the RFC, change with each
@@ -120,12 +120,12 @@
   atom:links. An archive has fh:archive."
   ([feed]
    (pages feed {}))
-  ([feed {:keys [kind url page-url] :or {kind :paged} :as opts}]
+  ([feed {:keys [kind url page-url-fn] :or {kind :paged} :as opts}]
    {:pre [(map? opts)]}
-   (let [size     (:page-size opts page-size)
-         url      (or url (resolve/self-url feed))
-         param    (case kind :paged "page" :archived "archive")
-         page-url (or page-url #(url/with-query url {param %}))]
+   (let [size        (:page-size opts page-size)
+         url         (or url (resolve/self-url feed))
+         param       (case kind :paged "page" :archived "archive")
+         page-url-fn (or page-url-fn #(url/with-query url {param %}))]
      (when-not (string? url)
        (throw (ex-info (str "The pages of a feed need its URL, as :url or as"
                             " its atom:link rel=self")
@@ -135,8 +135,8 @@
        (throw (ex-info "The size of a page is a whole number above 0"
                        {:page-size size})))
      (case kind
-       :paged    (paged feed size url page-url)
-       :archived (archived feed size url page-url)))))
+       :paged    (paged feed size url page-url-fn)
+       :archived (archived feed size url page-url-fn)))))
 
 (defn update-media-urls
   "The `feed` with the URL of each enclosure, and of each source of an
@@ -189,21 +189,21 @@
   - :token-param, the name of the query parameter, token-param by default
   - :with-token, a function of a URL and the token that gives the URL of
     the subscriber, for a host that has the token in the path
-  - :own?, a predicate of a URL, where the URLs that it refuses get no
+  - :own-pred, a predicate of a URL, where the URLs that it refuses get no
     token, e.g. the media files on the server of another company
   - :block?, false for a feed that stays as open as it was"
   ([feed token]
    (for-subscriber feed token {}))
-  ([feed token {:keys [with-token own? block?]
+  ([feed token {:keys [with-token own-pred block?]
                 param :token-param
-                :or   {param token-param own? (constantly true) block? true}
+                :or   {param token-param own-pred (constantly true) block? true}
                 :as   opts}]
    {:pre [(map? opts)]}
    (let [token      (secret/reveal token)
          with-token (or with-token #(url/with-query %1 {param %2}))
          personal   (fn [url]
                       (if (and (url/web-url? url)
-                               (own? url))
+                               (own-pred url))
                         (with-token url token)
                         url))
          hub?       #(= "hub" (some-> (:rel %) str/lower-case))

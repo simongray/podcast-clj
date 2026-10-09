@@ -508,14 +508,14 @@
   when `opts` give its :index credentials."
   [{:keys [apple-id podcastindex-id podcast-guid] :as ids}
    guid
-   {:keys [lookup index now] :as opts}]
+   {:keys [lookup index now-fn] :as opts}]
   (let [entries      (map directory/entry lookup)
         of-api       (fn [api] (first (filter #(= api (:api %)) entries)))
         apple        (of-api :apple)
         podcastindex (of-api :podcastindex)
         index-id     (or podcast-guid guid podcastindex-id)
         signed       {:credentials index
-                      :auth-date   (quot (inst-ms (now)) 1000)}]
+                      :auth-date   (quot (inst-ms (now-fn)) 1000)}]
     (cond-> []
       (and apple apple-id)
       (conj [apple (directory/request apple :lookup {:id apple-id})])
@@ -570,13 +570,13 @@
 
   A feed counts only when its website is on the domain of the page. When
   `acc` has a podcast already, no directory is asked."
-  [acc body page {:keys [search index now max-candidates] :as opts}]
+  [acc body page {:keys [search index now-fn max-candidates] :as opts}]
   (let [q (when-not (or (empty? search) (podcast-found? acc))
             (page-name body page))]
     (if (nil? q)
       acc
       (let [signed   {:credentials index
-                      :auth-date   (quot (inst-ms (now)) 1000)}
+                      :auth-date   (quot (inst-ms (now-fn)) 1000)}
             asked    (for [source (map directory/entry search)]
                        [source (directory/request source :search
                                                   {:q q :limit max-candidates}
@@ -709,12 +709,12 @@
   - :known, the feeds you already have, as library/urls gives them
   - :search, the directories to search by a page's name, none by default
   - :lookup, the directories that look up the id in an app's link
-  - :index, the Podcast Index credentials, and :now, the clock to sign with
+  - :index, the Podcast Index credentials, and :now-fn, the clock to sign with
   - :rules, your rules for a page's address, as rule-urls takes them
   - :guessed-paths and :apps, in place of guessed-paths and
     directory.links/apps
   - :send, the function that sends a request, http/send! by default
-  - :allow?, a predicate of the URLs a request may go to, url/public? by
+  - :allow-pred, a predicate of the URLs a request may go to, url/public? by
     default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
     :max-candidates, over default-limits
@@ -725,10 +725,10 @@
    {:pre [(map? opts)]}
    (let [opts              (merge default-limits
                                   {:send          http/send!
-                                   :allow?        url/public?
+                                   :allow-pred    url/public?
                                    :lookup        [:apple :podcastindex]
                                    :guessed-paths guessed-paths
-                                   :now           time/now}
+                                   :now-fn        time/now}
                                   opts)
          input             (read-input s opts)
          [url credentials] (some-> (:url input) url/split-credentials)

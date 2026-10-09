@@ -1323,10 +1323,10 @@
 
 (defn- wrapper
   "The folder that wraps every feed of the OPML subscription `list`, if
-  `wrapper?` is true of its name in lower case."
-  [list wrapper?]
+  `wrappers` has its name in lower case."
+  [list wrappers]
   (let [[folder :as firsts] (map (comp first :path) (outlines list))]
-    (when (and folder (apply = firsts) (wrapper? (str/lower-case (str folder))))
+    (when (and folder (apply = firsts) (wrappers (str/lower-case (str folder))))
       folder)))
 
 (defn- imported

@@ -77,11 +77,12 @@
   16)
 
 (defn- cached
-  "The entry under `k` in the cache while `fresh?` holds for it, or else the
-  one `make` makes of it, or of nil when there is none, kept in its place."
-  [k fresh? make]
+  "The entry under `k` in the cache while `fresh-pred` holds for it, or else
+  the one `make` makes of it, or of nil when there is none, kept in its
+  place."
+  [k fresh-pred make]
   (let [old   (get @cache k)
-        kept  (if (and old (fresh? old)) old (make old))
+        kept  (if (and old (fresh-pred old)) old (make old))
         entry (assoc kept :used (System/nanoTime))
         trim  (fn [c]
                 (let [c (assoc c k entry)]
@@ -505,7 +506,7 @@
   "The options of the requests to a wallet. The inspector asks each relay
   that a connection names, also a relay on the own network, and waits
   half a minute for the wallet."
-  {:allow? (constantly true) :timeout-seconds 30})
+  {:allow-pred (constantly true) :timeout-seconds 30})
 
 (def app-name
   "The name of the inspector in the record of a payment."
@@ -866,10 +867,10 @@
                     (reset! cursors (:cursors result))
                     (:state result)))]
     (gpodder-server/handler
-     {:state       state
-      :authorized? (constantly true)
-      :identities  names
-      :sync        sync!})))
+     {:state           state
+      :authorized-pred (constantly true)
+      :identities-fn   names
+      :sync            sync!})))
 
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the

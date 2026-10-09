@@ -729,9 +729,9 @@
   - :event, an event that signed wrote, to give the relay
   - :timeout-seconds, :max-events and :max-bytes, which default to those
     of default-limits
-  - :allow?, a predicate of the URL of the relay, as public? is
+  - :allow-pred, a predicate of the URL of the relay, as public? is
 
-  It throws ::refused for a URL that :allow? refuses or that isn't the URL
+  It throws ::refused for a URL that :allow-pred refuses or that isn't the URL
   of a relay, and ::failed when the relay gives no connection.
 
   With an :event, the request gives the relay that event as the EVENT of
@@ -750,8 +750,8 @@
 
   The events aren't verified. Use verified? and matches? to choose which
   to keep."
-  [{:keys [url filters event allow?]
-    :or   {allow? (constantly true)}
+  [{:keys [url filters event allow-pred]
+    :or   {allow-pred (constantly true)}
     :as   request}]
   (let [relay    (relay-url url)
         messages (opening filters event)
@@ -759,7 +759,7 @@
                                 (select-keys request (keys default-limits)))
                    event (assoc :published (get event "id")
                                 :until     (if (seq filters) :event :ok)))]
-    (if-not (and relay (allow? relay))
+    (if-not (and relay (allow-pred relay))
       (let [refused (ex-info (str "The request to " url " is not allowed")
                              {:type ::refused :url url})]
         #?(:clj (throw refused) :cljs (js/Promise.reject refused)))

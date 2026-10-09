@@ -255,13 +255,13 @@
   - :bot, a request whose :agent-type is bot or bot-library, as identify
     names it. When the list doesn't know the agent, it's a user agent
     that says bot, crawler or spider.
-  - :excluded, a request that the predicate :exclude? of `opts` takes.
+  - :excluded, a request that the :exclude-pred of `opts` takes.
     It's for the addresses of servers, data centers, VPNs and known bots,
     from the lists of the host."
   ([request]
    (drop-reason request {}))
   ([{:keys [method status range user-agent] :as request}
-    {:keys [exclude?] :as opts}]
+    {:keys [exclude-pred] :as opts}]
    (cond
      (malformed? request)                                :malformed
      (not= "get" (some-> method name str/lower-case))    :method
@@ -270,7 +270,7 @@
      (str/blank? user-agent)                             :no-user-agent
      (watch? user-agent)                                 :watch
      (bot? request)                                      :bot
-     (and exclude? (exclude? request))                   :excluded)))
+     (and exclude-pred (exclude-pred request))           :excluded)))
 
 (defn- held
   "The byte ranges of its file that `request` holds. These are the ranges
@@ -349,10 +349,10 @@
 (defn- with-request
   "The `windows`, a pair of the open windows by listener and file and the
   closed ones, with `request` in the open window of its listener and file,
-  or else in a new one. The `file` and `window` are those of windows."
-  [file window [open closed :as windows] {:keys [ip user-agent] :as request}]
+  or else in a new one. The `file-fn` and `window` are those of windows."
+  [file-fn window [open closed :as windows] {:keys [ip user-agent] :as request}]
   (let [listener [(listener-ip ip) user-agent]
-        k        (conj listener (file request))
+        k        (conj listener (file-fn request))
         ms       (inst-ms (:time request))
         w        (get open k)]
     (if (and w (same-window? window w ms))
@@ -371,15 +371,15 @@
         [(assoc open k opened) (cond-> closed w (conj w))]))))
 
 (defn- windows
-  "The windows of `requests` for each listener and file, where `file`
+  "The windows of `requests` for each listener and file, where `file-fn`
   gives the file of a request and `window` is :day, :rolling or
   :extending.
 
   A window has its first request, the byte ranges that its requests hold,
   and their number."
-  [requests file window]
+  [requests file-fn window]
   (let [by-time       (sort-by (comp inst-ms :time) requests)
-        step          (partial with-request file window)
+        step          (partial with-request file-fn window)
         [open closed] (reduce step [{} []] by-time)]
     (into closed (vals open))))
 
@@ -401,10 +401,10 @@
 
   - :user-agents, as user-agents gives them, to name the apps, the devices
     and the bots
-  - :exclude?, a predicate of a request, for the addresses to leave out
+  - :exclude-pred, a predicate of a request, for the addresses to leave out
   - :threshold, a function of a file that gives the bytes that a download
     needs, or a map of files to bytes
-  - :file, a function of a request that gives the file that it asks for,
+  - :file-fn, a function of a request that gives the file that it asks for,
     by default its URL without the query
   - :window, which is :day by default, :rolling or :extending
 
@@ -419,8 +419,8 @@
   number of requests that ask for it."
   ([requests]
    (downloads requests {}))
-  ([requests {:keys [threshold file window]
-              :or   {file (comp file-url :url) window :day}
+  ([requests {:keys [threshold file-fn window]
+              :or   {file-fn (comp file-url :url) window :day}
               :as   opts}]
    (when-not (contains? #{:day :rolling :extending} window)
      (throw (ex-info (str "A window that downloads does not know: " window)
@@ -430,7 +430,7 @@
                           (let [needed (when threshold (threshold (:file w)))]
                             (or (nil? needed)
                                 (>= (held-size ranges) needed))))
-         windowed       (windows kept file window)
+         windowed       (windows kept file-fn window)
          {counted true short false} (group-by enough? windowed)]
      {:downloads (mapv (fn [w]
                          (assoc (:first-request w) :listener (:listener w)))

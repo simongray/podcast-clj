@@ -396,7 +396,7 @@
   The result is a sequence of nodes to put inside a parent element. The
   `opts` are these:
 
-  - :link, a function of a part of parts. It gives the URL that a mention
+  - :link-fn, a function of a part of parts. It gives the URL that a mention
     or a hashtag links to, or nil for the link that the post has. So a
     mention leads to a page of the app, and not to the server of the
     mentioned account.
@@ -404,20 +404,20 @@
     the server of the author, which can then see who reads the thread."
   ([source]
    (hiccup source {}))
-  ([{:keys [base] :as source} {:keys [link emoji?] :as opts}]
+  ([{:keys [base] :as source} {:keys [link-fn emoji?] :as opts}]
    {:pre [(map? opts)]}
    (let [emojis (when emoji? (emojis-of source))
          image  (fn [{:keys [text url]}]
                   [:img {:src url :alt text :title text}])
          linked (fn [attrs kids]
                   (when-let [part (link-part attrs (label-of kids) source)]
-                    (when-let [target (when link (link part))]
+                    (when-let [target (when link-fn (link-fn part))]
                       (into [:a {:href target}] kids))))
          pieces (fn [s]
                   (map #(if (string? %) % (image %)) (with-emoji s emojis)))
          nodes  (common/fit-links (sanitized source)
                                   base
-                                  {:a linked :text pieces})]
+                                  {:a-fn linked :text-fn pieces})]
      (apply list nodes))))
 
 (defn- warning
@@ -928,12 +928,12 @@
 
 (defn- with-status
   "The `thread` with the `status` of an answer of the Mastodon API of the
-  server at `origin` read at `at`, by the `ids` and the `own?` of
+  server at `origin` read at `at`, by the `ids` and the `own-pred` of
   read-api."
-  [thread status ids origin own? at]
+  [thread status ids origin own-pred at]
   (let [status-uri (get status "uri")]
     (cond
-      (own? status)
+      (own-pred status)
       (let [c (common/guarded status-uri at
                               #(status-comment status ids origin at))]
         (cond-> (assoc-in thread [:comments status-uri] c)
@@ -1051,14 +1051,14 @@
 
 (defn- thread-requests
   "The requests below the root of the ActivityPub `thread`, of those whose
-  URLs `ask?` takes: the pages of the collections and the posts that they
+  URLs `ask-pred` takes: the pages of the collections and the posts that they
   name, nearest the root first, as the `room` for posts allows, and then
   the authors."
-  [{:keys [comments authors via] :as thread} room ask?]
+  [{:keys [comments authors via] :as thread} room ask-pred]
   (let [all     (vals comments)
         waiting (count (remove :read-at all))
         depth   (common/depths thread)
-        asked?  (comp ask? :url)
+        asked?  (comp ask-pred :url)
         writers (sort (distinct (keep :author (filter :read-at all))))]
     (concat (when (pos? room)
               (let [pages  (when (and (< waiting room) (not via))
@@ -1073,13 +1073,13 @@
                 (common/nearest-first depth (concat pages posts))))
             (for [author writers
                   :when  (and (common/web-url author)
-                              (ask? author)
+                              (ask-pred author)
                               (not (contains? authors author)))]
               (document-request author [:author author])))))
 
 (defn requests
   "The requests that the ActivityPub `thread` needs next with `opts`, of
-  those whose URLs `ask?` takes. They ask for no more posts than the
+  those whose URLs `ask-pred` takes. They ask for no more posts than the
   :max-comments of `opts` allows, counted from the last resumed.
 
   The root post comes first. When its server keeps it from the reader, the
@@ -1092,7 +1092,7 @@
   status-paths or by the :status-paths of `opts`."
   [{:keys [uri root read-at comments] ::comments/keys [api held] :as thread}
    {:keys [max-comments] :as opts}
-   ask?]
+   ask-pred]
   (let [fresh (- (count (filter :read-at (vals comments))) (or held 0))
         room  (- max-comments fresh)
         paths (:status-paths opts status-paths)]
@@ -1106,8 +1106,8 @@
            (api-requests uri (:read api) paths)
 
            root
-           (thread-requests thread room ask?))
-         (filter (comp ask? :url)))))
+           (thread-requests thread room ask-pred))
+         (filter (comp ask-pred :url)))))
 
 (defn with-exchanges
   "The ActivityPub `thread` with the `exchanges` of one of its requests

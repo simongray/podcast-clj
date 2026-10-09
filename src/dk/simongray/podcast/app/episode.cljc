@@ -41,9 +41,9 @@
 
 (defn- with-report
   "The `part` of a view with its `document`, and the diagnostics that
-  `report` gives for it as data, since metadata doesn't survive printing."
-  [part document report]
-  (let [diagnostics (report document)]
+  `report-fn` gives for it as data, since metadata doesn't survive printing."
+  [part document report-fn]
+  (let [diagnostics (report-fn document)]
     (cond-> (assoc part :document document)
       (seq diagnostics) (assoc :report (vec diagnostics)))))
 
@@ -175,7 +175,7 @@
   "Read the media file at `url` with media/read! and `opts`, adding its
   :url and its :report as data, or an :error, in a future or a promise."
   [url opts]
-  (let [read-opts (select-keys opts [:send :allow? :timeout-seconds :headers
+  (let [read-opts (select-keys opts [:send :allow-pred :timeout-seconds :headers
                                      :except])]
     (async/then (media/read! url read-opts)
                 (fn [file]
@@ -232,7 +232,7 @@
   that couldn't be read has an :error. The report function gathers the
   reports of all the parts. The `opts` are:
 
-  - :send, :allow? and :headers, as for any request
+  - :send, :allow-pred and :headers, as for any request
   - :timeout-seconds and :max-bytes, over default-limits
   - :except, a set of the parts to leave unread"
   ([view]
@@ -318,9 +318,9 @@
   item of a time split, the item's own first and then the feed's, in a
   future or a promise. The result is a map of the :value, nil when the
   index has none, or of an :error."
-  [remote {:keys [index send now] :as opts}]
+  [remote {:keys [index send now-fn] :as opts}]
   (let [requests (podcastindex/remote-value-requests
-                  index remote {:auth-date (quot (inst-ms (now)) 1000)})
+                  index remote {:auth-date (quot (inst-ms (now-fn)) 1000)})
         answer!  (fn [request]
                    (async/then (http/try-send! send request opts)
                                (partial index-answer remote (:url request))))]
@@ -347,7 +347,7 @@
   "Fetch the feed of the `remote` item of a time split with the :fetch of
   `opts`, in a future or a promise, and give what feed-answer says."
   [remote {:keys [fetch] :as opts}]
-  (let [fetch-opts (select-keys opts [:send :allow? :timeout-seconds
+  (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
                                       :max-bytes :user-agent])]
     (async/then (async/attempt #(fetch (:feed-url remote) fetch-opts))
                 (partial feed-answer remote))))
@@ -407,9 +407,9 @@
   the report. Nothing is thrown for what the network or a server does.
   The `opts` are:
 
-  - :send and :allow?, as for any request
+  - :send and :allow-pred, as for any request
   - :timeout-seconds and :max-bytes, over default-limits
-  - :index, the credentials of the Podcast Index, and :now, a function of
+  - :index, the credentials of the Podcast Index, and :now-fn, a function of
     the current time to sign the requests with
   - :fetch, in place of dk.simongray.podcast/fetch!. Each remote feed is
     fetched once, though several songs of an album name it."
@@ -418,9 +418,9 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [opts    (-> (merge default-limits
-                            {:send  http/send!
-                             :now   time/now
-                             :fetch podcast/fetch!}
+                            {:send   http/send!
+                             :now-fn time/now
+                             :fetch  podcast/fetch!}
                             opts)
                      (update :fetch once-per-url))
          remotes (distinct (keep :remote-item (:time-splits (:value view))))]

@@ -1070,7 +1070,7 @@
            ::nostr-comments/keys [receipts]
            :as   c}]
   (let [body (list (when title [:strong title])
-                   [:div.notes (comments/hiccup thread c {:link part-link})]
+                   [:div.notes (comments/hiccup thread c {:link-fn part-link})]
                    (for [{:keys [kind url preview alt]} attachments]
                      (if (= :image kind)
                        [:a {:href (link url)}
@@ -1220,8 +1220,8 @@
 
 (defn- answer-cell
   "What the wallet answered to a command, for a cell of a table: the
-  problem of `answer`, or what `told` gives for it."
-  [answer told]
+  problem of `answer`, or what `told-fn` gives for it."
+  [answer told-fn]
   (cond
     (nil? answer)
     [:span.muted "Not asked"]
@@ -1241,7 +1241,7 @@
             [:li [:code url] " " reason])])])
 
     :else
-    (told answer)))
+    (told-fn answer)))
 
 (defn- wallet-facts
   "What the wallet told of itself and of the connection."

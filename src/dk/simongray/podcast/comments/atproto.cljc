@@ -174,7 +174,7 @@
   `opts`: one paragraph, with a break for each line break of the text.
   The result is a sequence of nodes to put inside a parent element.
 
-  A link of the post is a link. The :link of `opts` is a function of a
+  A link of the post is a link. The :link-fn of `opts` is a function of a
   part of parts. It gives the URL that a mention or a hashtag links to,
   or nil for no link. The protocol gives no web page for a profile, so you
   choose the web app that shows one."
@@ -365,7 +365,7 @@
 
 (defn requests
   "The requests that the AT Protocol `thread` needs next with `opts`, of
-  those whose URLs `ask?` takes.
+  those whose URLs `ask-pred` takes.
 
   They go to the :appview of `opts`. They ask for no more posts than the
   :max-comments of `opts` allows, counted from the last resumed.
@@ -374,7 +374,7 @@
   replies are below the levels that the AppView gives at once."
   [{:keys [uri read-at comments] ::comments/keys [held] :as thread}
    {:keys [appview max-comments] :as opts}
-   ask?]
+   ask-pred]
   (let [fresh (- (count (filter :read-at (vals comments))) (or held 0))]
     (->> (cond
            (not (string? appview))
@@ -386,7 +386,7 @@
 
            (< fresh max-comments)
            (reply-requests thread appview))
-         (filter (comp ask? :url)))))
+         (filter (comp ask-pred :url)))))
 
 (defn with-exchanges
   "The AT Protocol `thread` with the `exchanges` of one of its requests
@@ -500,6 +500,6 @@
   (parts sample-record)
   (hiccup sample-record)
   (hiccup sample-record
-          {:link (fn [{:keys [id]}] (str "https://bsky.app/profile/" id))})
+          {:link-fn (fn [{:keys [id]}] (str "https://bsky.app/profile/" id))})
   (post-html sample-record)
   #_.)

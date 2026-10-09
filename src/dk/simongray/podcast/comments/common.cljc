@@ -132,20 +132,22 @@
   URL has no target. Each image is its alt text, since an image loads when
   the page does. The `opts` can give two functions:
 
-  - :a takes the attributes of a link and its fitted children, and gives
+  - :a-fn takes the attributes of a link and its fitted children, and gives
     the node in place of the link, or nil for the link as it is
-  - :text takes a text, and gives the nodes in its place"
+  - :text-fn takes a text, and gives the nodes in its place"
   ([nodes base]
    (fit-links nodes base {}))
-  ([nodes base {:keys [a text] :or {a (constantly nil) text vector} :as opts}]
+  ([nodes base {:keys [a-fn text-fn]
+                :or   {a-fn (constantly nil) text-fn vector}
+                :as   opts}]
    (letfn [(nodes-of [x]
              (if-not (vector? x)
-               (text x)
+               (text-fn x)
                (let [[tag attrs & children] x
                      kids                   (mapcat nodes-of children)]
                  (case tag
-                   :img (text (str (:alt attrs)))
-                   :a   [(or (a attrs kids) (fit-link attrs kids base))]
+                   :img (text-fn (str (:alt attrs)))
+                   :a   [(or (a-fn attrs kids) (fit-link attrs kids base))]
                    [(into [tag attrs] kids)]))))]
      (mapcat nodes-of nodes))))
 
@@ -181,12 +183,12 @@
 
 (defn ^:no-doc linked
   "The Hiccup of the part `part` of a content, with the `label`, linked by
-  the :link of `opts`, or else the label.
+  the :link-fn of `opts`, or else the label.
 
-  The :link is a function of a part, which gives where a mention, a
+  The :link-fn is a function of a part, which gives where a mention, a
   hashtag or a reference leads."
-  [part label {:keys [link] :as opts}]
-  (if-let [href (when link (link part))]
+  [part label {:keys [link-fn] :as opts}]
+  (if-let [href (when link-fn (link-fn part))]
     [:a {:href href} label]
     label))
 

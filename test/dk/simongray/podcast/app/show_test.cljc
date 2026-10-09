@@ -75,7 +75,7 @@
                  [#"publisherexample"                {:status 200 :body publisher-feed}]]]
     (run
      (fn []
-       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering answers log) :index credentials :now (constantly #inst "2026-09-30T12:00:00Z")})
+       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering answers log) :index credentials :now-fn (constantly #inst "2026-09-30T12:00:00Z")})
                    (fn [v]
                      (testing "the podroll as the index knows it"
                        (is (= [true false] (map (comp some? :show) (:podroll v))) "the second guid is unknown to the index")

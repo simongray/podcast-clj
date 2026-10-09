@@ -516,7 +516,7 @@
              target))))))
 
 (defn ^:no-doc refusal
-  "The exception of a request to `url` that :allow? refused."
+  "The exception of a request to `url` that :allow-pred refused."
   [url]
   (ex-info (str "The request to " url " is not allowed")
            {:type ::refused :url url}))
@@ -549,13 +549,13 @@
 #?(:clj
    (defn ^:no-doc send-following!
      "Send the `request`, follow its redirects until the instant `deadline`
-     in epoch milliseconds, and check each URL with `allow?`.
+     in epoch milliseconds, and check each URL with `allow-pred`.
 
      It gives the last response and the redirects before it, each as a
      vector of its status, URL and headers. It follows five redirects at
      most, each as redirected says, since the JDK sends credentials on to
-     another origin. A URL that `allow?` refuses throws ::refused."
-     [request deadline allow?]
+     another origin. A URL that `allow-pred` refuses throws ::refused."
+     [request deadline allow-pred]
      (loop [request (update request :url url/legal-url)
             chain   []]
        (let [{:keys [url method headers body]} request
@@ -563,7 +563,7 @@
              left (- deadline (System/currentTimeMillis))]
          (when-not (pos? left)
            (throw (HttpTimeoutException. (str "request timed out: " uri))))
-         (when-not (allow? url)
+         (when-not (allow-pred url)
            (throw (refusal url)))
          (let [outgoing  (java-request uri method headers body left)
                response  (.send ^HttpClient @client outgoing
@@ -770,11 +770,11 @@
     nil for no limit
   - :range, a pair of the first and the last byte to ask for, as RFC
     9110, section 14.1.2, has it. A nil last byte asks for the rest.
-  - :allow?, a predicate of a URL, as util.url/public? is
+  - :allow-pred, a predicate of a URL, as util.url/public? is
 
   An exchange that goes beyond a limit throws ::timeout or ::too-large.
   On the JVM, the client of the JDK throws its HttpTimeoutException while
-  it waits for the headers. When :allow? refuses the URL of the request,
+  it waits for the headers. When :allow-pred refuses the URL of the request,
   it throws ::refused.
 
   A server that sends the range answers 206, and :content-range is then
@@ -785,21 +785,21 @@
 
   On the JVM, the URL is made legal first, as url/legal-url does. Redirects
   are followed, five at most, and never from https to http. A redirect to
-  another origin leaves the credentials behind, and :allow? must take the
+  another origin leaves the credentials behind, and :allow-pred must take the
   URL of each redirect. The :redirects of the response list each redirect
   as a vector of its status, the URL that answered with it, and the
   headers of its answer. When the redirects begin with permanent ones,
   :permanent-url is where the URL moved for good.
 
   In ClojureScript, fetch sends the request. It follows redirects itself
-  and doesn't report them, so :allow? doesn't see them. A browser lets a
+  and doesn't report them, so :allow-pred doesn't see them. A browser lets a
   page read an answer from another site only as far as the CORS headers
   of the answer allow. It hides the headers that the answer doesn't
   expose, e.g. Content-Range and ETag, and :filtered? marks such an
   answer. Outside a browser, e.g. in Node, the request has user-agent as
   its User-Agent, unless the :headers name another."
-  [{:keys [method headers timeout-seconds allow?]
-    :or   {timeout-seconds 30 allow? (constantly true)}
+  [{:keys [method headers timeout-seconds allow-pred]
+    :or   {timeout-seconds 30 allow-pred (constantly true)}
     :as   request}]
   (let [method  (some-> method name str/lower-case keyword)
         request (assoc (merge {:max-bytes default-max-bytes} request)
@@ -807,11 +807,12 @@
                        :headers (request-headers headers (:range request)))]
     #?(:clj  (let [deadline         (+ (System/currentTimeMillis)
                                        (* 1000 timeout-seconds))
-                   [response chain] (send-following! request deadline allow?)
+                   [response chain] (send-following! request deadline
+                                                     allow-pred)
                    bytes            (response-bytes response request deadline)]
                (java-answer response bytes chain request))
        :cljs (let [{:keys [url body]} request]
-               (if-not (allow? url)
+               (if-not (allow-pred url)
                  (js/Promise.reject (refusal url))
                  ;; a hidden header and a hidden body go out as their texts
                  (let [signal (js/AbortSignal.timeout (* 1000 timeout-seconds))
@@ -832,14 +833,14 @@
   It sends no request to the network of the app or of its device, and
   throws ::refused instead, or in ClojureScript rejects with it. The
   functions that fetch URLs from outside sources use the same check as
-  their :allow?."
+  their :allow-pred."
   [request]
-  (send! (assoc request :allow? url/public?)))
+  (send! (assoc request :allow-pred url/public?)))
 
 (def ^:no-doc limit-keys
   "The keys of a request that limit what send! does for it, which the
   functions that send take from their options."
-  [:timeout-seconds :max-bytes :allow?])
+  [:timeout-seconds :max-bytes :allow-pred])
 
 (defn fetch-request
   "The request for the document at `url` that fetch! sends with `opts`,
@@ -880,7 +881,7 @@
   - :credentials, as authorization takes them
   - :user-agent, to send in place of user-agent
   - :accept, the Accept header, */* by default
-  - :timeout-seconds, :max-bytes and :allow?, as send! takes them
+  - :timeout-seconds, :max-bytes and :allow-pred, as send! takes them
   - :send, the function that sends the request, send! by default"
   ([url]
    (fetch! url {}))
@@ -908,12 +909,12 @@
      The `opts` are these:
 
      - :headers of the request
-     - :allow?, as send! takes it
+     - :allow-pred, as send! takes it
      - :timeout-seconds, the limit of the whole exchange, 600 by default"
      ([url algorithms]
       (digest! url algorithms {}))
-     ([url algorithms {:keys [headers timeout-seconds allow?]
-                       :or   {timeout-seconds 600 allow? (constantly true)}
+     ([url algorithms {:keys [headers timeout-seconds allow-pred]
+                       :or   {timeout-seconds 600 allow-pred (constantly true)}
                        :as   opts}]
       (let [deadline       (+ (System/currentTimeMillis)
                               (* 1000 timeout-seconds))
@@ -925,7 +926,7 @@
                                    "Accept-Encoding" "identity"}
                                   headers)
             request        {:url url :method :get :headers headers}
-            [response _]   (send-following! request deadline allow?)
+            [response _]   (send-following! request deadline allow-pred)
             status         (.statusCode ^HttpResponse response)
             update-digests (fn [^bytes buffer n]
                              (doseq [^MessageDigest d (vals digests)]
@@ -963,7 +964,7 @@
   (some->> s (re-matches #"(?i)\s*bytes\s+\*/(\d{1,15})\s*") second parse-long))
 
 (defn ^:no-doc limited
-  "The `request` with :timeout-seconds, :max-bytes and :allow? from
+  "The `request` with :timeout-seconds, :max-bytes and :allow-pred from
   `opts`, each when the opts give it."
   [request opts]
   (into request (remove (comp nil? val)) (select-keys opts limit-keys)))
@@ -994,7 +995,7 @@
 
   The `opts` are these:
 
-  - :headers, :timeout-seconds, :max-bytes and :allow? of the requests
+  - :headers, :timeout-seconds, :max-bytes and :allow-pred of the requests
   - :send, a function that sends a request map in place of send!, as
     send! does"
   ([url]
@@ -1102,7 +1103,7 @@
   "Send the `request` with `send`, a function such as send!, and give a
   map of the response as the :value, or of the exception as the :error
   where `send` throws. The `opts` are the :timeout-seconds, :max-bytes
-  and :allow? to put in the request.
+  and :allow-pred to put in the request.
 
   The map comes in a future on the JVM and in a promise in ClojureScript,
   as async/attempt gives it, so several requests can be under way at
@@ -1141,7 +1142,7 @@
   The `opts` are these:
 
   - :headers of the two requests, e.g. an Origin to learn about CORS
-  - :timeout-seconds, :max-bytes and :allow? of the requests
+  - :timeout-seconds, :max-bytes and :allow-pred of the requests
   - :send, a function that sends a request map in place of send!, as
     send! does"
   ([url]

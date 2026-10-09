@@ -209,18 +209,18 @@
   result has a diagnostic under :error. The `opts` are these:
 
   - the limits of default-limits
-  - :allow?, which URLs the request can go to
+  - :allow-pred, which URLs the request can go to
   - :send, a function that sends a request map in place of http/send!
 
   The sender of the payment chooses the URL. So the request carries
-  url/public? as its :allow?, and http/send! then sends nothing to a
+  url/public? as its :allow-pred, and http/send! then sends nothing to a
   private network. To reach your own network, give (constantly true) as
-  :allow?. A browser reads the header only when the server exposes it
+  :allow-pred. A browser reads the header only when the server exposes it
   with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [defaults {:send http/send! :allow? url/public?}
+   (let [defaults {:send http/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)
          failure  (fn [d] {:error (diagnostics/describe d)})]
      (async/then

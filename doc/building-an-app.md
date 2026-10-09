@@ -46,7 +46,7 @@ functions of `profile`, e.g.
 `assoc` or `dissoc`.
 
 Each change is stamped with its time, which the functions of
-`app.library` read from the clock, the setting `:now`, so a test can fix
+`app.library` read from the clock, the setting `:now-fn`, so a test can fix
 it. For an event that you handle later, e.g. in a background task, give
 the time it happened as the option `:at`. Since `update-profile` takes no
 options, call the function of `profile` with that time instead, e.g.
@@ -195,7 +195,7 @@ and a feed that would take over another subscription goes in its report
 instead of throwing.
 
 On a server that fetches feeds for its users, give `fetch!` the option
-`{:allow? url/public?}`, so that a URL that someone types can't reach
+`{:allow-pred url/public?}`, so that a URL that someone types can't reach
 your own network.
 
 If the listener gives a show's website, a domain or a link from another app
@@ -267,7 +267,7 @@ library and none goes to another feed.
 The library keeps every feed whole, which takes about twice the size of
 its XML in memory. A device that never shows the feeds, such as a server
 that only syncs and refreshes, can keep a small part of each with the
-setting `:keep feeds/slim`. That part still tells when to check the feed
+setting `:keep-fn feeds/slim`. That part still tells when to check the feed
 and which episodes are new.
 
 Podping tells which feeds have changed, so they can be fetched at once.
@@ -307,9 +307,9 @@ each subscription, and handle the callback with `websub/handler`:
 
 (def callback
   (websub/handler
-    {:wanted?  (fn [{:keys [mode topic]}] (= topic (pending mode)))
-     :deliver! (fn [{:keys [topic body]}] (swap! inbox conj [topic body]))
-     :secret   secret}))
+    {:wanted-pred (fn [{:keys [mode topic]}] (= topic (pending mode)))
+     :deliver!    (fn [{:keys [topic body]}] (swap! inbox conj [topic body]))
+     :secret      secret}))
 ```
 
 The `:deliver!` function only gets feeds with the right signature. Return
@@ -449,8 +449,7 @@ ask for replies:
 ```
 
 The content of a comment is sanitised HTML. To link mentions and hashtags
-to pages of your app, render it with `comments/hiccup` and a `:link`
-function:
+to pages of your app, render it with `comments/hiccup` and a `:link-fn`:
 
 ```clojure
 (defn comment-link
@@ -463,7 +462,7 @@ function:
 
 (def reply (first (:replies (comments/tree thread))))
 
-(comments/hiccup thread reply {:link comment-link})
+(comments/hiccup thread reply {:link-fn comment-link})
 ;; => [[:p {} "Good episode, " [:a {:href "/profiles/activitypub/…"} "@ann"]
 ;;      " " [:a {:href "/tags/podcast"} "#podcast"]]]
 ```
@@ -495,7 +494,7 @@ a show:
 Its root is the episode itself, so the root of the tree has no content.
 The podcaster didn't choose this thread, so show nothing when
 `resolve/social-interacts` gives the protocol `disabled`. Nostr has no web
-pages, so a mention has no link unless your `:link` function gives one,
+pages, so a mention has no link unless your `:link-fn` gives one,
 such as its `:uri`, a `nostr:` URI that opens a Nostr app on the device.
 
 
@@ -854,8 +853,8 @@ app of Nextcloud, give `:api :nextcloud`:
 
 ```clojure
 (gpodder/backend "https://gpodder.net"
-                 {:credentials creds
-                  :identities  #(gpodder/identities (vals (:feeds @lib)))})
+                 {:credentials   creds
+                  :identities-fn #(gpodder/identities (vals (:feeds @lib)))})
 ```
 
 To serve a store from your own Clojure server, mount the Ring handler of
@@ -1112,7 +1111,7 @@ too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 Without `:read? true`, it only sends a HEAD request and asks for the first
 bytes of each file. The limits on files, time and bytes are in
 `check/default-limits`. If your server checks feeds that other people
-submit, give it `:allow? url/public?`, so it never requests your own
+submit, give it `:allow-pred url/public?`, so it never requests your own
 network. For a single file, `http/probe!` gives the same facts, e.g. the
 size of an episode before downloading it.
 
@@ -1151,9 +1150,9 @@ file needs to count, which `analytics/threshold` works out:
 (def result
   (analytics/downloads
     requests
-    {:user-agents (read-user-agents "user-agents-v2")
-     :threshold   {episode-url threshold}
-     :exclude?    data-center?}))
+    {:user-agents  (read-user-agents "user-agents-v2")
+     :threshold    {episode-url threshold}
+     :exclude-pred data-center?}))
 
 (frequencies (map :url (:downloads result)))            ; downloads per file
 (count (distinct (map :listener (:downloads result))))  ; listeners
@@ -1217,7 +1216,7 @@ slow to fetch, so split it with `publish/pages` into documents linked as RFC
 
 The archives don't change when a new episode comes out, so apps fetch each
 one only once. Give the feed's URL as `:url` when the feed doesn't name
-its own, and other URLs for the archives as `:page-url`, a function of the
+its own, and other URLs for the archives as `:page-url-fn`, a function of the
 page number.
 
 To push changes through WebSub, name the hub in the feed and tell it

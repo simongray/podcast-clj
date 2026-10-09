@@ -213,10 +213,10 @@
 
 (defn ^:no-doc pending
   "The requests that `thread` needs next with the limits of `opts`, of those
-  whose URLs `ask?` takes."
-  [thread opts ask?]
+  whose URLs `ask-pred` takes."
+  [thread opts ask-pred]
   (if-let [f (reader thread :requests)]
-    (f thread opts ask?)
+    (f thread opts ask-pred)
     []))
 
 (defn- distinct-by
@@ -367,12 +367,12 @@
 (defn- levels
   "The posts of a thread from the post `top` down, level by level, with
   each post once and 256 levels at most. The `children` map gives the
-  replies to a post by its id, and `shown?` tells which replies count."
-  [top children shown?]
+  replies to a post by its id, and `shown-pred` tells which replies count."
+  [top children shown-pred]
   (loop [levels [[top]] seen #{(:id top)}]
     (let [below (into []
                       (comp (mapcat #(get children (:id %)))
-                            (filter shown?)
+                            (filter shown-pred)
                             (remove #(seen (:id %))))
                       (peek levels))]
       (if (or (empty? below) (>= (count levels) 256))
@@ -466,7 +466,7 @@
 
   The `opts` are these:
 
-  - :link, a function of a part of parts, with the :protocol of the
+  - :link-fn, a function of a part of parts, with the :protocol of the
     thread. It gives the URL that a mention, a hashtag or a reference
     links to, or nil. So you choose where they lead, in one function for
     each protocol.
@@ -477,13 +477,13 @@
   For example:
 
       (hiccup thread comment
-              {:link (fn [{:keys [type id tag]}]
-                       (case type
-                         :mention (str \"/profiles/\" id)
-                         :hashtag (str \"/tags/\" tag)
-                         nil))})
+              {:link-fn (fn [{:keys [type id tag]}]
+                          (case type
+                            :mention (str \"/profiles/\" id)
+                            :hashtag (str \"/tags/\" tag)
+                            nil))})
 
-  When :link gives nil, a mention of ActivityPub keeps the link that the
+  When :link-fn gives nil, a mention of ActivityPub keeps the link that the
   post has, and a mention of another protocol has no link.
 
   The :content of a comment is the same content as HTML, without the
@@ -493,10 +493,11 @@
    (hiccup thread comment {}))
   ([{:keys [protocol] :as thread}
     {:keys [content] :as comment}
-    {:keys [link] :as opts}]
+    {:keys [link-fn] :as opts}]
    {:pre [(map? opts)]}
    (let [opts (cond-> opts
-                link (assoc :link #(link (assoc % :protocol protocol))))]
+                link-fn (assoc :link-fn
+                               #(link-fn (assoc % :protocol protocol))))]
      (or (when-let [f (reader thread :hiccup)]
            (f thread comment opts))
          (html/hiccup content)))))
@@ -521,7 +522,7 @@
    (text thread comment {}))
   ([thread comment opts]
    {:pre [(map? opts)]}
-   (let [nodes (hiccup thread comment (dissoc opts :link))]
+   (let [nodes (hiccup thread comment (dissoc opts :link-fn))]
      (html/text nodes (select-keys opts [:links?])))))
 
 (defn ^:no-doc exchange!
@@ -538,9 +539,9 @@
   A failed response is :retry?, unless the guard of the request refused
   its URL or the answer was too large. A later request gets the same
   failure then."
-  [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline]
+  [request {:keys [send timeout-seconds max-bytes now-fn] ::keys [deadline]
             :as opts}]
-  (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
+  (let [left    (when deadline (quot (- deadline (inst-ms (now-fn))) 1000))
         seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
         lasting #{::http/refused ::http/too-large}
         stays?  #(contains? lasting (:type (ex-data %)))
@@ -577,8 +578,8 @@
 
   The exchanges of a request are its own and those of the pages after it
   that next-page names, with none after the ::deadline of `opts`."
-  [batch limit {:keys [now] ::keys [deadline] :as opts}]
-  (let [in-time?  #(or (nil? deadline) (< (inst-ms (now)) deadline))
+  [batch limit {:keys [now-fn] ::keys [deadline] :as opts}]
+  (let [in-time?  #(or (nil? deadline) (< (inst-ms (now-fn)) deadline))
         following (fn [exchange] (when (in-time?) (next-page exchange)))
         pages!    (fn [request]
                     (async/iteration #(exchange! % opts)
@@ -628,9 +629,9 @@
   - :max-pages, the most pages of a collection in a round
   - :timeout-seconds, for each request
   - :max-bytes, of each answer
-  - :allow?, which URLs a request can go to
+  - :allow-pred, which URLs a request can go to
   - :send, in place of http/send! and nostr/send!
-  - :now, a function that gives the time, the clock by default
+  - :now-fn, a function that gives the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
   nearest to it, then the authors. The pages of a collection come one
@@ -643,11 +644,11 @@
   comments in all. The report counts the replies that such a limit cut.
 
   The servers of a thread choose the URLs that this fetches. So each
-  request carries a guard as its :allow?, which is url/public? for a
+  request carries a guard as its :allow-pred, which is url/public? for a
   server and nostr/public? for a relay. With these guards, http/send! and
   nostr/send! send nothing to a private network. To reach your own
-  network, give (constantly true) as :allow?. A :send keeps to the
-  :timeout-seconds and the :allow? of each request. A :send that signs
+  network, give (constantly true) as :allow-pred. A :send keeps to the
+  :timeout-seconds and the :allow-pred of each request. A :send that signs
   its requests can also read the servers that answer only signed
   requests.
 
@@ -657,19 +658,20 @@
   ([thread]
    (fetch! thread {}))
   ([thread opts]
-   (let [{:keys [concurrency max-requests max-pages max-seconds now] :as opts}
+   (let [{:keys [concurrency max-requests max-pages max-seconds now-fn]
+          :as   opts}
          (merge default-limits
-                {:send   send!
-                 :allow? public?
-                 :now    time/now}
+                {:send       send!
+                 :allow-pred public?
+                 :now-fn     time/now}
                 opts)
          opts  (cond-> opts
-                 max-seconds (assoc ::deadline (+ (inst-ms (now))
+                 max-seconds (assoc ::deadline (+ (inst-ms (now-fn))
                                                   (* 1000 max-seconds))))
          start (resumed thread)
          batch (fn [thread sent]
                  (when (or (not max-seconds)
-                           (< (inst-ms (now)) (::deadline opts)))
+                           (< (inst-ms (now-fn)) (::deadline opts)))
                    (let [n (min (max 1 concurrency) (- max-requests sent))]
                      (seq (take n (requests thread opts))))))
          limit (fn [b sent]
@@ -681,7 +683,7 @@
                    (async/then (send-round! b (limit b sent) opts)
                                (fn [exchanges]
                                  (let [n (count (apply concat exchanges))]
-                                   [(with-round thread exchanges (now))
+                                   [(with-round thread exchanges (now-fn))
                                     (+ sent n)])))))]
      (async/then (async/iteration round :initk [start 0] :vf first)
                  (fn [threads]

@@ -848,17 +848,17 @@
 
 (defn- emit-compact*
   "The transient vector `acc` of string parts with the one-line
-  serialization of `element` appended, its text appended by `text`, a
+  serialization of `element` appended, its text appended by `text-fn`, a
   function of the vector and a string."
-  [acc element text]
+  [acc element text-fn]
   (let [name (qname (tag element))
         acc  (-> acc (conj! "<") (conj! name) (append-attrs (attrs element)))]
     (if (empty? (children element))
       (conj! acc "/>")
       (-> (reduce (fn [acc child]
                     (if (string? child)
-                      (text acc child)
-                      (emit-compact* acc child text)))
+                      (text-fn acc child)
+                      (emit-compact* acc child text-fn)))
                   (conj! acc ">")
                   (children element))
           (conj! "</") (conj! name) (conj! ">")))))

@@ -96,12 +96,12 @@
              "bye"
              "a pixel"]
             [:p {} "Two"]]
-           (activitypub/hiccup post {:emoji? true
-                                     :link   (fn [{:keys [type id tag]}]
-                                               (case type
-                                                 :mention (str "/profiles/" id)
-                                                 :hashtag (str "/tags/" tag)))})))
-    (is (= (activitypub/hiccup post) (activitypub/hiccup post {:link (constantly nil)}))
+           (activitypub/hiccup post {:emoji?  true
+                                     :link-fn (fn [{:keys [type id tag]}]
+                                                (case type
+                                                  :mention (str "/profiles/" id)
+                                                  :hashtag (str "/tags/" tag)))})))
+    (is (= (activitypub/hiccup post) (activitypub/hiccup post {:link-fn (constantly nil)}))
         "a part without a link of the app keeps the link of the post"))
   (testing "what tells a mention and a hashtag"
     (let [parts-of (fn [markup tags] (remove #(= :text (:type %)) (activitypub/parts {:html markup :base "https://a.example/1" :tags tags})))
@@ -166,10 +166,10 @@
     (is (= [[:p {} "😎 /cc " [:a {:href "https://bsky.app/profile/did:plc:u5zp7npt5kpueado77kuihyz"} "@npmx.dev"] ", see "
              [:a {:href "https://atproto.com/blog" :rel "nofollow ugc"} "atproto.com/blog"]
              [:br {}] [:br {}] [:a {:href "https://bsky.app/hashtag/Podcast"} "#Podcast"] " #other"]]
-           (atproto/hiccup record {:link (fn [{:keys [type id tag]}]
-                                           (case type
-                                             :mention (str "https://bsky.app/profile/" id)
-                                             :hashtag (str "https://bsky.app/hashtag/" tag)))})))
+           (atproto/hiccup record {:link-fn (fn [{:keys [type id tag]}]
+                                              (case type
+                                                :mention (str "https://bsky.app/profile/" id)
+                                                :hashtag (str "https://bsky.app/hashtag/" tag)))})))
     (is (= (str "<p>😎 /cc @npmx.dev, see <a href=\"https://atproto.com/blog\" rel=\"nofollow ugc\">atproto.com/blog</a>"
                 "<br><br>#Podcast #other</p>")
            (atproto/post-html record))
@@ -202,12 +202,13 @@
                  {:url url :complete? true :events (filterv (fn [e] (some #(nostr/matches? % e) filters)) [note named])})
         linked (fn [thread]
                  (for [c (sort-by :id (filter :content (vals (:comments thread))))
-                       :let [hiccup (comments/hiccup thread c {:link app-link})]
+                       :let [hiccup (comments/hiccup thread c
+                                                     {:link-fn app-link})]
                        node (tree-seq sequential? seq hiccup)
                        :when (and (vector? node) (= :a (first node)) (str/starts-with? (str (:href (second node))) "/"))]
                    (:href (second node))))]
     (run (fn []
-           (async/then (comments/fetch! {:protocol "activitypub" :uri root} {:send send :allow? any?})
+           (async/then (comments/fetch! {:protocol "activitypub" :uri root} {:send send :allow-pred any?})
                        (fn [thread]
                          (let [with-mention (filter #(some (comp #{:mention} :type) (comments/parts thread %)) (vals (:comments thread)))]
                            (is (seq with-mention) "the recorded thread has mentions")
@@ -226,7 +227,7 @@
                                           (mapcat #(comments/parts thread %) (vals (:comments thread)))))
                                "a mention that the post names in no tag has the page of the link, and no id")))))
          (fn []
-           (async/then (comments/fetch! {:protocol "atproto" :uri skies} {:send skies! :allow? any? :appview "https://appview.example"})
+           (async/then (comments/fetch! {:protocol "atproto" :uri skies} {:send skies! :allow-pred any? :appview "https://appview.example"})
                        (fn [thread]
                          (is (seq (:comments thread)))
                          (doseq [c (vals (:comments thread))
@@ -248,7 +249,8 @@
                                     [:a {:href (str "/nostr/profiles/" (secp256k1/public-key bob))} "@Bob"]
                                     " "
                                     [:a {:href "/nostr/tags/podcast"} "#podcast"]]]
-                                  (comments/hiccup thread c {:link app-link})))
+                                  (comments/hiccup thread c
+                                                   {:link-fn app-link})))
                            (is (= [[:p {} "Thanks " "@Robert" " " "#podcast"]]
                                   (comments/hiccup thread c {:names {(secp256k1/public-key bob) "Robert"}}))
                                "the names of the app")
@@ -291,7 +293,7 @@
           "each link with its URL"))
     (testing "the link function of an app does not count"
       (is (= "Is this @PODCONF approved? 🤣 #40HPW"
-             (comments/text nostr {::nostr-comments/event note} {:link (constantly "https://example.org/") :links? true}))))
+             (comments/text nostr {::nostr-comments/event note} {:link-fn (constantly "https://example.org/") :links? true}))))
     (testing "a comment of an older reading, and a comment without a content"
       (is (= "Hello there\nyou"
              (comments/text {:protocol "atproto"} {:content "<p>Hello <a href=\"https://example.org/\">there</a><br>you</p>"})))
@@ -317,7 +319,7 @@
     (let [thread  {:protocol protocol}
           comment {:id "1" :content "<p>Hello <a href=\"https://example.org/\" rel=\"nofollow ugc\">there</a><br>you</p>"}]
       (is (= [[:p {} "Hello " [:a {:href "https://example.org/" :rel "nofollow ugc"} "there"] [:br {}] "you"]]
-             (comments/hiccup thread comment {:link app-link}))
+             (comments/hiccup thread comment {:link-fn app-link}))
           protocol)
       (is (= [{:type :text :text "Hello there\nyou"}] (comments/parts thread comment)) protocol)
       (is (= [] (comments/hiccup thread {:id "2" :deleted? true})) protocol)

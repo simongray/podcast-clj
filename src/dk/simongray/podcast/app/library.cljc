@@ -29,22 +29,22 @@
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of http/send!
-       :allow?         url/public?    ; which URLs a request may go to
+       :allow-pred     url/public?    ; which URLs a request may go to
        :credentials-of f              ; credentials of a private feed by URL
        :index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
        :search?        true           ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
        :concurrency    8              ; how many feeds are fetched at once
-       :keep           app.feeds/slim ; what to keep of a feed, all by default
-       :now            f              ; the clock, util.time/now by default
+       :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
+       :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
   Each function also takes the same keys as options, for one call.
   A config with functions doesn't print as EDN, so save! leaves it out,
   and restore! keeps the config of the library that it's given.
 
-  With :keep app.feeds/slim, a library holds a fraction of each feed,
+  With :keep-fn app.feeds/slim, a library holds a fraction of each feed,
   which is enough to sync and refresh. The functions that show the feeds,
   such as episodes, show, episode and search, then lack the titles and the
   rest, so it's for a device that never shows them, such as a server.
@@ -92,9 +92,9 @@
 
 (defn ^:no-doc time-of
   "The instant of a call to `library` with `opts`: their :at, or else the
-  time of the clock, the :now of the options or of the config."
+  time of the clock, the :now-fn of the options or of the config."
   [library opts]
-  (or (:at opts) ((:now (options library opts) time/now))))
+  (or (:at opts) ((:now-fn (options library opts) time/now))))
 
 (defn make
   "A library for the device `device`, made with the `opts` below.
@@ -202,12 +202,12 @@
       (:index library) (update :index feed.search/without-feed feed-guid))))
 
 (defn- kept
-  "The `library` with the feed `feed-guid` cut down to what `keep` gives of it,
-  once nothing else needs the whole feed."
-  [library feed-guid keep]
+  "The `library` with the feed `feed-guid` cut down to what `keep-fn` gives
+  of it, once nothing else needs the whole feed."
+  [library feed-guid keep-fn]
   (cond-> library
-    (and keep (get-in library [:feeds feed-guid :feed]))
-    (update-in [:feeds feed-guid :feed] keep)))
+    (and keep-fn (get-in library [:feeds feed-guid :feed]))
+    (update-in [:feeds feed-guid :feed] keep-fn)))
 
 (defn- fetch-result
   "The result of a fetch that the `x` given to subscribe stands for. It's
@@ -254,7 +254,7 @@
   ([library url fetched opts]
    {:pre [(map? opts)]}
    (let [at        (time-of library opts)
-         settings  (dissoc opts :at :now)
+         settings  (dissoc opts :at :now-fn)
          result    (some-> fetched fetch-result)
          feed      (when result
                      (feed-of url result "subscribe to"))
@@ -264,7 +264,7 @@
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
                         (reindexed feed-guid)
-                        (kept feed-guid (:keep (:config library))))]
+                        (kept feed-guid (:keep-fn (:config library))))]
      (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -319,7 +319,7 @@
                  {:feed-url url} at)
          (cond-> new? (update :feeds feeds/add url result at cadence))
          (reindexed feed-guid)
-         (cond-> new? (kept feed-guid (:keep (:config library))))))))
+         (cond-> new? (kept feed-guid (:keep-fn (:config library))))))))
 
 (defn remove-episode
   "The `library` without the remote item `id`, with the :at of `opts`. The
@@ -402,7 +402,7 @@
     (podcast/fetch-list! url
                          (cond-> (select-keys opts [:send :timeout-seconds
                                                     :max-bytes :user-agent
-                                                    :allow?])
+                                                    :allow-pred])
                            etag          (assoc :etag etag)
                            last-modified (assoc :last-modified last-modified)
                            credentials   (assoc :credentials credentials)))))
@@ -461,13 +461,13 @@
 
 (defn- first-fetched
   "The step `acc` of applied with the feed of the new subscription
-  `feed-guid`, fetched at `at` and cut down by `keep`, under the guid that
+  `feed-guid`, fetched at `at` and cut down by `keep-fn`, under the guid that
   the feed declares.
 
   The subscription moves to that guid, as profile/rekey moves it, and gets
   the title of the feed when it has none. A feed that would take another
   subscription over is left out with a report, and fetched next time."
-  [acc feed-guid at keep]
+  [acc feed-guid at keep-fn]
   (let [library  (:library acc)
         sub      (get (profile/subscriptions (:profile library)) feed-guid)
         entry    (get-in library [:feeds feed-guid])
@@ -485,12 +485,12 @@
           (cond-> (not (:title sub))
             (update-in [:library :profile] profile/relocate declared details))
           (update :library reindexed declared)
-          (update :library kept declared keep)
+          (update :library kept declared keep-fn)
           (assoc-in [:guids feed-guid] declared)))))
 
 (defn- applied
   "The `library` with the `result` of app.feeds/refresh! applied to the
-  profile at `at`, and the fresh feeds cut down by `keep`, as a map of
+  profile at `at`, and the fresh feeds cut down by `keep-fn`, as a map of
   the :library, what was :added and :moved, and the :report of the feeds
   that would take another subscription over.
 
@@ -498,14 +498,14 @@
   episodes aren't new ones, and neither are those of a feed of remote
   items. A feed that's still not fetched is left out, and fetched next
   time."
-  [library {:keys [feeds changed moved] :as result} at keep]
+  [library {:keys [feeds changed moved] :as result} at keep-fn]
   (let [before   (:feeds library)
         library  (assoc library :feeds (into {} (filter (comp :feed val))
                                              feeds))
         noted    (fn [acc feed-guid]
                    (-> acc
                        (update :library reindexed feed-guid)
-                       (update :library kept feed-guid keep)))
+                       (update :library kept feed-guid keep-fn)))
         fresh    (fn [acc feed-guid]
                    (let [{:keys [feed url]} (get feeds feed-guid)
                          old-feed (get-in before [feed-guid :feed])
@@ -523,7 +523,7 @@
                              (update :added into added)))
 
                        :else
-                       (first-fetched acc feed-guid at keep))))
+                       (first-fetched acc feed-guid at keep-fn))))
         relocate (fn [acc [feed-guid new-url]]
                    (let [now-guid (get-in acc [:guids feed-guid] feed-guid)
                          parsed   (get-in feeds [feed-guid :feed])
@@ -569,7 +569,7 @@
                         (select-keys [:feed-guids :fetch :credentials-of
                                       :concurrency :cadence :send
                                       :timeout-seconds :max-bytes
-                                      :user-agent :allow?])
+                                      :user-agent :allow-pred])
                         (assoc :at at))]
      (async/then
       (refresh-lists! library at opts)
@@ -584,7 +584,7 @@
                            feeds-opts)
            (fn [step]
              (let [{:keys [library added moved] :as done}
-                   (applied library step at (:keep opts))
+                   (applied library step at (:keep-fn opts))
 
                    reports (-> []
                                (into report)

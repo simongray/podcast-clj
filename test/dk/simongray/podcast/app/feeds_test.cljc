@@ -63,8 +63,8 @@
          (every? (fn [item]
                    (let [id    (feed.guid/episode-id feed url item)
                          media (:url (resolve/enclosure item))]
-                     (and (= ((:episode-url whole-names) id) ((:episode-url thin-names) id))
-                          (= ((:episode-id whole-names) url media nil) ((:episode-id thin-names) url media nil)))))
+                     (and (= ((:episode-url-fn whole-names) id) ((:episode-url-fn thin-names) id))
+                          (= ((:episode-id-fn whole-names) url media nil) ((:episode-id-fn thin-names) url media nil)))))
                  (:rss/items feed)))))
 
 (deftest what-slim-keeps
@@ -146,19 +146,19 @@
         later  (at 86400)
         asked  (atom [])
         fetch  (fn [url opts]
-                 (swap! asked conj [url (select-keys opts [:etag :last-modified :credentials :allow?])])
+                 (swap! asked conj [url (select-keys opts [:etag :last-modified :credentials :allow-pred])])
                  (case url
                    "https://example.com/feed.xml" {:status 304 :url url}
                    "https://example.org/b.xml"    (assoc fresh :url url :feed (assoc show :podcast/guid "b1" :rss/title "B2"))
                    (throw (ex-info "refused" {:url url}))))]
     (run
      (fn []
-       (async/then (feeds/refresh! three {:at later :fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow? :any})
+       (async/then (feeds/refresh! three {:at later :fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow-pred :any})
                    (fn [{:keys [feeds changed moved report]}]
                      (testing "each due feed fetched with its validators, and the options of every fetch"
                        (is (= 3 (count @asked)))
-                       (is (= #{[url {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :allow? :any}]
-                                ["https://example.org/c.xml" {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :credentials {:username "ann"} :allow? :any}]}
+                       (is (= #{[url {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :allow-pred :any}]
+                                ["https://example.org/c.xml" {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :credentials {:username "ann"} :allow-pred :any}]}
                               (set (remove #(str/includes? (first %) "/b.xml") @asked)))))
                      (testing "the changes of all the fetches"
                        (is (= ["b1"] changed))

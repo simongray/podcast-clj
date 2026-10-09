@@ -163,10 +163,10 @@
         arrived #(second (get-in book [:index [:episodes %]] [0 0]))
         urls-of (fn [[g _ :as id]]
                   (let [[p m] (get-in book [:urls id])]
-                    [(or p (some-> ((:feed-url names) g)
+                    [(or p (some-> ((:feed-url-fn names) g)
                                    url/split-credentials
                                    first))
-                     (or m ((:episode-url names) id))]))
+                     (or m ((:episode-url-fn names) id))]))
         actions (for [[id e] (profile/episode-entries state)
                       :let  [by (gpodder/device-of (:device e))]
                       :when (and (>= (arrived id) (or since-ms 0))
@@ -208,8 +208,8 @@
                        (map #(update % :timestamp arrived))
                        (sort-by (comp inst-ms :timestamp)))
           id-of   (fn [{:keys [podcast episode guid]}]
-                    (or ((:episode-id names) podcast episode guid)
-                        [((:feed-guid names) podcast) (or guid episode)]))
+                    (or ((:episode-id-fn names) podcast episode guid)
+                        [((:feed-guid-fn names) podcast) (or guid episode)]))
           step    #(gpodder/apply-action %1 (id-of %2) %2 "app")
           urls    (juxt id-of (juxt :podcast :episode))]
       {:status 200
@@ -269,7 +269,7 @@
 
   The user is that of the session that its cookie names, or else that of
   its Basic credentials, when the server lets them in."
-  [{:keys [book authorized?] :as env} headers at]
+  [{:keys [book authorized-pred] :as env} headers at]
   (let [session (some->> (get headers "cookie")
                          (re-find #"(?:^|;)\s*sessionid=([^;\s]+)")
                          second)
@@ -277,7 +277,8 @@
                   (when-let [{:keys [username password]}
                              (http/credentials (get headers "authorization"))]
                     (when (and username
-                               (authorized? username (secret/reveal password)))
+                               (authorized-pred username
+                                                (secret/reveal password)))
                       username)))]
     {:session session
      :who     (or (:user (get (live (:sessions @book) at) session))
@@ -321,12 +322,12 @@
 (defn- respond
   "The Ring response of the server `env` to `request`: the call that its
   path and method name, answered for the user who logged in."
-  [{:keys [now] :as env} request]
+  [{:keys [now-fn] :as env} request]
   (let [lower                   (comp str/lower-case name)
         headers                 (update-keys (:headers request) lower)
         {:keys [parts methods]} (route (or (:path-info request) (:uri request)))
         answer                  (get methods (:request-method request))
-        at                      (now)
+        at                      (now-fn)
         {:keys [who] :as from}  (asker env headers at)]
     (cond
       (nil? methods)
@@ -370,14 +371,14 @@
   atom :state of `opts`, for one listener:
 
   - :state, the atom, e.g. (atom (profile/make \"gpodder-server\"))
-  - :authorized?, a function of a user and a password that says whether
-    to let them in, and everyone it lets in shares the one state
+  - :authorized-pred, a function of a user and a password that says
+    whether to let them in, and everyone it lets in shares the one state
   - :sync, a function of the state that brings it in step with the
     listener's devices, before and after each call
-  - :identities, as for gpodder/backend
-  - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
-    own, in place of :identities
-  - :now, a function of no arguments that gives the time, the clock by
+  - :identities-fn, as for gpodder/backend
+  - :feed-guid-fn, :feed-url-fn, :episode-id-fn and :episode-url-fn, each
+    way on its own, in place of :identities-fn
+  - :now-fn, a function of no arguments that gives the time, the clock by
     default
   - :max-bytes, the most that a request can send, 10 MB by default
 
@@ -397,12 +398,13 @@
   in between.
 
   For a site with many listeners, make a handler for each, with a state,
-  an :authorized? and a :sync of its own, and pass each request to the
+  an :authorized-pred and a :sync of its own, and pass each request to the
   handler of the user in its path. Keep each handler while the site runs,
   since it holds the sessions and the times that the changes arrived."
-  [{:keys [state authorized?] sync! :sync :as opts}]
-  (when-not (and (some? state) (fn? authorized?))
-    (throw (ex-info "A handler needs the :state and the function :authorized?"
+  [{:keys [state authorized-pred] sync! :sync :as opts}]
+  (when-not (and (some? state) (fn? authorized-pred))
+    (throw (ex-info (str "A handler needs the :state and the function "
+                         ":authorized-pred")
                     {})))
   ;; TODO: keep the arrival times, the sessions and the devices in the store,
   ;; so that they outlive a restart
@@ -414,7 +416,7 @@
                   (let [settled @state]
                     (swap! book update :index arrived settled (inst-ms at))
                     settled))
-        env     (merge {:now       time/now
+        env     (merge {:now-fn    time/now
                         :max-bytes (* 10 1024 1024)}
                        opts
                        {:book book :settle! settle!})
@@ -437,14 +439,14 @@
 
   ;; a server over a state with one subscription, and a request of an app
   (def serve
-    (handler {:state       (atom (profile/subscribe
-                                  (profile/make "gpodder-server")
-                                  "feed-a"
-                                  {:url   "https://example.org/feed.xml"
-                                   :title "A show"}
-                                  #inst "2026-09-29T12:00:00Z"))
-              :authorized? (fn [user password]
-                             (= ["ann" "secret"] [user password]))}))
+    (handler {:state           (atom (profile/subscribe
+                                      (profile/make "gpodder-server")
+                                      "feed-a"
+                                      {:url   "https://example.org/feed.xml"
+                                       :title "A show"}
+                                      #inst "2026-09-29T12:00:00Z"))
+              :authorized-pred (fn [user password]
+                                 (= ["ann" "secret"] [user password]))}))
 
   (serve {:request-method :get
           :uri            "/api/2/subscriptions/ann/phone.json"

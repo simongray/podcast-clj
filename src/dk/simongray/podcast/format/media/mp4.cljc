@@ -102,13 +102,13 @@
 
 (defn- entries
   "The rows of the table `skip` bytes after the version and flags of the
-  full box `b` in `view`, each `width` bytes long and read by `row` from
-  its offset. No more rows are read than the box holds."
-  [view {:keys [content end] :as b} skip width row]
+  full box `b` in `view`, each `width` bytes long and read by `row-fn`
+  from its offset. No more rows are read than the box holds."
+  [view {:keys [content end] :as b} skip width row-fn]
   (let [listed (view/u32 view (+ content 4 skip))
         held   (quot (- end content 8 skip) width)
         n      (min listed held)]
-    (mapv #(row (+ content 8 skip (* % width))) (range n))))
+    (mapv #(row-fn (+ content 8 skip (* % width))) (range n))))
 
 (defn- track
   "What the reading needs of the trak box `t` in `view`: its id, timescale

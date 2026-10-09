@@ -80,9 +80,9 @@
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
   and give the item with it, in a future or a promise. Without an answer,
   it's the item as it is."
-  [item {:keys [index send now] :as opts}]
+  [item {:keys [index send now-fn] :as opts}]
   (let [requests (podcastindex/remote-item-requests
-                  index item {:auth-date (quot (inst-ms (now)) 1000)})
+                  index item {:auth-date (quot (inst-ms (now-fn)) 1000)})
         show     (fn [{:keys [value]}]
                    (when (string? (:body value))
                      (:feed (try
@@ -99,7 +99,7 @@
   does, and give a map of the :feed, or of an :error when it couldn't, in
   a future or a promise."
   [url opts]
-  (let [fetch-opts (select-keys opts [:send :allow? :timeout-seconds
+  (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
                                       :max-bytes :user-agent])]
     (async/then (podcast/fetch! url fetch-opts)
                 (fn [{:keys [feed error status]}]
@@ -219,9 +219,9 @@
   Nothing is thrown for what the network or a server does, and a part
   that failed has an :error. The `opts` are:
 
-  - :send and :allow?, as for any request
+  - :send and :allow-pred, as for any request
   - :timeout-seconds and :max-bytes, over default-limits
-  - :index, the credentials of the Podcast Index, and :now, a function of
+  - :index, the credentials of the Podcast Index, and :now-fn, a function of
     the current time to sign the requests with
   - :except, a set of the parts to leave out"
   ([view]
@@ -229,8 +229,8 @@
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [opts           (merge default-limits
-                               {:send http/send!
-                                :now  time/now}
+                               {:send   http/send!
+                                :now-fn time/now}
                                opts)
          wanted?        (complement except)
          podroll-shows  (delay

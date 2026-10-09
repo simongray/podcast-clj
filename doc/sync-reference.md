@@ -285,8 +285,8 @@ platforms, and takes these options:
 | `:api` | `:gpodder` for the paths of gpodder.net under `/api/2`, `:nextcloud` for those of the GPodder Sync app, or a map of the paths of another server. [Services and their defaults](services.md#the-gpodder-api) has the paths. | `:gpodder` |
 | `:device` | The id of the device on the server | the device of the state |
 | `:caption`, `:type` | What the server shows for the device. The type is desktop, laptop, mobile, server, tablet or other. | `"podcast-clj"`, `"other"` |
-| `:identities` | A function of no arguments that returns the lookups that `identities` makes from the app's feeds | none |
-| `:feed-guid`, `:feed-url`, `:episode-id`, `:episode-url` | Each of those lookups on its own | none |
+| `:identities-fn` | A function of no arguments that returns the lookups that `identities` makes from the app's feeds | none |
+| `:feed-guid-fn`, `:feed-url-fn`, `:episode-id-fn`, `:episode-url-fn` | Each of those lookups on its own | none |
 | `:name` | The name of the backend | the domain of the server |
 | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |
 | `:timeout-seconds` | How long each request can take | 30 |
@@ -324,7 +324,7 @@ sends both.
 On both platforms, `sync.gpodder.server/handler` serves the API as a
 Ring handler under `/api/2`: the login, the devices, the subscription
 changes and the episode actions. It takes the atom of the server's state,
-`:authorized?`, a `:sync` function that syncs the state, and the same
+`:authorized-pred`, a `:sync` function that syncs the state, and the same
 lookups as the backend. The `:sync` function returns a state, not a
 promise, so in ClojureScript, where `sync!` returns a promise, sync
 separately and merge the result into the atom.

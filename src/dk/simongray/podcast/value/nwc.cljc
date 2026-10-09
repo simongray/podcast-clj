@@ -526,10 +526,10 @@
   send function, the guard of the relays, the clock and the random bytes."
   [opts]
   (merge default-limits
-         {:send   nostr/send!
-          :allow? nostr/public?
-          :now    time/now
-          :random bytes/generate!}
+         {:send       nostr/send!
+          :allow-pred nostr/public?
+          :now-fn     time/now
+          :random-fn  bytes/generate!}
          opts))
 
 (defn fetch-info!
@@ -605,16 +605,16 @@
   "Send `command` over `connection` with the prepared `opts`, given the
   `info` that the wallet gave, and give the answer as ask! gives it."
   [{:keys [wallet relays] :as connection} command
-   {:keys [now random timeout-seconds] :as opts} info]
+   {:keys [now-fn random-fn timeout-seconds] :as opts} info]
   (let [info    (when-not (= :value/no-wallet-info (:id (:error info)))
                   info)
-        at      (now)
+        at      (now-fn)
         expires (time/->inst (+ (inst-ms at) (* 1000 timeout-seconds)))
         event   (when-not (:error info)
                   (request-event connection command
                                  {:at         at
-                                  :nonce      (bytes/hex (random 32))
-                                  :aux        (bytes/hex (random 32))
+                                  :nonce      (bytes/hex (random-fn 32))
+                                  :aux        (bytes/hex (random-fn 32))
                                   :expires-at expires}))
         filters [{"kinds"   [(:response kinds)]
                   "authors" [wallet]
@@ -676,11 +676,11 @@
     nostr/send!. Its response has :sent? true when the event of the
     request went out, as the response of nostr/send! has. Without
     :sent?, the next relay gets the event.
-  - :allow?, a predicate of the URL of a relay. It's nostr/public? by
+  - :allow-pred, a predicate of the URL of a relay. It's nostr/public? by
     default, so nothing goes to a private network. For a wallet on your
     own network, give (constantly true).
-  - :now, a function that gives the instant of now, the clock by default
-  - :random, a function that gives a number of random bytes,
+  - :now-fn, a function that gives the instant of now, the clock by default
+  - :random-fn, a function that gives a number of random bytes,
     bytes/generate! by default"
   ([connection command]
    (ask! connection command {}))

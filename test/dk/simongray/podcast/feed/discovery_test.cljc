@@ -42,13 +42,13 @@
   "A sender that answers each URL by `answers`, a map of URL to the part
   of a response that isn't a 200 without headers, or to :late for a server
   that doesn't answer in time. It fails for any other URL, and notes each
-  URL in `log`. It refuses a URL that the :allow? of the request doesn't
+  URL in `log`. It refuses a URL that the :allow-pred of the request doesn't
   take, as http/send! does."
   [answers log]
-  (fn [{:keys [url allow?] :or {allow? (constantly true)}}]
+  (fn [{:keys [url allow-pred] :or {allow-pred (constantly true)}}]
     (swap! log conj url)
     (cond
-      (not (allow? url))          (throw (http/refusal url))
+      (not (allow-pred url))      (throw (http/refusal url))
       (= :late (get answers url)) (throw (ex-info (str "No answer in time from " url) {:type ::http/timeout :url url}))
       (contains? answers url)     (merge {:status 200 :url url :headers {}} (get answers url))
       :else                       (throw (ex-info (str "No route to " url) {:url url})))))
@@ -207,7 +207,7 @@
   (let [log      (atom [])
         opts     (fn [answers & {:as more}]
                    (reset! log [])
-                   (merge {:send (network answers log) :allow? (constantly true)} more))
+                   (merge {:send (network answers log) :allow-pred (constantly true)} more))
         show     (feed-xml "The Show" {:link "https://show.example/" :episode? true})
         blog     (feed-xml "The Blog" {:link "https://show.example/"})
         search   (:url (directory/request :apple :search {:q "The Show" :limit 8}))
@@ -241,7 +241,7 @@
                        (is (= :fetch/unreachable (:id error)))
                        (is (= ["https://show.example/feed.xml"] @log))))))
      (fn []
-       (async/then (discovery/find-feeds! "show.example" (opts {} :allow? #(not= "https://show.example" %)))
+       (async/then (discovery/find-feeds! "show.example" (opts {} :allow-pred #(not= "https://show.example" %)))
                    (fn [{:keys [error]}]
                      (testing "no other address after one that isn't allowed"
                        (is (= :fetch/unreachable (:id error)))
@@ -294,7 +294,7 @@
                       {:status (if (= "https://show.example/" url) 200 404) :url url :headers {} :body (page)})
              ask    (fn [more]
                       (reset! limits {})
-                      (async/then (discovery/find-feeds! "https://show.example/" (merge {:send send :allow? (constantly true)} more))
+                      (async/then (discovery/find-feeds! "https://show.example/" (merge {:send send :allow-pred (constantly true)} more))
                                   (fn [_] (mapv @limits ["https://show.example/" "https://show.example/rss"]))))]
          (async/then (ask {})
                      (fn [default]
@@ -368,7 +368,7 @@
            send   (network {"https://show.example/feed.xml" {:body show}} (atom []))]
        (run (fn []
               (set! (.-DOMParser js/globalThis) js/undefined)
-              (-> (discovery/find-feeds! "https://show.example/feed.xml" {:send send :allow? (constantly true)})
+              (-> (discovery/find-feeds! "https://show.example/feed.xml" {:send send :allow-pred (constantly true)})
                   (.then (fn [_] (is false "a feed read without a parser"))
                          (fn [e] (is (= :dk.simongray.podcast.util.xml/no-parser (:type (ex-data e)))
                                      "it throws, rather than blame the feed")))

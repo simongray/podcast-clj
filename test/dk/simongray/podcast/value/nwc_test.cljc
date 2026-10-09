@@ -273,8 +273,8 @@
 
 (def ask-opts
   "The clock and the random bytes of the tests."
-  {:now    (constantly at)
-   :random (fn [n] (bytes/of (repeat n 7)))})
+  {:now-fn    (constantly at)
+   :random-fn (fn [n] (bytes/of (repeat n 7)))})
 
 (deftest a-command-for-the-wallet
   (let [paid    (fn [{:strs [method]}] {"result_type" method "result" {"preimage" "0123" "fees_paid" 1000}})
@@ -291,21 +291,21 @@
                            (is (= {:method "pay_invoice" :preimage "0123" :fees-msat 1000 :proven? false}
                                   (select-keys read [:method :preimage :fees-msat :proven?])))
                            (is (= [["wss://relay.one" :info] ["wss://relay.one" :event]] (sent)))
-                           (let [{:keys [event filters timeout-seconds allow?]} (last @log)]
+                           (let [{:keys [event filters timeout-seconds allow-pred]} (last @log)]
                              (is (= (get event "id") (:request read)))
                              (is (nostr/verified? event))
                              (is (= [{"kinds" [23195] "authors" [wallet] "#e" [(get event "id")]}] filters))
                              (is (= ["expiration" "1790683260"] (last (get event "tags"))) "the request expires after the time of the limits")
                              (is (= 60 timeout-seconds))
-                             (is (= nostr/public? allow?)))))))
+                             (is (= nostr/public? allow-pred)))))))
          (fn []
-           (async/then (asked {} paid {:info (nwc/info info-event) :timeout-seconds 10 :allow? any?})
+           (async/then (asked {} paid {:info (nwc/info info-event) :timeout-seconds 10 :allow-pred any?})
                        (fn [read]
                          (testing "an app that knows the wallet sends the command only"
                            (is (= "0123" (:preimage read)))
                            (is (= [["wss://relay.one" :event]] (sent)))
                            (is (= 10 (:timeout-seconds (last @log))))
-                           (is (= any? (:allow? (last @log))))))))
+                           (is (= any? (:allow-pred (last @log))))))))
          (fn []
            (async/then (asked {"wss://relay.one" :down} paid {})
                        (fn [read]
@@ -444,7 +444,7 @@
        (with-relay answer log
          (fn [url]
            (let [connection (assoc connection :relays ["ws://127.0.0.1:1" url])
-                 opts       {:allow? (constantly true) :timeout-seconds 5}
+                 opts       {:allow-pred (constantly true) :timeout-seconds 5}
                  balance    (nwc/ask! connection (nwc/get-balance) opts)
                  paid       (nwc/ask! connection (nwc/pay-keysend {:sats 50 :message "Hi"} recipient) opts)]
              (is (= {:method "get_balance" :msat 21000}

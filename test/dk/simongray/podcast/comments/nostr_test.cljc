@@ -411,9 +411,9 @@
                [:a {:href "https://example.org/t/40HPW"} "#40HPW"] " #other"]
               [:p {} "See " [:a {:href (str "https://example.org/" quoted)} (short quoted)] " and "
                [:a {:href "https://fountain.fm/episode/x" :rel "nofollow ugc"} "https://fountain.fm/episode/x"]]]
-             (nostr-comments/hiccup note {:names {ann-key "Ann" bob-key "Bob"}
-                                          :link  (fn [{:keys [uri tag]}]
-                                                   (str "https://example.org/" (if uri (subs uri 6) (str "t/" tag))))}))
+             (nostr-comments/hiccup note {:names   {ann-key "Ann" bob-key "Bob"}
+                                          :link-fn (fn [{:keys [uri tag]}]
+                                                     (str "https://example.org/" (if uri (subs uri 6) (str "t/" tag))))}))
           "the links of the app")
       (is (= (str "<p>Is this @Ann approved, @" (short bob-name) "? #40HPW #other</p>"
                   "<p>See " (short quoted) " and <a href=\"https://fountain.fm/episode/x\" rel=\"nofollow ugc\">"
@@ -513,7 +513,7 @@
                (swap! sent conj request)
                ((relay {relay-a about-episode relay-b [top-note]}) request))]
     (run (fn []
-           (async/then (comments/fetch! thread {:relays [relay-a relay-b "wss://c.relay.example"] :send send :now (constantly at)})
+           (async/then (comments/fetch! thread {:relays [relay-a relay-b "wss://c.relay.example"] :send send :now-fn (constantly at)})
                        (fn [read]
                          (is (= ["" ["A good episode: https://example.org/episode ."
                                      ["A reply" ["A reply to the reply"]]]
@@ -523,7 +523,7 @@
                                  {:id :comments/incomplete}]
                                 (map #(select-keys % [:id :url :retry?]) (:report read))))
                          (is (= #{relay-a relay-b "wss://c.relay.example"} (set (map :url @sent))))
-                         (is (every? #(and (:allow? %) (:timeout-seconds %) (:max-bytes %)) @sent)
+                         (is (every? #(and (:allow-pred %) (:timeout-seconds %) (:max-bytes %)) @sent)
                              "each request has the limits and the guard")
-                         (is (not ((:allow? (first @sent)) "wss://127.0.0.1")))
-                         (is (not ((:allow? (first @sent)) "http://localhost/")))))))))
+                         (is (not ((:allow-pred (first @sent)) "wss://127.0.0.1")))
+                         (is (not ((:allow-pred (first @sent)) "http://localhost/")))))))))

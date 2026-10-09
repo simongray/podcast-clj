@@ -403,17 +403,17 @@
   The other `opts` are these:
 
   - the limits of default-limits
-  - :allow?, which URLs a request can go to
+  - :allow-pred, which URLs a request can go to
   - :send, a function that sends a request map in place of http/send!
 
   The domain of an address in a feed chooses the URLs that this fetches.
-  So each request carries url/public? as its :allow?, and http/send!
+  So each request carries url/public? as its :allow-pred, and http/send!
   then sends nothing to a private network. To reach your own network,
-  give (constantly true) as :allow?."
+  give (constantly true) as :allow-pred."
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
-   (let [defaults {:send http/send! :allow? url/public?}
+   (let [defaults {:send http/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
@@ -441,7 +441,7 @@
   ([address]
    (fetch-node! address {}))
   ([address opts]
-   (let [defaults {:send http/send! :allow? url/public?}
+   (let [defaults {:send http/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
      (ask! (keysend-request address) address node opts))))
 

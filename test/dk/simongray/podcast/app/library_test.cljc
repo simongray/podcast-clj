@@ -50,7 +50,7 @@
   (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z")))
 
 (def library
-  (-> (library/make "phone" {:name "Phone" :config {:languages ["es"] :now (constantly now)}})
+  (-> (library/make "phone" {:name "Phone" :config {:languages ["es"] :now-fn (constantly now)}})
       (library/subscribe url fresh {:auto-queue? true})))
 
 (def picks
@@ -61,7 +61,7 @@
 
 (deftest a-slim-library
   (let [make    (fn [config]
-                  (-> (library/make "phone" {:name "Phone" :config (assoc config :now (constantly now))})
+                  (-> (library/make "phone" {:name "Phone" :config (assoc config :now-fn (constantly now))})
                       (library/follow-list "https://example.org/picks.opml" picks {:title "Picks"})
                       (library/subscribe url fresh {:auto-queue? true})))
         fetch   (fn [u _]
@@ -71,10 +71,10 @@
         send    (fn [_] {:status 304 :headers {} :body ""})
         entries (fn [lib] (update-vals (:feeds lib) #(dissoc % :feed)))
         both    (fn [libs opts] (async/all #(library/refresh! % opts) libs))]
-    (is (= (feeds/slim show) (get-in (make {:keep feeds/slim}) [:feeds guid :feed])) "a subscription keeps the slim feed")
+    (is (= (feeds/slim show) (get-in (make {:keep-fn feeds/slim}) [:feeds guid :feed])) "a subscription keeps the slim feed")
     (run
      (fn []
-       (async/then (both [(make {}) (make {:keep feeds/slim})] {:at (at 86400) :fetch fetch :send send})
+       (async/then (both [(make {}) (make {:keep-fn feeds/slim})] {:at (at 86400) :fetch fetch :send send})
                    (fn [[full thin]]
                      (is (= [[guid "new"]] (:added (:refresh thin))) "the new episode, found from the slim feed")
                      (is (= (:refresh full) (:refresh thin)))
@@ -101,7 +101,7 @@
 (deftest the-clock
   (let [id      [guid "https://example.com/ep0003"]
         clock   #(:clock (:profile %))
-        clocked (assoc-in library [:config :now] #(at 60))]
+        clocked (assoc-in library [:config :now-fn] #(at 60))]
     (testing "each change is stamped with the time of the clock in the config"
       (is (= (at 60) (clock (library/unsubscribe clocked guid))))
       (is (= (at 60) (clock (library/update-profile clocked profile/enqueue [guid "new"]))))
@@ -112,7 +112,7 @@
       (is (= (at 120) (clock (library/unsubscribe clocked guid {:at (at 120)}))))
       (is (= (library/step clocked [:play id]) (library/step clocked [:play id] {:at (at 60)}))))
     (testing "and without a clock in the config, that of the platform"
-      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :config dissoc :now) guid)))))
+      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :config dissoc :now-fn) guid)))))
       (is (= "tablet" (:device (library/make "tablet")))))
     (run
      (fn []
@@ -476,7 +476,7 @@
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
         backend   (sync/backend (store/memory documents) {:app "test"})
-        laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
+        laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
                       (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
      (fn []
@@ -495,7 +495,7 @@
 
 (deftest a-show-left-on-another-device
   (let [backend (sync/backend (store/memory (atom {})) {:app "test"})
-        laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
+        laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
         phone   (library/unsubscribe library guid {:at (at 10)})]
     (run #(async/then (library/sync! phone [backend] {:at (at 20)})
@@ -510,7 +510,7 @@
 (deftest merging-what-a-fetch-gave
   (let [id      [guid "https://example.com/ep0003"]
         fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})
-        indexed (-> (library/make "phone" {:config {:search? true :now (constantly now)}})
+        indexed (-> (library/make "phone" {:config {:search? true :now-fn (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
         backend (sync/backend (store/memory (atom {})) {:app "test"})]
     (run
@@ -547,7 +547,7 @@
 
 (deftest a-library-read-back-without-its-config
   (let [saved (dissoc library :config)
-        lib   (assoc saved :config {:now (constantly now)})]
+        lib   (assoc saved :config {:now-fn (constantly now)})]
     (is (= saved (-> (edn/read-string (pr-str saved))
                      (update :index search/restore)))
         "EDN without the clock of the config, with its index restored")
@@ -566,7 +566,7 @@
                                 (if @fail?
                                   (throw (ex-info "The disk said no" {}))
                                   (delete name)))))
-        made        #(library/make "phone" {:config {:now (constantly now)}})
+        made        #(library/make "phone" {:config {:now-fn (constantly now)}})
         ids         #(mapv :id (library/search % "future"))
         breaking    (fn [docs]
                       (into {} (for [[k v] docs]

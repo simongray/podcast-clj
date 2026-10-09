@@ -215,13 +215,13 @@ Lightning address, and anyone who pays a Lightning address names the URL of
 its metadata. A request to such a URL can make an app on a server reach its
 own network, with its routers, internal services and cloud metadata.
 
-Each function that sends requests takes an `:allow?` predicate and puts it
+Each function that sends requests takes an `:allow-pred` and puts it
 on every request map, so `http/send!` and an app's own `:send` can both
 check it. The functions that fetch untrusted URLs default to `url/public?`,
 which refuses loopback, private and other special addresses. The functions
 that fetch a feed or the files it links to have no guard by default,
 because the app chose the feed. A server that fetches feeds for other people gives them
-`{:allow? url/public?}`.
+`{:allow-pred url/public?}`.
 
 On the JVM, `public?` resolves the name and checks every address, and
 `http/send!` checks each redirect too. It follows redirects itself, because
@@ -293,7 +293,7 @@ what stops them.
 | A Lightning address service | Give an invoice for a higher amount | `lnaddress/invoice` checks the amount. |
 | A Lightning address service | Give an invoice for other terms than it served | Nothing. LUD-06 has the wallet check the description hash, but the service writes both, so the check would stop no one, and some services hash other terms than they serve. |
 | Anyone on the network path | Change an invoice or a node | An answer over plain http is an error. |
-| Whoever writes a connection URI | Name a relay on the app's network | `:allow?` is `nostr/public?`. |
+| Whoever writes a connection URI | Name a relay on the app's network | `:allow-pred` is `nostr/public?`. |
 | A wallet | Claim it paid without paying | For an invoice, `ask!` checks the preimage against the payment hash, and the answer has `:proven?`. Keysend has no such proof. |
 | Whoever reads the app's logs | Find the secret of a connection | podcast-clj puts it in no event, diagnostic or exception, and a printed connection shows `#<secret>`. Keeping the URI safe in storage is up to the app. |
 | Whoever times the app | Learn bits of the secret key from many signatures | Little, since `sign`, `public-key` and `shared-x` aren't constant-time. Every command uses them, so don't poll the wallet, e.g. for its balance. |
@@ -377,7 +377,7 @@ The content of a comment is sanitised HTML whose links carry
 `rel="nofollow ugc"`. Images are replaced by their alt text, since an image
 that loads tells its server who reads the thread. `comments/parts` gives
 the content as text, links, mentions and hashtags in one shape for all three
-protocols, and the app gives one `:link` function that says where a mention
+protocols, and the app gives one `:link-fn` that says where a mention
 or a hashtag leads. So one renderer works for all three.
 
 Each protocol has its own idea of who speaks for a post:
@@ -456,7 +456,7 @@ calendar day in UTC, as OP3 counts it, and `:rolling` or `:extending` gives
 the 24 hours from a listener's first or last request instead. Lists of
 bots, data centres and VPNs change often, so podcast-clj keeps no copy:
 `user-agents` reads the list of the OPAWG, and the host passes the rest as
-`:exclude?`.
+`:exclude-pred`.
 
 OP3 is a free service that counts downloads through a URL prefix.
 `op3/prefix` writes the prefix, and the client reads the downloads of OP3

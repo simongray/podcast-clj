@@ -272,13 +272,13 @@
 
 (defn identities
   "The ways to name the shows and episodes of the `feeds`, as backend takes
-  them under :identities. The feeds are maps of the :url and the parsed
+  them under :identities-fn. The feeds are maps of the :url and the parsed
   :feed, e.g. the entries of app.feeds, and the ways are these:
 
-      {:feed-guid   (fn [url])                         ; the guid of the feed
-       :feed-url    (fn [feed-guid])                   ; the URL of the feed
-       :episode-id  (fn [podcast-url media-url guid])  ; the episode id
-       :episode-url (fn [[feed-guid item-guid]])}      ; the URL of its media
+      {:feed-guid-fn   (fn [url])                        ; the guid of the feed
+       :feed-url-fn    (fn [feed-guid])                  ; the URL of the feed
+       :episode-id-fn  (fn [podcast-url media-url guid]) ; the episode id
+       :episode-url-fn (fn [[feed-guid item-guid]])}     ; the URL of its media
 
   Each function gives nil for a feed that isn't in `feeds`. An episode is
   found by its guid, since some servers keep the guid, or else by the URL
@@ -295,59 +295,59 @@
         by-guid (into {} (map (juxt :guid identity)) known)
         at-url  #(by-url (guid/normal-url %))
         index   #(some-> % :index deref)]
-    {:feed-guid   #(:guid (at-url %))
-     :feed-url    #(:url (by-guid %))
-     :episode-id  (fn [podcast media guid]
-                    (when-let [{g :guid :as found} (at-url podcast)]
-                      (let [{:keys [items by-media]} (index found)]
-                        [g (or (when (contains? items guid) guid)
-                               (by-media (guid/normal-url media))
-                               guid
-                               media)])))
-     :episode-url (fn [[feed-guid item-guid]]
-                    (let [items (:items (index (by-guid feed-guid)))]
-                      (when-let [item (get items item-guid)]
-                        (or (:url (:rss/enclosure item))
-                            (:url (resolve/enclosure item))))))}))
+    {:feed-guid-fn   #(:guid (at-url %))
+     :feed-url-fn    #(:url (by-guid %))
+     :episode-id-fn  (fn [podcast media guid]
+                       (when-let [{g :guid :as found} (at-url podcast)]
+                         (let [{:keys [items by-media]} (index found)]
+                           [g (or (when (contains? items guid) guid)
+                                  (by-media (guid/normal-url media))
+                                  guid
+                                  media)])))
+     :episode-url-fn (fn [[feed-guid item-guid]]
+                       (let [items (:items (index (by-guid feed-guid)))]
+                         (when-let [item (get items item-guid)]
+                           (or (:url (:rss/enclosure item))
+                               (:url (resolve/enclosure item))))))}))
 
 (defn ^:no-doc namer
   "The ways to name shows and episodes for `state` that `opts` give, by
-  their own keys or by :identities, with defaults for those they lack.
+  their own keys or by :identities-fn, with defaults for those they lack.
 
   A feed is named by the subscription of `state` with its URL, as
   dk.simongray.podcast.profile/by-url finds it. Without such a
-  subscription, :feed-guid names the feed, or else its URL does.
+  subscription, :feed-guid-fn names the feed, or else its URL does.
 
-  An episode is named by :episode-id. Without that option, the guid of its
-  action names it, or else the URL of its media. With the option, an
+  An episode is named by :episode-id-fn. Without that option, the guid of
+  its action names it, or else the URL of its media. With the option, an
   episode of a feed that the option doesn't know stays unnamed.
 
-  The URL of the media of an episode is what :episode-url gives, or
+  The URL of the media of an episode is what :episode-url-fn gives, or
   without it, the guid of the item when that's a URL."
-  [state {:keys [identities] :as opts}]
-  (let [ways       [:feed-guid :feed-url :episode-id :episode-url]
-        {:keys [feed-guid feed-url episode-id episode-url]}
-        (merge (when identities (identities)) (select-keys opts ways))
+  [state {:keys [identities-fn] :as opts}]
+  (let [ways       [:feed-guid-fn :feed-url-fn :episode-id-fn :episode-url-fn]
+        {:keys [feed-guid-fn feed-url-fn episode-id-fn episode-url-fn]}
+        (merge (when identities-fn (identities-fn)) (select-keys opts ways))
 
         subscribed (comp (profile/by-url state) guid/normal-url)
         ;; a new feed that declares a guid of its own keeps the guid of its
         ;; URL until profile/rekey moves the subscription, which app.library
         ;; does when it fetches the feed
         guid-of    #(or (subscribed %)
-                        (when feed-guid (feed-guid %))
+                        (when feed-guid-fn (feed-guid-fn %))
                         (guid/from-url %))]
-    {:feed-guid   guid-of
-     :feed-url    #(or (get-in state [:subscriptions % :url])
-                       (when feed-url (feed-url %)))
-     :episode-id  (fn [podcast media item]
-                    (if episode-id
-                      (some-> (episode-id podcast media item)
-                              (update 0 #(or (subscribed podcast) %)))
-                      [(guid-of podcast) (or item media)]))
-     :episode-url (fn [[_ item :as id]]
-                    (if episode-url
-                      (episode-url id)
-                      (when (url/web-url? item) item)))}))
+    {:feed-guid-fn   guid-of
+     :feed-url-fn    #(or (get-in state [:subscriptions % :url])
+                          (when feed-url-fn (feed-url-fn %)))
+     :episode-id-fn  (fn [podcast media item]
+                       (if episode-id-fn
+                         (some-> (episode-id-fn podcast media item)
+                                 (update 0 #(or (subscribed podcast) %)))
+                         [(guid-of podcast) (or item media)]))
+     :episode-url-fn (fn [[_ item :as id]]
+                       (if episode-url-fn
+                         (episode-url-fn id)
+                         (when (url/web-url? item) item)))}))
 
 (defn ^:no-doc device-author
   "The author of the entries in a state for what the `device` of a gpodder
@@ -371,7 +371,7 @@
   entry is stamped at the start of time, so that the entry of a device
   that knows the show wins over it."
   [state {:keys [add remove] :as changes} names author at]
-  (let [guid-of     (:feed-guid names)
+  (let [guid-of     (:feed-guid-fn names)
         device      (device-author author)
         subscribe   (fn [s url]
                       (let [g     (guid-of url)
@@ -530,7 +530,7 @@
         since   (time/->inst (min (inst-ms at)
                                   (* 1000 (or (:subscriptions cursor) told))))
         id-of   (fn [{:keys [podcast episode guid]}]
-                  ((:episode-id names) (local podcast) (local episode) guid))
+                  ((:episode-id-fn names) (local podcast) (local episode) guid))
         changes {:add    (map local (:add subs))
                  :remove (map local (:remove subs))}
         changed (apply-subscriptions state changes names name since)
@@ -708,8 +708,8 @@
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
         entries (changed :episodes (profile/episode-entries state))
         told    (for [[[g _ :as id] e] entries
-                      :let [podcast (some-> ((:feed-url names) g) public)
-                            media   ((:episode-url names) id)]]
+                      :let [podcast (some-> ((:feed-url-fn names) g) public)
+                            media   ((:episode-url-fn names) id)]]
                   (if (and (url/web-url? podcast) (url/web-url? media))
                     {:action (entry-action id e podcast media device
                                            {:first? (nil? pushed)})}
@@ -782,10 +782,10 @@
     by default
   - :type, desktop, laptop, mobile, server, tablet, or other by default
   - :name, for the UI and the cursors, the host by default
-  - :identities, a function that makes the ways to name shows and
+  - :identities-fn, a function that makes the ways to name shows and
     episodes at each step, e.g. #(identities (vals @feeds))
-  - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
-    own, in place of :identities
+  - :feed-guid-fn, :feed-url-fn, :episode-id-fn and :episode-url-fn, each
+    way on its own, in place of :identities-fn
   - :page-size, :max-pages, :batch-size and :max-pending, over
     default-limits
   - :timeout-seconds, how long a request can take

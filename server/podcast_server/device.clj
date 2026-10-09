@@ -35,9 +35,9 @@
   ([]
    (make {}))
   ([config]
-   (let [config (merge {:allow?  url/public?
-                        :keep    feeds/slim
-                        :search? false}
+   (let [config (merge {:allow-pred url/public?
+                        :keep-fn    feeds/slim
+                        :search?    false}
                        config)]
      (library/make "podcast-server" {:name "Podcast server" :config config}))))
 
@@ -136,9 +136,9 @@
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder
   `sync-store`, naming episodes by the feeds in `lib`, an atom of the
-  server's library. It lets in the apps that `authorized?`, a function of
-  a user name and a password, says yes to."
-  [sync-store lib authorized?]
+  server's library. It lets in the apps that `authorized-pred`, a function
+  of a user name and a password, says yes to."
+  [sync-store lib authorized-pred]
   (let [backend (sync/backend sync-store)
         cursors (atom nil)
         state   (atom (crdt/identify (profile/make "podcast-server-gpodder")
@@ -149,7 +149,7 @@
                     (reset! cursors (:cursors result))
                     (:state result)))]
     (gpodder-server/handler
-     {:state       state
-      :authorized? authorized?
-      :identities  (identities lib)
-      :sync        sync!})))
+     {:state           state
+      :authorized-pred authorized-pred
+      :identities-fn   (identities lib)
+      :sync            sync!})))

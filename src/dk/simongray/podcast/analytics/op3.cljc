@@ -58,7 +58,7 @@
 (defn accepts?
   "Whether OP3 takes the URL `url` behind its prefix, as its server did in
   September 2026. The prefix function asks this, unless its options give
-  another predicate of a URL as :accepts?.
+  another predicate of a URL as :accepts-pred.
 
   OP3 answers a URL that it doesn't take with an error, so the episode
   behind the prefix doesn't play. It takes an http or https URL with a
@@ -95,11 +95,11 @@
   - :podcast-guid, the podcast:guid of the show, which helps OP3 find the
     show
   - :origin, for another instance of OP3
-  - :accepts?, a predicate of a URL, when that instance takes other URLs"
+  - :accepts-pred, a predicate of a URL, when that instance takes other URLs"
   ([url]
    (prefix url {}))
   ([url {:keys [podcast-guid] :as opts}]
-   (let [takes? (:accepts? opts accepts?)]
+   (let [takes? (:accepts-pred opts accepts?)]
      (if (prefixed? url opts)
        url
        (when-let [[scheme tail] (when (takes? url) (target url))]

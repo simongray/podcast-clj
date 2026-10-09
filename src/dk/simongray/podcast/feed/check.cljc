@@ -223,14 +223,14 @@
 
 (defn ^:no-doc read-facts
   "The facts of what a reader gave: the value of the `attempt` with the
-  diagnostics that `report` reads from it, as data, or its :error.
+  diagnostics that `report-fn` reads from it, as data, or its :error.
 
   The facts of a check are data that an app keeps, so they hold the
   report."
-  [attempt report]
+  [attempt report-fn]
   (let [{:keys [error] :as value} (attempted attempt)]
     (cond-> value
-      (not error) (assoc :report (report value)))))
+      (not error) (assoc :report (report-fn value)))))
 
 (defn ^:no-doc head!
   "Send a HEAD request for `url` with `headers` through `send`, and give
@@ -260,15 +260,15 @@
 (defn- time-left
   "The seconds that the check with `opts` has left, one at least, or nil
   when the check has no time limit."
-  [{:keys [now] ::keys [deadline] :as opts}]
+  [{:keys [now-fn] ::keys [deadline] :as opts}]
   (when deadline
-    (max 1 (quot (- deadline (inst-ms (now))) 1000))))
+    (max 1 (quot (- deadline (inst-ms (now-fn))) 1000))))
 
 (defn ^:no-doc reading-opts
   "The options of a reading by byte ranges in the check with `opts`: the
   limits of the check that apply to a reading, and `send` to send with."
   [send opts]
-  (assoc (select-keys opts [:timeout-seconds :max-bytes :now]) :send send))
+  (assoc (select-keys opts [:timeout-seconds :max-bytes :now-fn]) :send send))
 
 (defn- whole-opts
   "The options of the fetch of a whole file for its integrity, in the
@@ -278,7 +278,7 @@
   that the check has left. It goes through the :send of the app, if any."
   [{::keys [own-send] :as opts}]
   (let [left (time-left opts)]
-    (cond-> (select-keys opts [:allow?])
+    (cond-> (select-keys opts [:allow-pred])
       left     (assoc :timeout-seconds left)
       own-send (assoc :send own-send))))
 
@@ -423,10 +423,10 @@
 
   A lane takes no file after the ::deadline of `opts`, and a file that no
   lane took is :unchecked."
-  [send files {:keys [now] ::keys [deadline] :as opts} n]
+  [send files {:keys [now-fn] ::keys [deadline] :as opts} n]
   (let [queue (atom (map-indexed vector files))
         next! (fn []
-                (when (or (nil? deadline) (< (inst-ms (now)) deadline))
+                (when (or (nil? deadline) (< (inst-ms (now-fn)) deadline))
                   (first (first (swap-vals! queue rest)))))
         lane  #?(:clj  (fn [_]
                          (loop [done []]
@@ -957,9 +957,9 @@
   - :integrity?, whether to fetch whole each file with a podcast:integrity
   - :max-files, :max-seconds, :concurrency, :timeout-seconds and
     :max-bytes, the limits
-  - :allow?, which URLs a request can go to, as for http/send!
+  - :allow-pred, which URLs a request can go to, as for http/send!
   - :send, how to send the requests, in place of http/send!
-  - :now, a function that gives the time, the clock by default
+  - :now-fn, a function that gives the time, the clock by default
 
   The credentials go only with the requests for the feed, and so do a
   user name and password in its URL. The result names the URL without
@@ -970,12 +970,12 @@
   byte ranges, and only as far as its duration. The byte ranges of media
   files and images come through http/fetcher.
 
-  Each request has the :timeout-seconds, the :max-bytes and the :allow?.
-  A server that checks feeds for strangers gives url/public? as :allow?.
+  Each request has the :timeout-seconds, the :max-bytes and the :allow-pred.
+  A server that checks feeds for strangers gives url/public? as :allow-pred.
 
   For the integrity of a file, a check fetches the whole file, as
   dk.simongray.podcast.format.integrity/verify! does. That request has the
-  :allow?, and it takes the time that the check has left. It goes through
+  :allow-pred, and it takes the time that the check has left. It goes through
   the :send of `opts`, or without one, the file streams through
   http/digest! on the JVM.
 
@@ -986,14 +986,14 @@
   ([feed opts]
    (let [own-send     (:send opts)
          {:keys [url credentials requirements concurrency send max-files
-                 max-seconds now]
+                 max-seconds now-fn]
           :as   opts}
-         (merge default-limits {:send http/send! :now time/now} opts)
+         (merge default-limits {:send http/send! :now-fn time/now} opts)
 
          [url in-url] (url/split-credentials url)
          auth         (http/authorization (or credentials in-url))
          deadline     (when max-seconds
-                        (+ (inst-ms (now)) (* 1000 max-seconds)))
+                        (+ (inst-ms (now-fn)) (* 1000 max-seconds)))
          opts         (cond-> (assoc opts :url url)
                         own-send (assoc ::own-send own-send)
                         auth     (assoc ::authorization auth)

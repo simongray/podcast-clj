@@ -262,20 +262,20 @@
         left  (fn [result] (frequencies (map (comp :unchecked :facts) (:files result))))
         told  (fn [result] (map (juxt :limit :count) (filter #(= :check/unchecked (:id %)) (:report result))))]
     (run
-     #(async/then (check/check-files! feed {:send send :max-files 10 :allow? (constantly true)})
+     #(async/then (check/check-files! feed {:send send :max-files 10 :allow-pred (constantly true)})
                   (fn [result]
                     (is (= 51 (count (:files result))) "every file that the feed names")
                     (is (= {nil 10 :max-files 41} (left result)))
                     (is (= [[:max-files 41]] (told result)) "one diagnostic counts the files that the check left out")
                     (is (= 20 (count @sent)))
                     (is (= #{[30 (:max-bytes check/default-limits) true]}
-                           (set (map (juxt :timeout-seconds :max-bytes (comp some? :allow?)) @sent)))
+                           (set (map (juxt :timeout-seconds :max-bytes (comp some? :allow-pred)) @sent)))
                         "each request carries the limits and the guard")))
      #(let [ms (atom 0)]
         (async/then (check/check-files! feed {:send        send
                                        :concurrency 1
                                        :max-seconds 10
-                                       :now         (fn [] (time/->inst (swap! ms + 1000)))})
+                                       :now-fn      (fn [] (time/->inst (swap! ms + 1000)))})
                     (fn [result]
                       (is (= [[:max-seconds (get (left result) :max-seconds)]] (told result)))
                       (is (< 40 (get (left result) :max-seconds)) "no file starts after the time of the check")))))))
@@ -296,12 +296,12 @@
                                    :content-range {:start 0 :end 1 :total 5}}
                  :else            {:status 200 :url url :headers {} :body file}))]
     (run
-     #(async/then (check/check-files! feed {:send send :integrity? true :allow? (constantly true)})
+     #(async/then (check/check-files! feed {:send send :integrity? true :allow-pred (constantly true)})
                   (fn [result]
                     (let [whole (filter (fn [r] (and (not= :head (:method r)) (nil? (:range r)))) @sent)]
                       (is (= {:valid? true :algorithm "sha256"}
                              (get-in (first (:files result)) [:facts :integrity])))
-                      (is (= [[alt :bytes true]] (map (juxt :url :as (comp some? :allow?)) whole))
+                      (is (= [[alt :bytes true]] (map (juxt :url :as (comp some? :allow-pred)) whole))
                           "the whole file came through the sender of the app, with the guard")
                       (is (nil? (:max-bytes (first whole)))
                           "the limit of bytes of the check is not the limit of a whole file")))))))
@@ -383,7 +383,7 @@
                (let [asked  (atom 0)
                      ;; the two requests of the probe, and not the one after them
                      allow? (fn [url] (or (not (str/ends-with? url "/v.mp4")) (<= (swap! asked inc) 2)))
-                     result (check {:integrity? true :allow? allow?})
+                     result (check {:integrity? true :allow-pred allow?})
                      facts  (:facts (first (filter #(= (str base "/v.mp4") (:url %)) (:files result))))]
                  (is (= 3 @asked))
                  (is (= 206 (get-in facts [:get :status])) "the probe, which the app allowed")

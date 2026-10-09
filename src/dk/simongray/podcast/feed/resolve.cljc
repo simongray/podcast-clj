@@ -1016,10 +1016,10 @@
 (defn- explaining-paths
   "The paths into `m` of the keys whose entry alone makes the accessor `f`
   give `expected`, in the order of the keys. A path is `prefix` and the
-  key, and `args` makes the arguments of `f` of the map of the entry."
-  [f expected m prefix args]
+  key, and `args-fn` makes the arguments of `f` of the map of the entry."
+  [f expected m prefix args-fn]
   (for [k     (sort (keys m))
-        :when (explains? f expected (args (select-keys m [k])))]
+        :when (explains? f expected (args-fn (select-keys m [k])))]
     (conj prefix k)))
 
 (defn- paths-by-property

@@ -292,16 +292,16 @@
 
 (defn- fetch-all
   "The parts that `fetch` gives of the `ranges`, one request after
-  another, and none once `in-time?` says no, in a future or a promise.
+  another, and none once `in-time-pred` says no, in a future or a promise.
 
   A part without bytes is left out. When a request fails, the result is a
   map of the :error, and no request goes out after it."
-  [fetch ranges in-time?]
+  [fetch ranges in-time-pred]
   (reduce (fn [parts [start end]]
             (async/then
              parts
              (fn [got]
-               (if (or (:error got) (not (in-time?)))
+               (if (or (:error got) (not (in-time-pred)))
                  got
                  (let [fetched #(async/then (fetch start end) identity)]
                    (async/then (async/attempt fetched)
@@ -327,11 +327,11 @@
   (reduce + (map (fn [[start end]] (- end start)) ranges)))
 
 (defn- widened
-  "The `ranges` with the end of each moved to what `wide` gives for the
+  "The `ranges` with the end of each moved to what `end-fn` gives for the
   range, as far as the bytes that this adds fit in `spare`."
-  [ranges wide spare]
+  [ranges end-fn spare]
   (first (reduce (fn [[acc spare] [start end :as range]]
-                   (let [more (min spare (max 0 (- (wide range) end)))]
+                   (let [more (min spare (max 0 (- (end-fn range) end)))]
                      [(conj acc [start (+ end more)]) (- spare more)]))
                  [[] spare]
                  ranges)))
@@ -417,7 +417,7 @@
   ranges.
 
   The `opts` give the limits, with default-limits for the limits that
-  they don't set, and :now, a function that gives the time, the clock by
+  they don't set, and :now-fn, a function that gives the time, the clock by
   default. When a limit stops the reading, or when the ranges didn't
   come, the result is an empty map, and its report has :file/incomplete.
   A reading fetches nothing of ranges that hold more bytes than it can
@@ -428,10 +428,10 @@
   ([fetch read]
    (read! fetch read {}))
   ([fetch read opts]
-   (let [{:keys [max-bytes max-seconds max-rounds now] :as limits}
-         (merge default-limits {:now time/now} opts)
-         deadline (when max-seconds (+ (inst-ms (now)) (* 1000 max-seconds)))
-         in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))
+   (let [{:keys [max-bytes max-seconds max-rounds now-fn] :as limits}
+         (merge default-limits {:now-fn time/now} opts)
+         deadline (when max-seconds (+ (inst-ms (now-fn)) (* 1000 max-seconds)))
+         in-time? #(or (nil? deadline) (< (inst-ms (now-fn)) deadline))
          step     (fn step [v {:keys [round previous room walk whole?]
                                :as   state}]
                     (let [{:keys [need] :as result} (read v)

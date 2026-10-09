@@ -93,7 +93,8 @@
     (is (= ["https://a.example/ep.mp3" :get :bytes [0 3]] ((juxt :url :method :as :range) request)))
     (is (= {"accept" "*/*" "if-none-match" "\"v1\"" "User-Agent" http/user-agent "Via" "1.1 podcast-clj"} (:headers request))
         "neither the page's cookies, its credentials nor its User-Agent go on")
-    (is (= [url/public? (* 32 1024 1024)] ((juxt :allow? :max-bytes) request)))
+    (is (= [url/public? (* 32 1024 1024)]
+           ((juxt :allow-pred :max-bytes) request)))
     (is (nil? (:as (proxy/upstream-request (assoc ring :query-string "url=https%3A%2F%2Fa.example%2F"))))
         "text, unless the page asks for bytes")
     (is (nil? (proxy/upstream-request (assoc ring :query-string "url=file%3A%2F%2F%2Fetc%2Fpasswd"))))

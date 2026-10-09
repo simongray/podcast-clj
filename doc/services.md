@@ -33,7 +33,7 @@ are relative to `dk.simongray.podcast`.
 | The paths that `find-feeds!` tries on the domain of a page | `feed.discovery/guessed-paths` | `:guessed-paths` | `/feed/` of WordPress, `/rss` of Libsyn and Ghost, `/feed.xml` of Jekyll and `/index.xml` of Hugo |
 | The relays of Nostr | `comments.nostr/relays` | `:relays` | the [relays below](#the-relays-of-nostr) |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
-| The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |
+| The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts-pred`, a predicate of a URL | the rules of op3.dev |
 | The paths of the gpodder API | `sync.gpodder/apis` | `:api`, as a name or a map of paths | `:gpodder` |
 | The limits of a gpodder server | `sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
@@ -143,7 +143,7 @@ its domain can't be:
   and `.localhost`
 
 Another instance of OP3 may accept other URLs, so give its `:origin`, and
-its rules as `:accepts?`.
+its rules as `:accepts-pred`.
 
 
 ## The links of the apps
@@ -279,7 +279,7 @@ The options replace these choices:
 | Choice | Default | Option |
 |---|---|---|
 | How long `ask!` waits, after which a request expires | 60 seconds, `nwc/default-limits` | `:timeout-seconds` |
-| The relays that a request can go to | The public internet, `nostr/public?` | `:allow?` |
+| The relays that a request can go to | The public internet, `nostr/public?` | `:allow-pred` |
 | What sends a request to a relay | `nostr/send!` | `:send` |
 | The most bytes of an encrypted text | 65,535, `nip44/default-limits` | `:max-bytes` |
 | The WebLN provider | That of the page, `webln/provider` | `:provider` |

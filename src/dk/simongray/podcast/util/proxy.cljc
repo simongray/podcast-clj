@@ -30,7 +30,7 @@
 (def defaults
   "The options of handler, which its own options replace one by one:
 
-  - :allow?, the URLs that it fetches, those on the public internet
+  - :allow-pred, the URLs that it fetches, those on the public internet
   - :send, the function that sends a request, http/send!
   - :forward, the request headers that go on to the other site
   - :expose, the response headers that come back to the page
@@ -41,7 +41,7 @@
   Each request also has the :timeout-seconds of the options, or else that
   of http/send!. The page's own cookies and credentials never go on,
   unless :forward names them."
-  {:allow?     url/public?
+  {:allow-pred url/public?
    :send       http/send!
    :forward    #{"accept" "if-modified-since" "if-none-match" "range"}
    :expose     #{"age" "cache-control" "content-range" "content-type" "etag"
@@ -124,7 +124,7 @@
       ;; by default, so that a page can sync over WebDAV and the gpodder API.
       ;; That takes POST, PUT, DELETE, PROPFIND and MKCOL, the request body
       ;; within :max-bytes, Authorization to those hosts only, Sec-Fetch-Site
-      ;; same-origin for every write, and the host check in :allow?, so that
+      ;; same-origin for every write, and the host check in :allow-pred, so that
       ;; each redirect meets it. Hosts that listeners choose would make the
       ;; proxy a relay of writes for every account.
       (not (#{:get :head} request-method))
@@ -237,12 +237,12 @@
 
 (defn proxied
   "The `request` sent through the proxy at `base`: to `base`, with the URL
-  of the request as the url parameter, and without its :allow?, which the
+  of the request as the url parameter, and without its :allow-pred, which the
   proxy applies itself."
   [base {:keys [url as] :as request}]
   (let [as-param (when (= :bytes as) "bytes")]
     (-> request
-        (dissoc :allow?)
+        (dissoc :allow-pred)
         (assoc :url (url/with-query base {:url url :as as-param})))))
 
 (defn- failure

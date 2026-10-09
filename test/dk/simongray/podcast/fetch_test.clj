@@ -207,7 +207,7 @@
         (respond exchange 200 feed-xml {})))
     (fn [base]
       (testing "a URL that the app does not allow"
-        (let [r (podcast/fetch! (str base "/feed.xml") {:allow? (constantly false)})]
+        (let [r (podcast/fetch! (str base "/feed.xml") {:allow-pred (constantly false)})]
           (is (= [:url :error] (keys r)))
           (is (= :fetch/unreachable (:id (:error r))))
           (is (str/includes? (:reason (:error r)) "is not allowed"))))

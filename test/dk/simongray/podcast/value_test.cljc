@@ -360,10 +360,10 @@
                send  (fn [request] (swap! asked conj request) (recorded request))]
            (async/then
             (async/all [(lnaddress/fetch-node! "fountain@fountain.fm" {:send send})
-                        (lnaddress/fetch-node! "fountain@fountain.fm" {:send send :allow? any? :max-bytes 1000})])
+                        (lnaddress/fetch-node! "fountain@fountain.fm" {:send send :allow-pred any? :max-bytes 1000})])
             (fn [_]
               (is (= #{[10 262144 url/public?] [10 1000 any?]}
-                     (set (map (juxt :timeout-seconds :max-bytes :allow?) @asked)))
+                     (set (map (juxt :timeout-seconds :max-bytes :allow-pred) @asked)))
                   "each request carries the limits and the guard, which a :send gets too")))))))
 
 (def example-metadata
@@ -432,12 +432,13 @@
            (fn [found]
              (is (= payment found))
              (is (= [0 1] (:range (first @asked))) "two bytes of the page")
-             (is (= [10 65536 url/public?] ((juxt :timeout-seconds :max-bytes :allow?) (first @asked)))
+             (is (= [10 65536 url/public?] ((juxt :timeout-seconds :max-bytes :allow-pred) (first @asked)))
                  "with the limits and the guard, which a :send gets too")))
          #(async/then
-           (metadata/fetch! url {:send (send nil) :max-bytes 1000 :allow? any?})
+           (metadata/fetch! url
+                            {:send (send nil) :max-bytes 1000 :allow-pred any?})
            (fn [_]
-             (is (= [1000 any?] ((juxt :max-bytes :allow?) (last @asked))) "as the options set them")))
+             (is (= [1000 any?] ((juxt :max-bytes :allow-pred) (last @asked))) "as the options set them")))
          #(async/then
            (metadata/fetch! "http://127.0.0.1:1/payment")
            (fn [{:keys [error]}]

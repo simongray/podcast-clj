@@ -124,7 +124,7 @@
   comes whole, up to the :max-bytes of http/send!. The `opts` are these:
 
   - :send, a function that sends a request map in place of http/send!
-  - :headers, :timeout-seconds and :allow?, as http/send! takes them, with
+  - :headers, :timeout-seconds and :allow-pred, as http/send! takes them, with
     a timeout of 600 seconds by default"
   ([url integrity]
    (verify! url integrity {}))

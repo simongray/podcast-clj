@@ -174,7 +174,7 @@
 
   The `opts` are these:
 
-  - :timeout-seconds, :max-bytes and :allow?, as http/send! takes them
+  - :timeout-seconds, :max-bytes and :allow-pred, as http/send! takes them
   - :send, a function that sends a request map in place of http/send!"
   ([request]
    (call! request {}))
@@ -261,7 +261,7 @@
   The hub makes sure that the subscriber wants a subscription or its end,
   as section 5.3 of WebSub has it. Or it tells that it denied a
   subscription, as section 5.2 has it."
-  [{:keys [wanted? denied! max-challenge] :as env} request params]
+  [{:keys [wanted-pred denied! max-challenge] :as env} request params]
   (let [mode      (get params "hub.mode")
         topic     (get params "hub.topic")
         challenge (get params "hub.challenge")
@@ -276,9 +276,9 @@
            (string? topic)
            (challenge? challenge max-challenge)
            (let [lease (get params "hub.lease_seconds")]
-             (wanted? (assoc facts
-                             :mode          (keyword mode)
-                             :lease-seconds (some-> lease parse-long)))))
+             (wanted-pred (assoc facts
+                                 :mode          (keyword mode)
+                                 :lease-seconds (some-> lease parse-long)))))
       (answer 200 challenge)
 
       :else
@@ -318,7 +318,7 @@
 (defn handler
   "A Ring handler for the callback URL of a subscriber, by `opts`:
 
-  - :wanted?, a function of the :mode, :topic, :lease-seconds and
+  - :wanted-pred, a function of the :mode, :topic, :lease-seconds and
     :request of a check, which says whether the subscriber asked
   - :deliver!, a function of the :body, :content-type, :topic, :hubs and
     :request of a feed that came
@@ -332,7 +332,7 @@
   A hub calls the callback in three ways:
 
   - It makes sure that the subscriber asked for the :mode, :subscribe or
-    :unsubscribe, of the :topic. When :wanted? says yes, the handler
+    :unsubscribe, of the :topic. When :wanted-pred says yes, the handler
     gives the challenge of the hub back, and else it answers 404. The
     :lease-seconds is how long the hub keeps the subscription.
   - It sends the feed, and :deliver! gets it as the bytes :body. With a
@@ -346,9 +346,10 @@
   can be another URL than the topic of the subscription, as section 7 of
   WebSub says. So the callback URL tells the subscription, and the
   :request has it."
-  [{:keys [wanted? deliver!] :as opts}]
-  (when-not (and (fn? wanted?) (fn? deliver!))
-    (throw (ex-info "A handler needs the functions :wanted? and :deliver!" {})))
+  [{:keys [wanted-pred deliver!] :as opts}]
+  (when-not (and (fn? wanted-pred) (fn? deliver!))
+    (throw (ex-info "A handler needs the functions :wanted-pred and :deliver!"
+                    {})))
   (let [env (merge default-limits {:signature-methods signature-methods} opts)]
     (fn [{:keys [request-method query-string] :as request}]
       (case request-method
@@ -375,11 +376,11 @@
 
   ;; a callback that wants one feed, and the three calls of a hub
   (def serve
-    (handler {:wanted?  (fn [{:keys [topic]}]
-                          (= "https://example.org/feed.xml" topic))
-              :deliver! (fn [{:keys [body]}]
-                          (println (bytes/length body) "bytes came"))
-              :secret   "a text that nobody can guess"}))
+    (handler {:wanted-pred (fn [{:keys [topic]}]
+                             (= "https://example.org/feed.xml" topic))
+              :deliver!    (fn [{:keys [body]}]
+                             (println (bytes/length body) "bytes came"))
+              :secret      "a text that nobody can guess"}))
 
   (serve {:request-method :get
           :query-string   (str "hub.mode=subscribe"

@@ -127,23 +127,23 @@
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (deftest names-over-parsed-feeds
-  (let [{:keys [feed-guid feed-url episode-id episode-url]} (gpodder/identities [{:url "https://example.com/feed.xml" :feed @example}])]
-    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "https://example.com/feed.xml")) "the feed's declared guid")
-    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
-    (is (nil? (feed-guid "https://elsewhere.example/feed.xml")))
-    (is (= "https://example.com/feed.xml" (feed-url "y0ur-gu1d-g035-h3r3")))
+  (let [{:keys [feed-guid-fn feed-url-fn episode-id-fn episode-url-fn]} (gpodder/identities [{:url "https://example.com/feed.xml" :feed @example}])]
+    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid-fn "https://example.com/feed.xml")) "the feed's declared guid")
+    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid-fn "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
+    (is (nil? (feed-guid-fn "https://elsewhere.example/feed.xml")))
+    (is (= "https://example.com/feed.xml" (feed-url-fn "y0ur-gu1d-g035-h3r3")))
     (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]
-           (episode-id "https://example.com/feed.xml" "https://example.com/file-02.mp3" nil))
+           (episode-id-fn "https://example.com/feed.xml" "https://example.com/file-02.mp3" nil))
         "by the URL of its media")
     (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0001"]
-           (episode-id "https://example.com/feed.xml" "https://cdn.example/other.mp3" "https://example.com/ep0001"))
+           (episode-id-fn "https://example.com/feed.xml" "https://cdn.example/other.mp3" "https://example.com/ep0001"))
         "by its guid")
     (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/gone.mp3"]
-           (episode-id "https://example.com/feed.xml" "https://example.com/gone.mp3" nil))
+           (episode-id-fn "https://example.com/feed.xml" "https://example.com/gone.mp3" nil))
         "an episode the feed leaves out, as podcast-clj names it")
-    (is (nil? (episode-id "https://elsewhere.example/feed.xml" "https://elsewhere.example/1.mp3" nil)))
-    (is (= "https://example.com/file-03.mp3" (episode-url ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"])))
-    (is (nil? (episode-url ["y0ur-gu1d-g035-h3r3" "no-such-item"])))))
+    (is (nil? (episode-id-fn "https://elsewhere.example/feed.xml" "https://elsewhere.example/1.mp3" nil)))
+    (is (= "https://example.com/file-03.mp3" (episode-url-fn ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"])))
+    (is (nil? (episode-url-fn ["y0ur-gu1d-g035-h3r3" "no-such-item"])))))
 
 (defn- ring-send
   "A send, as `http/send!` takes a request map, to the Ring `handler`: the
@@ -163,9 +163,9 @@
   pass`, whose time is `clock`, an atom of the instant: `[state send]`."
   [clock]
   (let [state (atom (profile/make "server"))]
-    [state (ring-send (server/handler {:state       state
-                                       :authorized? (fn [user password] (= [user password] ["simon" "app pass"]))
-                                       :now         #(deref clock)}))]))
+    [state (ring-send (server/handler {:state           state
+                                       :authorized-pred (fn [user password] (= [user password] ["simon" "app pass"]))
+                                       :now-fn          #(deref clock)}))]))
 
 (defn- ask
   "What the server behind `send` answers `method` at `path` with the JSON of
@@ -285,7 +285,7 @@
         sync! (fn [s]
                 (swap! state profile/subscribe "b" {:url "https://b.example/rss" :title "B"} t1)
                 s)
-        send  (ring-send (server/handler {:state state :authorized? (constantly true) :sync sync! :now (constantly t2)}))]
+        send  (ring-send (server/handler {:state state :authorized-pred (constantly true) :sync sync! :now-fn (constantly t2)}))]
     (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a]})
     (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions @state)))))
         "stays, with what the call wrote")))
@@ -304,8 +304,8 @@
 
 (defn- backend
   [send & {:as opts}]
-  (gpodder/backend root (merge {:credentials creds :send send
-                                :episode-url (fn [[g item]] (when (= g g-a) (media item)))}
+  (gpodder/backend root (merge {:credentials    creds :send send
+                                :episode-url-fn (fn [[g item]] (when (= g g-a) (media item)))}
                                opts)))
 
 (deftest names-over-the-subscriptions
@@ -313,7 +313,7 @@
                   (profile/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
                   (profile/unsubscribe "guid-of-url" t2)
                   (profile/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t3))
-        named (fn [state] ((:feed-guid (gpodder/namer state {})) feed-a))]
+        named (fn [state] ((:feed-guid-fn (gpodder/namer state {})) feed-a))]
     (is (= ["declared-guid" "declared-guid"]
            [(named state) (named (update state :subscriptions #(into (array-map) (reverse %))))])
         "of two subscriptions with one URL the live one, whatever their order")
@@ -339,7 +339,7 @@
 
 (deftest a-server-needs-its-state-and-its-check
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (server/handler {:state (atom {})}))
-      "no handler without :authorized?, also in a release build"))
+      "no handler without :authorized-pred, also in a release build"))
 
 (deftest another-app-through-the-server
   (let [clock    (atom t2)
@@ -376,7 +376,7 @@
   (let [clock        (atom t2)
         [state send] (serve clock)
         known        (atom media)
-        b            (backend send :episode-url (fn [[g item]] (when (= g g-a) (@known item))))
+        b            (backend send :episode-url-fn (fn [[g item]] (when (= g g-a) (@known item))))
         s            (-> (phone)
                          (profile/subscribe (guid/from-url "https://private.example/rss")
                                             {:url "https://simon:secret@private.example/rss" :title "P"} t1)
@@ -451,9 +451,9 @@
   (let [clock        (atom t2)
         [_ send]     (serve clock)
         knows        (atom #{g-a})
-        backend      #(backend send :episode-id (fn [podcast media item]
-                                                   (let [g (guid/from-url podcast)]
-                                                     (when (@knows g) [g (or item media)]))))
+        backend      #(backend send :episode-id-fn (fn [podcast media item]
+                                                      (let [g (guid/from-url podcast)]
+                                                        (when (@knows g) [g (or item media)]))))
         b-play       {"podcast" "https://b.example/rss" "episode" "https://b.example/1.mp3" "guid" "b1" "action" "play"
                       "timestamp" "2026-01-01T01:30:00" "started" 0 "position" 700 "total" 3600 "device" "antennapod"}]
     (ask send :post "/api/2/episodes/simon.json" [b-play])
@@ -610,15 +610,15 @@
                                                                  "timestamp" (+ 1767230000 n)})
                                  {"timestamp" 20 "update_urls" []}))}))
         own     (gpodder/backend "https://sync.example.org"
-                                 {:credentials creds :send send :name "own"
-                                  :api         {:subscriptions        "/sync/{user}/shows"
-                                                :update-subscriptions "/sync/{user}/shows"
-                                                :episodes             "/sync/{user}/actions"
-                                                :update-episodes      "/sync/{user}/actions"}
-                                  :episode-url (fn [[_ item]] (str "https://a.example/" item ".mp3"))
-                                  :page-size   2
-                                  :max-pages   3
-                                  :batch-size  1})
+                                 {:credentials    creds :send send :name "own"
+                                  :api            {:subscriptions        "/sync/{user}/shows"
+                                                   :update-subscriptions "/sync/{user}/shows"
+                                                   :episodes             "/sync/{user}/actions"
+                                                   :update-episodes      "/sync/{user}/actions"}
+                                  :episode-url-fn (fn [[_ item]] (str "https://a.example/" item ".mp3"))
+                                  :page-size      2
+                                  :max-pages      3
+                                  :batch-size     1})
         state   (-> (phone)
                     (profile/progress [g-a "b1"] 10 3600 t1)
                     (profile/progress [g-a "b2"] 20 3600 t1))]

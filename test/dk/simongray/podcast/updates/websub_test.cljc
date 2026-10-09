@@ -134,10 +134,10 @@
   (let [came  (atom [])
         feed  (bytes/encode "<rss version=\"2.0\"><channel><title>A show</title></channel></rss>")
         serve (websub/handler
-               {:wanted?  (fn [facts] (swap! came conj [:wanted (dissoc facts :request)]) (= topic (:topic facts)))
-                :deliver! (fn [facts] (swap! came conj [:feed (update (dissoc facts :request) :body bytes/length)]))
-                :denied!  (fn [facts] (swap! came conj [:denied (dissoc facts :request)]))
-                :secret   secret})
+               {:wanted-pred (fn [facts] (swap! came conj [:wanted (dissoc facts :request)]) (= topic (:topic facts)))
+                :deliver!    (fn [facts] (swap! came conj [:feed (update (dissoc facts :request) :body bytes/length)]))
+                :denied!     (fn [facts] (swap! came conj [:denied (dissoc facts :request)]))
+                :secret      secret})
         get!  (fn [params] (serve {:request-method :get :query-string (query params)}))
         post! (fn [headers body] (serve {:request-method :post :headers headers :body body}))
         safe  {"Content-Type" "application/octet-stream" "X-Content-Type-Options" "nosniff"}]
@@ -179,8 +179,8 @@
         (is (= {:status 200 :headers safe :body ""} (post! headers feed)) (pr-str headers)))
       (is (= [] @came)))
     (testing "a subscription without a secret, and the limits"
-      (let [open  (websub/handler {:wanted? (constantly true) :deliver! #(swap! came conj [:open (:topic %)])})
-            small (websub/handler {:wanted? (constantly true) :deliver! #(swap! came conj [:small %]) :max-bytes 64
+      (let [open  (websub/handler {:wanted-pred (constantly true) :deliver! #(swap! came conj [:open (:topic %)])})
+            small (websub/handler {:wanted-pred (constantly true) :deliver! #(swap! came conj [:small %]) :max-bytes 64
                                    :max-challenge 5})]
         (is (= 200 (:status (open {:request-method :post :headers {} :body feed}))))
         (is (= [[:open nil]] @came) "each feed that comes, and no topic without a Link header")
@@ -188,5 +188,5 @@
         (is (= 404 (:status (small {:request-method :get :query-string (query {"hub.mode" "subscribe"})}))))
         (is (= 1 (count @came)))))
     (is (= 405 (:status (serve {:request-method :put}))))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (websub/handler {:wanted? (constantly true)}))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (websub/handler {:wanted-pred (constantly true)}))
         "a handler needs the function that gets the feed")))

@@ -38,14 +38,14 @@
 
 (defn- fetch-document!
   "Fetch the document at `url` with `opts`, asking for the `accept` types,
-  and give the answer of the server. A 200 answer has what `parsed` gives
+  and give the answer of the server. A 200 answer has what `parse-fn` gives
   of the response merged in, and a failed request has the :error.
   Deferred."
-  [url accept parsed opts]
+  [url accept parse-fn opts]
   (let [http-opts (-> opts
                       (select-keys [:etag :last-modified :credentials
                                     :timeout-seconds :max-bytes :user-agent
-                                    :allow? :send])
+                                    :allow-pred :send])
                       (assoc :accept accept))]
     (async/then (async/attempt #(http/fetch! url http-opts))
                 (fn [{response :value error :error}]
@@ -63,7 +63,7 @@
                       answer
 
                       :else
-                      (merge answer (parsed response))))))))
+                      (merge answer (parse-fn response))))))))
 
 (defn- parsed-page
   "The feed of the 200 `response` to a request for a page, parsed with

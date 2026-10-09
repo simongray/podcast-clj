@@ -89,12 +89,12 @@
              (shape (publish/pages long-feed {:page-size 7 :kind :archived}))))))
   (testing "the URLs of the host"
     (is (= ["https://b.example/show.xml" "https://b.example/show/2.xml" "https://b.example/show/3.xml"]
-           (map :url (publish/pages long-feed {:page-size 3
-                                               :url       "https://b.example/show.xml"
-                                               :page-url  #(str "https://b.example/show/" % ".xml")}))))
+           (map :url (publish/pages long-feed {:page-size   3
+                                               :url         "https://b.example/show.xml"
+                                               :page-url-fn #(str "https://b.example/show/" % ".xml")}))))
     (is (= ["https://a.example/feed.xml" "https://a.example/archive/1.xml"]
            (map :url (publish/pages long-feed {:page-size 6 :kind :archived
-                                               :page-url #(str "https://a.example/archive/" % ".xml")})))))
+                                               :page-url-fn #(str "https://a.example/archive/" % ".xml")})))))
   (testing "the default size, and a feed without items"
     (is (= 100 publish/page-size))
     (is (= [1 100 100 50] [(count (publish/pages long-feed))
@@ -150,7 +150,7 @@
              (map :url (publish/pages private {:page-size 3})))))
     (testing "the choices of the host"
       (let [open (publish/for-subscriber feed "s3cr3t" {:token-param "key"
-                                                        :own?        #(re-find #"^https://media\.example/" %)
+                                                        :own-pred    #(re-find #"^https://media\.example/" %)
                                                         :block?      false})
             path (publish/for-subscriber feed "abc" {:with-token (fn [url token]
                                                                    (str/replace-first url ".example/" (str ".example/" token "/")))})]

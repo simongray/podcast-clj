@@ -172,7 +172,7 @@
      #(async/then (reading zeros (places [0 1000000 2000000]) {:max-rounds 2})
                   (fn [[report log]]
                     (is (= [[:file/incomplete] 2] [report (count log)]) "the rounds")))
-     #(async/then (reading zeros (places [0 1000000 2000000]) {:max-seconds 60 :now (ticking)})
+     #(async/then (reading zeros (places [0 1000000 2000000]) {:max-seconds 60 :now-fn (ticking)})
                   (fn [[report log]]
                     (is (= [[:file/incomplete] [[0 65540]]] [report log])
                         "no request after the time of the reading, which the first answer used up")))
@@ -680,7 +680,7 @@
 
 (deftest a-file-that-the-app-does-not-allow
   (run #(async/then (integrity/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
-                                       {:allow? (constantly false)})
+                                       {:allow-pred (constantly false)})
                     (fn [{:keys [valid? error]}]
                       (is (nil? valid?))
                       (is (= [:file/unreachable "https://example.org/a.mp3"] ((juxt :id :url) error)))
@@ -721,11 +721,11 @@
         verify (fn [value opts]
                  (integrity/verify! "https://example.org/a.mp3" {:type "sri" :value value} opts))]
     (run
-     #(async/then (verify sha256 {:send send :allow? (constantly true) :headers {"Accept" "audio/*"}})
+     #(async/then (verify sha256 {:send send :allow-pred (constantly true) :headers {"Accept" "audio/*"}})
                   (fn [verdict]
                     (is (= {:valid? true :algorithm "sha256"} verdict))
                     (is (= [["https://example.org/a.mp3" :bytes 600 {"Accept" "audio/*"} true]]
-                           (map (juxt :url :as :timeout-seconds :headers (comp some? :allow?)) @sent))
+                           (map (juxt :url :as :timeout-seconds :headers (comp some? :allow-pred)) @sent))
                         "one request for the whole file, through the sender of the app")))
      #(async/then (verify "sha256-AAAA" {:send send :timeout-seconds 5})
                   (fn [verdict]

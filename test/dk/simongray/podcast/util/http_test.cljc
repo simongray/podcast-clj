@@ -456,7 +456,7 @@
        (with-server {"/a.mp3" [200 {} (byte-array 10)]}
          (fn [base]
            (is (thrown? java.security.NoSuchAlgorithmException
-                        (http/digest! (str base "/a.mp3") ["SHA-9000"] {:allow? (fn [_] (swap! asked inc) true)})))
+                        (http/digest! (str base "/a.mp3") ["SHA-9000"] {:allow-pred (fn [_] (swap! asked inc) true)})))
            (is (zero? @asked) "no request is sent"))))))
 
 (deftest the-requests-of-a-fetcher
@@ -564,8 +564,8 @@
                  (with-open [out (.getResponseBody exchange)]
                    (.write out (.getBytes "ok"))))))
          (fn [[base _]]
-           (testing "a redirect that `:allow?` does not take is not followed"
-             (is (= ::http/refused (kind #(http/send! {:url (str base "/away") :allow? (fn [url] (.startsWith ^String url base))}))))
+           (testing "a redirect that `:allow-pred` refuses is not followed"
+             (is (= ::http/refused (kind #(http/send! {:url (str base "/away") :allow-pred (fn [url] (.startsWith ^String url base))}))))
              (is (= 1 (count @seen)) "the first request alone"))
            (testing "`send-public!` sends nothing to the network of the app"
              (reset! seen [])

@@ -191,7 +191,7 @@
 
 (defn requests
   "The requests that the Nostr `thread` needs next with `opts`, of those
-  whose URLs `ask?` takes, with one request for each relay at most.
+  whose URLs `ask-pred` takes, with one request for each relay at most.
 
   A relay gets the question for the root first. Then it gets the
   questions for the replies to the comments that the thread has, those
@@ -202,14 +202,14 @@
 
   Each request is a request map for nostr/send!, with the :url of a relay
   and the :filters of NIP-01."
-  [{:keys [uri comments] ::comments/keys [held] :as thread} opts ask?]
+  [{:keys [uri comments] ::comments/keys [held] :as thread} opts ask-pred]
   (let [opts  (merge {:batch-size batch-size} opts)
         fresh (- (count (filter :read-at (vals comments))) (or held 0))
         more? (< fresh (:max-comments opts))
         depth (common/depths thread)]
     (when (root-of uri)
       (->> (relays-of thread opts)
-           (filter ask?)
+           (filter ask-pred)
            (keep #(next-question thread % opts more? depth))))))
 
 (defn resumed
@@ -423,7 +423,7 @@
   - A reference to an event is the start and the end of its name.
   - A hashtag is the word with its number sign.
 
-  The :link of `opts` is a function of a part of parts. It gives the URL
+  The :link-fn of `opts` is a function of a part of parts. It gives the URL
   that a mention, a reference or a hashtag links to, or nil for no link.
   No web page is named for them, since you choose the web app or the
   scheme that shows them.
@@ -763,9 +763,9 @@
 
   (nostr/parts note)
   (hiccup note)
-  (hiccup note {:names {ann-key "Ann"}
-                :link  (fn [{:keys [uri tag]}]
-                         (if uri
-                           (str "https://njump.me/" (subs uri 6))
-                           (str "https://njump.me/t/" tag)))})
+  (hiccup note {:names   {ann-key "Ann"}
+                :link-fn (fn [{:keys [uri tag]}]
+                           (if uri
+                             (str "https://njump.me/" (subs uri 6))
+                             (str "https://njump.me/t/" tag)))})
   #_.)

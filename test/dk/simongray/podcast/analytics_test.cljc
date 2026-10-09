@@ -115,7 +115,7 @@
                         {:agent-type "app" :user-agent "Robotic Podcasts/1.0"}]))
         "an agent that says it is a bot, unless the list names it")
     (is (= :excluded (analytics/drop-reason (request overcast "2026-09-21T22:00:00Z")
-                                            {:exclude? #(= "203.0.113.5" (:ip %))})))))
+                                            {:exclude-pred #(= "203.0.113.5" (:ip %))})))))
 
 (deftest the-examples-of-the-iab
   (testing "2.2, scenario 1: ten requests from six user agents behind one address, in one day"
@@ -192,7 +192,7 @@
                                        :ip "198.51.100.7")
                               (request "AntennaPod/3.4.0" "2026-09-21T10:05:00Z" :ip "192.0.2.44")
                               (request "AntennaPod/3.4.0" "2026-09-21T10:06:00Z" :ip "192.0.2.44" :url "https://cdn.example.com/episode-1.mp3?_from=app")]
-                             {:user-agents user-agents :exclude? #(= "198.51.100.7" (:ip %))})]
+                             {:user-agents user-agents :exclude-pred #(= "198.51.100.7" (:ip %))})]
     (is (= [["Overcast" "Apple iPhone"] ["AntennaPod" "Android Phone"]] (map (juxt :agent-name :device-name) downloads))
         "the file of a request is its URL without the query")
     (is (= {:bot 1 :excluded 1} dropped) "Go-http-client is a library of bots")
@@ -253,9 +253,9 @@
     (is (op3/accepts? "https://cdn.example.com/e.mp3"))
     (is (not (op3/accepts? "https://media.test/e.mp3")))
     (is (= "https://op3.example.org/e/media.test/e.mp3"
-           (op3/prefix "https://media.test/e.mp3" {:origin "https://op3.example.org" :accepts? (constantly true)})))
-    (is (nil? (op3/prefix "https://cdn.example.com/e.mp3" {:accepts? #(str/ends-with? % ".m4a")})))
-    (is (nil? (op3/prefix "ipfs://bafy/e.mp3" {:accepts? (constantly true)})) "a prefix is for http and https"))
+           (op3/prefix "https://media.test/e.mp3" {:origin "https://op3.example.org" :accepts-pred (constantly true)})))
+    (is (nil? (op3/prefix "https://cdn.example.com/e.mp3" {:accepts-pred #(str/ends-with? % ".m4a")})))
+    (is (nil? (op3/prefix "ipfs://bafy/e.mp3" {:accepts-pred (constantly true)})) "a prefix is for http and https"))
   (let [feed (op3/with-prefix (rss/parse (fixture "feeds/namespace-example.xml")))
         item (first (filter #(= "https://op3.dev/e/example.com/file-03.mp3" (get-in % [:rss/enclosure :url])) (:rss/items feed)))]
     (is (some? item) "the enclosure, without the guid of the example, which is no UUID")

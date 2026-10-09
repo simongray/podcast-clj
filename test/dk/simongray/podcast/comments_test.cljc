@@ -419,7 +419,7 @@
     (run #(async/then
            (comments/fetch! {:protocol "activitypub" :uri root}
                             {:send send :max-seconds 60 :timeout-seconds 50 :max-bytes 1000000 :concurrency 1
-                             :now (fn [] (time/->inst @clock))})
+                             :now-fn (fn [] (time/->inst @clock))})
            (fn [thread]
              (is (= [[root 50 1000000] ["https://podcastindex.social/contexts/269-117294750060235480" 30 1000000]] @log)
                  "the time that is left cuts the time of a request, and no request starts after a minute")
@@ -720,9 +720,9 @@
                  "no request goes to it, unless the app allows it")))
          #(async/then
            (async/all [(comments/fetch! note {:send send})
-                       (comments/fetch! note {:send send :allow? any?})])
+                       (comments/fetch! note {:send send :allow-pred any?})])
            (fn [_]
-             (is (= #{comments/public? any?} (set (map :allow? @asked)))
+             (is (= #{comments/public? any?} (set (map :allow-pred @asked)))
                  "each request carries the guard, which a :send gets too")
              (is (= [true false false false]
                     (map comments/public? ["https://93.184.216.34/" "http://127.0.0.1/" "wss://127.0.0.1" "ws://localhost:7777"]))

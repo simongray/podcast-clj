@@ -323,8 +323,10 @@
                         :cljs (.then (refused? request) #(is % (pr-str request))))))]
     (run (check {:url "https://example.org" :filters [{}]})
          (check {:url nil :filters [{}]})
-         (check {:url "wss://127.0.0.1:1" :filters [{}] :allow? nostr/public?})
-         (check {:url "wss://relay.example" :filters [{}] :allow? (constantly false)}))))
+         (check {:url "wss://127.0.0.1:1" :filters [{}]
+                 :allow-pred nostr/public?})
+         (check {:url "wss://relay.example" :filters [{}]
+                 :allow-pred (constantly false)}))))
 
 #?(:clj
    (deftest an-exchange-with-a-relay
