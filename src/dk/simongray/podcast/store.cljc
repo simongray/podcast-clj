@@ -12,8 +12,7 @@
 
   A body is text or bytes, a byte array on the JVM and a Uint8Array in
   JavaScript. A fetch gives it as text, or as bytes with :as :bytes in its
-  opts, as util.http/send! does, whichever was put, and util.bytes/as
-  turns one into the other. A put is a conflict when its opts have an
+  opts, whichever was put. A put is a conflict when its opts have an
   :if-version other than the store's, where nil means that the document
   must not exist yet. A store that can't be written, e.g. over the files
   of an input, has no :put.
@@ -21,12 +20,7 @@
   On the JVM, each function returns its value and throws when it fails. In
   ClojureScript, each can return a value or a promise. A store closes over
   its credentials, so they're never in the map, and you wrap a store by
-  updating a key. The function memory gives a store over an atom, for
-  tests or for an app that keeps the documents itself.
-
-  Test a store with check!, e.g. from a button in the settings. To sync
-  through a store, make a backend of it with
-  dk.simongray.podcast.sync/backend."
+  updating a key."
   (:require [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
@@ -105,7 +99,7 @@
                     #(filterv some? %)))))))
 
 (def probe-name
-  "The document that check! writes and removes, which isn't an .edn file,
+  "The document that a check writes and removes, which isn't an .edn file,
   so that a probe left behind is never read as a document."
   "podcast-sync-probe.txt")
 
@@ -288,7 +282,7 @@
   "Try `store` through its contract, e.g. from a button in the settings,
   and report what works:
 
-      {:ok?    true                   ; it works as sync/backend uses it
+      {:ok?    true                   ; it works as a sync backend uses it
        :checks [{:id :store/reachable :ok? true :message \"…\"}
                 {:id :store/authenticated …}
                 {:id :store/listing …}
@@ -300,7 +294,7 @@
   The report is a promise in ClojureScript. The probe document is
   probe-name, written and removed, and nothing is written to a store that
   can't be reached. A store without :list is reached with a fetch, and
-  tried for the one shared document that sync/backend gives it, which
+  tried for the one shared document that a sync backend gives it, which
   needs a put refused both with a stale version and with an :if-version
   of nil while the document is there. A store without :delete keeps the
   probe. A store without :put is only reached, and is ok when it can be

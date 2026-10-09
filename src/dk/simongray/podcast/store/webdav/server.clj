@@ -2,8 +2,7 @@
   "Any document store served over WebDAV (RFC 4918), for a Clojure backend
   whose browser clients sync through their own origin.
 
-  The function handler is a Ring handler that answers these methods, with
-  ETags and preconditions:
+  The server answers these methods, with ETags and preconditions:
 
   - GET and HEAD, for a document
   - PUT, for a document, when the store has :put

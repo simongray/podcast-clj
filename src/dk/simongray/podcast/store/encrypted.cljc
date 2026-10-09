@@ -2,13 +2,13 @@
   "Any document store, with its documents encrypted at rest.
 
   A server or a synced folder then holds only ciphertext, and nothing else
-  changes. The function store wraps a store: names and versions pass
-  through, and bodies are sealed on the way in and opened on the way out.
+  changes. Names and versions pass through, and bodies are sealed on the
+  way in and opened on the way out.
 
   A body is sealed with AES-256-GCM under a key derived from the passphrase
-  by PBKDF2 with HMAC-SHA256, as dk.simongray.podcast.crypto.aes-gcm does
-  it. Each document is a small EDN envelope with the salt, IV and
-  iteration count that open it, so there's no key file to lose:
+  by PBKDF2 with HMAC-SHA256. Each document is a small EDN envelope with
+  the salt, IV and iteration count that open it, so there's no key file to
+  lose:
 
       {:encrypted 1 :cipher \"AES-256-GCM\" :kdf \"PBKDF2-HMAC-SHA256\"
        :iterations 600000 :salt \"…\" :iv \"…\" :data \"…\"}
@@ -18,8 +18,8 @@
   passphrase that doesn't open a document makes that call of the store
   fail with ::locked.
 
-  Since WebCrypto is asynchronous, encrypt, decrypt and the functions of
-  the store return promises in ClojureScript. Each platform opens the
+  Since WebCrypto is asynchronous, the functions here and those of the
+  store return promises in ClojureScript. Each platform opens the
   envelopes of the other."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
@@ -47,9 +47,9 @@
   (* 10 default-iterations))
 
 (defn- derive-key
-  "The AES key for `passphrase` with `salt` over `iterations`, as
-  aes-gcm/derive-key gives it. The passphrase is a string, or a hidden
-  text of dk.simongray.podcast.util.secret."
+  "The AES key for `passphrase` with `salt` over `iterations`. The
+  passphrase is a string, or a hidden text of
+  dk.simongray.podcast.util.secret."
   [passphrase salt iterations]
   (aes-gcm/derive-key (secret/reveal passphrase) salt iterations))
 
@@ -167,8 +167,7 @@
   - :iterations, the PBKDF2 iterations of the key, default-iterations by
     default
   - :except, the names of documents to leave in the clear, e.g.
-    dk.simongray.podcast.sync/opml-name for a subscription list
-    that other apps should read
+    subscriptions.opml, a subscription list that other apps should read
 
   A key is derived once for each salt and iteration count, and cached.
   Each store seals with a salt of its own, and opens any salt that a

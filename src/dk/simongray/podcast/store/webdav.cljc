@@ -8,13 +8,8 @@
   server answers a put without one, and MKCOL makes the collection when it
   isn't there.
 
-  The function store gives the store over a collection, with the
-  credentials closed over. Below that, request builds each call as a
-  request map, and response reads the answer. That way, the requests can
-  go through any :send, and the tests run on recorded answers. In a
-  browser, the server must let the page through CORS and expose the ETag.
-  The other side is dk.simongray.podcast.store.webdav.server, which serves
-  any store over WebDAV."
+  In a browser, the server must let the page through CORS and expose the
+  ETag."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
@@ -191,9 +186,8 @@
                          (fail)))))
 
 (defn- host
-  "The host of the URL `root`, as url/origin reads it, without
-  credentials. It has its port when that isn't the default port of the
-  scheme."
+  "The host of the URL `root`, without credentials. It has its port when
+  that isn't the default port of the scheme."
   [root]
   (when-let [[scheme host port] (url/origin root)]
     (cond-> host

@@ -17,11 +17,10 @@
   {:as :bytes} reads it as bytes.
 
   In a browser that can't pick a folder, the listener can still sync
-  through one by hand: save app.library/document into the folder, and load
-  the folder's files with a file input. A browser's permission for a
-  picked folder can lapse between visits, so check it with
-  query-permission! before a sync, and renew it with request-permission!
-  from a click.
+  through one by hand: save the device's sync document into the folder,
+  and load the folder's files with a file input. A browser's permission
+  for a picked folder can lapse between visits, so check it before a
+  sync, and renew it from a click.
 
   A file is written whole and replaces the old one, so a sync client never
   sees half of one. The version of a file is its modification time and
@@ -398,7 +397,7 @@
 #?(:cljs
    (defn request-permission!
      "Ask the listener to let the app read and write the folder `dir`, and
-     give the answer as query-permission! does.
+     give the answer, :granted, :prompt or :denied, as a promise.
 
      A browser only asks during a click, so call it from one."
      [dir]
