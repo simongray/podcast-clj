@@ -8,8 +8,6 @@
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
  ;;
- ;; mind-meld is a checkout beside this one until it's on GitHub.
- ;;
  ;; org.jsoup/jsoup is optional: with it on the classpath, feeds that are not
  ;; well-formed even after repair are parsed leniently instead of rejected.
  :deps  {org.clojure/clojure      {:mvn/version "1.11.4"}
@@ -20,7 +18,9 @@
          dk.simongray/drop-in-search
          {:git/url "https://github.com/simongray/drop-in-search"
           :git/sha "60f47968e42c6823301fe630045f9c862296b6de"}
-         dk.simongray/mind-meld   {:local/root "../mind-meld"}}
+         dk.simongray/mind-meld
+         {:git/url "https://github.com/simongray/mind-meld"
+          :git/sha "19df1383506ceb8ba70ff75cab7b49ede20ff203"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
@@ -103,11 +103,13 @@
                        slipset/deps-deploy            {:mvn/version "0.2.5"}}
           :ns-default build}
 
-  ;; html-pieces and drop-in-search from checkouts beside this one, to
-  ;; change them and podcast-clj at once, e.g. clojure -M:dev:local:nrepl
+  ;; html-pieces, drop-in-search and mind-meld from checkouts beside this
+  ;; one, to change them and podcast-clj at once, e.g.
+  ;; clojure -M:dev:local:nrepl
   :local {:override-deps
           {dk.simongray/html-pieces    {:local/root "../html-pieces"}
-           dk.simongray/drop-in-search {:local/root "../drop-in-search"}}}
+           dk.simongray/drop-in-search {:local/root "../drop-in-search"}
+           dk.simongray/mind-meld      {:local/root "../mind-meld"}}}
 
   ;; clojure -M:dev:nrepl
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}}

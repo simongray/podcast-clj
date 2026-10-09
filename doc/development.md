@@ -14,16 +14,13 @@ Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
 The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
 to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
 
-To change [html-pieces](https://github.com/simongray/html-pieces) or
-[drop-in-search](https://github.com/simongray/drop-in-search) and
-podcast-clj at once, check both out beside this one, in `../html-pieces`
-and `../drop-in-search`, and add the `:local` alias, e.g.
+To change [html-pieces](https://github.com/simongray/html-pieces),
+[drop-in-search](https://github.com/simongray/drop-in-search) or
+[mind-meld](https://github.com/simongray/mind-meld) and podcast-clj at
+once, check all three out beside this one, in `../html-pieces`,
+`../drop-in-search` and `../mind-meld`, and add the `:local` alias, e.g.
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
 deps.edn.
-
-Until [mind-meld](https://github.com/simongray/mind-meld) is on GitHub, you
-need a checkout of it beside this one, in `../mind-meld`, since deps.edn
-points there.
 
 
 ## The inspector
