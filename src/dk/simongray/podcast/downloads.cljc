@@ -2,18 +2,16 @@
   "The episodes to download and the files to delete on a device, by the
   listener's rules.
 
-  Since plan is a pure function, downloading, deleting and choosing when
-  are up to you. The rules are the kinds that podcast apps have, and a
-  rule selects its episodes with the options of criteria/episodes, as a
-  saved filter does:
+  Downloading, deleting and choosing when are up to you. The rules are the
+  kinds that podcast apps have, and a rule selects its episodes with the
+  options of criteria/episodes, e.g.:
 
       {:download? true
        :episodes  {:where {:duration [600 nil] :not {:text #{\"rerun\"}}}
                    :limit 3}
        :played    86400}
 
-  The rules sync in the profile, and a device with rules of its own
-  gives them to plan as :rules."
+  The rules sync in the profile, and a device can have rules of its own."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -32,7 +30,7 @@
 (def default-rule
   "The rule of a show until the listener gives another:
 
-  - :download?, whether plan downloads the episodes of the show
+  - :download?, whether the episodes of the show are downloaded
   - :episodes, the :where, :order, :limit and :scale of criteria/episodes
     that select them
   - :played, the seconds that the file of a played episode stays, where 0
@@ -68,13 +66,13 @@
 
 (def bytes-per-second
   "The bytes of one second of an episode whose feed gives no length, audio
-  at 128 kbit/s, unless :estimate in the options of plan says otherwise."
+  at 128 kbit/s, unless the :estimate of the options says otherwise."
   16000)
 
 (defn rules
   "The rules that `profile` holds, over default-rules: the listener's
   preference :downloads, with the setting :downloads of each show as its
-  rule, as profile/prefer and profile/configure write them."
+  rule."
   [profile]
   (let [listener (:downloads (profile/preferences profile))
         rule-of  #(:downloads (profile/settings profile %))
@@ -155,8 +153,8 @@
 
   A place is a key of the rules, or the feed guid of a show. The rules can
   come from a device with a later version. For a show whose rule has a
-  problem, plan does nothing, and for a problem elsewhere, it does nothing
-  at all."
+  problem, a plan does nothing, and for a problem elsewhere, it does
+  nothing at all."
   [rules]
   (if-not (map? rules)
     {:rules (str "the rules are " (pr-str rules) ", not a map")}
@@ -200,11 +198,11 @@
                         (profile/episode-entries profile))}))
 
 (defn- context
-  "The map that plan passes to its helpers, from `profile`, the
-  device's `files`, the instant `at` and the `opts` of plan.
+  "The context of a plan, from `profile`, the device's `files`, the
+  instant `at` and the `opts` of the plan.
 
-  It has what criteria/where needs: the profile as :profile, the
-  instant :at and the :url of a feed. It also has the :files, the :rules
+  It has what the criteria need: the profile as :profile, the instant :at
+  and the :url of a feed. It also has the :files, the :rules
   with their :problems, and the :held episodes."
   [profile files at opts]
   (let [rules (:rules opts (rules profile))]
@@ -281,7 +279,7 @@
   episode `id`, given the ids it `selected`, or nil to keep the file.
 
   The reason is :played, :inactive or :trimmed. The `selected` ids are nil
-  for a show whose feed wasn't given to plan."
+  for a show whose feed wasn't given."
   [{:keys [profile rules at] :as ctx} selected id file]
   (let [{:keys [played inactive trim?]} (rule rules (first id))
         e      (profile/episode-entry profile id)
@@ -352,9 +350,9 @@
   "The plan entry for downloading the `item` of the episode `id` for
   `reason`, with the options in `ctx`, or nil without a media file.
 
-  The file is the one resolve/enclosure selects with the :enclosure of
-  `ctx` as options. The bytes are the length in the feed, or else what the
-  :estimate of `ctx` gives for the item."
+  The file is the enclosure that the :enclosure of `ctx` selects. The
+  bytes are the length in the feed, or else what the :estimate of `ctx`
+  gives for the item."
   [ctx id item reason]
   (let [enclosure (some-> item (resolve/enclosure (:enclosure ctx)))
         estimator (:estimate ctx estimate)]
@@ -413,8 +411,8 @@
                0)})
 
 (defn- room
-  "The fewest files from the start of `spare` that free the `need`, as
-  over gives it, or nil when all of `spare` isn't enough."
+  "The fewest files from the start of `spare` that free the `need`, a map
+  of :episodes and :bytes, or nil when all of `spare` isn't enough."
   [spare {:keys [episodes bytes] :as need}]
   (let [freed (reductions + 0 (map #(:bytes % 0) spare))]
     (some (fn [[n sum]]
@@ -447,7 +445,7 @@
         (update plan :waiting conj (assoc entry :limit limit))))))
 
 (defn- planned
-  "The result of plan for the context `ctx` and the `feeds`."
+  "The plan for the context `ctx` and the `feeds`."
   [{:keys [files rules] :as ctx} feeds]
   (let [selected  (selections ctx feeds)
         going     (vec (deletes ctx selected))

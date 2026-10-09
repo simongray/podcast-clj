@@ -1,12 +1,6 @@
 (ns dk.simongray.podcast.criteria
   "Criteria that select and order episodes, given as data, e.g. for a
-  saved filter or a download rule.
-
-  The criteria read the model through feed.resolve, so each means what the
-  accessor means:
-
-      (episodes feed {:where {:season 2 :type \"full\" :duration [600 nil]}
-                      :order :newest})"
+  saved filter or a download rule."
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.analysis :as analysis]
@@ -88,7 +82,7 @@
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
   queries. It's true when the title and notes of an item match any of
-  them, as dk.simongray.drop-in-search.queries/matches? reads them."
+  them, as queries of dk.simongray.drop-in-search."
   [v]
   (let [queries (mapv search.queries/parse (if (set? v) v [v]))]
     (fn [_ item]
@@ -98,7 +92,7 @@
 
 (defn- indexed
   "The predicate of the criterion :text for `v`, a query or a set of
-  queries, with an index of the documents of feed.search under :index in
+  queries, with an index of the documents of the episodes under :index in
   `ctx`. It's true when an item's title and notes match any of them."
   [v ctx]
   (let [index  (:index ctx)
@@ -131,8 +125,8 @@
 (declare where)
 
 (def ^:no-doc criterion
-  "The test of each criterion of where, a function of the criterion's
-  value and the context that returns a predicate of a feed and an item."
+  "The test of each criterion, a function of the criterion's value and the
+  context that returns a predicate of a feed and an item."
   {:season      (fn [v _]
                   (fn [_ item] (in? v (:season (resolve/numbering item)))))
    :type        (fn [v _]
@@ -187,7 +181,7 @@
   "The predicate of a feed and one of its items for `criteria` in the
   context `ctx`. The criteria are a map whose entries must all hold:
 
-  - :season, a season or a set of them, as resolve/numbering gives it
+  - :season, a season or a set of them
   - :type, \"full\", \"trailer\" or \"bonus\", or a set of them
   - :duration, a range of seconds, e.g. [600 nil], nil for an open end
   - :published, a range of instants
@@ -210,8 +204,8 @@
   profile as :profile in `ctx`. For feeds without a podcast:guid, they
   also need the :url, a string or a function of the feed. The :age needs
   the current time as :at, and with :scale, the :rating is in that scale.
-  With an index of the items' documents of feed.search as :index, the
-  :text reads it instead of each item's notes."
+  With an index of the documents of the items as :index, the :text reads
+  it instead of each item's notes."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -254,7 +248,7 @@
   context `ctx`, for sort-by. When `k` is a function of a feed and an
   item, it's `k` itself.
 
-  - :listening, as resolve/episodes orders a show
+  - :listening, the listening order of a show
   - :newest and :oldest, by publication
   - :shortest and :longest, by duration
   - :title, alphabetically
@@ -297,8 +291,8 @@
   - :where, criteria as where takes them, or else every item
   - :order, as order takes it, :listening by default
   - :limit, the most items
-  - :profile, :url, :at, :scale and :index, the context that where and
-    order need
+  - :profile, :url, :at, :scale and :index, the context of the criteria
+    and the order
 
   For a collection of feeds, the result is [feed item] pairs in one order,
   e.g. for an inbox, with :url as a function of the feed. With a :limit
@@ -356,8 +350,8 @@
   podcast-clj doesn't know, or nil.
 
   A saved filter can come from a device with a later version, and
-  episodes throws for criteria that it doesn't know, so check here before
-  offering the filter."
+  criteria that this version doesn't know throw, so check a filter before
+  offering it."
   [criteria]
   (let [{:keys [where order limit scale]} (when (map? criteria) criteria)
         in-where (where-problem where :where)]

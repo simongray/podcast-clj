@@ -2,9 +2,8 @@
   "Every diagnostic that the library can put in a report, by id, with its
   level and what it means.
 
-  The ids are API, since apps match on them. A test keeps the catalogue in
-  step with the source, and dev/reference.clj writes it out as
-  doc/diagnostics.md. The namespace of an id names what raises it:
+  The ids are API, since apps match on them, and doc/diagnostics.md lists
+  them all. The namespace of an id names what raises it:
 
   - fetch, the fetch of a feed
   - discovery, finding the feeds of a show from an address
@@ -677,11 +676,8 @@
 
 (defn describe
   "The `diagnostic` with a :message and a :level: its own, or else those
-  that the catalogue gives for its id.
-
-  The parser records only the id, the level and the details of a
-  diagnostic, so every report function runs its diagnostics through here.
-  An id that the catalogue doesn't know is left as it is."
+  that the catalogue gives for its id. An id that the catalogue doesn't
+  know is left as it is."
   [diagnostic]
   (let [{:keys [doc level]} (by-id (:id diagnostic))]
     (cond-> diagnostic
