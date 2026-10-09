@@ -74,7 +74,7 @@
    :clips          {:depth 2 :compact? true}
    :ratings        {:depth 1 :compact? true}
    :filters        {:depth 1 :compact? true}
-   :listened       {:depth 3 :count :seconds}
+   :listened       {:depth 3 :count-key :seconds}
    :preferences    {:depth 1}})
 
 (def default-settings
