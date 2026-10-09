@@ -28,12 +28,10 @@
        :devices        {device-id {:name :platform ... :seen {…}}}
        :retired        {device-id {}}}
 
-  Each write takes the time it happens at, and stamps what it changed with
-  that time and the :device of the profile. A profile is a CRDT of
-  dk.simongray.mind-meld, so merge joins the profiles of a listener's devices,
-  and compact drops the tombstones that every device has seen. A feed is
-  identified by its podcast:guid, and an episode by its id, [feed-guid
-  item-guid], as guid/episode-id gives it."
+  A profile is a CRDT of dk.simongray.mind-meld: each write takes the time
+  it happens at, and stamps what it changed with that time and the :device
+  of the profile. A feed is identified by its podcast:guid, and an episode
+  by its id, [feed-guid item-guid]."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -54,9 +52,9 @@
 
 (def ^:no-doc collections
   "The schema of a profile for dk.simongray.mind-meld: the :depth of the
-  entries of each collection, whether compact drops its tombstones, the
-  key of the listening counts, which only grow, and the ordered
-  collections of dk.simongray.mind-meld.list."
+  entries of each collection, whether its tombstones can be dropped, the
+  key of the listening counts, which only grow, and which collections are
+  ordered."
   {:subscriptions  {:depth 1 :compact? true}
    :remote-items   {:depth 1 :compact? true}
    :settings       {:depth 2}
@@ -78,7 +76,7 @@
    :preferences    {:depth 1}})
 
 (def default-settings
-  "The settings of a subscription until configure changes them:
+  "The settings of a subscription until the listener changes them:
 
   - :auto-queue?, whether new episodes join the queue
   - :inbox?, whether they join the inbox instead
@@ -99,9 +97,8 @@
   (into {} (remove (comp :removed? val)) (:subscriptions profile)))
 
 (defn ^:no-doc by-url
-  "A map from the URL of each subscription of `profile`, as
-  guid/normal-url gives it, to its feed guid, removed subscriptions
-  included.
+  "A map from the normalized URL of each subscription of `profile` to its
+  feed guid, removed subscriptions included.
 
   Where subscriptions share a URL, a live one wins over a removed one, and
   then the one that changed last."
@@ -120,9 +117,9 @@
   another feed. It gives the diagnostic :fetch/guid-taken if so, and nil
   if not.
 
-  A feed can declare any guid, so check a new feed with it before
-  subscribe. Two forms of one URL, e.g. with http and https, count as the
-  same feed."
+  A feed can declare any guid, so check a new feed before subscribing to
+  it. Two forms of one URL, e.g. with http and https, count as the same
+  feed."
   [profile feed-guid url]
   (when (subscribed? profile feed-guid)
     (let [other (get-in profile [:subscriptions feed-guid :url])]
@@ -161,22 +158,19 @@
 
 (defn ^:no-doc feed-author
   "The author of what the feed `feed-guid` brings about in a profile, such as
-  its new episodes in the queue, as crdt/as-device takes it. No device of
-  podcast-clj has such a name."
+  its new episodes in the queue, as a device id that no real device has."
   [feed-guid]
   (str "feed:" feed-guid))
 
 (defn relocate
   "Note in `profile` that the feed `feed-guid` moved to the :url of
   `details`, with the :title it has there, e.g. after a permanent
-  redirect.
-
-  The feed is the author of the move, which is stamped just after the last
-  write to the subscription. The move then never undoes what the listener
-  did on another device meanwhile, e.g. an unsubscription. Nothing changes
-  without a live subscription."
+  redirect. Nothing changes without a live subscription."
   [profile feed-guid {:keys [url title] :as details}]
   (let [sub  (get-in profile [:subscriptions feed-guid])
+        ;; the feed is the author of the move, stamped just after the last
+        ;; write to the subscription, so that it never undoes what the
+        ;; listener did on another device meanwhile, e.g. an unsubscription
         move (fn [p]
                (let [moved (assoc sub :url url :title title)
                      after (time/->inst (inc (crdt/stamp-ms sub)))]
@@ -194,11 +188,11 @@
 
 (defn rekey
   "The `profile` with the subscription `feed-guid` moved to `new-guid` at
-  `at`, along with its settings and tags, leaving a tombstone.
+  `at`, along with its settings and tags, leaving a tombstone, e.g. when a
+  feed declares a guid other than that of its URL.
 
-  A list or another app names a show by the guid of its URL, but the feed
-  can declare a guid of its own once it's fetched. Nothing changes when the
-  guids are the same, or when there's no live subscription."
+  Nothing changes when the guids are the same, or when there's no live
+  subscription."
   [profile feed-guid new-guid at]
   (if (or (= feed-guid new-guid) (not (subscribed? profile feed-guid)))
     profile
@@ -217,11 +211,9 @@
 ;; itemGuid and feedUrl
 (defn add-remote-item
   "The `profile` with the episode `id` of a show that it isn't subscribed
-  to, whose feed is at the :feed-url of `details`, at `at`.
-
-  It's an episode that the listener took from a search, a link or another
-  show, e.g. to queue it. Every device can then fetch its feed, which
-  app.library/refresh! does."
+  to, whose feed is at the :feed-url of `details`, at `at`. It's an
+  episode that the listener took from a search, a link or another show,
+  e.g. to queue it."
   [profile id {:keys [feed-url] :as details} at]
   (crdt/write profile [:remote-items id]
               #(assoc % :feed-url feed-url :removed? false)
@@ -240,8 +232,8 @@
   (into {} (remove (comp :removed? val)) (:remote-items profile)))
 
 (defn settings
-  "The settings of the subscription `feed-guid` in `profile`, over
-  default-settings."
+  "The settings of the subscription `feed-guid` in `profile`, over the
+  defaults."
   [profile feed-guid]
   (clojure.core/merge default-settings
                       (values (get-in profile [:settings feed-guid]))))
@@ -253,12 +245,11 @@
   The settings are the keys of default-settings, and these:
 
   - :rate, the playback rate of this show
-  - :downloads, its rule for dk.simongray.podcast.downloads
-
-  Each is an entry of its own, so two devices that change different
-  settings both keep their change."
+  - :downloads, its rule for dk.simongray.podcast.downloads"
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
+    ;; each setting is an entry of its own, so two devices that change
+    ;; different settings both keep their change
     (crdt/write-each profile
                      (for [[k v] settings]
                        [[:settings feed-guid k] (constantly {:value v})])
@@ -266,12 +257,12 @@
     profile))
 
 (def default-preferences
-  "How the listener likes to listen until prefer changes it: the seconds
-  that a skip jumps forward and back, and the playback rate."
+  "How the listener likes to listen until they change it: the seconds that
+  a skip jumps forward and back, and the playback rate."
   {:skip-forward 30 :skip-back 15 :rate 1.0})
 
 (defn preferences
-  "The listener's preferences in `profile`, over default-preferences."
+  "The listener's preferences in `profile`, over the defaults."
   [profile]
   (clojure.core/merge default-preferences (values (:preferences profile))))
 
@@ -397,11 +388,11 @@
   dk.simongray.mind-meld/compact does.
 
   Played marks and listening counts are never dropped, and the tombstones
-  of unsubscriptions stay while the listener follows a list, since a list
-  can name the show again."
+  of unsubscriptions stay while the listener follows a list."
   ([profile at]
    (compact profile at {}))
   ([profile at opts]
+   ;; a list can name an unsubscribed show again
    (let [follows? (some crdt/live? (vals (:lists profile)))
          schema   (cond-> collections
                     follows? (assoc-in [:subscriptions :compact?] false))]
@@ -409,14 +400,12 @@
 
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it,
-  unless :played-threshold in the options of progress, skip or step says
-  otherwise."
+  by default."
   30)
 
 (def listening-gap
   "How many seconds can pass between two reports of the position that are
-  still one stretch of listening, unless :listening-gap in the options of
-  step says otherwise."
+  still one stretch of listening, by default."
   60)
 
 (defn ^:no-doc played-mark
@@ -432,11 +421,10 @@
 
 (defn episode-entry
   "The entry of the episode `id` in `profile` with its played mark, or nil.
-
-  The position and the mark are entries of their own, so that a report of
-  the position from another device never undoes a mark. The entry has the
-  stamp and the device of the later of the two."
+  It has the stamp and the device of the later of the two."
   [profile id]
+  ;; the position and the mark are entries of their own, so that a report
+  ;; of the position from another device never undoes a mark
   (let [e (get-in profile [:episodes id])
         m (played-mark profile id)]
     (when (or e m)
@@ -446,8 +434,8 @@
                                        [:updated-at :device])))))
 
 (defn episode-entries
-  "The entries of the episodes of `profile` by id, as episode-entry gives
-  them."
+  "The entries of the episodes of `profile` by id, each with its played
+  mark."
   [profile]
   (let [ids (distinct (concat (keys (:episodes profile))
                               (keys (:played profile))))]
@@ -496,11 +484,9 @@
 
 (defn progress
   "Record in `profile` that the listener is `position` seconds into the
-  episode `id` at `at`, with its `duration` if known and the `opts` below.
-
-  An episode heard to within played-threshold seconds of its end counts
-  as played and leaves the inbox. The `opts` can give another
-  :played-threshold."
+  episode `id` at `at`, with its `duration` if known. An episode heard to
+  within the :played-threshold of `opts` of its end, in seconds, counts as
+  played and leaves the inbox."
   ([profile id position at]
    (progress profile id position nil at {}))
   ([profile id position duration at]
@@ -542,11 +528,8 @@
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
   `profile` at `at`, with the `opts` of progress. The position never goes
-  before the start or past a known end.
-
-  A duration of zero, or one that isn't a finite number, counts as
-  unknown, since players report those before they know. The new position
-  is in the profile for the UI to seek to."
+  before the start or past a known end, and a duration of zero, or one
+  that isn't a finite number, counts as unknown."
   ([profile id seconds at]
    (skip profile id seconds at {}))
   ([profile id seconds at opts]
@@ -554,23 +537,20 @@
    (let [{:keys [position duration]} (episode-entry profile id)
          finite?  #(and (number? %) (== % %) (not (infinite? %)))
          target   (+ (if (finite? position) position 0) seconds)
+         ;; players report such durations before they know
          known?   (and (finite? duration) (pos? duration))
          target   (max 0 (if known? (min target duration) target))]
      (progress profile id target nil at opts))))
 
 (defn- heard
   "The `profile` with the seconds heard of the episode `id` up to `position`
-  at `at` added to this device's count. Nothing counts when the last
-  report is more than `gap` seconds old.
-
-  An older report means that the listener paused. The seconds are how far
-  the position moved since the last report, at most three times the time
-  since then, as a faster move is a seek. The count is by show and month,
-  in UTC, and the last report is the episode's :reported-at, or else its
-  stamp."
+  at `at` added to this device's count, by show and month in UTC. Nothing
+  counts when the last report is more than `gap` seconds old."
   [profile id position at gap]
   (let [{p0 :position :keys [reported-at updated-at]} (episode-entry profile id)
         t0      (or reported-at updated-at)
+        ;; an older report means that the listener paused, and a move of
+        ;; more than three times the time since then is a seek
         seconds (when (and (number? position) (number? p0) (inst? t0))
                   (let [moved (- position p0)
                         spent (/ (- (inst-ms at) (inst-ms t0)) 1000.0)]
@@ -587,9 +567,9 @@
   "The seconds that the listener heard of each show in `profile`, by feed
   guid and month in UTC, e.g. {feed-guid {\"2026-09\" 5400.0}}.
 
-  The counts of all the devices add up. Since step counts at each
-  :progress, report the position at least every 30 seconds while an
-  episode plays (see listening-gap)."
+  The counts of all the devices add up. Report the position at least
+  every 30 seconds while an episode plays, since a longer gap can count as
+  a pause."
   [profile]
   (let [total (fn [devices]
                 (reduce + 0 (keep :seconds (vals devices))))]
@@ -792,7 +772,7 @@
                     {:scale scale}))))
 
 (defn ^:no-doc scale-of
-  "The scale of the rating entry `e`, or rating-scale when it names none."
+  "The scale of the rating entry `e`, or the default when it names none."
   [e]
   (clojure.core/merge rating-scale (select-keys e [:worst :best])))
 
@@ -834,7 +814,7 @@
   the scale of `opts` if it gives one.
 
   Each is a map of :id, :rating, the :worst and :best of its scale, and
-  :updated-at. A :scale in `opts` converts the ratings as rating does."
+  :updated-at. A :scale in `opts` converts the ratings."
   ([profile]
    (rated profile {}))
   ([profile {:keys [scale] :as opts}]
@@ -850,9 +830,9 @@
   "Give the episode `id` in `profile` the rating `n` at `at`, in the scale
   of `opts`, replacing any earlier rating.
 
-  The rating must be within rating-scale, or the :scale in `opts`, or
-  nothing changes. The profile keeps the scale with the rating, so another
-  app can read it in its own scale."
+  The rating must be within its scale, or nothing changes. The profile
+  keeps the scale with the rating, so another app can read it in its own
+  scale."
   ([profile id n at]
    (rate-episode profile id n at {}))
   ([profile id n at {:keys [scale] :as opts}]
@@ -879,7 +859,7 @@
 
 (defn ^:no-doc queue-entries
   "The entries of the queue of `profile`, each at the place of its latest
-  move, as dk.simongray.mind-meld.list/with-moves gives them."
+  move."
   [profile]
   (crdt.list/with-moves (:queue profile) (:queue-moves profile)))
 
@@ -916,8 +896,8 @@
     (crdt/live? e)))
 
 (defn in-inbox?
-  "Whether the episode `id` is in the inbox of `profile`, where refresh put
-  it, and the listener hasn't dismissed, queued or played it since."
+  "Whether the episode `id` is in the inbox of `profile`, and the listener
+  hasn't dismissed, queued or played it since it arrived."
   [profile id]
   (let [e (get-in profile [:inbox id])]
     (and (crdt/live? e) (not (queued? profile id)) (not (played? profile id)))))
@@ -979,14 +959,13 @@
 
 (defn move
   "Move the queued episode `id` to position `index` of the queue of `profile`
-  at `at`. An index that isn't whole is rounded down, and NaN counts as 0.
-
-  The place is an entry of its own, so the move never brings back an
-  episode that another device took out of the queue meanwhile."
+  at `at`. An index that isn't whole is rounded down, and NaN counts as 0."
   [profile id index at]
   (if-not (queued? profile id)
     profile
     (let [rank (crdt.list/rank-at (queue-entries profile) id index)]
+      ;; the place is an entry of its own, so the move never brings back an
+      ;; episode that another device took out of the queue meanwhile
       (crdt/write profile
                   [:queue-moves id]
                   (constantly {:rank rank :removed? false})
@@ -1039,7 +1018,7 @@
 
 (defn move-in-playlist
   "Move the episode `id` to position `index` of the playlist `name` of
-  `profile` at `at`, as move moves an episode in the queue."
+  `profile` at `at`."
   [profile name id index at]
   (let [entries (playlist-entries profile name)]
     (if (crdt/live? (get entries id))
@@ -1073,11 +1052,11 @@
 
 (defn to-list-feed
   "The playlist `name` of `profile` as a list feed of the podcast namespace,
-  for dk.simongray.podcast.feed.rss/emit, with the `opts` below.
+  with the `opts` below.
 
   It's a channel of the medium podcastL, whose remote items point to the
-  episodes in order, so Podcasting 2.0 apps that play list feeds can play
-  it. The `opts` give what a feed needs and a playlist lacks:
+  episodes in order. The `opts` give what a feed needs and a playlist
+  lacks:
 
   - :url, where the feed is published, which gives its podcast:guid
   - :link, a page about the list, the URL by default, which RSS 2.0
@@ -1085,8 +1064,7 @@
   - :description, the name by default
   - :medium, another medium, such as mixed
 
-  The URLs of the feeds go out without credentials, since a list feed is
-  for other people."
+  The URLs of the feeds go out without credentials."
   ([profile name]
    (to-list-feed profile name {}))
   ([profile name {:keys [url link description medium]
@@ -1122,17 +1100,17 @@
 
 (defn- joined-at
   "When each of the new episodes `ids` of the parse `feed`, oldest first,
-  joins a profile at `at`, by id.
-
-  It's the episode's date of publication, but at the latest `at` for the
-  newest episode and a millisecond earlier for each one before it, so
-  that episodes without a date keep their order."
+  joins a profile at `at`, by id: the episode's date of publication, but
+  at the latest `at` for the newest episode and a millisecond earlier for
+  each one before it."
   [feed ids at]
   (let [dates (into {} (for [item (:rss/items feed)
                              :let [date (:rss/pub-date item)]
                              :when (inst? date)]
                          [(guid/item-guid item) date]))]
     (into {} (map-indexed (fn [i [_ item-guid :as id]]
+                            ;; a millisecond apart, so that episodes
+                            ;; without a date keep their order
                             (let [latest (time/->inst (- (inst-ms at) i))
                                   date   (get dates item-guid latest)]
                               [id (min-key inst-ms date latest)]))
@@ -1145,11 +1123,7 @@
 
   The new episodes join the end of the queue with :auto-queue? in the
   settings of a live subscription, or else the inbox with :inbox?. An
-  episode that's already in the profile stays as the listener left it,
-  since another device can find it first. The feed is the author of what
-  joins, at the episode's date of publication but never after `at`. A
-  device that finds an episode late then never undoes what the listener
-  did with it on another device."
+  episode that's already in the profile stays as the listener left it."
   [profile url before after at]
   (let [feed-guid (guid/feed-guid after url)
         added     (feed/new-episodes url before after)
@@ -1157,6 +1131,7 @@
         (when (subscribed? profile feed-guid)
           (settings profile feed-guid))
 
+        ;; another device can find an episode first
         known?    #(or (played? profile %)
                        (contains? (:queue profile) %)
                        (contains? (:inbox profile) %))
@@ -1174,6 +1149,9 @@
 
                     :else
                     [])
+        ;; the feed is the author of what joins, at the episode's date of
+        ;; publication but never after at, so that a device that finds an
+        ;; episode late never undoes what the listener did with it
         stamps    (joined-at after unknown at)
         write     (fn [s [[_ id :as path] f]]
                     (crdt/write s path f (stamps id)))
@@ -1194,9 +1172,7 @@
 
 (defn follow-list
   "Follow the OPML list at `url` in `profile` at `at`, with the :title and
-  the :folder for its shows in `details`, when they're given.
-
-  Fetch the list and give each new parse to refresh-list. Following a
+  the :folder for its shows in `details`, when they're given. Following a
   list again changes its title and folder."
   ([profile url at]
    (follow-list profile url {} at))
@@ -1220,21 +1196,22 @@
   (filter :xml-url (:subscriptions list)))
 
 (defn ^:no-doc named
-  "The feed guid of the OPML `outline`, given the `names` of the
-  subscriptions by URL, as by-url gives them.
+  "The feed guid of the OPML `outline`, given the `names`, the feed guids
+  of the subscriptions by normalized URL.
 
   It's the guid of the subscription at the outline's URL, or else the
-  outline's own guid, or else the guid of its URL. This keeps a known show
-  from coming in again under another guid."
+  outline's own guid, or else the guid of its URL."
   [names {:keys [xml-url guid] :as outline}]
+  ;; a known show doesn't come in again under another guid
   (or (get names (guid/normal-url xml-url))
       (when (string? guid) (not-empty (str/trim guid)))
       (guid/from-url xml-url)))
 
 (defn- joining
   "The shows of the OPML `list` that join `profile`, as pairs of feed guid
-  and outline in the order of the list. The `names` are as by-url gives
-  them, and a show that the list had before, in `was`, doesn't join."
+  and outline in the order of the list. The `names` are the feed guids of
+  the subscriptions by normalized URL, and a show that the list had
+  before, in `was`, doesn't join."
   [profile names was list]
   (let [join (fn [{:keys [names joined] :as acc} {:keys [xml-url] :as outline}]
                (let [g (named names outline)]
@@ -1280,14 +1257,11 @@
     {:profile profile :added [] :left []}))
 
 (defn to-opml
-  "The live subscriptions of `profile` as a subscription list for
-  dk.simongray.podcast.format.opml/emit.
+  "The live subscriptions of `profile` as an OPML subscription list.
 
   The folders come first, then the shows in no folder, and the followed
   lists are includes. Each outline has the guid of its feed, the tags as
-  categories, and the time of subscribing as its creation time. A comma in
-  a tag is written as an underscore, since OPML separates categories with
-  commas."
+  categories, and the time of subscribing as its creation time."
   [profile]
   (let [subs    (subscriptions profile)
         ls      (lists profile)
@@ -1317,8 +1291,8 @@
 ;; https://github.com/vinhnx/podcasts/blob/main/overcast.opml
 (def wrappers
   "The lower-case names of the folder that some apps write around a whole
-  subscription list. When such a folder holds every feed of the list,
-  from-opml reads it as no folder."
+  subscription list. When such a folder holds every feed of the list, it
+  counts as no folder."
   #{"feeds"})
 
 (defn- wrapper
@@ -1330,8 +1304,8 @@
       folder)))
 
 (defn- imported
-  "The import `acc` of from-opml with the feed of `outline` subscribed
-  to at `at`, in `folder` if any, and its categories as tags."
+  "The import `acc` with the feed of `outline` subscribed to at `at`, in
+  `folder` if any, and its categories as tags."
   [{:keys [profile names] :as acc}
    {:keys [xml-url text title category created] :as outline}
    folder
@@ -1349,17 +1323,17 @@
                 (reduce #(tag %1 g %2 at) profile categories))}))
 
 (defn from-opml
-  "Subscribe `profile` at `at` to each feed of the OPML subscription `list`
-  from dk.simongray.podcast.format.opml/parse, with `opts`.
+  "Subscribe `profile` at `at` to each feed of the OPML subscription `list`,
+  with `opts`.
 
   Each subscription gets the title, the innermost folder, the categories as
   tags and the creation time of its outline. The profile also follows the
   lists that the OPML includes, and a feed that the profile has already
   keeps its guid and URL.
 
-  A folder around every feed whose name is in wrappers counts as no
-  folder. The :wrappers of `opts` replaces those names with a set of
-  lower-case names or a predicate."
+  A folder around every feed counts as no folder when its name in lower
+  case is one of the :wrappers of `opts`, a set or a predicate, by default
+  \"feeds\"."
   ([profile list at]
    (from-opml profile list at {}))
   ([profile list at opts]
@@ -1452,20 +1426,18 @@
         (:remote-items profile)))
 
 (def ^:no-doc checks
-  "The checks of problem after those of dk.simongray.mind-meld and
-  dk.simongray.mind-meld.list, in order. Each takes a profile that is a map
-  and returns a description of the first problem of its kind, or nil, and
-  relies on the checks before it."
+  "The checks of a profile after those of dk.simongray.mind-meld, in order.
+  Each takes a profile that is a map and returns a description of the
+  first problem of its kind, or nil, and relies on the checks before it."
   [key-problem mark-problem count-problem criteria-problem
    remote-item-problem])
 
+;; a merge spreads the values of another device to every device, where a
+;; bad value makes a function throw, or two devices disagree
 (defn problem
-  "A description of what in `profile` breaks the rules that merge and the
-  functions here rely on, or nil.
+  "A description of what in `profile` breaks the rules below, or nil.
 
-  A merge spreads the values of another device to every device, where a
-  bad value makes a function throw, or two devices disagree. The rules are
-  those of dk.simongray.mind-meld/problem, and:
+  The rules are those of dk.simongray.mind-meld/problem, and:
 
   - Each rank in the queue and in a playlist is a rank.
   - A list is at a URL, a tag is a string, and a bookmark and a clip are
@@ -1476,23 +1448,23 @@
   - The criteria of a saved filter are a map.
   - A remote item names the URL of its feed.
 
-  Saved filters from a later version are fine here, and
-  criteria/problem says whether this version understands them."
+  Saved filters from a later version are fine here, even when this
+  version doesn't understand them."
   [profile]
   (or (crdt/problem collections profile)
       (crdt.list/problem collections profile)
       (some #(% profile) checks)))
 
 (defn ^:no-doc stepped
-  "The result of step for `profile`, its `effects`, and the sleep timer
-  `sleep`, if one runs."
+  "The result of a player event for `profile`, its `effects`, and the sleep
+  timer `sleep`, if one runs."
   [profile effects sleep]
   (cond-> {:profile profile :effects effects}
     sleep (assoc :sleep sleep)))
 
 (defn ^:no-doc ended
-  "The result of step for `profile` when the episode `id` ended at `at`,
-  with the sleep timer `sleep`.
+  "The result of a player event for `profile` when the episode `id` ended
+  at `at`, with the sleep timer `sleep`.
 
   The episode counts as played and leaves the queue if it was current,
   with the effect [:play next] when another episode is queued. With a
@@ -1511,14 +1483,13 @@
                (cond-> sleep left (assoc :episodes left))))))
 
 (defn- moved
-  "The result of step, with the `effects` and the sleep timer `sleep`,
-  when the episode `id` moved at `at` from its position in `profile` to
-  that in `profile'`.
+  "The result of a player event, with the `effects` and the sleep timer
+  `sleep`, when the episode `id` moved at `at` from its position in
+  `profile` to that in `profile'`.
 
   The result has `profile'` and the `effects`, then [:played id] if the
   episode now counts as played. When the position moved into the outro,
-  [:stop id] replaces the `effects`, and ended ends the episode with the
-  sleep timer."
+  the episode ends, with [:stop id] in place of the `effects`."
   [profile profile' id effects at sleep]
   (let [was       (played? profile id)
         start     (outro-start profile' (first id) id)
@@ -1542,8 +1513,8 @@
   The event is a vector of its kind, an episode id and any arguments:
 
   - [:progress id position duration] records the position, and counts the
-    seconds heard for listened, with the effect [:played id] when the
-    episode now counts as played.
+    seconds heard, with the effect [:played id] when the episode now
+    counts as played.
   - [:ended id] marks it played and drops it from the queue when it was
     current, with the effect [:play next] when another episode is queued.
   - [:play id] makes it current, at the front of the queue.
@@ -1551,19 +1522,20 @@
     :forward or :back, with the effect [:seek id position], and
     [:played id] when it now counts as played.
   - [:chapter id direction doc] jumps to the :next or :previous chapter of
-    the chapters document, as chapters/jump does, with the effects of a
-    skip.
+    the chapters document, with the effects of a skip.
 
-  A progress, skip or jump that reaches the outro (see outro-start) ends
-  the episode as [:ended id] does, with [:stop id] first and no seek. The
-  `opts` are:
+  A progress, skip or jump that reaches the outro ends the episode as
+  [:ended id] does, with [:stop id] first and no seek. The `opts` are:
 
   - :sleep, the sleep timer of this device, e.g. {:episodes 1} stops at
     the end of this episode. The result has what's left of it under
     :sleep, and the last episode gives [:stop id] instead of [:play next].
-  - :restart, the seconds of chapters/jump for a jump to the previous
-    chapter
-  - :played-threshold and :listening-gap, over the vars of those names"
+  - :restart, the seconds into a chapter in which a jump back goes to the
+    chapter before
+  - :played-threshold, how many seconds before the end count as having
+    heard an episode
+  - :listening-gap, how many seconds can pass between two reports of the
+    position in one stretch of listening"
   ([profile event at]
    (step profile event at {}))
   ([profile [kind id & args :as event] at {:keys [sleep] :as opts}]
