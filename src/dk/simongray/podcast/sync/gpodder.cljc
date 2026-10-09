@@ -6,12 +6,8 @@
   oPodSync and PinePods. They keep the data of apps such as AntennaPod,
   Kasts and gPodder. The design is in doc/sync.md.
 
-  The function backend is the one call that an app makes. The API names a
-  show by its feed URL, and an episode by the URL of its media. Since
-  podcast-clj names them by guid, identities gives the ways to name them
-  from the app's parsed feeds. The function request builds each call as a
-  request map, and response reads the answer, so that the tests run on
-  recorded answers."
+  The API names a show by its feed URL, and an episode by the URL of its
+  media, where podcast-clj names them by guid."
   (:require [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -27,7 +23,7 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def calls
-  "The calls that a backend makes to a server, whose paths are in apis."
+  "The calls that a backend makes to a server."
   #{:login :register :subscriptions :update-subscriptions :episodes
     :update-episodes})
 
@@ -38,9 +34,8 @@
   device. The API :gpodder is that of gpodder.net, which oPodSync and
   other servers speak too, and :nextcloud is that of the GPodder Sync app
   for Nextcloud. That app has no login and keeps no devices, so it has no
-  path for :login or :register. The :api in the options of request and
-  backend is a name here. For a server with paths of its own, it's a map
-  of paths of this shape."
+  path for :login or :register. The :api of the options is a name here,
+  or a map of paths of this shape for a server with paths of its own."
   {:gpodder   {:login                "/api/2/auth/{user}/login.json"
                :register             "/api/2/devices/{user}/{device}.json"
                :subscriptions        "/api/2/subscriptions/{user}/{device}.json"
@@ -54,7 +49,7 @@
                  :update-episodes      (str app "/episode_action/create")})})
 
 (def default-limits
-  "The limits of backend when its options don't set them.
+  "The limits of a backend when its options don't set them.
 
   A pull asks for one more page of episode actions when a page holds
   :page-size actions, and it reads :max-pages pages at most. A push sends
@@ -152,7 +147,7 @@
 
 (defn- instant
   "The instant of the action time `v`, in ISO 8601 and UTC without a zone,
-  or seconds since the epoch as epoch reads them."
+  or seconds since the epoch."
   [v]
   (if (string? v)
     (time/parse-iso8601 v)
@@ -200,10 +195,11 @@
   - :update-subscriptions and :update-episodes, the :timestamp, and the
     :update-urls as pairs of the URL sent and the URL rewritten
 
-  An action is as read-action reads it. A rewritten URL is nil when the
-  server refused the URL that was sent. It throws ::failed with the
-  :status when the status isn't a success, or when the answer isn't the
-  JSON object that the call expects."
+  An action has keyword keys, the action in lower case and the time as an
+  instant. A rewritten URL is nil when the server refused the URL that was
+  sent. It throws ::failed with the :status when the status isn't a
+  success, or when the answer isn't the JSON object that the call
+  expects."
   [call {:keys [status headers body] :as answer}]
   (let [fail     (fn [why]
                    (throw (ex-info (str "The server answered " status " to "
@@ -271,9 +267,9 @@
                                     [(guid/normal-url media) g]))}))})
 
 (defn identities
-  "The ways to name the shows and episodes of the `feeds`, as backend takes
-  them under :identities-fn. The feeds are maps of the :url and the parsed
-  :feed, e.g. the entries of app.feeds, and the ways are these:
+  "The ways to name the shows and episodes of the `feeds`, for the
+  :identities-fn of a backend. The feeds are maps of the :url and the
+  parsed :feed, and the ways are these:
 
       {:feed-guid-fn   (fn [url])                        ; the guid of the feed
        :feed-url-fn    (fn [feed-guid])                  ; the URL of the feed
@@ -314,9 +310,8 @@
   "The ways to name shows and episodes for `state` that `opts` give, by
   their own keys or by :identities-fn, with defaults for those they lack.
 
-  A feed is named by the subscription of `state` with its URL, as
-  dk.simongray.podcast.profile/by-url finds it. Without such a
-  subscription, :feed-guid-fn names the feed, or else its URL does.
+  A feed is named by the subscription of `state` with its URL. Without
+  such a subscription, :feed-guid-fn names the feed, or else its URL does.
 
   An episode is named by :episode-id-fn. Without that option, the guid of
   its action names it, or else the URL of its media. With the option, an
@@ -357,8 +352,8 @@
   (str "gpodder:" device))
 
 (defn ^:no-doc device-of
-  "The device of a gpodder server that wrote an entry as `author`, the
-  inverse of device-author. A device of podcast-clj is its own name."
+  "The device of a gpodder server that wrote an entry as `author`. A device
+  of podcast-clj is its own name."
   [author]
   (str/replace-first (str author) #"^gpodder:" ""))
 
@@ -396,10 +391,10 @@
   "The `state` with the episode action `a` applied to the episode `id` at
   the time it names, by its own device or else by `author`.
 
-  A \"play\" records a position as profile/progress does, and a \"new\" marks
-  the episode as not played, as profile/mark-unplayed does. An action of
-  another kind, or one no later than what `state` has of the episode,
-  changes nothing, so that an action read back does no harm."
+  A \"play\" records a position, and a \"new\" marks the episode as not
+  played. An action of another kind, or one no later than what `state`
+  has of the episode, changes nothing, so that an action read back does
+  no harm."
   [state id {:keys [action position total timestamp device] :as a} author]
   (let [stamp    (some-> (profile/episode-entry state id) :updated-at inst-ms)
         duration (when (and (number? total) (pos? total))
@@ -438,8 +433,8 @@
   A played episode is a play to its end, as AntennaPod writes it. An
   episode marked as not played is a \"new\", except on the first push, when
   `opts` have :first?. Positions are whole seconds, and a played episode
-  of an unknown duration tells nothing. The time of the action is that of
-  the device, as told-at gives it."
+  of an unknown duration tells nothing. The time of the action is on the
+  clock of the device that wrote the entry."
   ([id e podcast media device]
    (entry-action id e podcast media device {}))
   ([id e podcast media device {:keys [first?] :as opts}]
@@ -487,8 +482,8 @@
                      "timestamp" timestamp}))))))
 
 (defn- ahead?
-  "Whether the episode action `a` names a time that's more than
-  sync/skew-tolerance after the instant `at`."
+  "Whether the episode action `a` names a time that's further after the
+  instant `at` than a clock can be ahead."
   [a at]
   (< sync/skew-tolerance (- (inst-ms (:timestamp a)) (inst-ms at))))
 
@@ -516,7 +511,7 @@
   `opts` give the ways to name, and the :name of the backend, which writes
   what names no device.
 
-  An action that's ahead? of `at` changes nothing, and the report names
+  An action that's ahead of `at` changes nothing, and the report names
   its device. A change to the subscriptions counts as made at `at` at the
   latest, whatever time the server gives. An action that names no feed,
   media or readable time is left out, and the report counts such actions."
@@ -602,7 +597,7 @@
 
   On a server whose API has a login, it logs in and puts the new session
   in the atom. The login sends the session of the step before, which the
-  server can keep. Then it registers the device as register! does."
+  server can keep. Then it registers the device."
   [call! {:keys [api] :as opts} session cursor]
   (if-not (:login (paths api))
     (register! call! opts nil cursor)
@@ -663,7 +658,7 @@
 
 (defn- pull!
   "Pull what changed for `state` since `cursor` at `at`, with `call!` in
-  the `session` and `opts`. The result is as pulled gives it, in a future
+  the `session` and `opts`, and give the result of the pull, in a future
   or a promise."
   [call! opts session state cursor at]
   (async/then
@@ -720,8 +715,8 @@
      :unnamed       (keep :unnamed told)}))
 
 (defn- push!
-  "Push what pushing gives of `state` with `call!` in the `session` and
-  `opts`, and give `cursor`, in a future or a promise.
+  "Push what changed of `state` with `call!` in the `session` and `opts`,
+  and give `cursor`, in a future or a promise.
 
   The cursor gets the stamps of this push and the URLs that the server
   rewrote. An episode that the push didn't name has no stamp in it, so the
@@ -771,8 +766,8 @@
                             :count (count unnamed)})))})))))
 
 (defn backend
-  "A backend for dk.simongray.podcast.sync/sync! over the gpodder API
-  of the server at `root`, with the `opts` below:
+  "A sync backend over the gpodder API of the server at `root`, with the
+  `opts` below:
 
   - :credentials, a :username and a :password, or a function that returns
     them

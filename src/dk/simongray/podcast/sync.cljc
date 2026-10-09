@@ -11,18 +11,12 @@
 
   A pull returns a map of the :states to merge, the next :cursor and a
   :report. It has :partial? when the states are changes since the cursor
-  rather than whole states. A push returns the next :cursor and a :report, and
-  a :state when it learned more while writing. Both take the instant of
-  the step and never read a clock.
-
-  Each step of sync! pulls from every backend, merges, and pushes the
-  result. The function backend makes a backend over a document store of
-  dk.simongray.podcast.store. For a backend of your own, document
-  writes a device's whole state as a document, read-document reads it
-  back, and reconcile merges what the other devices wrote.
+  rather than whole states. A push returns the next :cursor and a
+  :report, and a :state when it learned more while writing. Both take the
+  instant of the sync and never read a clock.
 
   The state is the profile, unless the :crdt of the options names the
-  functions of another CRDT, as default-crdt does for the profile."
+  functions of another CRDT."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -52,7 +46,7 @@
    :problem profile/problem})
 
 (defn- crdt-of
-  "The functions of the CRDT of `opts`, over default-crdt."
+  "The functions of the CRDT of `opts`, over those of the profile."
   [opts]
   (merge default-crdt (:crdt opts)))
 
@@ -111,8 +105,8 @@
   60000)
 
 (defn- read-one
-  "The `acc` of read-documents with the document `doc` read at `at` with
-  `opts`: its state added, or a diagnostic of what kept it out."
+  "The `acc` of a reading of documents with the document `doc` read at
+  `at` with `opts`: its state added, or a diagnostic of what kept it out."
   [acc {:keys [name body] :as doc} at opts]
   (let [envelope (try
                    (read-document body opts)
@@ -183,7 +177,7 @@
   "The `state` with the documents `fetched` merged in at `at` with `opts`,
   as a map of the :state and a :report.
 
-  The documents are as read-documents takes them. What they tell is
+  The documents are maps of :name and :body. What they tell is
   acknowledged in the device registry, and the tombstones that every
   device has seen are compacted away. The `opts` are:
 
@@ -276,9 +270,9 @@
   "Put the subscription list of `state` beside the documents of `store`,
   when `opts` ask for it and the list changed since `cursor`.
 
-  The list is what profile/to-opml gives: the shows with their folders and
-  tags, and the lists that the listener follows. Returns the cursor, which
-  remembers the list last mirrored."
+  The list has the shows with their folders and tags, and the lists that
+  the listener follows. Returns the cursor, which remembers the list last
+  mirrored."
   [{:keys [put] :as store} {:keys [opml?] :as opts} state cursor]
   (let [list    (when opml? (profile/to-opml state))
         written (hash list)]
@@ -391,8 +385,8 @@
       (put-conditionally state cursor 3))))
 
 (defn backend
-  "A backend for sync! over `store`, a document store of
-  dk.simongray.podcast.store, with the `opts` below:
+  "A backend over `store`, a document store of dk.simongray.podcast.store,
+  with the `opts` below:
 
   - :strategy, :per-device for a document per device, or :shared for one
     document for all
@@ -477,9 +471,9 @@
 
   The wait depends on whether the local state has :changed? since the
   step, and on how many :failures in a row it ended with. The result is
-  never before `at`, and without a step, it's `at`. The `cadence`
-  defaults to default-cadence. The library schedules nothing, so run the
-  sync from a timer of your own."
+  never before `at`, and without a step, it's `at`. The `cadence` goes
+  over the defaults. The library schedules nothing, so run the sync from
+  a timer of your own."
   ([step at]
    (next-sync step at {}))
   ([{:keys [changed? failures] synced-at :at :as step} at cadence]
@@ -601,9 +595,8 @@
   Run one step at a time, since a step that overlaps another can write an
   older state after a newer one. What the listener did during a step
   isn't in its :state, so don't put the result in place of the state.
-  Merge it into the state as it is by then, e.g. with profile/merge. Then
-  compact as the step did, since the merge brings back the tombstones
-  that the step dropped.
+  Merge it into the state as it is by then, and compact as the step did,
+  since the merge brings back the tombstones that the step dropped.
 
   The backends need distinct names, since the cursors are kept by name,
   and the same name twice throws."

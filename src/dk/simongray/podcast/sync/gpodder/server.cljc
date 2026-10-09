@@ -2,11 +2,9 @@
   "The gpodder API served over a profile, so that apps such as
   AntennaPod, Kasts and gPodder sync with a server of the listener.
 
-  The function handler is a Ring handler for the paths of gpodder.net
-  under /api/2. The server is a device of podcast-clj, whose state holds
-  what the apps send, with each entry written by the device of the app. A
-  :sync function that you give keeps that state in step with the other
-  devices of the listener.
+  The server answers the paths of gpodder.net under /api/2. It's a device
+  of podcast-clj, whose state holds what the apps send, with each entry
+  written by the device of the app.
 
   The listener has one list of subscriptions, as in the GPodder Sync app
   for Nextcloud. A change counts from the time that it arrived here, so
@@ -392,10 +390,9 @@
             (reset! cursors (:cursors result))
             (:state result))))
 
-  A :sync gives a state, not a promise of one. In ClojureScript, where
-  sync! gives a promise, sync in the app and merge the result into the
-  atom. The server merges what it writes with what the app put in the atom
-  in between.
+  A :sync gives a state, not a promise of one, so in ClojureScript, sync
+  in the app and merge the result into the atom. The server merges what
+  it writes with what the app put in the atom in between.
 
   For a site with many listeners, make a handler for each, with a state,
   an :authorized-pred and a :sync of its own, and pass each request to the
