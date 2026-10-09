@@ -17,7 +17,7 @@
           :git/sha "c4f70ff155de494a49df45930bcfe58fda03fd14"}
          dk.simongray/drop-in-search
          {:git/url "https://github.com/simongray/drop-in-search"
-          :git/sha "af8f3398cb3f9090020da534ae3b2bd2d66b4bab"}}
+          :git/sha "60f47968e42c6823301fe630045f9c862296b6de"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
