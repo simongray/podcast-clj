@@ -24,7 +24,7 @@ once, check them out beside this one, in `../wary-fetch`,
 `../mind-meld`, and add the
 `:local` alias, e.g.
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
-deps.edn.
+deps.edn, or its version once it's released on Clojars.
 
 
 ## The inspector

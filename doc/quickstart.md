@@ -10,7 +10,9 @@ Add podcast-clj to your `deps.edn` as a Git dependency, with the SHA of the
 latest commit on `master`:
 
 ```clojure
-io.github.simongray/podcast-clj {:git/sha "…"}
+dk.simongray/podcast-clj
+{:git/url "https://github.com/simongray/podcast-clj"
+ :git/sha "…"}
 ```
 
 ## The library
