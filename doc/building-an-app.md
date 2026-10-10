@@ -532,7 +532,8 @@ The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
 To start an episode where the listener stopped, or after its intro, ask
 `profile/resume-position`. To pick the file to play, use
 `resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
-:max-bitrate 64000}`.
+:max-bitrate 64000}`. To keep to audio when a show also offers video, add
+`:playable-pred (complement resolve/video?)`.
 
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:
@@ -621,7 +622,10 @@ To follow the plan:
 
 Set `:keep?` in the entry of a file the listener asked for, and no rule
 deletes it. For rules that only apply to this device, give `plan` the
-rules as `:rules`. A rule written by a newer version of podcast-clj does
+rules as `:rules`. To choose among the files of an episode, e.g. audio
+alone, give it the options of `resolve/enclosure` as `:enclosure`. The
+plan only has files that `resolve/downloadable?` takes, so never an HLS
+stream or a torrent. A rule written by a newer version of podcast-clj does
 nothing until this version understands it, and `downloads/problems` says
 why.
 

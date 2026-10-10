@@ -283,8 +283,10 @@
   post. Each is a map with the :url and the :source, which is :enclosure,
   :alternate or :media.
 
-  It has what else the feed declares, e.g. the :type, :length, :bitrate,
-  :title and :default. An alternate also has its :integrity."
+  It has what else the feed declares, e.g. the :type, :length, :bitrate
+  in bits per second, :title and :default. An alternate also has its
+  :integrity, and the contentType of its source as :transport, e.g.
+  application/x-bittorrent for a torrent."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]
@@ -297,10 +299,43 @@
                  (dissoc :sources)
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
-   (for [{:keys [url file-size] :as content} (media-contents item)
+   ;; Media RSS 1.5.1, media:content: the bitrate is in kilobits per second
+   (for [{:keys [url file-size bitrate] :as content} (media-contents item)
          :when (and url (playable? content))]
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
-       file-size (assoc :length file-size)))))
+       file-size         (assoc :length file-size)
+       (number? bitrate) (assoc :bitrate (* 1000 bitrate))))))
+
+(defn video?
+  "Whether the `enclosure`, one of those that enclosures gives, is a video:
+  by its Media RSS medium, or else by an audio or video type, or else by a
+  height above 0, which only a video has."
+  [{:keys [medium type height]}]
+  (let [kind (some-> type str/lower-case (str/split #"/") first)]
+    (cond
+      medium           (= "video" (str/lower-case medium))
+      (= "video" kind) true
+      (= "audio" kind) false
+      :else            (boolean (and (number? height) (pos? height))))))
+
+;; RFC 8216, section 4; ISO/IEC 23009-1; the podcast namespace, source
+(def ^:no-doc indirect-types
+  "The types of a file that says where the media is rather than holds it,
+  in lower case: the playlist of a stream, and a torrent."
+  #{"application/vnd.apple.mpegurl" "application/x-mpegurl"
+    "application/mpegurl" "audio/mpegurl" "audio/x-mpegurl"
+    "application/dash+xml" "application/x-bittorrent"})
+
+(defn downloadable?
+  "Whether the `enclosure`, one of those that enclosures gives, is one file
+  that a request over HTTP fetches whole, rather than the playlist of a
+  stream such as HLS, a torrent or an IPFS address."
+  [{:keys [url type transport]}]
+  (let [served (some-> (or transport type) str/lower-case)]
+    (boolean (and (url/web-url? url)
+                  (not (indirect-types served))
+                  ;; RFC 8216, section 4: a playlist is also known by its path
+                  (not (re-find #"(?i)\.m3u8?(?:[?#]|$)" url))))))
 
 (defn- type-rank
   "The position of `type` among the preferred `types`, ignoring case, or
@@ -320,18 +355,22 @@
 
 (defn enclosure
   "The one thing to play for `item`: of all that it offers, the one that
-  best fits the `opts` below.
+  best fits the `opts` below, or nil when none can be played.
 
   - :types, the wanted types, most wanted first, e.g.
     [\"audio/opus\" \"audio/mpeg\"]
   - :max-bitrate, in bits per second, e.g. 64000
+  - :playable-pred, a predicate of the enclosures that can be played,
+    e.g. (complement video?) for audio alone
 
   The types count first, then the bitrate, where a candidate above the
   :max-bitrate ranks last. Among equals, the enclosure comes first, then
   the default alternate, then the rest, the most conventional first."
   ([item]
    (enclosure item nil))
-  ([item {:keys [types max-bitrate] :as opts}]
+  ([item {:keys [types max-bitrate playable-pred]
+          :or   {playable-pred any?}
+          :as   opts}]
    (let [rank (fn [{:keys [type bitrate default is-default source]}]
                 (let [over?    (and max-bitrate
                                     (number? bitrate)
@@ -342,7 +381,7 @@
                    (if over? 1 0)
                    (source-rank source)
                    (if default? 0 1)]))]
-     (first (sort-by rank (enclosures item))))))
+     (first (sort-by rank (filter playable-pred (enclosures item)))))))
 
 (def ^:no-doc transcript-preference
   "The transcript types in the order that an app is best served by them:

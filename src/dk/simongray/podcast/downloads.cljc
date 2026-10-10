@@ -65,9 +65,10 @@
    :make-room?   false})
 
 (def bytes-per-second
-  "The bytes of one second of an episode whose feed gives no length, audio
-  at 128 kbit/s, unless the :estimate of the options says otherwise."
-  16000)
+  "The bytes of one second of an episode whose feed gives neither its
+  length nor its bitrate, for :audio at 128 kbit/s and :video at 1 Mbit/s,
+  unless the :estimate of the options says otherwise."
+  {:audio 16000 :video 125000})
 
 (defn rules
   "The rules that `profile` holds, over default-rules: the listener's
@@ -177,10 +178,15 @@
                 [feed-guid problem])))))))
 
 (defn estimate
-  "The bytes that the file of `item` takes when its feed gives no length:
-  its duration at bytes-per-second, or 0 without a duration."
-  [item]
-  (long (* bytes-per-second (or (resolve/duration item) 0))))
+  "The bytes that the `enclosure` of `item` takes when its feed gives no
+  length: the duration at the bitrate of the enclosure, or else at
+  bytes-per-second, and 0 without a duration."
+  [item {:keys [bitrate] :as enclosure}]
+  (let [kind (if (resolve/video? enclosure) :video :audio)
+        rate (if (and (number? bitrate) (pos? bitrate))
+               (/ bitrate 8)
+               (bytes-per-second kind))]
+    (long (* rate (or (resolve/duration item) 0)))))
 
 (defn- held
   "The episode ids of `profile` under each name in keeps, e.g. the starred
@@ -350,18 +356,20 @@
   "The plan entry for downloading the `item` of the episode `id` for
   `reason`, with the options in `ctx`, or nil without a media file.
 
-  The file is the enclosure that the :enclosure of `ctx` selects. The
-  bytes are the length in the feed, or else what the :estimate of `ctx`
-  gives for the item."
+  The file is the enclosure that the :enclosure of `ctx` selects among
+  those that can be downloaded. The bytes are the length in the feed, or
+  else what the :estimate of `ctx` gives for the item and the enclosure."
   [ctx id item reason]
-  (let [enclosure (some-> item (resolve/enclosure (:enclosure ctx)))
+  (let [opts      (update (:enclosure ctx) :playable-pred
+                          #(every-pred resolve/downloadable? (or % any?)))
+        enclosure (some-> item (resolve/enclosure opts))
         estimator (:estimate ctx estimate)]
     (when-let [{:keys [url type length]} enclosure]
       (cond-> {:id     id
                :url    url
                :bytes  (if (and (number? length) (pos? length))
                          length
-                         (estimator item))
+                         (estimator item enclosure))
                :reason reason}
         type (assoc :type type)))))
 
@@ -498,9 +506,9 @@
   - :url, the URL of a feed without a podcast:guid, as a string or a
     function of the feed
   - :enclosure, the options of resolve/enclosure, which selects the file
-    of an episode
-  - :estimate, a function of an item that gives the bytes of a file whose
-    feed gives no length
+    of an episode among those that resolve/downloadable? takes
+  - :estimate, a function of an item and its enclosure that gives the
+    bytes of a file whose feed gives no length
   - :scale, the scale of the criterion :rating
 
   When the rules have a problem, the result describes it under

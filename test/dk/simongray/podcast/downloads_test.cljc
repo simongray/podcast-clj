@@ -293,9 +293,18 @@
         formats (assoc-in show [:rss/items 0 :podcast/alternate-enclosures]
                           [{:type "audio/opus" :length 90 :bitrate 32000 :sources [{:uri "https://example.org/a4.opus"}]}])]
     (is (= 400 (:bytes (entry show {}))))
-    (is (= (* 1800 downloads/bytes-per-second) (:bytes (entry bare {}))) "the duration at 128 kbit/s")
+    (is (= (* 1800 (:audio downloads/bytes-per-second)) (:bytes (entry bare {}))) "the duration at 128 kbit/s")
+    (is (= (* 1800 (:video downloads/bytes-per-second))
+           (:bytes (entry (assoc-in bare [:rss/items 0 :rss/enclosure :type] "video/mp4") {})))
+        "a video at 1 Mbit/s")
+    (is (= (* 1800 4000)
+           (:bytes (entry (update-in formats [:rss/items 0 :podcast/alternate-enclosures 0] dissoc :length)
+                          {:enclosure {:types ["audio/opus"]}})))
+        "at the bitrate of the file")
     (is (= 0 (:bytes (entry (update-in bare [:rss/items 0] dissoc :itunes/duration) {}))))
     (is (= 7 (:bytes (entry bare {:estimate (constantly 7)}))))
+    (is (nil? (entry (assoc-in show [:rss/items 0 :rss/enclosure] {:url "https://example.org/a4.m3u8" :type "application/x-mpegURL"}) {}))
+        "a stream is no download")
     (is (= {:id ["feed-a" "a4"] :url "https://example.org/a4.opus" :type "audio/opus" :bytes 90 :reason :rule}
            (entry formats {:enclosure {:types ["audio/opus"]}}))
         "the file that the app selects")

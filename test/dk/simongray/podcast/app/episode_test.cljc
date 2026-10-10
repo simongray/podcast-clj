@@ -63,6 +63,7 @@
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))
       (is (= "https://example.com/file-low-03.opus"
              (:url (:enclosure (episode/view show item {:types ["audio/opus"] :max-bitrate 64000})))))
+      (is (= "audio/opus" (:type (:enclosure (episode/view show item {:playable-pred #(= "audio/opus" (:type %))})))))
       (is (= "text/vtt" (:type (:transcript v))) "a timed type first")
       (is (= "text/plain" (:type (:transcript (episode/view show item {:transcript-types ["text/plain"]}))))))
     (testing "the chapters that the feed holds, and the file that it names"

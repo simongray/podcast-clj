@@ -173,6 +173,31 @@
     (is (= "https://a/1.mp4" (:url (resolve/enclosure item {:types ["video/mp4" "audio/opus"]}))))
     (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["audio/flac"]}))))))
 
+(deftest audio-or-video
+  (let [item                  {:rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}
+                               :podcast/alternate-enclosures
+                               [{:type "video/mp4" :height 720 :sources [{:uri "https://a/720.mp4"}
+                                                                         {:uri "https://a/720.torrent" :content-type "application/x-bittorrent"}]}
+                                {:type "application/x-mpegURL" :length 0 :height 1080 :sources [{:uri "https://a/master.m3u8"}]}]}
+        [mp3 mp4 torrent hls] (resolve/enclosures item)]
+    (testing "a video by its type, its height or its Media RSS medium"
+      (is (= [false true true true] (map resolve/video? [mp3 mp4 torrent hls])))
+      (is (resolve/video? {:url "https://m/1" :medium "Video" :type "application/octet-stream"}))
+      (is (not (resolve/video? {:url "https://m/1.mp4" :medium "audio" :type "video/mp4"})) "the medium first")
+      (is (not (resolve/video? {:url "https://p/a.m4a" :type "audio/mp4" :height 0})) "an audio type, whatever the height")
+      (is (not (resolve/video? {:url "https://p/a" :type "application/octet-stream" :height 0})) "no height at 0"))
+    (testing "a file to download, not a stream, a torrent or an IPFS address"
+      (is (= [true true false false] (map resolve/downloadable? [mp3 mp4 torrent hls])))
+      (is (not (resolve/downloadable? {:url "ipfs://QmdwGqd3d2" :type "audio/mpeg"})))
+      (is (not (resolve/downloadable? {:url "https://hls.example/pc20_236.m3u8?t=1" :type "application.x-mpegURL"}))
+          "a playlist by its path, whatever the type says")
+      (is (not (resolve/downloadable? {:url "https://a/stream" :type "application/mpegurl"})))
+      (is (resolve/downloadable? {:url "https://a.m3u/1.mp3" :type "audio/mpeg"})))
+    (testing "only what can be played"
+      (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["video/mp4"] :playable-pred (complement resolve/video?)}))))
+      (is (= "https://a/720.mp4" (:url (resolve/enclosure item {:playable-pred resolve/video?}))))
+      (is (nil? (resolve/enclosure (dissoc item :rss/enclosure) {:playable-pred (complement resolve/video?)}))))))
+
 (deftest people-and-inheritance
   (let [f    @example
         item (first (:rss/items f))]
@@ -310,7 +335,10 @@
   (let [item {:media/group {:contents [{:url "https://a/1.mp4" :type "video/mp4" :is-default true}
                                        {:url "https://a/1.webm" :type "video/webm"}]}}]
     (is (= ["https://a/1.mp4" "https://a/1.webm"] (map :url (resolve/enclosures item))))
-    (is (= "https://a/1.mp4" (:url (resolve/enclosure item))))))
+    (is (= "https://a/1.mp4" (:url (resolve/enclosure item)))))
+  (let [item {:media/group {:contents [{:url "https://a/hi.mp3" :bitrate 128} {:url "https://a/lo.mp3" :bitrate 48}]}}]
+    (is (= [128000 48000] (map :bitrate (resolve/enclosures item))) "Media RSS gives kilobits per second")
+    (is (= "https://a/lo.mp3" (:url (resolve/enclosure item {:max-bitrate 64000}))))))
 
 (deftest live-items-in-order
   (let [pending {:status "pending" :start #inst "2026-10-01T18:00:00Z" :rss/title "Next week"}
