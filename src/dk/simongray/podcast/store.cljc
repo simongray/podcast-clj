@@ -28,8 +28,8 @@
 ;; top of mind-meld. It could hold this store contract, the memory, folder,
 ;; IndexedDB and encrypted stores, and sync/backend, once the backend no
 ;; longer writes the OPML of a profile. The contract and those stores need
-;; only util.async, util.bytes and util.secret, but WebDAV needs util.http
-;; and qname-hiccup, so it would stay here.
+;; only util.bytes and the async and secret of wary-fetch, and WebDAV needs
+;; wary-fetch and qname-hiccup, which are libraries now, so it could go too.
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body

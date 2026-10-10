@@ -61,6 +61,24 @@
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]))
 
+;; TODO: Consider a library of comments for blogs and other sites: this
+;; namespace and comments.*, with the parts of Nostr that reading threads
+;; needs (nostr, crypto.secp256k1 and util.bech32). The podcast glue would
+;; stay here: the thread of podcast:socialInteract and the ids of NIP-73 for
+;; podcasts. What stands in the way today:
+;; - value.nwc uses nostr and crypto.secp256k1 too, and value.bolt11 uses
+;;   util.bech32, so the payments would require them from a library of
+;;   comments, while crypto.nip44 and crypto.chacha20 stay here.
+;; - The :comments/* diagnostics get their messages from
+;;   diagnostics/describe, so the library would need its own.
+;; - util.client, util.json, util.time and util.bytes would become its own
+;;   User-Agent and small copies.
+;; - A blog would soon miss four things: a bsky.app link as the start of a
+;;   thread, Nostr comments on a web page by its NIP-73 URL, counts of likes
+;;   and reposts, and a web link for each comment on Bluesky.
+;; - ActivityPub is the fediverse, but Bluesky and Nostr aren't, which the
+;;   name should allow for.
+
 (defn- nostr-opts
   "The `opts` of a hiccup of a note of the Nostr `thread`, with the names
   of its authors as :names, unless `opts` have their own."
