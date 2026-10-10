@@ -9,12 +9,12 @@
   The API names a show by its feed URL, and an episode by the URL of its
   media, where podcast-clj names them by guid."
   (:require [clojure.string :as str]
+            [dk.simongray.like-minded.document :as document]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
@@ -485,7 +485,7 @@
   "Whether the episode action `a` names a time that's further after the
   instant `at` than a clock can be ahead."
   [a at]
-  (< sync/skew-tolerance (- (inst-ms (:timestamp a)) (inst-ms at))))
+  (< document/skew-tolerance (- (inst-ms (:timestamp a)) (inst-ms at))))
 
 (defn- ahead-report
   "A diagnostic for each device whose episode `actions` name a time after

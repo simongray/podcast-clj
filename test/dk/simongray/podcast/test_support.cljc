@@ -1,9 +1,9 @@
 (ns dk.simongray.podcast.test-support
   "What the tests share: fixtures inlined from the classpath, a test of
   steps that give promises in ClojureScript, the instants and the two
-  devices the sync tests put through a store, with profiles or with notes,
-  the bytes of files built by hand, and on the JVM a temporary directory, a
-  server of a file on localhost and the feeds of the corpus."
+  devices the sync tests put through a store, the bytes of files built by
+  hand, and on the JVM a temporary directory, a server of a file on
+  localhost and the feeds of the corpus."
   #?(:cljs (:require-macros [dk.simongray.podcast.test-support]))
   (:require #?(:clj [clojure.java.io :as io])
             #?(:clj [clojure.string :as str])
@@ -92,42 +92,6 @@
   (-> (profile/make "laptop")
       (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
       (profile/progress a 900 3600 t2)))
-
-(def notes
-  "The schema of a state of mind-meld that holds notes by id, which the
-  tests of the sync engine and the stores sync instead of a profile."
-  {:notes {:depth 1 :compact? true}})
-
-(def with-notes
-  "The options of a sync of the states of notes."
-  {:schema notes})
-
-(defn note
-  "The `state` with the note `id` of `text` written at `at`."
-  [state id text at]
-  (crdt/write state [:notes id] (constantly {:text text}) at))
-
-(defn text
-  "The text of the note `id` in `state`."
-  [state id]
-  (get-in state [:notes id :text]))
-
-(defn phone-notes
-  "The notes of a phone that named itself, noted milk at `t0`, and noted
-  eggs at `t1`."
-  []
-  (-> {:device "phone"}
-      (crdt/identify {:name "Phone"} t0)
-      (note "milk" "Buy milk" t0)
-      (note "eggs" "Buy eggs" t1)))
-
-(defn laptop-notes
-  "The notes of a laptop that noted bread at `t1`, and changed the note on
-  eggs at `t2`, later than the phone."
-  []
-  (-> {:device "laptop"}
-      (note "bread" "Buy bread" t1)
-      (note "eggs" "Buy six eggs" t2)))
 
 (defn same?
   "Whether two states agree on all the listener sees: everything but whose

@@ -7,6 +7,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.like-minded.document :as document]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
@@ -503,7 +504,7 @@
         b       (backend send)
         g-b     (guid/from-url "https://b.example/rss")
         heard   #((juxt :position :updated-at :device) (profile/episode-entry % [g-a "a1"]))
-        soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) sync/skew-tolerance))]
+        soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) document/skew-tolerance))]
     (run
      #(async/then
        (sync/sync! (phone) [b] {:at t2})

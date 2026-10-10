@@ -37,6 +37,7 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
+            [dk.simongray.like-minded :as like-minded]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
@@ -827,7 +828,7 @@
                      {:at       at
                       :changed? (unsynced? library)
                       :failures failures})]
-     (sync/next-sync last-step (time-of library opts)))))
+     (like-minded/next-sync last-step (time-of library opts)))))
 
 (defn document
   "This device's sync document in `library`, with the :app and :at of

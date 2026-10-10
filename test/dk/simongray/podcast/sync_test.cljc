@@ -4,7 +4,7 @@
   writes beside the documents. like-minded tests the rest of the sync."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.string :as str])
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is]]
             #?(:clj [dk.simongray.like-minded.store :as store])
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
@@ -22,11 +22,13 @@
     (is (= 900 (:position (profile/episode-entry state a))) "and merged by them")
     (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions state)))))
     (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"can't be merged"
-                          (sync/read-document (pr-str {:version 1 :state {:clock "now"}})))))
-  (testing "of its own kind"
-    (is (= sync/kind (:kind (sync/read-document (sync/document (phone-state) t2)))))
-    (let [notes {:name "notes.edn" :body (pr-str {:version 1 :device "x" :written-at t2 :kind "my-notes" :state {}})}]
-      (is (= [:sync/other-kind] (map :id (:report (sync/read-documents [notes] t2))))))))
+                          (sync/read-document (pr-str {:version 1 :state {:clock "now"}}))))))
+
+(deftest the-kind-of-a-profile
+  (is (= sync/kind (:kind (sync/read-document (sync/document (phone-state) t2)))))
+  (let [notes {:name "notes.edn" :body (pr-str {:version 1 :device "x" :written-at t2 :kind "my-notes" :state {}})}]
+    (is (= [:sync/other-kind] (map :id (:report (sync/read-documents [notes] t2))))
+        "a document of another app is left out")))
 
 #?(:clj
    (deftest a-profile-that-the-others-cannot-merge
