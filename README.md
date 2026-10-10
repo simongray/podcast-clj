@@ -237,6 +237,8 @@ Background:
 - [iOS apps, October 2026](doc/ios-apps-2026.md): the ways to build an iOS
   app with podcast-clj, from a web view or React Native to a GraalVM native
   image or ClojureDart.
+- [Video podcasts, October 2026](doc/video-podcasts-2026.md): where video
+  podcasts are, what apps need to handle them, and what podcast-clj lacks.
 
 
 Development
