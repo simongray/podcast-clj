@@ -27,7 +27,7 @@
           :git/sha "45213f6e65639e77eee76bd4697530a1acf29ca1"}
          dk.simongray/mind-meld
          {:git/url "https://github.com/simongray/mind-meld"
-          :git/sha "ad97087d59fceb7129c5a1147b8c5a76c7f193da"}}
+          :git/sha "78331e5ad011f0a5c00fc804ef40dabfe22bc709"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
