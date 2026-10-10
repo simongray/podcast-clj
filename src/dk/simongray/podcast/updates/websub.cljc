@@ -21,6 +21,7 @@
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -68,7 +69,7 @@
   URL of the response when no link names it. A URL can be relative to the
   URL of the response."
   [{:keys [url headers] :as response} feed]
-  (let [links       (http/links headers)
+  (let [links       (headers/links headers)
         absolute    #(if url (url/absolute-url url %) %)
         header-hubs (seq (hrefs "hub" links))
         hubs        (or header-hubs (resolve/hubs feed))
@@ -293,7 +294,7 @@
   (let [body      (ring/body-bytes (:body request) max-bytes)
         secret    (if (fn? secret) (secret request) secret)
         signature (get headers "x-hub-signature")
-        links     (http/links headers)]
+        links     (headers/links headers)]
     (cond
       (nil? body)
       (answer 413 "")

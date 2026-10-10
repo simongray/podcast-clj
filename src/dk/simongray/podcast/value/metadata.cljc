@@ -22,6 +22,7 @@
             [dk.simongray.podcast.value.payment :as value.payment]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (def prefix
@@ -222,7 +223,7 @@
         (http/try-send! (:send opts) (request url) opts))
       (fn [{:keys [value error]}]
         (let [found (when (map? value)
-                      (http/header (:headers value) header-name))]
+                      (headers/header (:headers value) header-name))]
           (cond
             error
             (failure {:id     :value/unreachable

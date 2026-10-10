@@ -17,6 +17,7 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (def found-by
@@ -156,7 +157,7 @@
   against `base` when there is one, or nil when the link names no feed."
   [{:keys [rel type href title] :as attrs} base]
   (let [rels    (set (str/split (str/lower-case (str rel)) #"\s+"))
-        type    (http/media-type (text-of type))
+        type    (headers/media-type (text-of type))
         href    (when-let [h (text-of href)]
                   (if base (url/absolute-url base h) h))
         schemes (if base #{"http" "https"} #{nil "http" "https"})]
@@ -195,7 +196,7 @@
   absolute against `base`, the URL of the response. They're read as the
   link elements of a page are."
   [headers base]
-  (keep #(feed-link % base) (http/links headers)))
+  (keep #(feed-link % base) (headers/links headers)))
 
 (defn feed-anchors
   "The addresses that the a elements of the web page `s` link to and that

@@ -48,7 +48,7 @@
   (fn [{:keys [url allow-pred] :or {allow-pred (constantly true)}}]
     (swap! log conj url)
     (cond
-      (not (allow-pred url))      (throw (http/refusal url))
+      (not (allow-pred url))      (throw (ex-info (str "The request to " url " is not allowed") {:type ::http/refused :url url}))
       (= :late (get answers url)) (throw (ex-info (str "No answer in time from " url) {:type ::http/timeout :url url}))
       (contains? answers url)     (merge {:status 200 :url url :headers {}} (get answers url))
       :else                       (throw (ex-info (str "No route to " url) {:url url})))))

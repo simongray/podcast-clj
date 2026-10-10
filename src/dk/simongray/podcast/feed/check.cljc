@@ -25,6 +25,7 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (def ^:no-doc overlays
@@ -297,7 +298,7 @@
    (probe-url! send url {})
    (fn [{:keys [head get] :as facts}]
      (let [target     (or (:url get) (:url head) url)
-           stated     (http/media-type (:type declared))
+           stated     (headers/media-type (:type declared))
            came?      (contains? #{200 206} (:status get))
            readable?  (or (nil? stated) (contains? formats stated))
            read-job   (when (and read? came? readable?)
@@ -526,7 +527,7 @@
   "The diagnostic of the media type `served` for `file`, by the `chosen`
   requirements, when it differs from the one that the feed declares."
   [file chosen served]
-  (let [declared (http/media-type (get-in file [:declared :type]))]
+  (let [declared (headers/media-type (get-in file [:declared :type]))]
     (when (and declared
                served
                (not= declared served))
@@ -579,7 +580,7 @@
   a request for a byte range, `get`, with that range, by the `chosen`
   requirements."
   [{:keys [declared] :as file} chosen get]
-  (let [type (or (http/media-type (:type declared)) (:type get) "")]
+  (let [type (or (headers/media-type (:type declared)) (:type get) "")]
     (when (and (re-find #"^(?:audio|video)/" type)
                (not (ranged? get)))
       [(diagnostic file chosen :check/ranges :status (:status get))])))
@@ -588,7 +589,7 @@
   "The diagnostics of what reading the media `file` found, `media`, against
   what the feed declares, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen media]
-  (let [expected (formats (http/media-type (:type declared)))
+  (let [expected (formats (headers/media-type (:type declared)))
         found    (:format media)
         stated   (:duration declared)
         measured (:duration media)

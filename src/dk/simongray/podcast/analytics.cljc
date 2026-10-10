@@ -31,7 +31,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (defn threshold
@@ -260,7 +260,7 @@
      (malformed? request)                                :malformed
      (not= "get" (some-> method name str/lower-case))    :method
      (not (contains? #{nil 200 206 0} status))           :status
-     (some-> (http/byte-ranges range) asked-size (<= 2)) :two-bytes
+     (some-> (headers/byte-ranges range) asked-size (<= 2)) :two-bytes
      (str/blank? user-agent)                             :no-user-agent
      (watch? user-agent)                                 :watch
      (bot? request)                                      :bot
@@ -271,7 +271,7 @@
   of its Range header, or the whole file, cut to the :bytes that the
   server sent. The bytes arrive in the order of the ranges."
   [{:keys [range bytes] :as request}]
-  (let [asked (or (http/byte-ranges range) [[0 nil]])]
+  (let [asked (or (headers/byte-ranges range) [[0 nil]])]
     (if (and (number? bytes) (<= 0 bytes))
       (first (reduce (fn [[acc left] [a b]]
                        (let [n    (min left (asked-size [[a b]]))
