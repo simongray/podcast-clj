@@ -128,6 +128,7 @@ option replaces the function that sends.
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
 | `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. |
+| `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |

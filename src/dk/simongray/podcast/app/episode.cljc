@@ -9,6 +9,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.bytes.view :as view]
@@ -186,6 +187,23 @@
                         (seq diagnostics)
                         (assoc :report (vec diagnostics)))))))))
 
+(defn- read-stream!
+  "Read the HLS stream at `url` with `opts`, adding its :url, :format :hls
+  and :video?, true when a variant is a video and false when all are
+  audio, or an :error, in a future or a promise."
+  [url opts]
+  (let [read-opts (select-keys opts [:send :allow-pred :timeout-seconds
+                                     :headers :max-bytes :user-agent])]
+    (async/then (hls/read! url read-opts)
+                (fn [{:keys [error variants] :as stream}]
+                  (if error
+                    {:url url :error error}
+                    (let [kinds  (set (map resolve/video? variants))
+                          video? (cond (contains? kinds true) true
+                                       (= #{false} kinds)     false)]
+                      (cond-> (assoc stream :url url :format :hls)
+                        (some? video?) (assoc :video? video?))))))))
+
 (defn- best-chapters
   "The :chapters of a view once its files are read, from the first of the
   `file`, the embedded chapters of `own`, the `media` file, and `own`.
@@ -224,8 +242,9 @@
     show notes.
   - :transcript is the reference that `view` chose, with its :document
     and :report.
-  - :media is the :duration, :artwork and :report of the media file.
-  - :duration is that of the media file.
+  - :media is the :duration, :artwork and :report of the media file. For
+    an HLS stream, it's what format.hls/read! gives, with :video?.
+  - :duration is that of the media file or the stream.
 
   Nothing is thrown for what the network or a server does, and a part
   that couldn't be read has an :error. The `opts` are:
@@ -240,7 +259,8 @@
    (let [opts            (merge default-limits {:send client/send!} opts)
          wanted?         (complement except)
          own             (:chapters view)
-         url             (:url (:enclosure view))
+         enclosure       (:enclosure view)
+         url             (:url enclosure)
          chapters-file   (delay
                            (when-let [chapters-url (and (wanted? :chapters)
                                                         (:chapters-url view))]
@@ -251,7 +271,9 @@
                              (read-transcript-file! ref opts)))
          media-file      (delay
                            (when (and (wanted? :media) url)
-                             (read-media-file! url opts)))
+                             (if (hls/playlist? enclosure)
+                               (read-stream! url opts)
+                               (read-media-file! url opts))))
          files           [chapters-file transcript-file media-file]]
      (async/then (async/all force files)
                  (fn [[file transcript media]]

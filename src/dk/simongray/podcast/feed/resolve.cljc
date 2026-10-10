@@ -7,6 +7,7 @@
   channel declares."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.time.rrule :as rrule]
             [dk.simongray.wary-fetch.url :as url]))
@@ -385,24 +386,21 @@
         (keep #(case (video? %) true :video false :audio nil))
         (enclosures item)))
 
-;; RFC 8216, section 4; ISO/IEC 23009-1; the podcast namespace, source
+;; ISO/IEC 23009-1; the podcast namespace, source
 (def ^:no-doc indirect-types
   "The types of a file that says where the media is rather than holds it,
-  in lower case: the playlist of a stream, and a torrent."
-  #{"application/vnd.apple.mpegurl" "application/x-mpegurl"
-    "application/mpegurl" "audio/mpegurl" "audio/x-mpegurl"
-    "application/dash+xml" "application/x-bittorrent"})
+  in lower case, besides HLS: a DASH manifest and a torrent."
+  #{"application/dash+xml" "application/x-bittorrent"})
 
 (defn downloadable?
   "Whether the `enclosure`, one of those that enclosures gives, is one file
   that a request over HTTP fetches whole, rather than the playlist of a
   stream such as HLS, a torrent or an IPFS address."
-  [{:keys [url type transport]}]
+  [{:keys [url type transport] :as enclosure}]
   (let [served (some-> (or transport type) str/lower-case)]
     (boolean (and (url/web-url? url)
                   (not (indirect-types served))
-                  ;; RFC 8216, section 4: a playlist is also known by its path
-                  (not (re-find #"(?i)\.m3u8?(?:[?#]|$)" url))))))
+                  (not (hls/playlist? enclosure))))))
 
 (defn- language-tag
   "The primary subtag of the language `s` (RFC 5646, section 2.2.1), e.g.
@@ -458,9 +456,10 @@
     e.g. audio? for audio alone
 
   The languages count first, where a candidate that names none ranks after
-  the matches and before the mismatches. A candidate known to be of the
-  kind that :video? prefers counts next, then the types, then the bitrate
-  and the height, where a candidate above the :max-bitrate or the
+  the matches and before the mismatches. The kind that :video? prefers
+  counts next, where a candidate whose kind isn't told, such as most HLS
+  streams, ranks between the two kinds. Then come the types, then the
+  bitrate and the height, where a candidate above the :max-bitrate or the
   :max-height ranks last. Among equals, the enclosure comes first, then
   the default alternate, then the rest, the most conventional first."
   ([item]
@@ -475,12 +474,14 @@
                       :as   candidate}]
                   (let [over?    (or (above? max-bitrate bitrate)
                                      (above? max-height height))
-                        kind?    (or (nil? prefer-video?)
-                                     (= prefer-video? (video? candidate)))
+                        kind     (video? candidate)
                         default? (or (true? default)
                                      (true? is-default))]
                     [(language-rank languages lang)
-                     (if kind? 0 1)
+                     (cond (nil? prefer-video?)   0
+                           (= prefer-video? kind) 0
+                           (nil? kind)            1
+                           :else                  2)
                      (if types (type-rank types type) 0)
                      (if over? 1 0)
                      (source-rank source)

@@ -398,7 +398,9 @@ Podlove chapters in the feed, the media file, or timestamps in the show
 notes, and `:source` says which. A file that couldn't be read leaves an
 `:error` in its part. The duration is read from the media file, and a host
 that inserts ads can send a different file each time, so it can differ
-from the feed.
+from the feed. For an HLS stream, `:media` is what its playlists say: the
+variants with their bitrates, sizes and codecs, the renditions such as
+subtitles, the duration, and `:video?`.
 
 The option `:except` leaves out the parts that a page doesn't need, e.g.
 the rows of an episode list are much cheaper as `(library/episode @lib id
