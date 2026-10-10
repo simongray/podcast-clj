@@ -98,7 +98,7 @@ it with `:deps true`. A browser needs no npm packages, and Node only the
 
 Few feed hosts and directories let a page of another site read their
 answers, so a page sends its requests through your own server. Mount the
-proxy of `util.proxy` there, and give its sender as `:send`:
+proxy of wary-fetch there, and give its sender as `:send`:
 
 ```clojure
 ;; on the server, as a route of Pedestal or any other Ring router
@@ -1319,13 +1319,13 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.updates.websub :as websub]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.proxy :as proxy]
-            [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
-            [dk.simongray.podcast.value.webln :as webln]))
+            [dk.simongray.podcast.value.webln :as webln]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.proxy :as proxy]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 ```

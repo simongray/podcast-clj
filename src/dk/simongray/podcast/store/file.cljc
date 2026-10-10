@@ -33,7 +33,7 @@
   - ::read-only, a folder that the browser can't write to"
   (:require #?(:clj [clojure.java.io :as io])
             [clojure.string :as str]
-            [dk.simongray.podcast.util.async :as async])
+            [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
                    [java.nio.file
                     CopyOption Files LinkOption OpenOption StandardCopyOption]

@@ -3,7 +3,6 @@
   shape Nextcloud writes them and in another prefix, and two devices kept
   in step through a server standing in for one, on both platforms."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?(:clj [dk.simongray.podcast.util.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.profile :as profile]
@@ -11,9 +10,9 @@
             [dk.simongray.podcast.store.webdav :as webdav]
             #?(:clj [dk.simongray.podcast.store.webdav.server :as server])
             [dk.simongray.podcast.sync :as sync]
-            #?(:cljs [dk.simongray.podcast.util.http :as http])
-            [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.test-support :refer [t2 t3 a failed phone-state laptop-state fixture #?@(:clj [same?])]]))
+            [dk.simongray.podcast.test-support :refer [t2 t3 a failed phone-state laptop-state fixture #?@(:clj [same?])]]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def root
   "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")

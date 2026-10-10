@@ -21,16 +21,16 @@
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
-            [dk.simongray.podcast.value.payment :as value.payment]))
+            [dk.simongray.podcast.value.payment :as value.payment]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def kinds
   "The kinds of the events of NIP-47, in its section Events: the info
@@ -84,7 +84,7 @@
 
   The secret is for this connection only. Whoever has it can spend from
   the wallet, within the budget that the wallet gave the connection. It's
-  a hidden text of dk.simongray.podcast.util.secret, which doesn't show in
+  a hidden text of dk.simongray.wary-fetch.secret, which doesn't show in
   a log or at a REPL. A printed connection doesn't read back, so store
   the text of `uri`.
 

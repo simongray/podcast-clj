@@ -20,10 +20,9 @@
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn- sniff
   "The format of the file whose start `view` holds, or nil: :mp3 for an ID3
@@ -98,7 +97,7 @@
 
   - :fetch, a function as http/fetcher makes, to fetch your own way
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
-  - :allow-pred, as http/send! takes it
+  - :allow-pred and :user-agent, as http/send! takes them
   - :except, as read takes it
   - the limits of view/read!, with view/default-limits for those that
     they don't set
@@ -114,7 +113,7 @@
    (read! url {}))
   ([url opts]
    (let [read-opts (select-keys opts [:except])]
-     (async/then (http/read-by-ranges! url #(read % read-opts) opts)
+     (async/then (view/read-url! url #(read % read-opts) opts)
                  #(cond-> % (:error %) (update :error diagnostics/describe))))))
 
 (comment

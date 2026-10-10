@@ -9,8 +9,8 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.qname-hiccup :as xml]))
+            [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn parse-tree
   "Parse the RSS document `xml` with `opts` into canonical Hiccup that has

@@ -9,8 +9,8 @@
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.secret :as secret]
             [io.pedestal.connector.test :refer [response-for]]
             [podcast-server.device :as device]
             [podcast-server.service :as service]))

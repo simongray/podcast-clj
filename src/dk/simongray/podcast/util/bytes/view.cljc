@@ -7,9 +7,11 @@
   A range that the view doesn't hold throws an exception that holds the
   ranges, so that the caller can fetch them and read again. A range past
   the end of the file throws too."
-  (:require [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.time :as time]))
+  (:require [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn view
   "A view of a file of `total` bytes, which is nil when the size isn't
@@ -202,11 +204,11 @@
     {:id :file/malformed :level :warning :reason (async/explain e)}))
 
 (defn ^:no-doc unreachable
-  "The diagnostic of a file that didn't come, since the request for it
-  failed with `e`. It has the :url and the :status that `e` holds."
-  [e]
-  (into {:id :file/unreachable :level :warning :reason (async/explain e)}
-        (select-keys (ex-data e) [:url :status])))
+  "The diagnostic of a file that didn't come, by the `failure` of its
+  request, as http/failure gives it, with its :reason, :url and :status."
+  [failure]
+  (into {:id :file/unreachable :level :warning}
+        (select-keys failure [:reason :url :status])))
 
 (defn ^:no-doc part
   "What `f` gives when called, as a map of the :value, for the reading of
@@ -442,13 +444,27 @@
                         (async/then (fetch-all fetch (:ranges plan) in-time?)
                                     (fn [parts]
                                       (if-let [e (:error parts)]
-                                        {:error (unreachable e)}
+                                        {:error (unreachable (http/failure e))}
                                         (step (with-parts v parts)
                                               (after-round state need plan
                                                            parts))))))))
          result   (step (view) {:round 0 :room (or max-bytes ##Inf)})]
      #?(:clj  result
         :cljs (js/Promise.resolve result)))))
+
+(defn ^:no-doc read-url!
+  "Read the file at `url` with the reader `read` and `opts`, and give the
+  result of the reading, or in ClojureScript a promise of it.
+
+  The bytes come by the :fetch of the opts, or by an http/fetcher of the
+  opts, which sends with client/send! unless they give a :send. The opts
+  also give the limits of the reading, with default-limits for those that
+  they don't set. The :error of a file that didn't come names the `url`."
+  [url read {:keys [fetch] :as opts}]
+  (let [opts  (merge default-limits {:send client/send!} opts)
+        fetch (or fetch (http/fetcher url opts))]
+    (async/then (read! fetch read opts)
+                #(cond-> % (:error %) (assoc-in [:error :url] url)))))
 
 (comment
   (def sample

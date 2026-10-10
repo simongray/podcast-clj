@@ -10,8 +10,8 @@
             [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [failed with-temp-dir]]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.wary-fetch :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 

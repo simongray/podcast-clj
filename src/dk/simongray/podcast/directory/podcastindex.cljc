@@ -11,13 +11,13 @@
   The key and the secret never leave your process. Nothing here reads a
   clock but the functions that send."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def base-url
   "The root of the URLs of the API, which the paths of calls are below,
@@ -146,11 +146,11 @@
 
   The API requires a descriptive User-Agent, and the :user-agent of the
   credentials replaces that of podcast-clj. The secret can be a hidden
-  text of dk.simongray.podcast.util.secret. It's in no header, since the
+  text of dk.simongray.wary-fetch.secret. It's in no header, since the
   API gets the hash, which holds for some minutes. The hash is a hidden
   text, as each Authorization header is."
   [{:keys [key secret user-agent] :as credentials} seconds]
-  {"User-Agent"    (or user-agent http/user-agent)
+  {"User-Agent"    (or user-agent client/user-agent)
    "X-Auth-Key"    key
    "X-Auth-Date"   (str seconds)
    "Authorization" (-> (str key (secret/reveal secret) seconds)
@@ -485,7 +485,7 @@
 
   - :base-url, as request takes it
   - :auth-date, as request takes it, the time of the clock by default
-  - :send, the function that sends the request, http/send! by default
+  - :send, the function that sends the request, client/send! by default
 
   In a browser, the call works only where the CORS policy of the API
   allows it, or through a :send that goes through your own server."
@@ -493,7 +493,7 @@
    (call! credentials call {} {}))
   ([credentials call params]
    (call! credentials call params {}))
-  ([credentials call params {:keys [send] :or {send http/send!} :as opts}]
+  ([credentials call params {:keys [send] :or {send client/send!} :as opts}]
    (async/then (send (request credentials call params (dated opts)))
                (comp response :body))))
 
@@ -506,7 +506,7 @@
   answers with a block."
   ([credentials remote-item]
    (fetch-remote-value! credentials remote-item {}))
-  ([credentials remote-item {:keys [send] :or {send http/send!} :as opts}]
+  ([credentials remote-item {:keys [send] :or {send client/send!} :as opts}]
    (async/some #(async/then (send %) (comp block-in :body))
                (remote-value-requests credentials remote-item (dated opts)))))
 
@@ -519,7 +519,7 @@
   feed go at once."
   ([credentials item]
    (fetch-remote-item! credentials item {}))
-  ([credentials item {:keys [send] :or {send http/send!} :as opts}]
+  ([credentials item {:keys [send] :or {send client/send!} :as opts}]
    (let [requests (remote-item-requests credentials item (dated opts))]
      (async/then (async/all send requests) item-in))))
 

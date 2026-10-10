@@ -18,11 +18,11 @@
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
                                                        #?(:clj with-file-server)]]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            #?(:clj [dk.simongray.podcast.util.http :as http])
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            #?(:clj [dk.simongray.wary-fetch :as http])
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn- syncsafe
   [x]

@@ -21,8 +21,8 @@
   ClojureScript, each can return a value or a promise. A store closes over
   its credentials, so they're never in the map, and you wrap a store by
   updating a key."
-  (:require [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+  (:require [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.wary-fetch.async :as async]))
 
 ;; TODO: Decide whether the stores become a library for local-first sync on
 ;; top of mind-meld. It could hold this store contract, the memory, folder,

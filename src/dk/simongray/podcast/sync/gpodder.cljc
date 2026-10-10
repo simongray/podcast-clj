@@ -15,12 +15,13 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def calls
   "The calls that a backend makes to a server."
@@ -98,7 +99,7 @@
   Every call has the credentials as Basic authentication, and the session
   when there is one, since some servers want the one and others the other.
   The password and the session can be hidden texts of
-  dk.simongray.podcast.util.secret, and the request has them in its
+  dk.simongray.wary-fetch.secret, and the request has them in its
   headers as hidden texts."
   [call root {:keys [api credentials device since body]
               :or   {api :gpodder}
@@ -113,8 +114,7 @@
              :url     (str (str/replace root #"(^|[^/])/+$" "$1")
                            (path api call (:username creds) device)
                            (when get? (str "?since=" (or since 0))))
-             :headers (cond-> {"User-Agent" http/user-agent
-                               "Accept"     "application/json"}
+             :headers (cond-> {"Accept" "application/json"}
                         auth         (assoc "Authorization" auth)
                         cookie       (assoc "Cookie" cookie)
                         (some? body) (assoc "Content-Type" "application/json"))}
@@ -562,7 +562,7 @@
 (defn- caller
   "A function of a call and its parameters that sends it to the server at
   `root` with `opts`, and reads the answer, in a future or a promise."
-  [root {:keys [send timeout-seconds device caption type] :as opts}]
+  [root {:keys [send device caption type] :as opts}]
   (fn [call params]
     (let [registration (when (= :register call)
                          {:body {"caption" caption "type" type}})
@@ -570,10 +570,10 @@
                               {:device device}
                               registration
                               params)
-          asked        (cond-> (request call root params)
-                         timeout-seconds
-                         (assoc :timeout-seconds timeout-seconds))]
-      (async/then ((or send http/send!) asked)
+          asked        (merge (request call root params)
+                              (select-keys opts [:timeout-seconds
+                                                 :user-agent]))]
+      (async/then ((or send client/send!) asked)
                   #(response call %)))))
 
 (defn- register!
@@ -784,7 +784,8 @@
   - :page-size, :max-pages, :batch-size and :max-pending, over
     default-limits
   - :timeout-seconds, how long a request can take
-  - :send, a function that sends a request map, in place of http/send!
+  - :user-agent, as http/send! takes it
+  - :send, a function that sends a request map, in place of client/send!
 
   A pull gives the subscription changes and episode actions since its
   cursors, as a partial state. A push sends what the devices of

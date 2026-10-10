@@ -6,8 +6,8 @@
             [clojure.test :refer [deftest is]]
             [dk.simongray.podcast.crypto.aes-gcm :as aes-gcm]
             [dk.simongray.podcast.test-support :refer [run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def salt (bytes/of (range 16)))
 

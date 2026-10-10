@@ -19,13 +19,14 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.publish :as publish]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def origin
   "The origin of OP3, unless the options give the origin of another
@@ -199,8 +200,7 @@
          q                   (query query-params)]
      {:method  :get
       :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
-      :headers {"Authorization" (http/authorization {:token token})
-                "User-Agent"    http/user-agent}})))
+      :headers {"Authorization" (http/authorization {:token token})}})))
 
 (defn ^:no-doc record
   "The JSON object `m` with its fields as keywords in kebab-case, and its
@@ -286,14 +286,15 @@
 
   - :origin, as request takes it
   - :timeout-seconds, for each request
-  - :send, a function that sends a request map in place of http/send!"
+  - :user-agent, as http/send! takes it
+  - :send, a function that sends a request map in place of client/send!"
   ([token call params]
    (call! token call params {}))
   ([token call params opts]
-   (let [defaults {:send http/send! :timeout-seconds 30}
-         {:keys [send timeout-seconds]} (merge defaults opts)
-         req      (assoc (request token call params opts)
-                         :timeout-seconds timeout-seconds)
+   (let [defaults {:send client/send! :timeout-seconds 30}
+         {:keys [send] :as opts} (merge defaults opts)
+         req      (merge (request token call params opts)
+                         (select-keys opts [:timeout-seconds :user-agent]))
          failed   (fn [status said]
                     (ex-info (str "OP3 answered " status ": " said)
                              {:type ::failed :status status :message said}))]

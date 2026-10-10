@@ -15,11 +15,11 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as server]
             [dk.simongray.podcast.test-support :refer [failed fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def root "https://gpodder.example.org")
 
@@ -31,7 +31,7 @@
     (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in (http/revealed subs) [:headers "Authorization"])))
     (is (secret/hidden? (get-in subs [:headers "Authorization"])))
     (is (not (re-find #"c2ltb246" (pr-str subs))) "a request that is printed does not show the password")
-    (is (str/starts-with? (get-in subs [:headers "User-Agent"]) "podcast-clj")))
+    (is (nil? (get-in subs [:headers "User-Agent"])) "the sender gives the User-Agent"))
   (is (= "https://gpodder.example.org/api/2/episodes/simon.json?since=0"
          (:url (gpodder/request :episodes (str root "/") {:credentials creds})))
       "since 0 when none is given, and one slash after the root")

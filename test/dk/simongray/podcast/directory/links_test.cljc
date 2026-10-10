@@ -7,7 +7,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.feed.guid :as guid]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def feed-url "https://feeds.podcastindex.org/pc20.xml")
 

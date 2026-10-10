@@ -24,9 +24,9 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.podcast.crypto.aes-gcm :as aes-gcm]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def version
   "The version of the envelope."

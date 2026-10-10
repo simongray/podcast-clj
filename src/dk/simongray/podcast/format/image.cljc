@@ -15,10 +15,9 @@
   that it still needs."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn ^:no-doc u16le
   "The little-endian 16-bit number at `p` in `view`."
@@ -370,7 +369,7 @@
 
   - :fetch, a function as http/fetcher makes
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
-  - :allow-pred, as http/send! takes it
+  - :allow-pred and :user-agent, as http/send! takes them
   - the limits of view/read!, with view/default-limits for those that
     they don't set
 
@@ -379,7 +378,7 @@
   ([url]
    (read! url {}))
   ([url opts]
-   (async/then (http/read-by-ranges! url read opts)
+   (async/then (view/read-url! url read opts)
                #(cond-> % (:error %) (update :error diagnostics/describe)))))
 
 (comment

@@ -7,8 +7,8 @@
             [clojure.test :refer [deftest is]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.test-support :refer [run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (defn- page-xml
   "A page of a paged feed with the items `guids`, linking to `next`."

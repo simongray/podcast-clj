@@ -13,15 +13,15 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.test-support :refer [fixture invoice run]]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
-            [dk.simongray.podcast.value.payment :as value.payment]))
+            [dk.simongray.podcast.value.payment :as value.payment]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def records
   "The records of the examples of bLIP-10, by app and action."

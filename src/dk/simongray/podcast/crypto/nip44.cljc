@@ -17,7 +17,7 @@
   (:require [dk.simongray.podcast.crypto.chacha20 :as chacha20]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def default-limits
   "The limits of a payload that the options don't set.

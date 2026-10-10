@@ -12,8 +12,8 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def url "https://example.com/feed.xml")
 

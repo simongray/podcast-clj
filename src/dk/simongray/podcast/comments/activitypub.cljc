@@ -21,7 +21,7 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn ^:no-doc id-of
   "The id of `x`, an object or the IRI that names one."

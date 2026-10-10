@@ -11,10 +11,10 @@
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def opawg
   "The entries of the list of user agents of the OPAWG in the fixture, by

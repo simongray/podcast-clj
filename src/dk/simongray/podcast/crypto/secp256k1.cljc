@@ -13,7 +13,7 @@
   is the point at infinity."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.secret :as secret])
+            [dk.simongray.wary-fetch.secret :as secret])
   #?(:clj (:import [java.math BigInteger])))
 
 (defn- big

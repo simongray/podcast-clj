@@ -6,9 +6,10 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.updates.websub :as websub]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def ^:no-doc feed-types
   "The Accept header of a request for a feed."
@@ -33,11 +34,13 @@
   of the response merged in, and a failed request has the :error.
   Deferred."
   [url accept parse-fn opts]
-  (let [http-opts (-> opts
-                      (select-keys [:etag :last-modified :credentials
-                                    :timeout-seconds :max-bytes :user-agent
-                                    :allow-pred :send])
-                      (assoc :accept accept))]
+  (let [http-opts (->> (select-keys opts [:etag :last-modified :credentials
+                                          :timeout-seconds :max-bytes
+                                          :user-agent :allow-pred :send
+                                          :max-wait-seconds])
+                       (merge {:send             client/send!
+                               :accept           accept
+                               :max-wait-seconds 3600}))]
     (async/then (async/attempt #(http/fetch! url http-opts))
                 (fn [{response :value error :error}]
                   (let [answer (select-keys response [:status :url
@@ -141,6 +144,8 @@
 
   - :credentials, for a private feed, or else those in the `url`
   - :max-pages, the most pages of a paged feed to fetch and join
+  - :max-wait-seconds, the latest :not-before, an hour by default, since a
+    feed can change within the freshness that its server names
 
   Nothing is thrown for what the network, the server or the body does,
   and any status besides 200 comes back as :status."

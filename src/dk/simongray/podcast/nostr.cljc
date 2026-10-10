@@ -9,9 +9,9 @@
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
-            #?(:clj [dk.simongray.podcast.util.http :as http])
+            #?(:clj [dk.simongray.podcast.util.client :as client])
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.url :as url])
+            [dk.simongray.wary-fetch.url :as url])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient WebSocket WebSocket$Listener]
                    [java.time Duration]
@@ -605,17 +605,27 @@
     {:first (request-message subscription filters)}))
 
 #?(:clj
+   (defonce ^{:no-doc true
+              :doc    "The client of the WebSockets to the relays, built on
+  first use."}
+     websocket-client
+     (delay (HttpClient/newHttpClient))))
+
+#?(:clj
    (defn- exchange
      "The answer of the relay at `url` to the opening `messages`, within
-     `limits`, over a WebSocket of the JDK."
-     [url messages {:keys [timeout-seconds] :as limits}]
+     `limits`, over a WebSocket of the JDK, with the :user-agent of the
+     limits as its User-Agent."
+     [url messages {:keys [timeout-seconds user-agent]
+                    :or   {user-agent client/user-agent}
+                    :as   limits}]
      (let [answer   (atom {})
            ready    (promise)
            done     (promise)
            socket   (try
-                      (-> (.newWebSocketBuilder ^HttpClient @http/client)
+                      (-> (.newWebSocketBuilder ^HttpClient @websocket-client)
                           (.connectTimeout (Duration/ofSeconds timeout-seconds))
-                          (.header "User-Agent" http/user-agent)
+                          (.header "User-Agent" user-agent)
                           (.buildAsync (URI. url)
                                        (listener answer ready done limits))
                           (.get timeout-seconds TimeUnit/SECONDS))
@@ -717,6 +727,7 @@
   - :timeout-seconds, :max-events and :max-bytes, which default to those
     of default-limits
   - :allow-pred, a predicate of the URL of the relay, as public? is
+  - :user-agent, the User-Agent on the JVM, client/user-agent by default
 
   It throws ::refused for a URL that :allow-pred refuses or that isn't the URL
   of a relay, and ::failed when the relay gives no connection.
@@ -742,7 +753,8 @@
   (let [relay    (relay-url url)
         messages (opening filters event)
         limits   (cond-> (merge default-limits
-                                (select-keys request (keys default-limits)))
+                                (select-keys request (keys default-limits))
+                                (select-keys request [:user-agent]))
                    event (assoc :published (get event "id")
                                 :until     (if (seq filters) :event :ok)))]
     (if-not (and relay (allow-pred relay))

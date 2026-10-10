@@ -7,10 +7,11 @@
   https://www.w3.org/TR/sri/"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
@@ -48,10 +49,18 @@
   {:valid? nil :error (diagnostics/describe diagnostic)})
 
 (defn ^:no-doc absent
-  "The verdict on the file at `url` that didn't come, since the request for
-  it failed with `e`."
-  [url e]
-  (unverified (assoc (view/unreachable e) :url url)))
+  "The verdict on the file at `url` that didn't come, by the `failure` of
+  its request, as http/failure gives it."
+  [url failure]
+  (unverified (assoc (view/unreachable failure) :url url)))
+
+(defn- answered
+  "The failure of a request for the file at `url` that the server answered
+  with the `status` of a failure."
+  [url status]
+  {:reason (str "The file answered " status ": " url)
+   :url    url
+   :status status})
 
 (defn- digest
   "The base64 digest of the bytes `b` by `algorithm`. In ClojureScript,
@@ -77,14 +86,14 @@
      (fn [{:keys [error] {:keys [status body]} :value}]
        (cond
          error
-         (absent url error)
+         (absent url (http/failure error))
 
          (= 200 status)
          (async/then (digest algorithm (or body (bytes/of [])))
                      #(verdict metadata %))
 
          :else
-         (absent url (http/failed url status)))))))
+         (absent url (answered url status)))))))
 
 #?(:clj
    (defn- stream!
@@ -93,12 +102,14 @@
      [url metadata algorithm opts]
      (try
        (let [named                    (bytes/digest-names algorithm)
+             opts                     (update opts :user-agent
+                                              #(or % client/user-agent))
              {:keys [status digests]} (http/digest! url [named] opts)]
          (if digests
            (verdict metadata (bytes/base64 (get digests named)))
-           (absent url (http/failed url status))))
+           (absent url (answered url status))))
        (catch Exception e
-         (absent url e)))))
+         (absent url (http/failure e))))))
 
 (defn verify!
   "Check whether the file at `url` is what `integrity` says, with `opts`.
@@ -120,9 +131,9 @@
   streams through the digest. In ClojureScript, or with :send, the file
   comes whole, up to the :max-bytes of a request. The `opts` are these:
 
-  - :send, a function that sends a request map in place of http/send!
-  - :headers, :timeout-seconds and :allow-pred, as http/send! takes them, with
-    a timeout of 600 seconds by default"
+  - :send, a function that sends a request map in place of client/send!
+  - :headers, :timeout-seconds, :allow-pred and :user-agent, as http/send!
+    takes them, with a timeout of 600 seconds by default"
   ([url integrity]
    (verify! url integrity {}))
   ([url {:keys [type value] :as integrity} {:keys [send] :as opts}]
@@ -142,7 +153,7 @@
        #?(:clj  (if send
                   (fetch-whole! send url metadata algorithm opts)
                   (stream! url metadata algorithm opts))
-          :cljs (fetch-whole! (or send http/send!)
+          :cljs (fetch-whole! (or send client/send!)
                               url metadata algorithm opts))))))
 
 (comment

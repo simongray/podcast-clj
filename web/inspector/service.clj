@@ -25,14 +25,15 @@
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.proxy :as proxy]
-            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.proxy :as proxy]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]
             [inspector.dav :as dav]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
@@ -103,7 +104,8 @@
                   (let [validators (select-keys old [:etag :last-modified])
                         {:keys [status body] :as response}
                         (http/fetch! url (assoc validators
-                                                :accept podcast/feed-types))]
+                                                :accept podcast/feed-types
+                                                :send   client/send!))]
                     (cond
                       (and old (= 304 status))
                       (assoc old :at now)
@@ -914,7 +916,8 @@
      ["/dav/*path" :any (webdav-server/handler sync-store "/dav/")
       :route-name :dav]
      ["/api/2/*path" :any (gpodder-handler sync-store) :route-name :gpodder]
-     ["/proxy" :any (proxy/handler) :route-name :proxy]
+     ["/proxy" :any (proxy/handler {:user-agent client/user-agent})
+      :route-name :proxy]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
 
 (def unread-bodies

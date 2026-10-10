@@ -21,8 +21,8 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.updates.podping :as podping]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def default-cadence
   "How many seconds to wait before the next fetch of a feed that gives no

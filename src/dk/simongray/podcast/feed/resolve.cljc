@@ -9,7 +9,7 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.time.rrule :as rrule]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."

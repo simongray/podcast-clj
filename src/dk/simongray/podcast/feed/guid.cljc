@@ -4,7 +4,7 @@
   episode by its guid, on both platforms."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def ^:no-doc podcast-namespace
   "The UUID namespace that every podcast:guid is derived in."

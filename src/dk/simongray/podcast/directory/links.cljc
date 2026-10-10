@@ -17,7 +17,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def apps
   "The forms of the links of each app, by an id of the app. The options

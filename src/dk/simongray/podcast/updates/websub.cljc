@@ -16,11 +16,13 @@
   feed changed."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.ring :as ring]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def default-limits
   "The limits of a callback handler that its options don't set.
@@ -83,8 +85,7 @@
   [hub fields]
   {:method  :post
    :url     hub
-   :headers {"Content-Type" "application/x-www-form-urlencoded"
-             "User-Agent"   http/user-agent}
+   :headers {"Content-Type" "application/x-www-form-urlencoded"}
    :body    (url/query-string fields)})
 
 (defn request
@@ -103,7 +104,7 @@
   - :secret, a random text of fewer than 200 bytes. The hub then signs
     what it sends, and the subscriber checks the signature. Section 5.1 says
     that a secret goes over https, so this throws for another hub. The
-    secret can be a hidden text of dk.simongray.podcast.util.secret. The
+    secret can be a hidden text of dk.simongray.wary-fetch.secret. The
     request has it in its body, so the body of such a request is a
     hidden text."
   ([mode hub topic callback]
@@ -167,13 +168,14 @@
 
   The `opts` are these:
 
-  - :timeout-seconds, :max-bytes and :allow-pred, as http/send! takes them
-  - :send, a function that sends a request map in place of http/send!"
+  - :timeout-seconds, :max-bytes, :allow-pred and :user-agent, as
+    http/send! takes them
+  - :send, a function that sends a request map in place of client/send!"
   ([request]
    (call! request {}))
-  ([request {:keys [send] :or {send http/send!} :as opts}]
+  ([request {:keys [send] :or {send client/send!} :as opts}]
    {:pre [(map? opts)]}
-   (async/then (send (http/limited request opts))
+   (async/then (send (http/with-options request opts))
                (fn [{:keys [status url body]}]
                  (if (and (integer? status) (<= 200 status 299))
                    {:status status :url url}
@@ -288,7 +290,7 @@
   nothing about the secret."
   [{:keys [secret deliver! signature-methods max-bytes] :as env}
    {:keys [headers] :as request}]
-  (let [body      (http/body-bytes (:body request) max-bytes)
+  (let [body      (ring/body-bytes (:body request) max-bytes)
         secret    (if (fn? secret) (secret request) secret)
         signature (get headers "x-hub-signature")
         links     (http/links headers)]

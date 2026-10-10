@@ -7,9 +7,9 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.updates.podping :as podping]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.json :as json]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def head-block
   (fixture "podping/head-block.json"))

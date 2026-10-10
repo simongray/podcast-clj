@@ -55,10 +55,11 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn- nostr-opts
   "The `opts` of a hiccup of a note of the Nostr `thread`, with the names
@@ -167,7 +168,7 @@
   [request]
   (if (nostr/relay-url (:url request))
     (nostr/send! request)
-    (http/send! request)))
+    (client/send! request)))
 
 (defn ^:no-doc spared-origins
   "The origins that the reading of `thread` asks no more: those of the
@@ -609,7 +610,8 @@
   - :timeout-seconds, for each request
   - :max-bytes, of each answer
   - :allow-pred, which URLs a request can go to
-  - :send, in place of http/send! and nostr/send!
+  - :user-agent, as http/send! takes it
+  - :send, in place of client/send! and nostr/send!
   - :now-fn, a function that gives the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts

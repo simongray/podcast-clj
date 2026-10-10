@@ -12,9 +12,9 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.wary-fetch :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 
@@ -217,7 +217,7 @@
   (let [url   "https://example.com/once.xml"
         calls (atom [])]
     (with-redefs [http/fetch! (fn [u & [opts]]
-                                (when (= url u) (swap! calls conj (dissoc opts :accept)))
+                                (when (= url u) (swap! calls conj (dissoc opts :accept :send)))
                                 (if (:etag opts)
                                   {:status 304 :url u :etag "v1"}
                                   {:status 200 :url u :etag "v1" :body example}))]

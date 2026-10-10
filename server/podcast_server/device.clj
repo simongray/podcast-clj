@@ -18,7 +18,7 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]
+            [dk.simongray.wary-fetch.url :as url]
             [io.pedestal.log :as log])
   (:import [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
 

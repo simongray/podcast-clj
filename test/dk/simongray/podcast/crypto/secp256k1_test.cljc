@@ -5,7 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture secret-key]]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def vectors
   "The test vectors of BIP-340, each as a map of the columns of the file."

@@ -20,14 +20,14 @@
   takes its under the :credentials option."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def apple-genres
   "The ids of the genres of Apple Podcasts by name, as the genre service
@@ -190,7 +190,7 @@
 
 (defn- get-request
   [url]
-  {:method :get :url url :headers {"User-Agent" http/user-agent}})
+  {:method :get :url url})
 
 (defn- country-code
   "The two lower-case letters of `country`, \"us\" when none is given."
@@ -626,9 +626,10 @@
 
   The `opts` are those of request, and these:
 
-  - :send, the function that sends the request, http/send! by default
+  - :send, the function that sends the request, client/send! by default
   - :timeout-seconds, the time to wait for an answer. It's 15 by default,
     so a directory that doesn't answer costs little.
+  - :user-agent, as http/send! takes it
 
   A 404 gives no shows. Any other status that isn't a success throws with
   the :type ::failed, so a refused key doesn't look like an empty answer.
@@ -637,14 +638,15 @@
   ([source call params]
    (call! source call params {}))
   ([source call {:keys [limit] :as params}
-    {:keys [send] :or {send http/send!} :as opts}]
+    {:keys [send] :or {send client/send!} :as opts}]
    {:pre [(map? opts)]}
    (let [auth-date (quot (inst-ms (time/now)) 1000)
          opts      (cond-> opts
                      (not (:auth-date opts)) (assoc :auth-date auth-date))
          timeout   (:timeout-seconds opts 15)
-         req       (assoc (request source call params opts)
-                          :timeout-seconds timeout)
+         req       (-> (request source call params opts)
+                       (merge (select-keys opts [:user-agent]))
+                       (assoc :timeout-seconds timeout))
          id        (source-id source)]
      (async/then
       (send req)
@@ -725,7 +727,7 @@
   - :country, the store of Apple, e.g. \"dk\"
   - :credentials, the :key and :secret of the Podcast Index
   - :timeout-seconds, the time to wait for each source
-  - :send, the function that sends each request, http/send! by default"
+  - :send, the function that sends each request, client/send! by default"
   ([q]
    (search! q {}))
   ([q opts]

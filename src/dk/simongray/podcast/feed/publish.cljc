@@ -3,8 +3,8 @@
   the private feed of a subscriber, and the URLs of its media files."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def page-size
   "How many items a document of pages holds, unless its options give
@@ -174,7 +174,7 @@
 
   The host makes and keeps the tokens, and serves this feed at a URL with
   the token. The token can be a hidden text of
-  dk.simongray.podcast.util.secret, and the feed has it in its URLs as
+  dk.simongray.wary-fetch.secret, and the feed has it in its URLs as
   plain text. It goes into the query of each URL of a media file, and of
   each link of the feed to its own documents. Each request then tells who
   the subscriber is. A URL that isn't an http or https URL gets no token.

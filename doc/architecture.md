@@ -196,6 +196,13 @@ podcast-clj asks a server for as little as it can:
 - `check/check-files!` probes each file that a feed links to with a HEAD
   request and two bytes, and reads more only when asked.
 
+The requests go through
+[wary-fetch](https://github.com/simongray/wary-fetch), a library that was
+spun out of podcast-clj. Each request names podcast-clj as its
+User-Agent, since podcast hosts count the apps that download by it:
+`util.client/send!` is the default `:send` of every function that sends,
+and the `:user-agent` option names your app instead.
+
 Every function that fetches has limits of size, time and requests in the
 `default-limits` of its namespace, and its options change each one.
 
@@ -245,8 +252,8 @@ stack.
 
 ### The proxy for a web page
 
-A page can only read the answers of servers that allow it, so
-`util.proxy` sends the requests of a page from your server. It carries
+A page can only read the answers of servers that allow it, so the proxy
+of wary-fetch sends the requests of a page from your server. It carries
 plain HTTP and has no format of its own: the page asks for
 `/proxy?url=…`, and gets the answer of the other site. What HTTP has no
 place for travels in headers: the URL after redirects as the
@@ -553,8 +560,8 @@ a late download.
 | JSON | `clojure.data.json` | `js/JSON` |
 | SHA-1 (guid, Podcast Index) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` | `js/Date` |
-| Deferred values (`util.async`) | futures | promises |
-| HTTP | `java.net.http`, in `util.http` | `fetch` |
+| Deferred values (`async`) | futures | promises |
+| HTTP (`http`) | `java.net.http` | `fetch` |
 | Folders (`store.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
 | Encryption (`crypto.aes-gcm`) | `javax.crypto` | WebCrypto |
 
@@ -574,8 +581,8 @@ The JVM functions give values rather than CompletableFutures, so you need
 no deref, and a failed call throws its ex-info rather than an
 ExecutionException around it. The cost is a thread for each request that
 waits, which only matters for a server with many listeners. On Java 21 or
-later, you can make them virtual threads, since `util.async` runs each
-call on `clojure.core/future`:
+later, you can make them virtual threads, since wary-fetch's `async` runs
+each call on `clojure.core/future`:
 
 ```clojure
 (set-agent-send-off-executor!

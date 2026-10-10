@@ -19,10 +19,10 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def mastodon
   "A thread of podcastindex.social, whose root starts a conversation, with
@@ -435,7 +435,7 @@
                   (swap! log conj url)
                   (cond
                     (str/starts-with? url "https://slow.example/")
-                    (throw (ex-info "request timed out" {:type :dk.simongray.podcast.util.http/timeout}))
+                    (throw (ex-info "request timed out" {:type :dk.simongray.wary-fetch/timeout}))
 
                     (str/starts-with? url "https://closed.example/")
                     (throw (ex-info "Connection refused" {}))
@@ -532,7 +532,7 @@
   (let [log   (atom [])
         send  (fn [{:keys [url]}]
                 (swap! log conj url)
-                (throw (ex-info "The answer is too large" {:type :dk.simongray.podcast.util.http/too-large})))
+                (throw (ex-info "The answer is too large" {:type :dk.simongray.wary-fetch/too-large})))
         fetch #(comments/fetch! % {:send send})]
     (run #(async/then
            (async/then (fetch {:protocol "activitypub" :uri "https://a.example/1"}) fetch)
@@ -552,7 +552,7 @@
         send  (fn [{:keys [url] :as request}]
                 (if @slow?
                   (do (swap! log conj url)
-                      (throw (ex-info "request timed out" {:type :dk.simongray.podcast.util.http/timeout})))
+                      (throw (ex-info "request timed out" {:type :dk.simongray.wary-fetch/timeout})))
                   ((server {top {"id" top "type" "Note" "content" "root"}} log) request)))]
     (run #(async/then
            (comments/fetch! {:protocol "activitypub" :uri top} {:send send})

@@ -21,7 +21,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn at-uri
   "The parts of the at URI `s` as a map of :authority, :collection and

@@ -17,12 +17,13 @@
   keysend lookup with a web page."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
-            [dk.simongray.podcast.value.payment :as value.payment]))
+            [dk.simongray.podcast.value.payment :as value.payment]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def default-limits
   "The limits of the requests to a Lightning address that their options
@@ -395,7 +396,7 @@
 
   - the limits of default-limits
   - :allow-pred, which URLs a request can go to
-  - :send, a function that sends a request map in place of http/send!
+  - :send, a function that sends a request map in place of client/send!
 
   The domain of an address in a feed chooses the URLs that this fetches.
   So each request carries a guard as its :allow-pred, which lets nothing
@@ -404,7 +405,7 @@
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
-   (let [defaults {:send http/send! :allow-pred url/public?}
+   (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
@@ -432,7 +433,7 @@
   ([address]
    (fetch-node! address {}))
   ([address opts]
-   (let [defaults {:send http/send! :allow-pred url/public?}
+   (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
      (ask! (keysend-request address) address node opts))))
 

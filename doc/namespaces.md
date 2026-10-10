@@ -17,22 +17,24 @@ Every namespace of podcast-clj is under the root namespace,
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
 - **Not specific to podcasts.** The `util`, `store` and `crypto`
-  namespaces and `nostr` hold general tools, e.g. HTTP, JSON, dates,
-  stores of documents, and the Nostr protocol and its cryptography.
+  namespaces and `nostr` hold general tools, e.g. JSON, dates, stores of
+  documents, and the Nostr protocol and its cryptography.
 
 The `app` namespaces are built from all the others, and nothing outside
 `app` requires them, so you can use any other namespace without them.
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-The XML of feeds and lists is read and written by
+Requests are sent by [wary-fetch](https://github.com/simongray/wary-fetch),
+whose namespaces are the `http`, `url`, `proxy`, `async` and `secret` of
+these docs. The XML of feeds and lists is read and written by
 [qname-hiccup](https://github.com/simongray/qname-hiccup), the HTML in
 show notes and comments is read by
 [html-pieces](https://github.com/simongray/html-pieces), full-text search
 comes from [drop-in-search](https://github.com/simongray/drop-in-search),
 and the profile is a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld), four libraries in
-repositories of their own.
+[mind-meld](https://github.com/simongray/mind-meld). These are five
+libraries in repositories of their own.
 
 The tables follow the same order. Names in them are relative to the root,
 and everything runs on the JVM and in ClojureScript unless the table says
@@ -167,13 +169,10 @@ option replaces the function that sends.
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules. |
-| `util.http` | Requests as maps, and `send!`, which sends them with byte ranges and limits of size and time, with `try-send!` for a failure as data. Also `probe!`, which learns the facts of a file from two bytes. The `fetch!` function fetches a document with a conditional request. For another HTTP client, `revealed` unhides the credentials of a request. |
-| `util.url` | URLs and their hosts: percent-encoding and query strings, `absolute-url` as a browser resolves a link, `split-credentials`, and `public?`, which checks that a host is on the public internet. |
-| `util.proxy` | A proxy on your own server for the requests of a web page: `handler` is its Ring handler, on the JVM, and `sender` gives the page a `:send` that sends each request through it. |
+| `util.client` | The User-Agent of podcast-clj, and `send!`, the `:send` of every function that sends unless you give another. |
+| `util.ring` | The Ring requests that the handlers answer: `body-bytes` and `body-text` read their bodies within a limit, and `credentials` reads their Authorization header. |
 | `util.bytes` | Bytes on both platforms: hex, base64 and base64url, text, the digests and HMACs of SHA-1 and SHA-2, and random bytes. |
 | `util.bytes.view` | Views of files whose bytes come in parts, and `read!`, which fetches the byte ranges that a reader asks for until it's done. |
-| `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
-| `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.entities` | Character and entity references in the text of feeds, HTML's included: `decode-entities` replaces them with the characters they stand for. |
 | `util.names` | The keys of the maps, from camelCase names: `kebab`, and `attr-key` for the attributes of XML. |

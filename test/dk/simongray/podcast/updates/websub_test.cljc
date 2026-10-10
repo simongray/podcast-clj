@@ -7,10 +7,10 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.test-support :refer [run]]
             [dk.simongray.podcast.updates.websub :as websub]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def hub "https://hub.example.org/")
 (def topic "https://example.org/feed.xml")

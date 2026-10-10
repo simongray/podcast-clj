@@ -7,8 +7,8 @@
                        [dk.simongray.podcast.app.library-test :as library-test]
                        [dk.simongray.podcast.store.indexeddb :as indexeddb]
                        [dk.simongray.podcast.test-support :refer [run]]
-                       [dk.simongray.podcast.util.async :as async]
-                       [dk.simongray.podcast.util.bytes :as bytes]])))
+                       [dk.simongray.podcast.util.bytes :as bytes]
+                       [dk.simongray.wary-fetch.async :as async]])))
 
 #?(:cljs
    (defn- fresh-name

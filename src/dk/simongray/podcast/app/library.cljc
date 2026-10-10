@@ -18,7 +18,7 @@
   config holds the options that the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
-       :send           f              ; in place of http/send!
+       :send           f              ; in place of client/send!
        :allow-pred     url/public?    ; which URLs a request may go to
        :credentials-of f              ; credentials of a private feed by URL
        :index          {…}            ; the credentials of the Podcast Index
@@ -51,10 +51,10 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def default-config
   "The config of a library when none is given. The :list-seconds is how
@@ -531,7 +531,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [at         (time-of library opts)
-         defaults   {:send http/send! :fetch podcast/fetch!}
+         defaults   {:send client/send! :fetch podcast/fetch!}
          opts       (clojure.core/merge defaults (options library opts))
          feeds-opts (-> opts
                         (select-keys [:feed-guids :fetch :credentials-of

@@ -10,12 +10,12 @@
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [invoice run secret-key #?(:clj with-relay)]]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.value :as value]
-            [dk.simongray.podcast.value.nwc :as nwc]))
+            [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def example
   "The connection URI of the example of NIP-47."

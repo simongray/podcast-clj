@@ -6,10 +6,11 @@
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def podcast-body
   (fixture "index/podcast-byguid.json"))
@@ -33,7 +34,7 @@
   (let [r (index/request credentials :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} {:auth-date 1700000000})]
     (is (= :get (:method r)))
     (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
-    (is (= {"User-Agent" http/user-agent "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
+    (is (= {"User-Agent" client/user-agent "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
             "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
            (:headers (http/revealed r))))
     (is (not (re-find #"2112f595" (pr-str r))) "a request that is printed does not show the hash"))

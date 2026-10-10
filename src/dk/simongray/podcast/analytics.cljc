@@ -29,10 +29,10 @@
   addresses of data centers, VPNs and known bots from other sources."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn threshold
   "The bytes of `file` that a download needs by the rules of the IAB: the

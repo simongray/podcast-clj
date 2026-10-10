@@ -2,9 +2,9 @@
 
  ;; The library proper depends on Clojure alone, plus data.json for the JVM
  ;; side of the JSON adapter (chapters, transcripts, Podcast Index),
- ;; qname-hiccup for the XML of feeds and lists, html-pieces for the HTML in
- ;; show notes and comments, drop-in-search for full-text search, and
- ;; mind-meld for the CRDT of the listener's profile.
+ ;; wary-fetch for HTTP, qname-hiccup for the XML of feeds and lists,
+ ;; html-pieces for the HTML in show notes and comments, drop-in-search for
+ ;; full-text search, and mind-meld for the CRDT of the listener's profile.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -13,6 +13,9 @@
  ;; well-formed even after repair are parsed leniently instead of rejected.
  :deps  {org.clojure/clojure      {:mvn/version "1.11.4"}
          org.clojure/data.json    {:mvn/version "2.5.2"}
+         dk.simongray/wary-fetch
+         {:git/url "https://github.com/simongray/wary-fetch"
+          :git/sha "19accb9fa2e7b9e985489a0f14e68eefa77e960e"}
          dk.simongray/qname-hiccup
          {:git/url "https://github.com/simongray/qname-hiccup"
           :git/sha "bdca8a9bf320f174a43fad0b0a52459e9d806adc"}
@@ -107,11 +110,12 @@
                        slipset/deps-deploy            {:mvn/version "0.2.5"}}
           :ns-default build}
 
-  ;; qname-hiccup, html-pieces, drop-in-search and mind-meld from checkouts
-  ;; beside this one, to change them and podcast-clj at once, e.g.
+  ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search and mind-meld from
+  ;; checkouts beside this one, to change them and podcast-clj at once, e.g.
   ;; clojure -M:dev:local:nrepl
   :local {:override-deps
-          {dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
+          {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
+           dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
            dk.simongray/html-pieces    {:local/root "../html-pieces"}
            dk.simongray/drop-in-search {:local/root "../drop-in-search"}
            dk.simongray/mind-meld      {:local/root "../mind-meld"}}}

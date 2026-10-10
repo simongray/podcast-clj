@@ -16,8 +16,8 @@
   out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.store.webdav :as webdav]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.url :as url])
+            [dk.simongray.podcast.util.ring :as ring]
+            [dk.simongray.wary-fetch.url :as url])
   (:import [java.io ByteArrayInputStream]))
 
 (defn- quoted
@@ -211,7 +211,7 @@
   (if (and name put)
     (let [current (version-of store name)
           asked   (precondition headers current)
-          read    (if (webdav/binary? name) http/body-bytes http/body-text)
+          read    (if (webdav/binary? name) ring/body-bytes ring/body-text)
           given   (read body max-bytes)
           result  (when (and given (not= :failed asked))
                     (put name given asked))]

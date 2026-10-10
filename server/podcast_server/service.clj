@@ -19,9 +19,10 @@
             [dk.simongray.podcast.store.file :as file]
             [dk.simongray.podcast.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.proxy :as proxy]
-            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.ring :as ring]
+            [dk.simongray.wary-fetch.proxy :as proxy]
+            [dk.simongray.wary-fetch.secret :as secret]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.ring-middlewares :as ring-middlewares]
@@ -157,7 +158,7 @@
      {:name  ::login
       :enter (fn [{:keys [request] :as context}]
                (let [authorization (get-in request [:headers "authorization"])
-                     given         (:password (http/credentials authorization))
+                     given         (:password (ring/credentials authorization))
                      gpodder?      (str/starts-with? (:uri request) "/api/2/")]
                  (if (or gpodder? (and given (password? password given)))
                    context
@@ -201,7 +202,8 @@
                       (fn [_ given] (password? password given))
                       (constantly true))
         gpodder     (device/gpodder-handler sync-store lib authorized?)]
-    #{["/proxy" :any (proxy/handler) :route-name ::proxy]
+    #{["/proxy" :any (proxy/handler {:user-agent client/user-agent})
+       :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
       ["/api/2/*path" :any gpodder :route-name ::gpodder]}))

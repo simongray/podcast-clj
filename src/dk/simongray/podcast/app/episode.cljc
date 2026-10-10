@@ -11,10 +11,11 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def default-limits
   "The limits of the requests for the files and value blocks of an episode
@@ -119,7 +120,7 @@
   the request failed with `e` or the answer had the `status` of a failure."
   [url e status]
   (if e
-    (diagnostics/describe (assoc (view/unreachable e) :url url))
+    (diagnostics/describe (assoc (view/unreachable (http/failure e)) :url url))
     (diagnostics/describe {:id :file/unreachable :url url :status status})))
 
 (defn- fetch-text!
@@ -232,7 +233,7 @@
    (read-files! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [opts            (merge default-limits {:send http/send!} opts)
+   (let [opts            (merge default-limits {:send client/send!} opts)
          wanted?         (complement except)
          own             (:chapters view)
          url             (:url (:enclosure view))
@@ -411,7 +412,7 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [opts    (-> (merge default-limits
-                            {:send   http/send!
+                            {:send   client/send!
                              :now-fn time/now
                              :fetch  podcast/fetch!}
                             opts)

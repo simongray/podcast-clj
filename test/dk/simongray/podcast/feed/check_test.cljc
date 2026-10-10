@@ -8,9 +8,9 @@
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be with-server])]]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.time :as time])
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.security MessageDigest])))
 
 (def example

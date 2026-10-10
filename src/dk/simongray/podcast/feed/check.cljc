@@ -20,11 +20,12 @@
             [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def ^:no-doc overlays
   "The top-level domains of overlay networks, whose hosts only their own
@@ -202,8 +203,15 @@
   the :error for an attempt that failed."
   [{:keys [value error] :as attempt}]
   (if error
-    {:error (view/unreachable error)}
+    {:error (view/unreachable (http/failure error))}
     value))
+
+(defn- diagnosed
+  "The `facts` of an answer, with the failure under their :error, if any,
+  as a diagnostic."
+  [facts]
+  (cond-> facts
+    (:error facts) (update :error view/unreachable)))
 
 (defn ^:no-doc why
   "The reason of the :error in the `facts`, if any."
@@ -221,19 +229,27 @@
     (cond-> value
       (not error) (assoc :report (report-fn value)))))
 
+(defn- sent-facts
+  "The facts of the answer to an `attempt` to send, or a map with a
+  diagnostic as the :error for an attempt that failed."
+  [attempt]
+  (let [{:keys [error] :as value} (attempted attempt)]
+    (if error value (http/facts value))))
+
 (defn ^:no-doc head!
   "Send a HEAD request for `url` with `headers` through `send`, and give
   the facts of the answer, in a future or a promise."
   [send url headers]
   (let [request {:method :head :url url :headers headers}]
-    (async/then (http/try-send! send request) http/sent-facts)))
+    (async/then (http/try-send! send request) sent-facts)))
 
 (defn ^:no-doc probe-url!
   "Probe `url` with `headers` through `send`, and give the facts, in a
   future or a promise. They tell all that a check needs of most files,
   from two bytes of each."
   [send url headers]
-  (http/probe! url {:send send :headers headers}))
+  (async/then (http/probe! url {:send send :headers headers})
+              #(update-vals % diagnosed)))
 
 (def ^:no-doc formats
   "The format that the media reader finds in a file of each declared type.
@@ -351,7 +367,7 @@
          (async/then
           (http/try-send! send {:url url :headers headers})
           (fn [attempt]
-            (let [got  (http/sent-facts attempt)
+            (let [got  (sent-facts attempt)
                   body (or (get-in attempt [:value :body]) "")]
               (cond-> {:head head :get got}
                 (ok? got)
@@ -941,7 +957,8 @@
   - :max-files, :max-seconds, :concurrency, :timeout-seconds and
     :max-bytes, the limits
   - :allow-pred, which URLs a request can go to, as for http/send!
-  - :send, how to send the requests, in place of http/send!
+  - :user-agent, as http/send! takes it
+  - :send, how to send the requests, in place of client/send!
   - :now-fn, a function that gives the time, the clock by default
 
   The credentials go only with the requests for the feed, and so do a
@@ -968,7 +985,7 @@
          {:keys [url credentials requirements concurrency send max-files
                  max-seconds now-fn]
           :as   opts}
-         (merge default-limits {:send http/send! :now-fn time/now} opts)
+         (merge default-limits {:send client/send! :now-fn time/now} opts)
 
          [url in-url] (url/split-credentials url)
          auth         (http/authorization (or credentials in-url))
@@ -980,7 +997,7 @@
                         deadline (assoc ::deadline deadline))
          found        (files feed opts)
          [near far]   (if max-files (split-at max-files found) [found nil])
-         send-limited #(send (http/limited % opts))]
+         send-limited #(send (http/with-options % opts))]
      (async/then (in-lanes send-limited near opts (max 1 concurrency))
                  (fn [facts]
                    (let [probed  (mapv #(assoc %1 :facts %2) near facts)

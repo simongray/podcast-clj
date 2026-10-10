@@ -9,9 +9,9 @@
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.store.file :as file]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 a run same? #?(:clj with-temp-dir)]]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 a run same? #?(:clj with-temp-dir)]]))
+            [dk.simongray.wary-fetch.async :as async]))
 
 (defn- temp-folder!
   "A new empty folder: a temporary directory on the JVM and in Node, and a

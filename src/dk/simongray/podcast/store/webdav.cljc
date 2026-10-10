@@ -11,10 +11,11 @@
   In a browser, the server must let the page through CORS and expose the
   ETag."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.qname-hiccup :as xml]))
+            [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def calls
   "The calls that a store makes to a collection:
@@ -67,7 +68,7 @@
   ([call root name {:keys [credentials body] :as opts}]
    {:pre [(map? opts)]}
    (let [auth        (http/authorization credentials)
-         headers     (cond-> {"User-Agent" http/user-agent}
+         headers     (cond-> {}
                        auth (assoc "Authorization" auth))
          url         (str root (url/percent-encode name))
          version     (:if-version opts)
@@ -200,22 +201,23 @@
   - :credentials, a :username and a :password, or a :token, as a map or a
     function of no arguments that returns one
   - :name, for the UI, the host by default
-  - :send, a function that sends a request map, in place of http/send!
+  - :send, a function that sends a request map, in place of client/send!
   - :timeout-seconds, how long a request can take, 30 by default
+  - :user-agent, as http/send! takes it
 
   The collection is made on the first put when it isn't there, and a
   server that answers a put without an ETag is asked for one."
   ([root]
    (store root {}))
-  ([root {:keys [credentials name send timeout-seconds] :as opts}]
+  ([root {:keys [credentials name send] :as opts}]
    {:pre [(map? opts)]}
    (let [root  (if (str/ends-with? root "/") root (str root "/"))
          call! (fn [call name params]
                  (let [params (assoc params :credentials credentials)
-                       asked  (cond-> (request call root name params)
-                                timeout-seconds
-                                (assoc :timeout-seconds timeout-seconds))]
-                   (async/then ((or send http/send!) asked)
+                       asked  (merge (request call root name params)
+                                     (select-keys opts [:timeout-seconds
+                                                        :user-agent]))]
+                   (async/then ((or send client/send!) asked)
                                #(response call %))))
          put!  (fn put! [name body params made?]
                  (async/then

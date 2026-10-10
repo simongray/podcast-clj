@@ -14,11 +14,11 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url])
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url])
   #?(:clj (:import [java.util.concurrent.locks ReentrantLock])))
 
 (def ^:no-doc session-seconds
@@ -273,7 +273,7 @@
                          second)
         basic   (fn []
                   (when-let [{:keys [username password]}
-                             (http/credentials (get headers "authorization"))]
+                             (ring/credentials (get headers "authorization"))]
                     (when (and username
                                (authorized-pred username
                                                 (secret/reveal password)))
@@ -300,7 +300,7 @@
                         (re-matches #"\d{1,12}")
                         parse-long
                         (* 1000))
-     :json     (some-> (http/body-text (:body request) max-bytes) json/parse)}))
+     :json     (some-> (ring/body-text (:body request) max-bytes) json/parse)}))
 
 (defn- answer!
   "Answer `request` from `who` at `at` with `answer`, a function of
@@ -430,7 +430,7 @@
 
 (comment
   (route "/api/2/subscriptions/ann/phone.json")
-  (http/credentials "Basic YW5uOnNlY3JldA==")
+  (ring/credentials "Basic YW5uOnNlY3JldA==")
   (url/query-params
    "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
 

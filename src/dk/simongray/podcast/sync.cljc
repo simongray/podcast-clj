@@ -23,8 +23,8 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def version
   "The version of the document format, which changes only when the meaning

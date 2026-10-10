@@ -20,8 +20,8 @@
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def css
   "The inspector's stylesheet, inlined into every page."

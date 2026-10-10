@@ -25,12 +25,12 @@
   (:require [clojure.string :as str]
             #?(:clj [dk.simongray.podcast.diagnostics :as diagnostics])
             [dk.simongray.podcast.feed.guid :as guid]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def nodes
   "Public Hive API nodes, tried in this order until one answers."
@@ -84,8 +84,7 @@
                               "id"      1}]
      {:method  :post
       :url     node
-      :headers {"Content-Type" "application/json"
-                "User-Agent"   http/user-agent}
+      :headers {"Content-Type" "application/json"}
       :body    (json/write-str body)})))
 
 (defn ^:no-doc result
@@ -220,18 +219,21 @@
   "The call that a host makes with `opts` to announce that the feed at
   `url` changed, with the `token` that the service gave the host.
 
-  The token can be a hidden text of dk.simongray.podcast.util.secret, and
+  The token can be a hidden text of dk.simongray.wary-fetch.secret, and
   the request has it in a header as a hidden text. The `opts` are these:
 
   - :medium, \"podcast\" by default
   - :reason, which is \"update\", \"live\" or \"liveEnd\", \"update\" by
     default
   - :gateway, the URL of another service that takes the same call, in
-    place of gateway"
+    place of gateway
+  - :user-agent, the User-Agent, client/user-agent by default"
   ([token url]
    (notify-request token url {}))
-  ([token url {:keys [medium reason]
-               :or   {medium "podcast" reason "update"}
+  ([token url {:keys [medium reason user-agent]
+               :or   {medium     "podcast"
+                      reason     "update"
+                      user-agent client/user-agent}
                :as   opts}]
    {:pre [(map? opts)]}
    (let [service (:gateway opts gateway)
@@ -239,15 +241,17 @@
      {:method  :get
       :url     (str service (if (str/includes? service "?") "&" "?") query)
       :headers {"Authorization" (secret/hide token)
-                "User-Agent"    http/user-agent}})))
+                "User-Agent"    user-agent}})))
 
 (defn- call-node!
   "Send `call` with `params` to `node` as `opts` say, and give the body of
   the answer, in ClojureScript in a promise. It throws when the node
   fails."
   [call params node {:keys [send timeout-seconds]
-                     :or   {send http/send! timeout-seconds 10}}]
+                     :or   {send client/send! timeout-seconds 10}
+                     :as   opts}]
   (-> (request call params {:node node})
+      (merge (select-keys opts [:user-agent]))
       (assoc :timeout-seconds timeout-seconds)
       send
       (async/then (fn [{:keys [status body]}]
@@ -266,7 +270,8 @@
   - :nodes, the nodes to try, nodes by default
   - :node, the one node to try
   - :timeout-seconds, the time that each node gets, 10 by default
-  - :send, the function that sends each request, http/send! by default
+  - :user-agent, as http/send! takes it
+  - :send, the function that sends each request, client/send! by default
 
   A node fails on an exception, a status other than 200, or an answer
   that isn't JSON or holds a JSON-RPC error, which proxies send with a

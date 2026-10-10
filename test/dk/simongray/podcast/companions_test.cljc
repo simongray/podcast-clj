@@ -8,8 +8,8 @@
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def complex-chapters
   (fixture "chapters/example-complex.json"))

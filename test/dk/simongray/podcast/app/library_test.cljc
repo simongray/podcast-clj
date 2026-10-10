@@ -18,8 +18,8 @@
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def now #inst "2026-09-30T12:00:00Z")
 

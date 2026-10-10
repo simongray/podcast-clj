@@ -9,7 +9,7 @@
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]))
 
 (def vectors
   "A part of the test vectors of NIP-44, version 2. The file tells where

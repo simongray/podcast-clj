@@ -8,12 +8,13 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.qname-hiccup :as xml]))
+            [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def default-limits
   "The limits of a fetch of linked shows when its options don't set them:
@@ -148,7 +149,7 @@
   from the first 64 KB alone, and give a map of the :feed without its
   items, or of an :error, in a future or a promise."
   [url opts]
-  (async/then (http/read-by-ranges! url channel-head opts)
+  (async/then (view/read-url! url channel-head opts)
               (fn [{:keys [text error] :as result}]
                 (cond
                   text
@@ -224,7 +225,7 @@
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [opts           (merge default-limits
-                               {:send   http/send!
+                               {:send   client/send!
                                 :now-fn time/now}
                                opts)
          wanted?        (complement except)

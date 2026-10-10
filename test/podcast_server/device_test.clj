@@ -12,9 +12,9 @@
             [dk.simongray.podcast.store.file :as file]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [failed fixture with-temp-dir]]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.secret :as secret]
             [io.pedestal.connector.test :refer [response-for]]
             [podcast-server.device :as device]
             [podcast-server.service :as service]))

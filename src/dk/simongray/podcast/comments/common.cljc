@@ -9,9 +9,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
-            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn ^:no-doc present
   "The map `m` without the entries that say nothing: nil, false, a blank

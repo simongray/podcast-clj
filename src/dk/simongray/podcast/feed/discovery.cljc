@@ -13,10 +13,11 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def found-by
   "Where a candidate feed can be found, best first:
@@ -700,7 +701,7 @@
   - :rules, your rules for a page's address, as rule-urls takes them
   - :guessed-paths and :apps, in place of guessed-paths and
     directory.links/apps
-  - :send, the function that sends a request, http/send! by default
+  - :send, the function that sends a request, client/send! by default
   - :allow-pred, a predicate of the URLs a request may go to, url/public? by
     default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
@@ -711,7 +712,7 @@
   ([s opts]
    {:pre [(map? opts)]}
    (let [opts              (merge default-limits
-                                  {:send          http/send!
+                                  {:send          client/send!
                                    :allow-pred    url/public?
                                    :lookup        [:apple :podcastindex]
                                    :guessed-paths guessed-paths

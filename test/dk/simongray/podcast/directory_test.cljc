@@ -7,8 +7,7 @@
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def apple-search
   (fixture "directory/apple-search.json"))
@@ -72,7 +71,8 @@
       (is (str/ends-with? (url :podcastindex :lookup {:id 920666} credentials) "podcasts/byfeedid?id=920666"))
       (is (str/ends-with? (url :podcastindex :lookup {:id "917393e3-1b1e-5cef-ace4-edaa54e1f810"} credentials)
                           "podcasts/byguid?guid=917393e3-1b1e-5cef-ace4-edaa54e1f810")))
-    (is (= {"User-Agent" http/user-agent} (:headers (directory/request :fyyd :search {:q "x"}))))
+    (is (nil? (:headers (directory/request :fyyd :search {:q "x"})))
+        "no User-Agent, which the sender gives")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :podcastindex :search {:q "x"})) "credentials wanted")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :spotify :search {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))
