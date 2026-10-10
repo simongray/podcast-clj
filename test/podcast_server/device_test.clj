@@ -4,7 +4,7 @@
   fetches the feed, and the gpodder API names the phone's episode by it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -61,7 +61,7 @@
     (fn [dir]
       (let [store   (service/sync-store {:data-dir dir})
             backend (sync/backend store)
-            data    (file/store dir)
+            data    (folder/store dir)
             asked   (atom [])
             fetch   (fn [u _] (swap! asked conj u) {:status 200 :url u :feed feed :etag "\"v1\""})]
         (phone-synced! store)
@@ -79,7 +79,7 @@
 (deftest a-saved-library-reads-back
   (with-temp-dir
     (fn [dir]
-      (let [data    (file/store dir)
+      (let [data    (folder/store dir)
             show    (rss/parse (fixture "feeds/namespace-example.xml"))
             library (library/subscribe (device/make) "https://example.com/feed.xml" show)]
         (device/save! library data)

@@ -242,7 +242,7 @@ The store of `store.encrypted` wraps each body in this EDN map:
 | Store | Namespace | Platform | Version token |
 |---|---|---|---|
 | A map in an atom | `store/memory` | both | a count of the writes |
-| A folder | `store.file` | both | the modification time, as exact as the file system keeps it, and the size |
+| A folder | `store.folder` | both | the modification time, as exact as the file system keeps it, and the size |
 | A WebDAV collection | `store.webdav` | both | the ETag |
 | An IndexedDB database | `store.indexeddb` | browser | a count of the writes |
 | Any store, encrypted | `store.encrypted` | both | the version of the wrapped store |
@@ -258,14 +258,14 @@ drop:
   `:delete`, so a backend over it only pulls. Of a folder loaded with
   `<input webkitdirectory>`, only the files at its top count, and the
   folder's name is the store's name.
-- In ClojureScript, `file/query-permission!` and `file/request-permission!`
+- In ClojureScript, `folder/query-permission!` and `folder/request-permission!`
   give `:granted`, `:prompt` or `:denied`. A path, a folder of the origin
   private file system and the files of an input give `:granted`, since
   there's nothing to ask for. The browser asks the listener only during a
   click.
 - The failures that the listener can fix have a `:type` in their ex-data:
-  `::file/not-allowed` for a permission to renew, `::file/gone` for a
-  folder that was moved, deleted or unplugged, and `::file/read-only` for
+  `::folder/not-allowed` for a permission to renew, `::folder/gone` for a
+  folder that was moved, deleted or unplugged, and `::folder/read-only` for
   a folder that the browser can't write to.
 
 On the JVM, `store.webdav.server/handler` serves any store over WebDAV:

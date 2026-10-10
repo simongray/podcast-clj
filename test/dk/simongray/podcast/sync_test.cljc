@@ -5,15 +5,21 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.string :as str])
             [clojure.test :refer [deftest is]]
+            [dk.simongray.like-minded.document :as document]
             #?(:clj [dk.simongray.like-minded.store :as store])
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [t2 a phone-state laptop-state
                                                        #?@(:clj [t3 t4 failed])]]))
 
+(defn- encoded
+  "The document of the profile `state` written at `at`."
+  [state at]
+  (document/encode state at sync/defaults))
+
 (deftest the-profile-by-default
-  (let [fetched [{:name "phone.edn" :body (sync/document (phone-state) t2)}
-                 {:name "laptop.edn" :body (sync/document (laptop-state) t2)}
+  (let [fetched [{:name "phone.edn" :body (encoded (phone-state) t2)}
+                 {:name "laptop.edn" :body (encoded (laptop-state) t2)}
                  {:name "poison.edn" :body (pr-str {:version 1 :device "x" :written-at t2
                                                     :state {:episodes {a {:updated-at "soon" :device "x"}}}})}]
         {:keys [state report]} (sync/reconcile (profile/make "tablet") fetched t2)]
@@ -22,12 +28,12 @@
     (is (= 900 (:position (profile/episode-entry state a))) "and merged by them")
     (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions state)))))
     (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"can't be merged"
-                          (sync/read-document (pr-str {:version 1 :state {:clock "now"}}))))))
+                          (document/decode (pr-str {:version 1 :state {:clock "now"}}) sync/defaults)))))
 
 (deftest the-kind-of-a-profile
-  (is (= sync/kind (:kind (sync/read-document (sync/document (phone-state) t2)))))
+  (is (= sync/kind (:kind (document/decode (encoded (phone-state) t2) sync/defaults))))
   (let [notes {:name "notes.edn" :body (pr-str {:version 1 :device "x" :written-at t2 :kind "my-notes" :state {}})}]
-    (is (= [:sync/other-kind] (map :id (:report (sync/read-documents [notes] t2))))
+    (is (= [:sync/other-kind] (map :id (:report (document/states [notes] t2 sync/defaults))))
         "a document of another app is left out")))
 
 #?(:clj

@@ -7,6 +7,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
+            [dk.simongray.like-minded.document :as document]
             [dk.simongray.like-minded.store :as store]
             #?(:cljs [dk.simongray.like-minded.store.indexeddb :as indexeddb])
             [dk.simongray.mind-meld :as crdt]
@@ -662,7 +663,7 @@
 
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
-        written             (sync/read-document body)]
+        written             (document/decode body sync/defaults)]
     (is (= (str (:device library) ".edn") name) "the name that a backend gives it")
     (is (= (:profile library) (:state written)))
     (is (= ["test" now] ((juxt :app :written-at) written)) "written now, by the clock of the library")))

@@ -6,6 +6,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [dk.simongray.like-minded.document :as document]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
@@ -102,4 +103,4 @@
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
       (is (same? (:state laptop) (:state phone2)))
       (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
-      (is (= "test" (:app (sync/read-document (slurp (io/file *dir* "sync" "laptop.edn")))))))))
+      (is (= "test" (:app (document/decode (slurp (io/file *dir* "sync" "laptop.edn")) sync/defaults)))))))

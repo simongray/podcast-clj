@@ -16,7 +16,7 @@
   so reach it only through a private network."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
@@ -189,7 +189,7 @@
 (defn sync-store
   "The store of the sync folder in the :data-dir of `settings`."
   [{:keys [data-dir] :as settings}]
-  (file/store (io/file data-dir "sync")))
+  (folder/store (io/file data-dir "sync")))
 
 (defn routes
   "The routes of the proxy, the sync folder `sync-store` and the gpodder
@@ -255,7 +255,7 @@
            sync-store (sync-store settings)
            ;; for the saved library, which can't go in the sync folder,
            ;; where every file is a sync document
-           data-store (file/store data-dir)
+           data-store (folder/store data-dir)
            lib        (atom (device/restore! (device/make) data-store))
            running    (conn/start! (connector settings sync-store lib))]
        (reset! server {:connector running

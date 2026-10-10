@@ -152,7 +152,7 @@ A call that changes the library returns a new version, and playing, refreshing
 and syncing also record what they did in it:
 
 ```clojure
-(require '[dk.simongray.like-minded.store.file :as file]
+(require '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.sync :as sync])
@@ -187,12 +187,12 @@ and syncing also record what they did in it:
 
 ;; sync the profile with the listener's other devices through a Dropbox folder,
 ;; and see what failed and what the step reported
-(def dropbox (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")))
+(def dropbox (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")))
 (-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
 ;; => []
 
 ;; keep the library until the next start, and read it back with restore!
-(library/save! @lib (file/store "data"))
+(library/save! @lib (folder/store "data"))
 ;; => {:put ["segment-37b1….ciff" "index.edn" "library.edn"] :delete []}
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more

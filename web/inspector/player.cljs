@@ -14,7 +14,7 @@
   in IndexedDB for the next visit."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.library :as library]
@@ -135,7 +135,7 @@
   (let [{:keys [handle permission]} (:folder @app)]
     (cond-> [(backend)]
       (= :granted permission)
-      (conj (sync/backend (file/store handle) {:name  "sync folder"
+      (conj (sync/backend (folder/store handle) {:name  "sync folder"
                                                :opml? true
                                                :app   "inspector"})))))
 
@@ -173,7 +173,7 @@
   lapse, so that the page offers to renew it."
   []
   (when-let [h (get-in @app [:folder :handle])]
-    (.then (file/query-permission! h) #(use-folder! h %))))
+    (.then (folder/query-permission! h) #(use-folder! h %))))
 
 (defn- one-at-a-time
   "Run `f`, which gives a promise, while no other tab of this browser runs
@@ -268,7 +268,7 @@
   (-> (handles! "readonly" #(.get % "sync-folder"))
       (.then (fn [h]
                (when h
-                 (.then (file/query-permission! h) #(use-folder! h %)))))
+                 (.then (folder/query-permission! h) #(use-folder! h %)))))
       (.catch (fn [_] nil))))
 
 (defn- pick-folder!
@@ -290,7 +290,7 @@
   through it if they do. The browser only asks during a click."
   []
   (let [h (get-in @app [:folder :handle])]
-    (.then (file/request-permission! h)
+    (.then (folder/request-permission! h)
            (fn [permission]
              (use-folder! h permission)
              (when (= :granted permission)
@@ -321,7 +321,7 @@
   [input]
   (let [files (js/Array.from (.-files input))]
     (set! (.-value input) "")
-    (sync! [(sync/backend (file/store files) {:name "loaded folder"})])))
+    (sync! [(sync/backend (folder/store files) {:name "loaded folder"})])))
 
 (defn- perform!
   "Carry out the `effects` of a player event: seek the audio element to

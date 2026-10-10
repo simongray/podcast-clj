@@ -2,12 +2,13 @@
   "Syncing the profile between a listener's devices, over any number of
   backends, through like-minded.
 
-  The functions here are those of dk.simongray.like-minded and its
-  document namespace, with the defaults of a profile: its CRDT, the
-  version of its format, its kind and the name of a shared document. The
-  options of each call go over them, and doc/sync.md explains the design.
-  A backend can also write the listener's subscription list beside the
-  documents, for any podcast app to import."
+  The functions here are those of dk.simongray.like-minded, with the
+  defaults of a profile: its CRDT, the version of its format, its kind and
+  the name of a shared document. The options of each call go over them,
+  and doc/sync.md explains the design. A backend can also write the
+  listener's subscription list beside the documents, for any podcast app
+  to import. For the documents themselves, give defaults to the functions
+  of like-minded's document namespace."
   (:require [dk.simongray.like-minded :as like-minded]
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.podcast.format.opml :as opml]
@@ -97,33 +98,3 @@
    (device-document state at {}))
   ([state at opts]
    (document/for-device state at (merge defaults opts))))
-
-(defn document-name
-  "The name of the document that the device `device` writes."
-  [device]
-  (document/name-of device defaults))
-
-(defn document
-  "The document of `state` written at `at` with `opts`, as an EDN string,
-  as like-minded's document/encode writes it."
-  ([state at]
-   (document state at {}))
-  ([state at opts]
-   (document/encode state at (merge defaults opts))))
-
-(defn read-document
-  "The envelope in the document `s`, read with `opts`, as like-minded's
-  document/decode reads it."
-  ([s]
-   (read-document s {}))
-  ([s opts]
-   (document/decode s (merge defaults opts))))
-
-(defn read-documents
-  "The states in the documents `fetched`, read at `at` with `opts`, as a
-  map of :states and a :report, as like-minded's document/states reads
-  them."
-  ([fetched at]
-   (read-documents fetched at {}))
-  ([fetched at opts]
-   (document/states fetched at (merge defaults opts))))

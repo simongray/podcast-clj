@@ -346,7 +346,7 @@ Save the library into a store of its own, e.g. after each refresh, and
 read it back into a new library when the app starts:
 
 ```clojure
-(def data (file/store "data"))
+(def data (folder/store "data"))
 
 (library/save! @lib data)
 ;; => {:put ["segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
@@ -369,7 +369,7 @@ deletes the documents of any other index there:
 
 - **On the JVM and in Node,** a folder, as above.
 - **In a browser,** IndexedDB, `(indexeddb/store "my-app")`, or the origin private
-  file system, `(.then (.getDirectory js/navigator.storage) file/store)`.
+  file system, `(.then (.getDirectory js/navigator.storage) folder/store)`.
   A browser can clear both when the disk runs low, unless the page asked
   for `navigator.storage.persist()` and got it. If it does, `restore!`
   gives the library as `make` made it, and the next sync brings the
@@ -829,7 +829,7 @@ this is safe.
 
 (def backends
   [(sync/backend cloud {:opml? true :app "my-app"})
-   (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")
+   (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")
                  {:app "my-app"})])
 
 (swap! lib library/merge (library/sync! @lib backends))
@@ -884,7 +884,7 @@ functions.
 
 ### Sync through a folder in a browser
 
-In a browser that can pick a folder, give its handle to `file/store`.
+In a browser that can pick a folder, give its handle to `folder/store`.
 The browser asks the listener for permission, and only during a click:
 
 ```clojure
@@ -892,7 +892,7 @@ The browser asks the listener for permission, and only during a click:
   "Ask the listener for a sync folder, and give a promise of its backend."
   []
   (.then (js/showDirectoryPicker #js {:mode "readwrite"})
-         #(sync/backend (file/store %) {:opml? true :app "my-app"})))
+         #(sync/backend (folder/store %) {:opml? true :app "my-app"})))
 ```
 
 Keep the handle in IndexedDB for the next visit, since it can't go in
@@ -900,8 +900,8 @@ EDN. The permission can lapse between visits, so check it before a sync.
 If it's `:prompt`, show a button that renews it:
 
 ```clojure
-(file/query-permission! handle)    ; => a promise of :granted, :prompt or :denied
-(file/request-permission! handle)  ; from a click
+(folder/query-permission! handle)    ; promises :granted, :prompt or :denied
+(folder/request-permission! handle)  ; from a click
 ```
 
 A browser without a folder picker can still sync through the folder by
@@ -911,7 +911,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 ```clojure
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
 
-(.then (library/sync! @lib [(sync/backend (file/store (.-files input)))])
+(.then (library/sync! @lib [(sync/backend (folder/store (.-files input)))])
        #(swap! lib library/merge %))
 ```
 
@@ -934,7 +934,7 @@ needs no CORS:
 (defn dav
   "The WebDAV handler of the listener who sent `request`."
   [request]
-  (let [store (file/store (str "sync/" (user-id request)))]
+  (let [store (folder/store (str "sync/" (user-id request)))]
     ((webdav-server/handler store "/dav/") request)))
 
 ;; in the page
@@ -1304,7 +1304,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.html-pieces :as html]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]

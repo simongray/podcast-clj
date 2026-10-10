@@ -25,7 +25,7 @@
           :git/sha "b72137662bf70261835daae4fe3083868cd85da9"}
          dk.simongray/like-minded
          {:git/url "https://github.com/simongray/like-minded"
-          :git/sha "9455dbae757070b441be381475b61c27c4e63d12"}}
+          :git/sha "a691f1bf62fe003f375f9f04cc232330fbedfba0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

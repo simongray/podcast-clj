@@ -22,7 +22,7 @@ in one map, the library. Make one for this device, keep it in an atom, and
 subscribe to a show:
 
 ```clojure
-(require '[dk.simongray.like-minded.store.file :as file]
+(require '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.profile :as profile]
@@ -145,7 +145,7 @@ becomes the backend of a sync, here with the app's name in its document:
 
 ```clojure
 (def folder
-  (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")
+  (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")
                 {:app "quickstart"}))
 
 (-> (swap! lib library/merge (library/sync! @lib [folder]))

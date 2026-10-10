@@ -5,7 +5,7 @@
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
-            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
@@ -895,7 +895,7 @@
   of a page. The `sync-store` is the folder store over sync-dir by
   default."
   ([]
-   (routes (file/store sync-dir)))
+   (routes (folder/store sync-dir)))
   ([sync-store]
    #{["/" :get home :route-name :home]
      ["/feed" :get feed-page :route-name :feed]
@@ -996,7 +996,7 @@
        (update :interceptors
                #(into [local-only (dav/requests "/dav/") unread-bodies] %))
        (conn/with-interceptor single-params)
-       (conn/with-routes (routes (file/store sync-dir)))
+       (conn/with-routes (routes (folder/store sync-dir)))
        (jetty/create-connector nil))))
 
 (defn start!
