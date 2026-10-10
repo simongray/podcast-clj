@@ -68,7 +68,14 @@
     (is (nil? feed))
     (is (= [:fetch/malformed :warning "https://a.example/"] ((juxt :id :level :url) error)))
     (is (string? (:reason error))))
-  (is (not (contains? (:error (rss/try-parse "")) :url)) "no URL unless the options give one"))
+  (is (not (contains? (:error (rss/try-parse "")) :url)) "no URL unless the options give one")
+  (testing "a feed in another format"
+    (is (= [:fetch/unsupported-format "Atom"]
+           ((juxt :id :format) (:error (rss/try-parse "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>T</title></feed>")))))
+    (is (= "RSS 1.0" (:format (:error (rss/try-parse (str "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\""
+                                                          " xmlns=\"http://purl.org/rss/1.0/\"><channel/></rdf:RDF>"))))))
+    (is (= :fetch/malformed (:id (:error (rss/try-parse "<feed><title>T</title></feed>"))))
+        "a feed element outside the Atom namespace")))
 
 (deftest unknown-elements-survive
   (let [f (rss/parse "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title>

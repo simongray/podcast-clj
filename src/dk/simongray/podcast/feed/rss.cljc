@@ -55,14 +55,20 @@
                       (feed/report feed))]
      (vary-meta feed assoc :podcast/report report))))
 
+;; RFC 4287, section 4.1.1; RSS 1.0, section 5.2
+(def ^:no-doc other-formats
+  "The names of the feed formats that parse refuses, by root element."
+  {:atom/feed "Atom" :rdf/RDF "RSS 1.0"})
+
 (defn try-parse
   "Parse the RSS string `xml` with the `opts` below, and give a map of the
   :feed, or of the :error when it's no feed.
 
-  The error is the diagnostic :fetch/malformed with the :reason, for a
-  document that came from somewhere else, such as a server. The `opts`
-  are those of parse, and :url, the address of the document, which goes
-  in the diagnostic.
+  It's for a document that came from somewhere else, such as a server. The
+  error is the diagnostic :fetch/unsupported-format with the :format for
+  an Atom or RSS 1.0 feed, and otherwise :fetch/malformed with the
+  :reason. The `opts` are those of parse, and :url, the address of the
+  document, which goes in the diagnostic.
 
   A platform without an XML parser isn't the fault of the document, so
   that error is still thrown."
@@ -75,10 +81,13 @@
      (catch #?(:clj Exception :cljs :default) e
        (when (= ::xml/no-parser (:type (ex-data e)))
          (throw e))
-       (let [malformed (cond-> {:id     :fetch/malformed
-                                :reason (async/explain e)}
-                         url (assoc :url url))]
-         {:error (diagnostics/describe malformed)})))))
+       (let [other      (get other-formats (:root (ex-data e)))
+             diagnostic (cond-> (if other
+                                  {:id :fetch/unsupported-format :format other}
+                                  {:id     :fetch/malformed
+                                   :reason (async/explain e)})
+                          url (assoc :url url))]
+         {:error (diagnostics/describe diagnostic)})))))
 
 (defn report
   "The diagnostics of `feed`, or of a parsed tree. Each is a map

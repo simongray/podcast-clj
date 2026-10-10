@@ -43,6 +43,9 @@
     {:id :fetch/malformed :level :warning
      :doc "The document isn't an RSS feed, or for a list, an OPML document:
            it isn't XML, or its root element isn't rss or opml."}
+    {:id :fetch/unsupported-format :level :warning
+     :doc "The document is an Atom or RSS 1.0 feed rather than RSS 2.0, so it
+           can't be read. The :format names which."}
     {:id :fetch/page-failed :level :warning
      :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks
            the items of that page and the pages after it."}
@@ -61,8 +64,8 @@
      :doc "The text isn't a URL, a domain or a link of an app, so there's
            nothing to fetch. It may be words to search a directory with."}
     {:id :discovery/not-found :level :warning
-     :doc "No feed was found: the page names none, and none of the other places
-           that were tried has one."}
+     :doc "No feed was found: the page names none that could be read, and none
+           of the other places that were tried has one."}
 
     ;; the directories
     {:id :directory/source-failed :level :warning

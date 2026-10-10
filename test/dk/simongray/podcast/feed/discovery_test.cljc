@@ -210,6 +210,8 @@
                    (merge {:send (network answers log) :allow-pred (constantly true)} more))
         show     (feed-xml "The Show" {:link "https://show.example/" :episode? true})
         blog     (feed-xml "The Blog" {:link "https://show.example/"})
+        videos   (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                      "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>The Show</title></feed>")
         search   (:url (directory/request :apple :search {:q "The Show" :limit 8}))
         lookup   (:url (directory/request :apple :lookup {:id "123"}))
         results  #(str "{\"resultCount\":" (count %) ",\"results\":["
@@ -310,6 +312,15 @@
                        (is (empty? feeds))
                        (is (= [:discovery/not-found "https://show.example"] ((juxt :id :url) error)))
                        (is (not (some #{search} @log)))))))
+     (fn []
+       (async/then (discovery/find-feeds! "https://show.example/"
+                                        (opts {"https://show.example/"           {:body (page (alternate "/videos.xml"))}
+                                               "https://show.example/videos.xml" {:body videos}}))
+                   (fn [{:keys [feeds error]}]
+                     (testing "a page that names only an Atom feed"
+                       (is (empty? feeds))
+                       (is (= [:fetch/unsupported-format "Atom" "https://show.example/videos.xml"]
+                              ((juxt :id :format :url) error)))))))
      (fn []
        (async/then (discovery/find-feeds! "show.example"
                                         (opts {"https://show.example"          {:body (page)}

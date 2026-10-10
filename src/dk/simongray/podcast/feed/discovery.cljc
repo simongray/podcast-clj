@@ -664,14 +664,17 @@
   `url` and the podcast:guid `guid` of a fast-follow link.
 
   With a guid, only the feeds with that guid stay, if any have it. The
-  :error is there when no feed is, and otherwise it goes in the report."
+  :error is there when no feed is, and otherwise it goes in the report.
+  When a feed in a format that can't be read was found, that is the error."
   [{:keys [known candidates report error] :as acc} url guid]
   (let [feeds     (ranked (concat known candidates))
         same      (filterv #(= guid (guid/feed-guid (:feed %) (:url %))) feeds)
         feeds     (if (and guid (seq same)) same feeds)
+        other     (some #(when (= :fetch/unsupported-format (:id %)) %) report)
         report    (cond-> (vec report)
                     (and error (seq feeds)) (conj error))
         not-found (or error
+                      other
                       (diagnostics/describe (cond-> {:id :discovery/not-found}
                                               url (assoc :url url))))]
     (cond-> {:feeds feeds}

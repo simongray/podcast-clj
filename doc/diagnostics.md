@@ -36,11 +36,12 @@ A function that sends requests also returns its failures as diagnostics, under t
 |---|---|---|
 | `:fetch/unreachable` | warning | The feed or list couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
 | `:fetch/malformed` | warning | The document isn't an RSS feed, or for a list, an OPML document: it isn't XML, or its root element isn't rss or opml. |
+| `:fetch/unsupported-format` | warning | The document is an Atom or RSS 1.0 feed rather than RSS 2.0, so it can't be read. The :format names which. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
-| `:discovery/not-found` | warning | No feed was found: the page names none, and none of the other places that were tried has one. |
+| `:discovery/not-found` | warning | No feed was found: the page names none that could be read, and none of the other places that were tried has one. |
 | `:directory/source-failed` | warning | A directory gave no answer to a search or a chart, so its shows are missing from the results. The :source names it, and the :reason says why. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |

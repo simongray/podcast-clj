@@ -214,11 +214,15 @@
       (testing "an answer that is too large"
         (is (= :fetch/unreachable (:id (:error (podcast/fetch! (str base "/feed.xml") {:max-bytes 100}))))))
       (testing "a body that is no feed"
-        (doseq [path ["/page.html" "/data.json" "/atom.xml" "/empty.xml"]
+        (doseq [path ["/page.html" "/data.json" "/empty.xml"]
                 :let [r (podcast/fetch! (str base path))]]
           (is (= [200 :fetch/malformed (str base path)] [(:status r) (:id (:error r)) (:url (:error r))]) path)
           (is (not (contains? r :feed)) path)
           (is (string? (:reason (:error r))) path))
+        (let [r (podcast/fetch! (str base "/atom.xml"))]
+          (is (= [200 :fetch/unsupported-format "Atom"] [(:status r) (:id (:error r)) (:format (:error r))])
+              "a feed in another format")
+          (is (not (contains? r :feed))))
         (let [r (podcast/fetch! (str base "/page.html"))]
           (is (= "\"p\"" (:etag r)) "the validators of the answer")
           (is (str/starts-with? (:body r) "<html>") "and the body, where an app can look for the feed"))))))
