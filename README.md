@@ -90,7 +90,9 @@ with the SHA of the latest commit on `master`
 (requires Clojure 1.11+ & Java 11+):
 
 ```clojure
-io.github.simongray/podcast-clj {:git/sha "…"}
+dk.simongray/podcast-clj
+{:git/url "https://github.com/simongray/podcast-clj"
+ :git/sha "…"}
 ```
 
 For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`,
