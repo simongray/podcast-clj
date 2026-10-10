@@ -82,6 +82,7 @@ option replaces the function that sends.
 |---|---|
 | `sync` | Sync between devices through like-minded, with the profile as the state: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `device-document`. |
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
+| `sync.gpodder.api` | The gpodder API as data: `request` for the request map of a call, `response` for what its answer says, and `apis` for the paths of each server. |
 | `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
 
 The stores that the sync and a saved library share are those of
@@ -94,7 +95,8 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 |---|---|
 | `feed.rss` | Parsing and writing feeds: `parse` reads an RSS document into a feed map, `emit` writes one back, `report` gives the diagnostics, and `parse-tree` stops at the Hiccup. For a document that may not be a feed, `try-parse` gives a diagnostic where `parse` throws. |
 | `feed` | Hiccup to feed maps and back, and `diff` between two parses. |
-| `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
+| `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order and `blocked?`. |
+| `feed.schedule` | When a feed says that it changes, with `next-episode` from its update frequency and `next-check` for when to fetch it again. |
 | `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files` and `report` are pure. |
 | `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and Apple Podcasts, with `verdicts` for one file. |

@@ -10,7 +10,7 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.repair  feed.quirks
   0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics

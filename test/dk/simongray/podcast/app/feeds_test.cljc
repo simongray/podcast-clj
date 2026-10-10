@@ -9,6 +9,7 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
@@ -58,7 +59,7 @@
   (let [thin        (feeds/slim feed)
         whole-names (gpodder/identities [{:url url :feed feed}])
         thin-names  (gpodder/identities [{:url url :feed thin}])]
-    (and (= (resolve/next-check feed at) (resolve/next-check thin at))
+    (and (= (schedule/next-check feed at) (schedule/next-check thin at))
          (= (feed/new-episodes url before feed) (feed/new-episodes url (feeds/slim before) feed))
          (every? (fn [item]
                    (let [id    (feed.guid/episode-id feed url item)

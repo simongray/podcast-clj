@@ -17,7 +17,7 @@
     "as request"
     dk.simongray.podcast.value.nwc/request-event
     "it reads no clock and makes no random bytes, so the options give them"
-    dk.simongray.podcast.sync.gpodder/request
+    dk.simongray.podcast.sync.gpodder.api/request
     "a call names the listener and the device, which the options give"
     dk.simongray.podcast.sync.gpodder.server/handler
     "a handler serves the :state and checks credentials with :authorized-pred"

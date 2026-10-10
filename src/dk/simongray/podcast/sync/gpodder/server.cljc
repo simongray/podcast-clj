@@ -14,6 +14,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
@@ -200,7 +201,7 @@
                         (url/web-url? (:episode %)))
           actions (->> json
                        (keep (fn [raw]
-                               (let [a (gpodder/read-action raw)]
+                               (let [a (gpodder.api/read-action raw)]
                                  (when (timed? raw a) a))))
                        (filter linked?)
                        (map #(update % :timestamp arrived))

@@ -33,7 +33,7 @@ are relative to `dk.simongray.podcast`.
 | The relays of Nostr | `comments.nostr/relays` | `:relays` | the [relays below](#the-relays-of-nostr) |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts-pred`, a predicate of a URL | the rules of op3.dev |
-| The paths of the gpodder API | `sync.gpodder/apis` | `:api`, as a name or a map of paths | `:gpodder` |
+| The paths of the gpodder API | `sync.gpodder.api/apis` | `:api`, as a name or a map of paths | `:gpodder` |
 | The limits of a gpodder server | `sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
@@ -94,7 +94,7 @@ with a category for each source.
 
 ## The gpodder API
 
-The paths of the calls are in `sync.gpodder/apis`, where `{user}` is
+The paths of the calls are in `sync.gpodder.api/apis`, where `{user}` is
 the user name and `{device}` is the id of the device.
 
 | Call | `:gpodder` | `:nextcloud` |

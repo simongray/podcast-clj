@@ -280,7 +280,7 @@ moves its subscription too, and a feed that failed stays as it was and
 waits longer before the next try.
 
 When to check a feed again depends on its update frequency, its `ttl` or
-the interval between its episodes, as `resolve/next-check` reads them. The
+the interval between its episodes, as `schedule/next-check` reads them. The
 setting `:cadence` changes the defaults, and `:credentials-of` gives the
 credentials of a private feed by its URL, so no password is stored in the
 library and none goes to another feed.
@@ -1359,6 +1359,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.chapters :as chapters]

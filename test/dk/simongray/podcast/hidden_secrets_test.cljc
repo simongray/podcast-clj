@@ -10,7 +10,7 @@
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
             [dk.simongray.podcast.test-support :refer [run secret-key]]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -28,10 +28,10 @@
     (is (= (index/request {:key "K" :secret password} :search/by-term {:q "x"} {:auth-date 1700000000})
            (index/request {:key "K" :secret hidden} :search/by-term {:q "x"} {:auth-date 1700000000}))))
   (testing "gpodder, with a password and a session"
-    (is (= (gpodder/request :episodes "https://gpodder.example"
-                            {:credentials {:username "ann" :password password} :device "phone" :session "abc"})
-           (gpodder/request :episodes "https://gpodder.example"
-                            {:credentials {:username "ann" :password hidden} :device "phone" :session (secret/hide "abc")}))))
+    (is (= (gpodder.api/request :episodes "https://gpodder.example"
+                                {:credentials {:username "ann" :password password} :device "phone" :session "abc"})
+           (gpodder.api/request :episodes "https://gpodder.example"
+                                {:credentials {:username "ann" :password hidden} :device "phone" :session (secret/hide "abc")}))))
   (testing "WebDAV"
     (is (= (webdav/request :list "https://dav.example/podcasts/" nil {:credentials {:username "ann" :password password}})
            (webdav/request :list "https://dav.example/podcasts/" nil {:credentials {:username "ann" :password hidden}})))
@@ -66,9 +66,9 @@
 (deftest requests-in-print
   (doseq [[what request] {"a WebDAV store"    (webdav/request :list "https://dav.example/podcasts/" nil
                                                               {:credentials {:username "ann" :password password}})
-                          "gpodder"           (gpodder/request :episodes "https://gpodder.example"
-                                                               {:credentials {:username "ann" :password password}
-                                                                :session     "hunter2-session"})
+                          "gpodder"           (gpodder.api/request :episodes "https://gpodder.example"
+                                                                   {:credentials {:username "ann" :password password}
+                                                                    :session     "hunter2-session"})
                           "OP3"               (op3/request password :downloads {:show "fb3d03641442410e881acb0562ef27c6"})
                           "Podping"           (podping/notify-request password "https://example.org/feed.xml")
                           "the Podcast Index" (index/request {:key "K" :secret password} :search/by-term {:q "x"}

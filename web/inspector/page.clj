@@ -15,6 +15,7 @@
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.nostr :as nostr]
@@ -347,7 +348,7 @@
         feed-url   (or feed-url url)
         live       (seq (:podcast/live-items feed))
         serial?    (= "serial" (some-> (:itunes/type feed) str/lower-case))
-        next-check (resolve/next-check feed (time/now))
+        next-check (schedule/next-check feed (time/now))
         facts      [(resolve/author feed)
                     (:rss/language feed)
                     (str "medium " (resolve/medium feed))

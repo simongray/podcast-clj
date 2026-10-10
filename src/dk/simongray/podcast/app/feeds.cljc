@@ -20,6 +20,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]))
@@ -46,7 +47,7 @@
   (let [wait (if (resolve/complete? feed)
                (:complete cadence)
                (:silent cadence))]
-    (time/latest (or (resolve/next-check feed at)
+    (time/latest (or (schedule/next-check feed at)
                      (time/later at wait))
                  not-before)))
 
