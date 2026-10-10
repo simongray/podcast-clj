@@ -10,9 +10,9 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  criteria  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
-  1  vocabulary   feed.spec  feed.quirks
+  1  vocabulary   feed.spec  feed.repair  feed.quirks
   0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics
 ```
 
@@ -138,16 +138,17 @@ answer alone. So it can't disagree with the accessor.
 
 ## Quirks and reports
 
-`feed.quirks` holds small, named functions of two kinds. Repairs fix the
-XML text when the strict parse fails, e.g. a byte order mark, HTML entities
-like `&nbsp;`, or bare ampersands. Normalisations fix the tree, e.g. variant
-namespace URIs or `yes` in `itunes:explicit`. [Diagnostics](diagnostics.md)
-lists them all. If the document is still malformed and `org.jsoup/jsoup` is
-on the classpath, its XML mode reads the document into the same raw Hiccup,
-so all later steps are shared.
+Small, named functions of two kinds fix what feeds get wrong. The repairs
+of `feed.repair` fix the XML text when the strict parse fails, e.g. a byte
+order mark, HTML entities like `&nbsp;`, or bare ampersands. The
+normalisations of `feed.quirks` fix the tree, e.g. variant namespace URIs
+or `yes` in `itunes:explicit`. [Diagnostics](diagnostics.md) lists them
+all. If the document is still malformed and `org.jsoup/jsoup` is on the
+classpath, its XML mode reads the document into the same raw Hiccup, so
+all later steps are shared.
 
 `{:quirks? false}` gives the strict path, and `:except` leaves out the
-quirks it names. Each layer reports only what it did, and `rss/parse`
+repairs and normalisations it names. Each layer reports only what it did, and `rss/parse`
 joins the reports in order. Metadata doesn't survive printing, transit or
 `into {}`, so an app that stores a parsed feed must store its report next
 to it.
@@ -207,12 +208,13 @@ Every function that fetches has limits of size, time and requests in the
 `default-limits` of its namespace, and its options change each one.
 
 `feed.check` is split like the rest of podcast-clj: `files` lists what to
-fetch and `verdicts` turns what came back into diagnostics, both pure, and
-`check-files!` only sends. Its rules come from the standards first (RFC
-9110, RSS 2.0, the podcast namespace, and the Fetch standard for CORS), and
-the requirements of PSP-1 and Apple Podcasts add theirs on top. A browser
-hides much of an answer from a page, so a check sees most on the JVM or in
-Node.
+fetch, `feed.check.facts` gathers what came back, and `feed.check.rules`
+turns the facts into diagnostics. Only the gathering sends, so `report`
+can judge the same facts again by other requirements. The rules come from
+the standards first (RFC 9110, RSS 2.0, the podcast namespace, and the
+Fetch standard for CORS), and the requirements of PSP-1 and Apple Podcasts
+add theirs on top. A browser hides much of an answer from a page, so a
+check sees most on the JVM or in Node.
 
 
 ## Security

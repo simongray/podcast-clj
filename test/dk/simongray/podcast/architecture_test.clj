@@ -24,9 +24,10 @@
    "util.time.rrule" 0
    "util.entities" 0 "util.names" 0
    "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
-   "feed.spec" 1 "feed.quirks" 1
+   "feed.spec" 1 "feed.repair" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
-   "feed.resolve" 3 "feed.check" 3 "feed.discovery" 3 "feed.publish" 3 "feed.search" 3
+   "feed.resolve" 3 "feed.check" 3 "feed.check.facts" 3 "feed.check.rules" 3
+   "feed.discovery" 3 "feed.publish" 3 "feed.search" 3
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.image" 3
    "format.integrity" 3 "format.hls" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3

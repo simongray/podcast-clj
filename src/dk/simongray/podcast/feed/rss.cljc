@@ -8,6 +8,7 @@
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
+            [dk.simongray.podcast.feed.repair :as repair]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch.async :as async]))
@@ -30,7 +31,7 @@
        (vary-meta tree assoc :podcast/report (xml/report tree)))
      (let [raw-opts             (select-keys opts [:except])
            normalize-opts       (select-keys opts [:registry :except])
-           {:keys [raw report]} (quirks/parse-raw xml raw-opts)
+           {:keys [raw report]} (repair/parse-raw xml raw-opts)
            stripped             (quirks/strip-default-namespace raw raw-opts)
            tree                 (-> (:raw stripped)
                                     (xml/resolve-namespaces quirks/uri->alias)

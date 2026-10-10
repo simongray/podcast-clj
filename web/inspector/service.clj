@@ -13,6 +13,7 @@
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.check.rules :as rules]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -281,7 +282,7 @@
     (fn [{:keys [url feed-url feed]}]
       (let [{:keys [requirements items integrity]} (:query-params request)
             requirements (some-> requirements not-empty keyword)
-            requirements (when (contains? check/requirements requirements)
+            requirements (when (contains? rules/requirements requirements)
                            requirements)
             items        (or (some-> items parse-long (max 1) (min 50)) 5)
             integrity?   (= "1" integrity)

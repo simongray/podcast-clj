@@ -1315,7 +1315,7 @@ For another instance of a service, give its address:
 
 A gpodder server with other paths takes them as `:api`, and a directory
 that changed its requirements takes them as `:requirements`, e.g.
-`(assoc-in (:apple check/requirements) [:artwork :sizes] [1400 4000])`.
+`(assoc-in (:apple check.rules/requirements) [:artwork :sizes] [1400 4000])`.
 
 
 ## The namespaces of the examples
@@ -1352,6 +1352,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.check.rules :as check.rules]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.publish :as publish]
