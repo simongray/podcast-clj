@@ -238,6 +238,7 @@
           "/linked.xml" (respond exchange 200 hubbed
                                  {"Link" "<https://header.example/>; rel=\"hub\", </linked.xml>; rel=\"self\""})
           "/hubbed.xml" (respond exchange 200 hubbed {})
+          "/selfless.xml" (respond exchange 200 (str/replace hubbed #"<atom:link rel=\"self\"[^>]*>" "") {})
           (respond exchange 200 feed-xml {})))
       (fn [base]
         (is (= {:hubs ["https://header.example/"] :topic (str base "/linked.xml")}
@@ -246,5 +247,8 @@
         (is (= {:hubs ["https://hub.example/"] :topic "https://a.example/feed.xml"}
                (:websub (podcast/fetch! (str base "/hubbed.xml"))))
             "and else from the links of the feed")
+        (is (= {:hubs ["https://hub.example/"] :topic (str base "/selfless.xml")}
+               (:websub (podcast/fetch! (str base "/selfless.xml"))))
+            "with the URL of the feed as the topic when it names none")
         (is (not (contains? (podcast/fetch! (str base "/feed.xml")) :websub))
             "a feed that names no hub")))))

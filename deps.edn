@@ -29,7 +29,7 @@
           :git/sha "a691f1bf62fe003f375f9f04cc232330fbedfba0"}
          dk.simongray/websub-clj
          {:git/url "https://github.com/simongray/websub-clj"
-          :git/sha "d3bb85e3070f0a22d22899c01fbdeb77d6329082"}}
+          :git/sha "e18b7cce7185bfb52a31f82fb268d898beea32c5"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

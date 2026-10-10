@@ -66,8 +66,11 @@
   (let [body                 (:body response)
         parse-opts           (assoc opts :url (:url response))
         {:keys [feed error]} (rss/try-parse (str body) parse-opts)
+        ;; many podcast feeds name no rel=self, so their URL is the topic
+        discovery-opts       {:links         (:atom/links feed)
+                              :url-as-topic? true}
         hubs                 (when feed
-                               (websub/discover response (:atom/links feed)))]
+                               (websub/discover response discovery-opts))]
     (cond-> {}
       body  (assoc :body body)
       feed  (assoc :feed feed)
