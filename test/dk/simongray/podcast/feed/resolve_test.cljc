@@ -70,9 +70,25 @@
       (is (= "https://i/300.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/big.jpg" :width "big"}
                                              {:href "https://i/300.jpg" :width 300}]}))
-          "a width that did not read is no width"))
+          "a width that did not read is no width")
+      (is (= "https://i/sq.jpg"
+             (resolve/artwork {:podcast/images [{:href "https://i/sq.mp4" :type "video/mp4" :purpose "artwork"}
+                                             {:href "https://i/sq.jpg"}]}))
+          "never a video"))
     (is (= 6 (count (resolve/images f))))
-    (is (= #{"artwork"} (:purpose (first (resolve/images f)))))))
+    (is (= #{"artwork"} (:purpose (first (resolve/images f)))))
+    (is (= "video/mp4" (:type (first (resolve/images {:podcast/images [{:href "https://i/a.mp4" :type "video/mp4"}]})))))))
+
+(deftest posters
+  (let [feed {:podcast/images [{:href "https://i/show-poster.jpg" :purpose "poster"}]}
+        item {:podcast/images [{:href "https://i/sq.jpg" :purpose "artwork"}
+                               {:href "https://i/1280.jpg" :purpose "poster social" :width 1280}
+                               {:href "https://i/1920.jpg" :purpose "POSTER" :width 1920}
+                               {:href "https://i/loop.mp4" :purpose "poster" :type "video/mp4" :width 3840}]}]
+    (is (= "https://i/1920.jpg" (resolve/poster item)) "the largest picture whose purpose is poster")
+    (is (= "https://i/show-poster.jpg" (resolve/poster feed {})) "the feed's when the item has none")
+    (is (nil? (resolve/poster {:podcast/images [{:href "https://i/wide.jpg" :aspect-ratio "16/9"}]}))
+        "no other image stands in for one")))
 
 (deftest flags-and-numbers
   (is (false? (resolve/explicit? @example)))
@@ -171,7 +187,22 @@
     (is (= "https://a/hi.opus" (:url (resolve/enclosure item {:types ["audio/opus"]}))))
     (is (= "https://a/lo.opus" (:url (resolve/enclosure item {:types ["audio/opus"] :max-bitrate 64000}))))
     (is (= "https://a/1.mp4" (:url (resolve/enclosure item {:types ["video/mp4" "audio/opus"]}))))
-    (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["audio/flac"]}))))))
+    (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["audio/flac"]})))))
+  (let [item {:rss/enclosure {:url "https://a/en.mp3" :type "audio/mpeg"}
+              :podcast/alternate-enclosures [{:type "audio/mpeg" :lang "da-DK" :sources [{:uri "https://a/da.mp3"}]}
+                                             {:type "video/mp4" :height 1080 :sources [{:uri "https://a/1080.mp4"}]}
+                                             {:type "video/mp4" :height 480 :sources [{:uri "https://a/480.mp4"}]}]}]
+    (is (= "https://a/da.mp3" (:url (resolve/enclosure item {:languages ["da"]}))) "the language first")
+    (is (= "https://a/en.mp3" (:url (resolve/enclosure item {:languages ["en"]})))
+        "a file that names no language before one that doesn't match")
+    (is (= "https://a/480.mp4" (:url (resolve/enclosure item {:types ["video/mp4"] :max-height 720}))))
+    (is (= "https://a/1080.mp4" (:url (resolve/enclosure item {:types ["video/mp4"]}))))))
+
+(deftest content-links
+  (is (= [{:href "https://youtube.com/watch?v=1" :text "Watch on YouTube"} {:href "https://twitch.tv/x"}]
+         (resolve/content-links {:podcast/content-links [{:href "https://youtube.com/watch?v=1" :content " Watch on YouTube "}
+                                                         {:href "https://twitch.tv/x" :content ""}
+                                                         {:content "no address"}]}))))
 
 (deftest audio-or-video
   (let [item                  {:rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}
@@ -184,8 +215,22 @@
       (is (= [false true true true] (map resolve/video? [mp3 mp4 torrent hls])))
       (is (resolve/video? {:url "https://m/1" :medium "Video" :type "application/octet-stream"}))
       (is (not (resolve/video? {:url "https://m/1.mp4" :medium "audio" :type "video/mp4"})) "the medium first")
-      (is (not (resolve/video? {:url "https://p/a.m4a" :type "audio/mp4" :height 0})) "an audio type, whatever the height")
-      (is (not (resolve/video? {:url "https://p/a" :type "application/octet-stream" :height 0})) "no height at 0"))
+      (is (false? (resolve/video? {:url "https://p/a.m4a" :type "audio/mp4" :height 0})) "an audio type, whatever the height")
+      (is (nil? (resolve/video? {:url "https://p/a" :type "application/octet-stream" :height 0})) "no height at 0"))
+    (testing "the codecs of a stream, or nothing"
+      (is (true? (resolve/video? {:url "https://a/m.m3u8" :type "application/vnd.apple.mpegurl"
+                                  :codecs "mp4a.40.2, avc1.64001f"})))
+      (is (false? (resolve/video? {:url "https://a/m.m3u8" :type "application/x-mpegURL" :codecs "mp4a.40.2"})))
+      (is (nil? (resolve/video? {:url "https://a/m.m3u8" :type "application/x-mpegURL" :codecs "mp4a.40.2,xyz1"}))
+          "a codec that isn't known leaves it open")
+      (is (nil? (resolve/video? {:url "https://a/m.m3u8" :type "application/vnd.apple.mpegurl" :length 0}))
+          "an HLS stream that says nothing"))
+    (testing "the kinds of media of an episode"
+      (is (= #{:audio :video} (resolve/media-kinds item)))
+      (is (= #{:audio} (resolve/media-kinds {:rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}
+                                             :podcast/alternate-enclosures
+                                             [{:type "application/x-mpegURL" :sources [{:uri "https://a/m.m3u8"}]}]}))
+          "a stream that says nothing isn't counted"))
     (testing "a file to download, not a stream, a torrent or an IPFS address"
       (is (= [true true false false] (map resolve/downloadable? [mp3 mp4 torrent hls])))
       (is (not (resolve/downloadable? {:url "ipfs://QmdwGqd3d2" :type "audio/mpeg"})))
@@ -194,9 +239,14 @@
       (is (not (resolve/downloadable? {:url "https://a/stream" :type "application/mpegurl"})))
       (is (resolve/downloadable? {:url "https://a.m3u/1.mp3" :type "audio/mpeg"})))
     (testing "only what can be played"
-      (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["video/mp4"] :playable-pred (complement resolve/video?)}))))
+      (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["video/mp4"] :playable-pred resolve/audio?}))))
       (is (= "https://a/720.mp4" (:url (resolve/enclosure item {:playable-pred resolve/video?}))))
-      (is (nil? (resolve/enclosure (dissoc item :rss/enclosure) {:playable-pred (complement resolve/video?)}))))))
+      (is (nil? (resolve/enclosure (dissoc item :rss/enclosure) {:playable-pred resolve/audio?})))
+      (is (nil? (resolve/enclosure {:rss/enclosure {:url "https://p/360.mp4" :type "video/mp4"}
+                                    :podcast/alternate-enclosures
+                                    [{:type "application/x-mpegURL" :sources [{:uri "https://p/m.m3u8"}]}]}
+                                   {:playable-pred resolve/audio?}))
+          "no stream that doesn't say, for audio alone"))))
 
 (deftest people-and-inheritance
   (let [f    @example

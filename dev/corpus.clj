@@ -31,7 +31,8 @@
 (def feeds
   "Feed URLs by the name of their file, chosen to cover the hosting
   platforms that produce most of the world's listening, the independent
-  hosts that implement the podcast namespace, and a few public broadcasters."
+  hosts that implement the podcast namespace, a few public broadcasters,
+  and the ways feeds carry video."
   {"acast"               (str "https://feeds.acast.com/public/shows/"
                               "b19ac1f5-6adf-4c8b-aa1a-2af2160f99e4")
    "anchor"              "https://anchor.fm/s/e4e7ebb0/podcast/rss"
@@ -51,6 +52,7 @@
                               "dancarlin/history?format=xml")
    "ivoox"               "https://feeds.ivoox.com/feed_fg_f161886_filtro_1.xml"
    "libsyn"              "https://feeds.libsyn.com/60664/rss"
+   "macgeekgab"          "https://www.macgeekgab.com/feed/podcast/"
    "megaphone"           "https://feeds.megaphone.fm/GLT4787413333"
    "megaphone-darknet"   "https://podcast.darknetdiaries.com"
    "npr"                 "https://feeds.npr.org/510289/podcast.xml"
@@ -60,9 +62,12 @@
                               "4e2f91e5-8b34-49d6-98c3-b40801842a5b/"
                               "podcast.rss")
    "pc20-nashownotes"    "https://mp3s.nashownotes.com/pc20rss.xml"
+   "peertube"            (str "https://spectra.video/feeds/podcast/"
+                              "videos.xml?videoChannelId=4683")
    "podco"               (str "https://feed.pod.co/"
                               "seriously-social-with-simone-douglas")
    "podnews-buzzsprout"  "https://podnews.net/rss"
+   "podnews-weekly"      "https://rss.buzzsprout.com/1538779.rss"
    "rsscom"              "https://media.rss.com/podcasting101/feed.xml"
    "simplecast"          "https://feeds.simplecast.com/54nAGcIl"
    "simplecast2"         "https://feeds.simplecast.com/UCwaTX1J"

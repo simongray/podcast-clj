@@ -121,17 +121,19 @@
   Each is a map with the :href and the :source, one of :podcast, :itunes,
   :googleplay, :rss and :media. A podcast:image also has its :purpose, a
   set of tokens, which is empty when none is declared. The :width,
-  :height, :aspect-ratio and :alt are there when declared."
+  :height, :aspect-ratio, :alt and :type are there when declared, e.g.
+  video/mp4 for a video."
   [x]
   (concat
    (for [image (:podcast/images x)
-         :let  [{:keys [href width height aspect-ratio alt]} image]
+         :let  [{:keys [href width height aspect-ratio alt type]} image]
          :when href]
      (cond-> {:href href :source :podcast :purpose (purposes image)}
        width        (assoc :width width)
        height       (assoc :height height)
        aspect-ratio (assoc :aspect-ratio aspect-ratio)
-       alt          (assoc :alt alt)))
+       alt          (assoc :alt alt)
+       type         (assoc :type type)))
    (when-let [href (:href (:itunes/image x))]
      [{:href href :source :itunes}])
    (when-let [href (:href (:googleplay/image x))]
@@ -153,13 +155,21 @@
     (and width height) (= width height)
     :else              true))
 
+(defn ^:no-doc picture?
+  "Whether the `image`, one of those that images gives, is a picture rather
+  than a video: its type is an image type, or it has none."
+  [{:keys [type]}]
+  (or (nil? type)
+      (str/starts-with? (str/lower-case type) "image/")))
+
 (defn- artwork?
-  "Whether the podcast:image `image` is meant as artwork: it says so, or it
-  has no stated purpose and isn't another shape."
+  "Whether the podcast:image `image` is meant as artwork: it's a picture,
+  and it says so, or it has no stated purpose and isn't another shape."
   [image]
-  (or (contains? (:purpose image) "artwork")
-      (and (empty? (:purpose image))
-           (square? image))))
+  (and (picture? image)
+       (or (contains? (:purpose image) "artwork")
+           (and (empty? (:purpose image))
+                (square? image)))))
 
 (defn artwork
   "The URL of the square artwork of `x`, or of an `item` of `feed`, with
@@ -177,6 +187,24 @@
                 (first (remove podcast? candidates))))))
   ([feed item]
    (or (artwork item) (artwork feed))))
+
+;; podcast namespace, image: the purpose poster
+(defn poster
+  "The URL of the poster of `x`, or of an `item` of `feed`, with the item's
+  own before the feed's: the picture that a player shows before a video
+  plays, or nil.
+
+  It's the largest podcast:image whose purpose is poster."
+  ([x]
+   (let [width   #(let [w (:width %)] (if (number? w) w 0))
+         poster? #(and (contains? (:purpose %) "poster") (picture? %))]
+     (->> (images x)
+          (filter poster?)
+          (sort-by #(- (width %)))
+          first
+          :href)))
+  ([feed item]
+   (or (poster item) (poster feed))))
 
 (defn explicit?
   "Whether `x`, or an `item` of `feed`, is marked explicit, or nil when
@@ -306,17 +334,56 @@
        file-size         (assoc :length file-size)
        (number? bitrate) (assoc :bitrate (* 1000 bitrate))))))
 
+;; RFC 6381, section 3.3; the sample entries of the MP4 Registration
+;; Authority, and the codecs of WebM
+(def ^:no-doc codec-kinds
+  "The kind of media of each codec that the first part of an RFC 6381
+  codecs string names, in lower case."
+  (merge (zipmap ["avc1" "avc3" "hvc1" "hev1" "dvh1" "dvhe" "dva1" "dvav"
+                  "av01" "vp08" "vp09" "vp8" "vp9" "vvc1" "vvi1" "mp4v"]
+                 (repeat :video))
+         (zipmap ["mp4a" "opus" "flac" "alac" "ac-3" "ec-3" "ac-4" "mha1"
+                  "mhm1" "mp3" "vorbis"]
+                 (repeat :audio))))
+
+(defn- codec-string-kinds
+  "The kinds of media of the codecs in the RFC 6381 string `s`, with nil
+  for a codec whose kind isn't known."
+  [s]
+  (set (for [codec (str/split (str/lower-case s) #",")]
+         (codec-kinds (first (str/split (str/trim codec) #"\."))))))
+
 (defn video?
-  "Whether the `enclosure`, one of those that enclosures gives, is a video:
-  by its Media RSS medium, or else by an audio or video type, or else by a
-  height above 0, which only a video has."
-  [{:keys [medium type height]}]
-  (let [kind (some-> type str/lower-case (str/split #"/") first)]
+  "Whether the `enclosure`, one of those that enclosures gives, is a video,
+  or nil when nothing tells.
+
+  Its Media RSS medium tells first, then an audio or video type, then the
+  codecs, and then a height above 0, which only a video has. A stream such
+  as HLS often tells nothing."
+  [{:keys [medium type codecs height]}]
+  (let [kind  (some-> type str/lower-case (str/split #"/") first)
+        kinds (some-> codecs codec-string-kinds)]
     (cond
-      medium           (= "video" (str/lower-case medium))
-      (= "video" kind) true
-      (= "audio" kind) false
-      :else            (boolean (and (number? height) (pos? height))))))
+      medium                               (= "video" (str/lower-case medium))
+      (= "video" kind)                     true
+      (= "audio" kind)                     false
+      (contains? kinds :video)             true
+      (= #{:audio} kinds)                  false
+      (and (number? height) (pos? height)) true)))
+
+(defn audio?
+  "Whether the `enclosure`, one of those that enclosures gives, is audio,
+  or nil when nothing tells, as video? tells it."
+  [enclosure]
+  (some-> (video? enclosure) not))
+
+(defn media-kinds
+  "The kinds of media that `item` offers, a set of :audio and :video, from
+  those of its enclosures whose kind is told."
+  [item]
+  (into #{}
+        (keep #(case (video? %) true :video false :audio nil))
+        (enclosures item)))
 
 ;; RFC 8216, section 4; ISO/IEC 23009-1; the podcast namespace, source
 (def ^:no-doc indirect-types
@@ -336,64 +403,6 @@
                   (not (indirect-types served))
                   ;; RFC 8216, section 4: a playlist is also known by its path
                   (not (re-find #"(?i)\.m3u8?(?:[?#]|$)" url))))))
-
-(defn- type-rank
-  "The position of `type` among the preferred `types`, ignoring case, or
-  after them all when it isn't among them."
-  [types type]
-  (let [type (str/lower-case (str type))]
-    (or (first (keep-indexed (fn [i wanted]
-                               (when (= type (str/lower-case wanted)) i))
-                             types))
-        (count types))))
-
-(defn- source-rank
-  "The order of the `source` of enclosures, when nothing else tells them
-  apart."
-  [source]
-  (case source :enclosure 0 :alternate 1 2))
-
-(defn enclosure
-  "The one thing to play for `item`: of all that it offers, the one that
-  best fits the `opts` below, or nil when none can be played.
-
-  - :types, the wanted types, most wanted first, e.g.
-    [\"audio/opus\" \"audio/mpeg\"]
-  - :max-bitrate, in bits per second, e.g. 64000
-  - :playable-pred, a predicate of the enclosures that can be played,
-    e.g. (complement video?) for audio alone
-
-  The types count first, then the bitrate, where a candidate above the
-  :max-bitrate ranks last. Among equals, the enclosure comes first, then
-  the default alternate, then the rest, the most conventional first."
-  ([item]
-   (enclosure item nil))
-  ([item {:keys [types max-bitrate playable-pred]
-          :or   {playable-pred any?}
-          :as   opts}]
-   (let [rank (fn [{:keys [type bitrate default is-default source]}]
-                (let [over?    (and max-bitrate
-                                    (number? bitrate)
-                                    (> bitrate max-bitrate))
-                      default? (or (true? default)
-                                   (true? is-default))]
-                  [(if types (type-rank types type) 0)
-                   (if over? 1 0)
-                   (source-rank source)
-                   (if default? 0 1)]))]
-     (first (sort-by rank (filter playable-pred (enclosures item)))))))
-
-(def ^:no-doc transcript-preference
-  "The transcript types in the order that an app is best served by them:
-  WebVTT, which has timings and speakers and plays in browsers, then SRT,
-  JSON, HTML and plain text."
-  ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
-   "application/json" "text/html" "text/plain"])
-
-(def timed-transcript-types
-  "The transcript types whose files have timings as a rule."
-  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt"
-    "application/json"})
 
 (defn- language-tag
   "The primary subtag of the language `s` (RFC 5646, section 2.2.1), e.g.
@@ -417,6 +426,70 @@
       (nil? language)    (count languages)
       :else              (or (first matches)
                              (inc (count languages))))))
+
+(defn- type-rank
+  "The position of `type` among the preferred `types`, ignoring case, or
+  after them all when it isn't among them."
+  [types type]
+  (let [type (str/lower-case (str type))]
+    (or (first (keep-indexed (fn [i wanted]
+                               (when (= type (str/lower-case wanted)) i))
+                             types))
+        (count types))))
+
+(defn- source-rank
+  "The order of the `source` of enclosures, when nothing else tells them
+  apart."
+  [source]
+  (case source :enclosure 0 :alternate 1 2))
+
+(defn enclosure
+  "The one thing to play for `item`: of all that it offers, the one that
+  best fits the `opts` below, or nil when none can be played.
+
+  - :languages, the wanted languages, most wanted first, e.g. [\"da\" \"en\"]
+  - :types, the wanted types, most wanted first, e.g.
+    [\"audio/opus\" \"audio/mpeg\"]
+  - :max-bitrate, in bits per second, e.g. 64000
+  - :max-height, in pixels, e.g. 720
+  - :playable-pred, a predicate of the enclosures that can be played,
+    e.g. audio? for audio alone
+
+  The languages count first, where a candidate that names none ranks after
+  the matches and before the mismatches. The types count next, then the
+  bitrate and the height, where a candidate above the :max-bitrate or the
+  :max-height ranks last. Among equals, the enclosure comes first, then
+  the default alternate, then the rest, the most conventional first."
+  ([item]
+   (enclosure item nil))
+  ([item {:keys [languages types max-bitrate max-height playable-pred]
+          :or   {playable-pred any?}
+          :as   opts}]
+   (let [above? (fn [limit n] (and limit (number? n) (> n limit)))
+         rank   (fn [{:keys [lang type bitrate height default is-default
+                             source]}]
+                  (let [over?    (or (above? max-bitrate bitrate)
+                                     (above? max-height height))
+                        default? (or (true? default)
+                                     (true? is-default))]
+                    [(language-rank languages lang)
+                     (if types (type-rank types type) 0)
+                     (if over? 1 0)
+                     (source-rank source)
+                     (if default? 0 1)]))]
+     (first (sort-by rank (filter playable-pred (enclosures item)))))))
+
+(def ^:no-doc transcript-preference
+  "The transcript types in the order that an app is best served by them:
+  WebVTT, which has timings and speakers and plays in browsers, then SRT,
+  JSON, HTML and plain text."
+  ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
+   "application/json" "text/html" "text/plain"])
+
+(def timed-transcript-types
+  "The transcript types whose files have timings as a rule."
+  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt"
+    "application/json"})
 
 (defn- timed-transcript?
   "Whether the transcript reference `ref` has timings: rel=captions, or a
@@ -491,6 +564,21 @@
       (and (string? content)
            (not (str/blank? content)))
       (assoc :title content))))
+
+;; podcast namespace, contentLink
+(defn content-links
+  "The places outside the feed where the content of `item` can be found,
+  e.g. a live stream or the video on a platform, in the order of the feed.
+
+  Each is a map with the :href, and the :text that tells the listener
+  where it points, when the feed gives one."
+  [item]
+  (for [{:keys [href content]} (:podcast/content-links item)
+        :when href]
+    (cond-> {:href href}
+      (and (string? content)
+           (not (str/blank? content)))
+      (assoc :text (str/trim content)))))
 
 (defn people
   "The people credited on `x`, or on an `item` of `feed`, as maps of :name,
@@ -983,10 +1071,11 @@
                   :link link :published published :images images
                   :duration duration :numbering numbering
                   :enclosures enclosures :enclosure enclosure
-                  :chapters-url chapters-url
+                  :media-kinds media-kinds :chapters-url chapters-url
                   :embedded-chapters embedded-chapters
-                  :soundbites soundbites :txt txt}
-        of-both  {:artwork artwork :explicit? explicit?
+                  :soundbites soundbites :content-links content-links
+                  :txt txt}
+        of-both  {:artwork artwork :poster poster :explicit? explicit?
                   :ai-content? ai-content? :transcript transcript
                   :people people :funding funding :license license
                   :chat chat :social-interacts social-interacts

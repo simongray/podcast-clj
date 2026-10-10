@@ -404,6 +404,11 @@ The option `:except` leaves out the parts that a page doesn't need, e.g.
 the rows of an episode list are much cheaper as `(library/episode @lib id
 {:except #{:notes :text :chapters :links}})`.
 
+For an episode with video, `:media-kinds` says whether it offers
+`:audio`, `:video` or both, `:poster` is the picture to show before the
+video plays, and `:content-links` are the places outside the feed where it
+can be watched, e.g. on YouTube.
+
 Links and images in the notes are made absolute against the web page of
 the episode or the show, and a link written as a bare domain, as many
 feeds do, gets `https://`. To do it your own way, give `:notes-url-fn` a
@@ -533,7 +538,8 @@ To start an episode where the listener stopped, or after its intro, ask
 `profile/resume-position`. To pick the file to play, use
 `resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
 :max-bitrate 64000}`. To keep to audio when a show also offers video, add
-`:playable-pred (complement resolve/video?)`.
+`:playable-pred resolve/audio?`, which leaves out a stream that doesn't
+say what it holds.
 
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:

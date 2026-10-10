@@ -28,7 +28,8 @@
   "The :enclosure and :transcript of `item` in `feed`, as `opts` select
   them with the options of resolve/enclosure and resolve/transcript."
   [feed item {:keys [languages timed? transcript-types] :as opts}]
-  (let [media-opts      (select-keys opts [:types :max-bitrate :playable-pred])
+  (let [media-opts      (select-keys opts [:languages :types :max-bitrate
+                                           :max-height :playable-pred])
         transcript-opts (cond-> {:languages languages :timed? timed?}
                           transcript-types (assoc :types transcript-types))]
     (into {} (remove (comp nil? val))
@@ -70,10 +71,12 @@
 
   The `opts` are:
 
-  - :types, :max-bitrate and :playable-pred, to select the :enclosure as
-    resolve/enclosure does
-  - :languages, :timed? and :transcript-types, to select the :transcript
-    as resolve/transcript does
+  - :languages, the wanted languages for both the :enclosure and the
+    :transcript
+  - :types, :max-bitrate, :max-height and :playable-pred, to select the
+    :enclosure as resolve/enclosure does
+  - :timed? and :transcript-types, to select the :transcript as
+    resolve/transcript does
   - :url, the URL of the feed, for a feed that doesn't name its own
   - :notes-url-fn, a function of the web page of the episode and a URL
     in its show notes, which gives the URL to keep or nil, by default the
