@@ -361,11 +361,16 @@
   `reason`, with the options in `ctx`, or nil without a media file.
 
   The file is the enclosure that the :enclosure of `ctx` selects among
-  those that can be downloaded. The bytes are the length in the feed, or
-  else what the :estimate of `ctx` gives for the item and the enclosure."
+  those that can be downloaded, the audio or the video as the listener
+  watches the show unless the :enclosure says. The bytes are the length in
+  the feed, or else what the :estimate of `ctx` gives for the item and the
+  enclosure."
   [ctx id item reason]
-  (let [opts      (update (:enclosure ctx) :playable-pred
-                          #(every-pred resolve/downloadable? (or % any?)))
+  (let [video?    (profile/prefers-video? (:profile ctx) (first id))
+        opts      (-> (merge {:video? video?} (:enclosure ctx))
+                      (update :playable-pred
+                              #(every-pred resolve/downloadable?
+                                           (or % any?))))
         enclosure (some-> item (resolve/enclosure opts))
         estimator (:estimate ctx estimate)]
     (when-let [{:keys [url type length]} enclosure]
@@ -515,7 +520,8 @@
   - :url, the URL of a feed without a podcast:guid, as a string or a
     function of the feed
   - :enclosure, the options of resolve/enclosure, which selects the file
-    of an episode among those that resolve/downloadable? takes
+    of an episode among those that resolve/downloadable? takes. Its
+    :video? is profile/prefers-video? for the show unless they give one.
   - :estimate, a function of an item and its enclosure that gives the
     bytes of a file whose feed gives no length
   - :scale, the scale of the criterion :rating

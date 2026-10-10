@@ -196,7 +196,22 @@
     (is (= "https://a/en.mp3" (:url (resolve/enclosure item {:languages ["en"]})))
         "a file that names no language before one that doesn't match")
     (is (= "https://a/480.mp4" (:url (resolve/enclosure item {:types ["video/mp4"] :max-height 720}))))
-    (is (= "https://a/1080.mp4" (:url (resolve/enclosure item {:types ["video/mp4"]}))))))
+    (is (= "https://a/1080.mp4" (:url (resolve/enclosure item {:types ["video/mp4"]}))))
+    (testing "audio or video, as the listener prefers"
+      (is (= "https://a/1080.mp4" (:url (resolve/enclosure item {:video? true}))))
+      (is (= "https://a/480.mp4" (:url (resolve/enclosure item {:video? true :max-height 720}))))
+      (is (= "https://a/en.mp3" (:url (resolve/enclosure item {:video? false}))))
+      (is (= "https://a/da.mp3" (:url (resolve/enclosure item {:video? true :languages ["da"]})))
+          "the language before the kind")
+      (is (= "https://a/en.mp3"
+             (:url (resolve/enclosure {:rss/enclosure {:url "https://a/en.mp3" :type "audio/mpeg"}
+                                       :podcast/alternate-enclosures
+                                       [{:type "application/x-mpegURL" :sources [{:uri "https://a/m.m3u8"}]}]}
+                                      {:video? true})))
+          "a stream that says nothing isn't taken for a video")))
+  (let [video-only {:rss/enclosure {:url "https://a/v.mp4" :type "video/mp4"}}]
+    (is (= "https://a/v.mp4" (:url (resolve/enclosure video-only {:video? false})))
+        "a preference, so a show of video alone still plays")))
 
 (deftest subtitles-of-media-rss
   (let [item {:podcast/transcripts [{:url "https://a/t.html" :type "text/html"}]

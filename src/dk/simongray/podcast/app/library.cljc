@@ -603,23 +603,29 @@
 (defn episode
   "The view of the episode `id`, [feed-guid item-guid], of `library`, with
   the `opts` of app.episode/view over the config, e.g. its :languages, or
-  nil when the library has no such episode."
+  nil when the library has no such episode. Unless the `opts` say, the
+  :video? of the view is whether the listener watches the show."
   ([library id]
    (episode library id {}))
   ([library id opts]
    (when-let [[{:keys [feed url]} item] (item-of library id)]
-     (episode/view feed item (assoc (options library opts) :url url)))))
+     (let [video? (profile/prefers-video? (:profile library) (first id))]
+       (episode/view feed item (clojure.core/merge {:video? video?}
+                                                   (options library opts)
+                                                   {:url url}))))))
 
 (defn read-files!
   "Read the files of the episode `id` of `library`, with the `opts` of
   app.episode/read-files! over the config. It gives a map of the
   :chapters, the :transcript and the :media, in ClojureScript as a
-  promise, or nil when the library has no such episode."
+  promise, or nil when the library has no such episode. The media file is
+  the one that the episode's view chooses."
   ([library id]
    (read-files! library id {}))
   ([library id opts]
    (when-let [[{:keys [feed url]} item] (item-of library id)]
-     (let [opts   (options library opts)
+     (let [video? (profile/prefers-video? (:profile library) (first id))
+           opts   (clojure.core/merge {:video? video?} (options library opts))
            unused #{:notes :text :links}
            view   (episode/view feed item (assoc opts :url url :except unused))]
        (episode/read-files! view opts)))))

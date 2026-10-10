@@ -448,6 +448,8 @@
   best fits the `opts` below, or nil when none can be played.
 
   - :languages, the wanted languages, most wanted first, e.g. [\"da\" \"en\"]
+  - :video?, true to prefer video and false to prefer audio, for an item
+    that offers both
   - :types, the wanted types, most wanted first, e.g.
     [\"audio/opus\" \"audio/mpeg\"]
   - :max-bitrate, in bits per second, e.g. 64000
@@ -456,23 +458,29 @@
     e.g. audio? for audio alone
 
   The languages count first, where a candidate that names none ranks after
-  the matches and before the mismatches. The types count next, then the
-  bitrate and the height, where a candidate above the :max-bitrate or the
+  the matches and before the mismatches. A candidate known to be of the
+  kind that :video? prefers counts next, then the types, then the bitrate
+  and the height, where a candidate above the :max-bitrate or the
   :max-height ranks last. Among equals, the enclosure comes first, then
   the default alternate, then the rest, the most conventional first."
   ([item]
    (enclosure item nil))
   ([item {:keys [languages types max-bitrate max-height playable-pred]
+          prefer-video? :video?
           :or   {playable-pred any?}
           :as   opts}]
    (let [above? (fn [limit n] (and limit (number? n) (> n limit)))
          rank   (fn [{:keys [lang type bitrate height default is-default
-                             source]}]
+                             source]
+                      :as   candidate}]
                   (let [over?    (or (above? max-bitrate bitrate)
                                      (above? max-height height))
+                        kind?    (or (nil? prefer-video?)
+                                     (= prefer-video? (video? candidate)))
                         default? (or (true? default)
                                      (true? is-default))]
                     [(language-rank languages lang)
+                     (if kind? 0 1)
                      (if types (type-rank types type) 0)
                      (if over? 1 0)
                      (source-rank source)

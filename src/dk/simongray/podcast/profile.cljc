@@ -245,6 +245,8 @@
   The settings are the keys of default-settings, and these:
 
   - :rate, the playback rate of this show
+  - :video?, whether to watch the video of its episodes that offer audio
+    and video
   - :downloads, its rule for dk.simongray.podcast.downloads"
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
@@ -258,8 +260,9 @@
 
 (def default-preferences
   "How the listener likes to listen until they change it: the seconds that
-  a skip jumps forward and back, and the playback rate."
-  {:skip-forward 30 :skip-back 15 :rate 1.0})
+  a skip jumps forward and back, the playback rate, and :video?, whether
+  to watch the video of an episode that offers audio and video."
+  {:skip-forward 30 :skip-back 15 :rate 1.0 :video? false})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
@@ -281,6 +284,16 @@
   or else the listener's preference."
   [profile feed-guid]
   (or (:rate (settings profile feed-guid)) (:rate (preferences profile))))
+
+(defn prefers-video?
+  "Whether the listener watches the video of an episode of the feed
+  `feed-guid` in `profile` that offers audio and video: its own setting,
+  or else the listener's preference."
+  [profile feed-guid]
+  (let [own (:video? (settings profile feed-guid))]
+    (if (some? own)
+      own
+      (:video? (preferences profile)))))
 
 (defn folders
   "The feed guids of the live subscriptions of `profile` by folder, in the

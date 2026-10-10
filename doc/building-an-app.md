@@ -539,7 +539,10 @@ To start an episode where the listener stopped, or after its intro, ask
 `resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
 :max-bitrate 64000}`. To keep to audio when a show also offers video, add
 `:playable-pred resolve/audio?`, which leaves out a stream that doesn't
-say what it holds.
+say what it holds. The listener chooses between the audio and the video
+of an episode that offers both with the preference `:video?`, or the
+show's setting of that name, and `library/episode` and `library/plan`
+follow it.
 
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:

@@ -316,6 +316,20 @@
     (is (nil? (entry (update-in show [:rss/items 0] dissoc :rss/enclosure) {:rules {:shows {"feed-a" {:download? true :episodes {:limit 1}}}}}))
         "an item without a media file is no download")))
 
+(deftest audio-or-video-as-the-listener-watches
+  (let [video    (assoc-in show [:rss/items 0 :podcast/alternate-enclosures]
+                           [{:type "video/mp4" :length 900 :sources [{:uri "https://example.org/a4.mp4"}]}])
+        rule     {"feed-a" {:download? true :episodes {:limit 1}}}
+        url      (fn [state opts] (:url (first (:download (downloads/plan state [video] {} now opts)))))
+        watching (profile/prefer subscribed {:video? true} (at 0))]
+    (is (= "https://example.org/a4.mp3" (url (with-rules subscribed {} rule) {})) "audio unless the listener watches")
+    (is (= "https://example.org/a4.mp4" (url (with-rules watching {} rule) {})))
+    (is (= "https://example.org/a4.mp3"
+           (url (with-rules (profile/configure watching "feed-a" {:video? false} (at 0)) {} rule) {}))
+        "the show's own choice")
+    (is (= "https://example.org/a4.mp3" (url (with-rules watching {} rule) {:enclosure {:video? false}}))
+        "the app's choice, e.g. on a mobile network")))
+
 (deftest a-feed-without-a-guid
   (let [bare  (dissoc show :podcast/guid)
         url   "https://example.org/a.xml"

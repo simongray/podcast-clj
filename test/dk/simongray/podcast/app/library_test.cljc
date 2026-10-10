@@ -148,7 +148,14 @@
       (is (= "Episode 3 - The Future" (:title (library/episode library id))))
       (is (= "text/vtt" (:type (:transcript (library/episode library id)))) "the languages of the config choose the Spanish one")
       (is (= "text/plain" (:type (:transcript (library/episode library id {:languages ["en"] :transcript-types ["text/plain"]})))))
-      (is (nil? (library/episode library [guid "nope"])))))
+      (is (nil? (library/episode library [guid "nope"]))))
+    (let [id       [guid "https://example.com/ep0003"]
+          watching (library/update-profile library profile/prefer {:video? true})]
+      (is (= "https://example.com/file-03.mp3" (:url (:enclosure (library/episode library id))))
+          "audio unless the listener watches")
+      (is (= "https://example.com/file-720.mp4" (:url (:enclosure (library/episode watching id)))))
+      (is (= "https://example.com/file-03.mp3" (:url (:enclosure (library/episode watching id {:video? false}))))
+          "unless the call says otherwise")))
   (testing "what the network adds to the views, asked with the config of the library"
     (let [down (fn [_] (throw (ex-info "down" {})))]
       (run

@@ -143,7 +143,7 @@
         "a skip into the end marks it played, and says so")
     (testing "the preferred amounts, through the reducer, with the seek as the effect"
       (let [s (profile/prefer s {:skip-forward 45} t0)]
-        (is (= {:skip-forward 45 :skip-back 15 :rate 1.0} (profile/preferences s)))
+        (is (= {:skip-forward 45 :skip-back 15 :rate 1.0 :video? false} (profile/preferences s)))
         (is (= [[:seek a 145]] (:effects (profile/step s [:skip a :forward] t1))))
         (is (= [[:seek a 85]] (:effects (profile/step s [:skip a :back] t1))))
         (is (= [[:seek a 110]] (:effects (profile/step s [:skip a 10] t1))))))
@@ -153,7 +153,18 @@
                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
                   (profile/configure "feed-a" {:rate 1.0} t0))]
         (is (= 1.0 (profile/playback-rate s "feed-a")))
-        (is (= 1.5 (profile/playback-rate s "feed-b")))))))
+        (is (= 1.5 (profile/playback-rate s "feed-b")))))
+    (testing "a feed's own choice of video overrides the listener's"
+      (let [s (-> s
+                  (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                  (profile/configure "feed-a" {:video? true} t0))]
+        (is (false? (profile/prefers-video? s "feed-b")) "audio unless the listener says")
+        (is (true? (profile/prefers-video? s "feed-a")))
+        (is (false? (profile/prefers-video? (-> s
+                                                (profile/prefer {:video? true} t1)
+                                                (profile/configure "feed-a" {:video? false} t1))
+                                            "feed-a"))
+            "a show's own false stands")))))
 
 (deftest the-queue
   (let [s (-> (profile/make "phone") (profile/enqueue a t0) (profile/enqueue b t0) (profile/enqueue a t1))]
@@ -230,7 +241,7 @@
                    (profile/prefer {:rate 1.5} t2)
                    (profile/configure "feed-a" {:auto-queue? true} t2))
         merged (profile/merge phone laptop)]
-    (is (= {:skip-forward 45 :skip-back 15 :rate 1.5} (profile/preferences merged))
+    (is (= {:skip-forward 45 :skip-back 15 :rate 1.5 :video? false} (profile/preferences merged))
         "preferences changed on different devices both survive")
     (is (= (assoc profile/default-settings :auto-queue? true :skip-intro 20) (profile/settings merged "feed-a"))
         "and so do a subscription's settings")
