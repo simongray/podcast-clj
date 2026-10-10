@@ -18,11 +18,6 @@
   #?(:cljs (:require [dk.simongray.podcast.util.bytes :as bytes])))
 
 #?(:cljs
-   (def ^:no-doc default-name
-     "The name of the database of a store that isn't given one."
-     "podcast-clj"))
-
-#?(:cljs
    (defn- failure
      "The error `e` of IndexedDB as an ex-info with a :type when the listener
      can do something about it, or else `e`."
@@ -141,29 +136,28 @@
 
 #?(:cljs
    (defn store
-     "The store in the IndexedDB database named `name`, podcast-clj by
-     default, which is made on the first call.
+     "The store in the IndexedDB database named `name`, which is made on the
+     first call. Each app names a database of its own, since the
+     databases of one site are shared by its pages.
 
      The store keeps the database open between calls, and opens it again
      after it closed, e.g. for another tab that deletes it."
-     ([]
-      (store default-name))
-     ([name]
-      (let [open   (atom nil)
-            closed #(reset! open nil)
-            db     #(or @open (reset! open (opened name closed)))]
-        {:name   name
-         :fetch  (fn [doc-name opts]
-                   (transact! (db) "readonly" (fetch-step doc-name opts)))
-         :put    (fn [doc-name body opts]
-                   (transact! (db) "readwrite" (put-step doc-name body opts)))
-         ;; the names come in order, as sections 2.4 and 5.12 have it
-         :list   (fn []
-                   (transact! (db) "readonly" (list-step)))
-         :delete (fn [doc-name]
-                   (transact! (db)
-                              "readwrite"
-                              (fn [bodies versions done]
-                                (.delete bodies doc-name)
-                                (.delete versions doc-name)
-                                (done nil))))}))))
+     [name]
+     (let [open   (atom nil)
+           closed #(reset! open nil)
+           db     #(or @open (reset! open (opened name closed)))]
+       {:name   name
+        :fetch  (fn [doc-name opts]
+                  (transact! (db) "readonly" (fetch-step doc-name opts)))
+        :put    (fn [doc-name body opts]
+                  (transact! (db) "readwrite" (put-step doc-name body opts)))
+        ;; the names come in order, as sections 2.4 and 5.12 have it
+        :list   (fn []
+                  (transact! (db) "readonly" (list-step)))
+        :delete (fn [doc-name]
+                  (transact! (db)
+                             "readwrite"
+                             (fn [bodies versions done]
+                               (.delete bodies doc-name)
+                               (.delete versions doc-name)
+                               (done nil))))})))

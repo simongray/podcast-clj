@@ -18,6 +18,7 @@
     than about reading it
   - check, the checks over the network of what the feed links to
   - sync, a sync step
+  - gpodder, a sync through the gpodder API
   - library, a library saved to a store and read back
   - podping, a poll of the Hive chain
   - comments, reading a thread of comments
@@ -485,21 +486,21 @@
     {:id :sync/conflict :level :warning
      :doc "The shared document changed during every attempt to write it, so the
            step ended without writing."}
-    {:id :sync/unknown-episodes :level :info
+    {:id :gpodder/unknown-episodes :level :info
      :doc "Episode actions from a gpodder server name episodes of feeds that
            aren't fetched yet. They wait in the cursor, and the next pull tries
            them again."}
-    {:id :sync/future-actions :level :warning
+    {:id :gpodder/future-actions :level :warning
      :doc "Episode actions from a gpodder server name a time more than a minute
            after the pull, as a device with a fast clock writes them, so they
            changed nothing."}
-    {:id :sync/malformed-actions :level :warning
+    {:id :gpodder/malformed-actions :level :warning
      :doc "Episode actions from a gpodder server name no feed, no media file or
            no readable time, and were left out."}
-    {:id :sync/unnamed-episodes :level :info
+    {:id :gpodder/unnamed-episodes :level :info
      :doc "Episodes changed, but the server wasn't told, because the gpodder API
            names an episode by the URL of its media, and that URL isn't known."}
-    {:id :sync/rejected-url :level :warning
+    {:id :gpodder/rejected-url :level :warning
      :doc "A gpodder server refused a URL that was sent to it, so it keeps no
            subscription or episode action for it."}
 

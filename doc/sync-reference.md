@@ -325,14 +325,14 @@ device that registered, the stamps of the entries at the last push, the
 URLs that the server rewrote, and the last `:max-pending` actions for feeds
 that the app doesn't know yet. The backend reports:
 
-- `:sync/unknown-episodes` when such actions are waiting
-- `:sync/future-actions` for the actions of a device that name a time more
+- `:gpodder/unknown-episodes` when such actions are waiting
+- `:gpodder/future-actions` for the actions of a device that name a time more
   than a minute after the pull, which change nothing
-- `:sync/malformed-actions` for actions without a feed, a media file or a
+- `:gpodder/malformed-actions` for actions without a feed, a media file or a
   readable time
-- `:sync/unnamed-episodes` for episodes that a push couldn't name by a
+- `:gpodder/unnamed-episodes` for episodes that a push couldn't name by a
   media URL
-- `:sync/rejected-url` for a URL that the server refused
+- `:gpodder/rejected-url` for a URL that the server refused
 
 An entry from a server has `gpodder:` and the id of the server's device as
 its `:device`, e.g. `gpodder:antennapod`. Some servers want the session of

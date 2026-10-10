@@ -99,9 +99,9 @@
                     #(filterv some? %)))))))
 
 (def probe-name
-  "The document that a check writes and removes, which isn't an .edn file,
-  so that a probe left behind is never read as a document."
-  "podcast-sync-probe.txt")
+  "The document that a check writes and removes, a text file with a name of
+  its own, so that a probe left behind is never read as a sync document."
+  "store-check-probe.txt")
 
 (defn- check
   [id ok? message]

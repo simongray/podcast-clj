@@ -35,20 +35,34 @@
        "<d:prop><d:getetag/><d:resourcetype/></d:prop>"
        "</d:propfind>"))
 
+(def default-content-types
+  "The Content-Type of a document by the extension of its name, unless the
+  options of a store or a server give others. A type with a charset is
+  that of text, and a type without one, that of bytes."
+  {".edn"  "application/edn; charset=utf-8"
+   ".json" "application/json; charset=utf-8"
+   ".opml" "text/x-opml; charset=utf-8"
+   ".txt"  "text/plain; charset=utf-8"
+   ".xml"  "application/xml; charset=utf-8"})
+
 (defn content-type
-  "The Content-Type that the document `name` is put and served with."
-  [name]
-  (cond
-    (str/ends-with? name ".edn")  "application/edn; charset=utf-8"
-    (str/ends-with? name ".opml") "text/x-opml; charset=utf-8"
-    (str/ends-with? name ".txt")  "text/plain; charset=utf-8"
-    :else                         "application/octet-stream"))
+  "The Content-Type that the document `name` is put and served with, by
+  the extension of its name in `content-types` or default-content-types,
+  and application/octet-stream for any other name."
+  ([name]
+   (content-type name {}))
+  ([name content-types]
+   (let [extension (re-find #"\.[^.]*$" name)
+         types     (merge default-content-types content-types)]
+     (get types extension "application/octet-stream"))))
 
 (defn ^:no-doc binary?
-  "Whether the document `name` holds bytes rather than text, by its
-  content-type."
-  [name]
-  (= "application/octet-stream" (content-type name)))
+  "Whether the document `name` holds bytes rather than text, by the
+  Content-Type that `content-types` give it, which has no charset."
+  ([name]
+   (binary? name {}))
+  ([name content-types]
+   (not (str/includes? (content-type name content-types) "charset="))))
 
 ;; RFC 9110, sections 13.1.1 (If-Match) and 13.1.2 (If-None-Match: *)
 (defn request
@@ -60,12 +74,13 @@
   bytes, and :as :bytes for a fetch of bytes. For a put, they can give
   :if-version, the version that the document must still have, where nil
   means that it must not exist yet. Without :if-version, the put has no
-  condition."
+  condition. Its Content-Type is by the :content-types of `opts`, as
+  content-type has them."
   ([call root]
    (request call root nil {}))
   ([call root name]
    (request call root name {}))
-  ([call root name {:keys [credentials body] :as opts}]
+  ([call root name {:keys [credentials body content-types] :as opts}]
    {:pre [(map? opts)]}
    (let [auth        (http/authorization credentials)
          headers     (cond-> {}
@@ -76,7 +91,7 @@
                             "Depth"        "1"
                             "Content-Type" "application/xml; charset=utf-8")
          put-headers (fn []
-                       (let [media (content-type name)]
+                       (let [media (content-type name content-types)]
                          (cond-> (assoc headers "Content-Type" media)
                            (contains? opts :if-version)
                            (assoc (if version "If-Match" "If-None-Match")
@@ -204,16 +219,20 @@
   - :send, a function that sends a request map, in place of client/send!
   - :timeout-seconds, how long a request can take, 30 by default
   - :user-agent, as http/send! takes it
+  - :content-types, the Content-Type of a document by the extension of its
+    name, over default-content-types
 
   The collection is made on the first put when it isn't there, and a
   server that answers a put without an ETag is asked for one."
   ([root]
    (store root {}))
-  ([root {:keys [credentials name send] :as opts}]
+  ([root {:keys [credentials name send content-types] :as opts}]
    {:pre [(map? opts)]}
    (let [root  (if (str/ends-with? root "/") root (str root "/"))
          call! (fn [call name params]
-                 (let [params (assoc params :credentials credentials)
+                 (let [params (assoc params
+                                     :credentials   credentials
+                                     :content-types content-types)
                        asked  (merge (request call root name params)
                                      (select-keys opts [:timeout-seconds
                                                         :user-agent]))]

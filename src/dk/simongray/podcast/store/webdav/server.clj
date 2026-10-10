@@ -183,17 +183,17 @@
 
 (defn- get-document
   "The answer with the document `name` of `store` and its ETag, without the
-  body for a `head?`. A document of bytes, by its name, is a stream of
-  them."
-  [{:keys [fetch] :as store} name head?]
-  (let [binary? (and name (webdav/binary? name))]
+  body for a `head?`, served by the `content-types`. A document of bytes,
+  by its name, is a stream of them."
+  [{:keys [fetch] :as store} name head? content-types]
+  (let [binary? (and name (webdav/binary? name content-types))]
     (if-let [{:keys [body version]} (when name
                                       (fetch name (if binary?
                                                     {:as :bytes}
                                                     {})))]
       {:status  200
        :headers {"ETag"         (quoted version)
-                 "Content-Type" (webdav/content-type name)}
+                 "Content-Type" (webdav/content-type name content-types)}
        :body    (cond
                   head?   ""
                   binary? (ByteArrayInputStream. ^bytes body)
@@ -202,16 +202,19 @@
 
 (defn- put-document
   "The answer to a put of the document `name` in `store` from the request
-  `body` of at most `max-bytes`, under the precondition of the `headers`.
+  `body` of at most `max-bytes`, under the precondition of the `headers`,
+  read as text or bytes by the `content-types`.
 
   The status is 201 for a new document, 204 for a replaced one, 412 when
   the precondition failed, 413 when the body is too large, and 405 when
   the store can't write."
-  [{:keys [put] :as store} name headers body max-bytes]
+  [{:keys [put] :as store} name headers body max-bytes content-types]
   (if (and name put)
     (let [current (version-of store name)
           asked   (precondition headers current)
-          read    (if (webdav/binary? name) ring/body-bytes ring/body-text)
+          read    (if (webdav/binary? name content-types)
+                    ring/body-bytes
+                    ring/body-text)
           given   (read body max-bytes)
           result  (when (and given (not= :failed asked))
                     (put name given asked))]
@@ -253,8 +256,13 @@
   Mount it under Pedestal, ring-jetty or http-kit for the route `base` and
   everything below it. Whether the router passes a request for the
   collection with its trailing slash, and the body of a put unread,
-  depends on the router. The :max-bytes of `opts` is the most that a put
-  can send, 32 MB by default, far more than the state of any listener.
+  depends on the router. The `opts` are:
+
+  - :max-bytes, the most that a put can send, 32 MB by default, far more
+    than the state of any listener
+  - :content-types, the Content-Type of a document by the extension of
+    its name, over webdav/default-content-types, which also tells text
+    from bytes
 
   The handler checks no credentials, so mount it behind your login. For a
   site with many listeners, give each the store of their own documents,
@@ -265,7 +273,9 @@
         ((handler (store-of (:user request)) \"/dav/\") request))"
   ([store base]
    (handler store base {}))
-  ([store base {:keys [max-bytes] :or {max-bytes (* 32 1024 1024)} :as opts}]
+  ([store base {:keys [max-bytes content-types]
+                :or   {max-bytes (* 32 1024 1024)}
+                :as   opts}]
    {:pre [(map? opts)]}
    (let [collection (subs base 0 (dec (count base)))]
      (fn [{:keys [request-method uri headers body]}]
@@ -288,8 +298,10 @@
                (case request-method
                  :options     (options store)
                  :propfind    (propfind store base name (get headers "depth"))
-                 (:get :head) (get-document store name (= :head request-method))
-                 :put         (put-document store name headers body max-bytes)
+                 (:get :head) (get-document store name (= :head request-method)
+                                            content-types)
+                 :put         (put-document store name headers body max-bytes
+                                            content-types)
                  :delete      (delete-document store name)
                  :mkcol       (make-collection store name)
                  (not-allowed store name))))

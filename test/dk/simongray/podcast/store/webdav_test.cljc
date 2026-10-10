@@ -73,6 +73,21 @@
         (is (= "{}" (:body (webdav/request :put root "x.edn" {:body "{}"}))))))
     (is (thrown? #?(:clj Exception :cljs js/Error) (webdav/request :lock root "x.edn")))))
 
+(deftest content-types
+  (is (= "application/json; charset=utf-8" (webdav/content-type "notes.json")))
+  (is (= "application/octet-stream" (webdav/content-type "index.ciff")))
+  (is (= "application/octet-stream" (webdav/content-type "README")))
+  (is (not (webdav/binary? "notes.json")))
+  (is (webdav/binary? "index.ciff"))
+  (testing "a table of the app's own, over the defaults"
+    (let [types {".notes" "text/plain; charset=utf-8" ".png" "image/png"}]
+      (is (= "text/plain; charset=utf-8" (webdav/content-type "a.notes" types)))
+      (is (= "application/edn; charset=utf-8" (webdav/content-type "a.edn" types)))
+      (is (not (webdav/binary? "a.notes" types)) "a type with a charset is text")
+      (is (webdav/binary? "a.png" types) "and one without is bytes")
+      (is (= "text/plain; charset=utf-8"
+             (get-in (webdav/request :put root "a.notes" {:body "x" :content-types types}) [:headers "Content-Type"]))))))
+
 (deftest responses
   (testing "a listing, in Nextcloud's shape: the collection itself and a folder in it left out"
     (is (= [{:name "8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn" :version "\"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\""}
@@ -236,6 +251,17 @@
          (is (= 204 (:status (handler (ring :put "/dav/a.edn" :body "{:a 1}" :headers {"If-Match" "*"})))) "any version matches")
          (is (= 413 (:status (handler (ring :put "/dav/a.edn" :body "{:a 1 :b 2}")))) "more than :max-bytes")
          (is (= 413 (:status (handler (ring :put "/dav/a.edn" :body (java.io.ByteArrayInputStream. (.getBytes "{:a 1 :b 2}" "UTF-8")))))))))))
+
+#?(:clj
+   (deftest serving-by-the-content-types-of-an-app
+     (let [documents (atom {})
+           types     {".notes" "text/plain; charset=utf-8" ".edn" "application/octet-stream"}
+           handler   (server/handler (store/memory documents) "/dav/" {:content-types types})]
+       (handler (ring :put "/dav/a.notes" :body "Buy milk"))
+       (is (= "Buy milk" (:body (@documents "a.notes"))) "a document of text is kept as text")
+       (is (= "text/plain; charset=utf-8" (get-in (handler (ring :get "/dav/a.notes")) [:headers "Content-Type"])))
+       (handler (ring :put "/dav/b.edn" :body (java.io.ByteArrayInputStream. (byte-array [0 -1]))))
+       (is (bytes? (:body (@documents "b.edn"))) "and one that the app makes bytes, as bytes"))))
 
 #?(:clj
    (deftest a-collection-that-cannot-be-made

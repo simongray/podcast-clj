@@ -494,7 +494,7 @@
   [actions author at]
   (for [[device named] (group-by #(or (:device %) author) actions)
         :let [latest (apply max (map (comp inst-ms :timestamp) named))]]
-    (diagnostics/describe {:id      :sync/future-actions
+    (diagnostics/describe {:id      :gpodder/future-actions
                            :level   :warning
                            :device  device
                            :count   (count named)
@@ -553,10 +553,11 @@
                  (seq pending) (assoc :pending pending))
      :report   (cond-> (vec (ahead-report ahead name at))
                  (pos? more)
-                 (conj (counted {:id :sync/unknown-episodes :level :info} more))
+                 (conj (counted {:id :gpodder/unknown-episodes :level :info}
+                                more))
 
                  (pos? broken)
-                 (conj (counted {:id :sync/malformed-actions :level :warning}
+                 (conj (counted {:id :gpodder/malformed-actions :level :warning}
                                 broken)))}))
 
 (defn- caller
@@ -751,7 +752,7 @@
                         [new sent])
              rejected (for [[sent new] rewrites
                             :when (nil? new)]
-                        (diagnostics/describe {:id    :sync/rejected-url
+                        (diagnostics/describe {:id    :gpodder/rejected-url
                                                :level :warning
                                                :url   sent}))]
          {:cursor (assoc cursor
@@ -761,7 +762,7 @@
           :report (cond-> (vec rejected)
                     (seq unnamed)
                     (conj (diagnostics/describe
-                           {:id    :sync/unnamed-episodes
+                           {:id    :gpodder/unnamed-episodes
                             :level :info
                             :count (count unnamed)})))})))))
 

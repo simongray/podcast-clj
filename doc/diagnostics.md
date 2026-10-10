@@ -22,6 +22,7 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `validate`: the validator
 - `check`: the checks over the network
 - `sync`: the sync between devices
+- `gpodder`: a sync through the gpodder API
 - `library`: a saved library
 - `podping`: a poll of the Hive chain
 - `comments`: the threads of comments
@@ -172,11 +173,11 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
 | `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so make a new library with a new device id to sync again. |
 | `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |
-| `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
-| `:sync/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |
-| `:sync/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
-| `:sync/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
-| `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
+| `:gpodder/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
+| `:gpodder/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |
+| `:gpodder/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
+| `:gpodder/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
+| `:gpodder/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
 | `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why. |
 | `:library/unreadable-document` | warning | The saved library didn't read, so none of its parts were restored. The :reason says why. |
 | `:library/index-rebuilt` | info | The search index was built again from the feeds, since some of its documents were missing or didn't read. The :reason says why. |

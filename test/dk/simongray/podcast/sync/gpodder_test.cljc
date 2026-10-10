@@ -394,7 +394,7 @@
          (is (nil? (failed step)))
          (is (contains? (set (map :url (vals (profile/subscriptions @state)))) "https://private.example/rss")
              "a URL without the credentials it held")
-         (is (= [[:sync/unnamed-episodes 2]] (map (juxt :id :count) report))
+         (is (= [[:gpodder/unnamed-episodes 2]] (map (juxt :id :count) report))
              "the episodes whose media the app does not know, also one whose guid is a URL")
          (is (profile/played? @state [g-a "a2"]) "a played episode as a play to its end")
          (is (= #{["https://a.example/1.mp3" 100 3600] ["https://a.example/2.mp3" 1800 1800]} (told)))
@@ -402,7 +402,7 @@
          (async/then
           (sync/sync! s [b] {:at t3 :cursors cursors})
           (fn [{:keys [report]}]
-            (is (= [[:sync/unnamed-episodes 1]] (map (juxt :id :count) report)))
+            (is (= [[:gpodder/unnamed-episodes 1]] (map (juxt :id :count) report)))
             (is (contains? (told) ["https://a.example/3.mp3" 50 3600])
                 "an episode goes out when the app knows its media"))))))))
 
@@ -461,7 +461,7 @@
      #(async/then
        (sync/sync! (phone) [(backend)] {:at t2})
        (fn [first-step]
-         (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
+         (is (= [[:gpodder/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
          (is (nil? (profile/episode-entry (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
          (async/then
           (sync/sync! (:state first-step) [(backend)] {:at t3 :cursors (:cursors first-step)})
@@ -510,7 +510,7 @@
        (fn [{s :state :keys [report cursors]}]
          (is (= [700 #inst "2026-01-01T02:00:30Z" "gpodder:watch"] (heard s))
              "an action within a minute of the pull counts")
-         (is (= #{[:sync/future-actions "tablet" 1] [:sync/future-actions "watch" 1] [:sync/malformed-actions nil 2]}
+         (is (= #{[:gpodder/future-actions "tablet" 1] [:gpodder/future-actions "watch" 1] [:gpodder/malformed-actions nil 2]}
                 (set (map (juxt :id :device :count) report)))
              "the others change nothing, and the report names their devices and counts what does not read")
          (is (= t2 (:added-at (get-in s [:subscriptions g-b])))
@@ -520,7 +520,7 @@
           (sync/sync! s [b] {:at t3 :cursors cursors})
           (fn [{s :state :keys [report]}]
             (is (= [600 #inst "2026-01-01T02:10:00Z" "gpodder:watch"] (heard s)) "an action whose time has come")
-            (is (= #{[:sync/future-actions "tablet"] [:sync/malformed-actions nil]}
+            (is (= #{[:gpodder/future-actions "tablet"] [:gpodder/malformed-actions nil]}
                    (set (map (juxt :id :device) report))))
             (is (soon? s t3)))))))))
 
@@ -668,4 +668,4 @@
      #(async/then
        (sync/sync! (phone) [(backend send')] {:at t2})
        (fn [{:keys [report]}]
-         (is (= [[:sync/rejected-url feed-a]] (map (juxt :id :url) report))))))))
+         (is (= [[:gpodder/rejected-url feed-a]] (map (juxt :id :url) report))))))))

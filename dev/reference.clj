@@ -233,6 +233,7 @@
               "- `validate`: the validator"
               "- `check`: the checks over the network"
               "- `sync`: the sync between devices"
+              "- `gpodder`: a sync through the gpodder API"
               "- `library`: a saved library"
               "- `podping`: a poll of the Hive chain"
               "- `comments`: the threads of comments"

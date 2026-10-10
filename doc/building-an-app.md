@@ -368,7 +368,7 @@ Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:
 
 - **On the JVM and in Node,** a folder, as above.
-- **In a browser,** IndexedDB, `(indexeddb/store)`, or the origin private
+- **In a browser,** IndexedDB, `(indexeddb/store "my-app")`, or the origin private
   file system, `(.then (.getDirectory js/navigator.storage) file/store)`.
   A browser can clear both when the disk runs low, unless the page asked
   for `navigator.storage.persist()` and got it. If it does, `restore!`

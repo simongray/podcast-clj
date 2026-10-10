@@ -324,7 +324,7 @@ is fast, or because an app wrote milliseconds where the API has seconds.
 Such a time must not become a stamp, or every device's clock would jump
 ahead. An action more than a minute in the future changes nothing until a
 later pull reads it again after its time has come, and
-`:sync/future-actions` names its device. For the same reason, a push
+`:gpodder/future-actions` names its device. For the same reason, a push
 doesn't send a stamp as the time of an action, but the time on this
 device's clock when the listener acted, which the episode entry keeps too.
 
