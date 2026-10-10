@@ -50,6 +50,18 @@
       (is (= ["https://a/v.mp4" "https://a/v.torrent"] (map :url files)) "hosts of overlay networks left out")
       (is (= {:type "application/x-bittorrent"} (:declared (second files)))
           "a torrent has a type of its own, and not the length or integrity of the media file")))
+  (testing "the video and the stream of an alternate enclosure"
+    (let [item  {:itunes/duration 600
+                 :podcast/alternate-enclosures
+                 [{:type "video/mp4" :height 720 :codecs "avc1.64001F,mp4a.40.2"
+                   :sources [{:uri "https://a/720.mp4" :content-type "video/mp4"}]}
+                  {:type "application/x-mpegURL" :length 0 :rel "alternate"
+                   :sources [{:uri "https://a/master.m3u8"}]}]}
+          files (check/files {:rss/items [item]})]
+      (is (= [:media :stream] (map :kind files)))
+      (is (= {:type "video/mp4" :height 720 :codecs "avc1.64001F,mp4a.40.2" :duration 600} (:declared (first files)))
+          "a source that repeats the type is the media file, with the duration of the item")
+      (is (not (contains? (:declared (second files)) :duration)) "another rel is other content")))
   (testing "an image that several elements name, once with the sources of all"
     (is (= [{:kind :image :url "https://a/cover.jpg" :path [] :declared {:purpose #{} :sources #{:podcast :itunes :rss}}}]
            (check/files {:podcast/images [{:href "https://a/cover.jpg"}]
@@ -130,6 +142,17 @@
     (is (= [[:check/unread "The file answered 403: https://a/e.mp3"]]
            (map (juxt :id :reason)
                 (check/verdicts media (assoc served :media (failed "The file answered 403: https://a/e.mp3")))))))
+  (testing "the video of an MP4 file"
+    (let [video  (assoc media :declared {:type "video/mp4" :codecs "avc1.64001F,mp4a.40.2" :height 720})
+          answer (-> served (assoc-in [:get :type] "video/mp4") (assoc-in [:head :type] "video/mp4"))
+          read   #(assoc answer :media (merge {:format :mp4 :report [] :fast-start? true
+                                               :codecs "avc1.64001F,mp4a.40.2" :height 720}
+                                              %))]
+      (is (= #{} (ids video (read {}))))
+      (is (= #{} (ids video (read {:codecs "mp4a.40.2, AVC1.64001f"}))) "in any order and case")
+      (is (= #{:check/codecs} (ids video (read {:codecs "hvc1.1.6.L93.90,mp4a.40.2"}))))
+      (is (= #{:check/height} (ids video (read {:height 1080}))))
+      (is (= #{:check/slow-start} (ids video (read {:fast-start? false}))))))
   (testing "the integrity"
     (is (= #{:check/integrity} (ids media (assoc served :integrity {:valid? false :algorithm "sha384"}))))
     (is (= #{} (ids media (assoc served :integrity {:valid? true :algorithm "sha384"}))))
@@ -142,6 +165,30 @@
     (is (= #{:check/unverified} (ids media (assoc served :integrity (assoc (failed "request timed out") :valid? nil))))))
   (is (every? :message (check/verdicts media (assoc served :head {:status 405}))) "every diagnostic with its message")
   (is (= [:rss/items 0 :rss/enclosure] (:path (first (check/verdicts media (assoc served :head {:status 405})))))))
+
+(def stream
+  {:kind :stream :url "https://a/master.m3u8" :path [:rss/items 0 :podcast/alternate-enclosures 1]
+   :declared {:type "application/x-mpegURL" :height 720 :codecs "avc1.64001F,mp4a.40.2" :duration 600}})
+
+(def streamed
+  "The answers to the requests of a check for `stream`, and what its
+  playlists say."
+  {:head   {:status 200 :url "https://a/master.m3u8" :type "application/vnd.apple.mpegurl" :cors "*"}
+   :get    {:status 206 :url "https://a/master.m3u8" :type "application/vnd.apple.mpegurl" :cors "*"}
+   :stream {:kind     :multivariant :duration 601.5 :ended? true
+            :variants [{:height 720 :codecs "avc1.64001F,mp4a.40.2"} {:height 360 :codecs "avc1.64001E,mp4a.40.2"}]}})
+
+(deftest verdicts-on-streams
+  (is (= #{} (ids stream streamed)) "a stream as its feed says, that web players can read")
+  (is (= #{:check/status} (ids stream (assoc streamed :get {:status 404 :url "https://a/master.m3u8"}))))
+  (is (= #{:check/cors} (ids stream (update streamed :get dissoc :cors))) "a playlist that a web player can't read")
+  (is (= #{:check/unread} (ids stream (assoc streamed :stream (failed "It isn't an HLS playlist")))))
+  (is (= #{:check/duration} (ids stream (assoc-in streamed [:stream :duration] 700))))
+  (is (= #{} (ids stream (update streamed :stream assoc :duration 700 :ended? false)))
+      "a stream that hasn't ended")
+  (is (= #{:check/codecs} (ids (assoc-in stream [:declared :codecs] "hvc1.1.6.L93.B0,mp4a.40.2") streamed)))
+  (is (= #{:check/height} (ids (assoc-in stream [:declared :height] 1080) streamed)))
+  (is (= #{} (ids (assoc-in stream [:declared :height] 360) streamed)) "the height of any variant"))
 
 (def artwork
   {:kind :image :url "https://a/cover.jpg" :path [] :declared {:sources #{:itunes}}})

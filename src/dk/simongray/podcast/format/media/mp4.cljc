@@ -1,9 +1,10 @@
 (ns dk.simongray.podcast.format.media.mp4
   "MP4 and M4A files, whose boxes ISO/IEC 14496-12 defines.
 
-  A reading gives the duration from the movie header, the chapters and
-  the artwork. The chapters are those of a QuickTime chapter track, or
-  else those of a Nero chpl box. The artwork is the covr item of the
+  A reading gives the duration from the movie header, the chapters, the
+  artwork, the codecs and size of the tracks that play, and whether the
+  movie comes first. The chapters are those of a QuickTime chapter track,
+  or else those of a Nero chpl box. The artwork is the covr item of the
   iTunes metadata.
 
   The movie box can come before the media data or after it, so the
@@ -18,7 +19,8 @@
   of the longest track when the movie header gives none. The :except
   option leaves it out."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -64,13 +66,16 @@
 
 (defn- movie
   "The moov box of the file in `view`, found by walking the boxes at the
-  top level from the start, or nil when there's none."
+  top level from the start, or nil when there's none. It has :after-media?
+  when an mdat box comes before it."
   [view]
   (let [limit (or (:total view) ##Inf)]
-    (loop [p 0]
+    (loop [p 0 media? false]
       (when (< (+ p 8) limit)
-        (when-let [b (box view p limit)]
-          (if (= "moov" (:type b)) b (recur (:end b))))))))
+        (when-let [{:keys [type end] :as b} (box view p limit)]
+          (if (= "moov" type)
+            (cond-> b media? (assoc :after-media? true))
+            (recur end (or media? (= "mdat" type)))))))))
 
 (defn ^:no-doc flags
   "The flags of the full box `b` in `view`."
@@ -108,13 +113,36 @@
         n      (min listed held)]
     (mapv #(row-fn (+ content 8 skip (* % width))) (range n))))
 
+;; ISO/IEC 14496-12, section 8.3.2: the width and height end the box, as
+;; fixed-point numbers of 16.16 bits
+(defn- dimensions
+  "The width and height in pixels of the tkhd box `tkhd` in `view`, as a
+  pair, or nil when the box has none."
+  [view {:keys [content end] :as tkhd}]
+  (let [p (+ content (if (= 1 (view/u8 view content)) 88 76))]
+    (when (<= (+ p 8) end)
+      (let [width  (quot (view/u32 view p) 65536)
+            height (quot (view/u32 view (+ p 4)) 65536)]
+        (when (and (pos? width) (pos? height))
+          [width height])))))
+
+;; ISO/IEC 14496-12, section 8.4.3: the handler type follows the version,
+;; the flags and four bytes of zeros
+(defn- handler
+  "The handler type of the hdlr box `hdlr` in `view`, e.g. vide or soun."
+  [view {:keys [content end] :as hdlr}]
+  (when (<= (+ content 12) end)
+    (view/code view (+ content 8) 4)))
+
 (defn- track
   "What the reading needs of the trak box `t` in `view`: its id, timescale
-  and duration, the tracks its chapters are in, and its sample table."
+  and duration, the tracks its chapters are in, its sample table, its
+  handler, whether it's enabled, and its width and height."
   [view t]
   (let [tkhd  (child view t "tkhd")
         mdia  (child view t "mdia")
         chap  (at-path view t "tref" "chap")
+        hdlr  (at-path view t "mdia" "hdlr")
         wide? (and tkhd (= 1 (view/u8 view (:content tkhd))))]
     {:id       (when tkhd
                  (view/u32 view (+ (:content tkhd) (if wide? 20 12))))
@@ -122,7 +150,10 @@
      :chapters (when chap
                  (mapv #(view/u32 view %)
                        (range (:content chap) (- (:end chap) 3) 4)))
-     :stbl     (at-path view mdia "minf" "stbl")}))
+     :stbl     (at-path view mdia "minf" "stbl")
+     :handler  (some->> hdlr (handler view))
+     :enabled? (boolean (and tkhd (odd? (flags view tkhd))))
+     :size     (some->> tkhd (dimensions view))}))
 
 (def ^:no-doc max-samples
   "The most samples of a chapter track that the reading takes."
@@ -413,6 +444,159 @@
            seq
            (apply max)))
 
+(defn- digits
+  "The number `n` in `base`, 10 or 16, with upper-case letters, padded with
+  zeros to `width` digits."
+  [n base width]
+  (let [chars "0123456789ABCDEF"
+        s     (loop [n n acc ()]
+                (if (< n base)
+                  (apply str (nth chars n) acc)
+                  (recur (quot n base) (cons (nth chars (rem n base)) acc))))]
+    (str (apply str (repeat (- width (count s)) "0")) s)))
+
+;; RFC 6381, section 3.3; ISO/IEC 14496-15, section 5.3.3.1: the profile,
+;; the constraints and the level are bytes 1 to 3 of avcC
+(defn- avc-codecs
+  "The codecs string of an H.264 track whose sample entry is of `type`,
+  from its avcC box `avcc` in `view`."
+  [view type {:keys [content] :as avcc}]
+  (apply str type "." (map #(digits (view/u8 view (+ content %)) 16 2)
+                           [1 2 3])))
+
+;; ISO/IEC 14496-15, annex E.3: the profile space and number, the profile
+;; compatibility flags in reverse order, the tier and level, and the
+;; constraint bytes but trailing zeros
+(defn- hevc-codecs
+  "The codecs string of an HEVC track whose sample entry is of `type`,
+  from its hvcC box `hvcc` in `view`."
+  [view type {:keys [content] :as hvcc}]
+  (let [b        (view/u8 view (+ content 1))
+        compat   (view/u32 view (+ content 2))
+        reversed (reduce #(+ (* 2 %1) (if (bit-test compat %2) 1 0))
+                         0 (range 32))
+        flags    (->> (range 6)
+                      (map #(view/u8 view (+ content 6 %)))
+                      reverse
+                      (drop-while zero?)
+                      reverse)]
+    (str/join "." (concat [type
+                           (str (nth ["" "A" "B" "C"] (bit-shift-right b 6))
+                                (bit-and b 0x1F))
+                           (digits reversed 16 1)
+                           (str (if (bit-test b 5) "H" "L")
+                                (view/u8 view (+ content 12)))]
+                          (map #(digits % 16 2) flags)))))
+
+;; AV1 Codec ISO Media File Format Binding, sections 2.3 and 5
+(defn- av1-codecs
+  "The codecs string of an AV1 track, from its av1C box `av1c` in `view`."
+  [view {:keys [content] :as av1c}]
+  (let [b1    (view/u8 view (+ content 1))
+        b2    (view/u8 view (+ content 2))
+        depth (cond (not (bit-test b2 6)) 8
+                    (bit-test b2 5)       12
+                    :else                 10)]
+    (str "av01." (bit-shift-right b1 5) "."
+         (digits (bit-and b1 0x1F) 10 2) (if (bit-test b2 7) "H" "M") "."
+         (digits depth 10 2))))
+
+;; VP Codec ISO Media File Format Binding: vpcC and the codecs string
+(defn- vp9-codecs
+  "The codecs string of a VP9 track, from its vpcC box `vpcc` in `view`."
+  [view {:keys [content] :as vpcc}]
+  (str "vp09." (digits (view/u8 view (+ content 4)) 10 2)
+       "." (digits (view/u8 view (+ content 5)) 10 2)
+       "." (digits (bit-shift-right (view/u8 view (+ content 6)) 4) 10 2)))
+
+;; ISO/IEC 14496-1, section 8.3.3: a size takes one to four bytes of seven
+;; bits each
+(defn- descriptor
+  "The descriptor at `p` in `view`, as a map of its :tag and the :start and
+  :end of its content."
+  [view p]
+  (loop [q (inc p) size 0 n 1]
+    (let [b    (view/u8 view q)
+          size (+ (* 128 size) (bit-and b 0x7F))]
+      (if (and (bit-test b 7) (< n 4))
+        (recur (inc q) size (inc n))
+        {:tag (view/u8 view p) :start (inc q) :end (+ (inc q) size)}))))
+
+;; RFC 6381, section 3.3: mp4a, the object type in hex, and for MPEG-4
+;; audio the audio object type of ISO/IEC 14496-3, section 1.6.2.1
+(defn- aac-codecs
+  "The codecs string of an MPEG-4 audio track, from its esds box `esds` in
+  `view`, or nil when its descriptors don't read."
+  [view {:keys [content] :as esds}]
+  (let [es     (descriptor view (+ content 4))
+        flags  (view/u8 view (+ (:start es) 2))
+        after  (cond-> (+ (:start es) 3)
+                 (bit-test flags 7) (+ 2))
+        after  (cond-> after
+                 (bit-test flags 6) (+ 1 (view/u8 view after)))
+        after  (cond-> after
+                 (bit-test flags 5) (+ 2))
+        config (descriptor view after)
+        object (view/u8 view (:start config))
+        info   (descriptor view (+ (:start config) 13))
+        b0     (view/u8 view (:start info))
+        audio  (if (= 31 (bit-shift-right b0 3))
+                 (+ 32 (* 8 (bit-and b0 7))
+                    (bit-shift-right (view/u8 view (inc (:start info))) 5))
+                 (bit-shift-right b0 3))]
+    (when (and (= 3 (:tag es)) (= 4 (:tag config)))
+      (if (and (= 0x40 object) (= 5 (:tag info)))
+        (str "mp4a.40." audio)
+        (str "mp4a." (digits object 16 2))))))
+
+(defn- config
+  "The box of `type` among those of the sample entry `entry` in `view`,
+  which start `skip` bytes into its content."
+  [view {:keys [content end] :as entry} skip type]
+  (some #(when (= type (:type %)) %)
+        (children view (+ content skip) end)))
+
+;; ISO/IEC 14496-12, section 12.1.3 and 12.2.3: the boxes of a visual
+;; sample entry start 78 bytes in, those of an audio one 28, and the sound
+;; descriptions of QuickTime versions 1 and 2 are 16 and 36 bytes longer
+(defn- codecs-of
+  "The RFC 6381 codecs string of the track `t` in `view`, or the type of
+  its sample entry when its configuration doesn't read, or nil."
+  [view {:keys [stbl handler] :as t}]
+  (when-let [{:keys [type content] :as entry}
+             (when-let [stsd (when stbl (child view stbl "stsd"))]
+               (box view (+ (:content stsd) 8) (:end stsd)))]
+    (let [skip (if (= "vide" handler)
+                 78
+                 (case (view/u16 view (+ content 8)) 1 44 2 64 28))
+          conf #(config view entry skip %)]
+      (or (case type
+            ("avc1" "avc3") (some->> (conf "avcC") (avc-codecs view type))
+            ("hvc1" "hev1") (some->> (conf "hvcC") (hevc-codecs view type))
+            "av01"          (some->> (conf "av1C") (av1-codecs view))
+            "vp09"          (some->> (conf "vpcC") (vp9-codecs view))
+            "mp4a"          (some->> (conf "esds") (aac-codecs view))
+            nil)
+          (str/lower-case type)))))
+
+(defn- streams
+  "The codecs, width and height of the tracks of `tracks` in `view` that
+  play: the enabled video and audio tracks that hold no chapters, video
+  first."
+  [view tracks]
+  (let [chapters (set (mapcat :chapters tracks))
+        order    {"vide" 0 "soun" 1}
+        playing  (->> tracks
+                      (filter #(and (:enabled? %)
+                                    (order (:handler %))
+                                    (not (chapters (:id %)))))
+                      (sort-by (comp order :handler)))
+        codecs   (keep #(codecs-of view %) playing)
+        [w h]    (some #(when (= "vide" (:handler %)) (:size %)) playing)]
+    (cond-> {}
+      (seq codecs) (assoc :codecs (str/join "," codecs))
+      w            (assoc :width w :height h))))
+
 (defn- read-movie
   "What the file in `view` whose moov box is `moov` says about itself, with
   the quirks of `except` left out."
@@ -428,6 +612,7 @@
                                 (fragmented-duration view mvex scale tracks)))
         chapters  (view/part :chapters #(movie-chapters view tracks udta))
         art       (view/part :artwork #(when udta (artwork view udta)))
+        played    (view/part :codecs #(streams view tracks))
         longest   (longest-track tracks)
         stated?   (and d (pos? d))
         longest?  (and (not mvex)
@@ -439,11 +624,12 @@
                         longest?                         longest
                         (and stated? scale (pos? scale)) (/ d (double scale)))]
     (view/reported
-     (cond-> {}
+     (cond-> (merge {:fast-start? (not (:after-media? moov))}
+                    (:value played))
        duration                (assoc :duration duration)
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
-     (cond-> (into [] (mapcat :report) [fragments chapters art])
+     (cond-> (into [] (mapcat :report) [fragments chapters art played])
        longest? (conj {:id :mp4/zero-duration :level :info})
        unread?  (conj {:id :mp4/fragments-unread :level :info})))))
 
@@ -453,12 +639,17 @@
   (mapv diagnostics/describe (view/report file)))
 
 (defn read
-  "The MP4 file in `view`, read with `opts`, as a map of :duration,
-  :chapters and :artwork, each absent when the file doesn't have it.
+  "The MP4 file in `view`, read with `opts`, as a map of the keys below,
+  each absent when the file doesn't have it.
 
   - :duration is in seconds
-  - each chapter has :start-time, :end-time and :title
-  - :artwork is a map of :type and :data
+  - :chapters, each with :start-time, :end-time and :title
+  - :artwork, a map of :type and :data
+  - :codecs, the RFC 6381 codecs string of the tracks that play, e.g.
+    \"avc1.64001F,mp4a.40.2\"
+  - :width and :height of the video, in pixels
+  - :fast-start?, whether the movie comes before the media data, so that
+    a player can start before it has the end of the file
 
   The :except of `opts` is the ids of the quirks to leave out. When the
   view lacks bytes, the reading throws an exception that holds their

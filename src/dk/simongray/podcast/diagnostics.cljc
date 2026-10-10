@@ -333,6 +333,17 @@
      :doc "The duration of the media file differs from the one that the feed
            declares by more than 10 seconds and 2 percent, which a host that
            inserts ads can explain."}
+    {:id :check/slow-start :level :warning
+     :doc "The movie of the MP4 file comes after its media data, so a player
+           must fetch the end of the file before it can play the start.
+           Writing the movie first fixes it."}
+    {:id :check/codecs :level :warning
+     :doc "The codecs that the alternate enclosure declares are those of
+           neither its file nor any variant of its stream, so an app that asks
+           the platform whether it can play them gets the wrong answer."}
+    {:id :check/height :level :warning
+     :doc "The height that the alternate enclosure declares is that of
+           neither its video nor any variant of its stream."}
     {:id :check/unread :level :warning
      :doc "The file arrived, but its content wasn't read, because a request for
            more of its bytes failed or its reader failed."}

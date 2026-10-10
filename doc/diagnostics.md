@@ -125,6 +125,9 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/ranges` | warning | The server doesn't answer a request for a byte range with that range. RFC 9110 makes ranges optional but recommends them, players need them to seek and resume, and Apple Podcasts requires them. |
 | `:check/format` | warning | The media file is in a different format than the type that the feed declares. |
 | `:check/duration` | info | The duration of the media file differs from the one that the feed declares by more than 10 seconds and 2 percent, which a host that inserts ads can explain. |
+| `:check/slow-start` | warning | The movie of the MP4 file comes after its media data, so a player must fetch the end of the file before it can play the start. Writing the movie first fixes it. |
+| `:check/codecs` | warning | The codecs that the alternate enclosure declares are those of neither its file nor any variant of its stream, so an app that asks the platform whether it can play them gets the wrong answer. |
+| `:check/height` | warning | The height that the alternate enclosure declares is that of neither its video nor any variant of its stream. |
 | `:check/unread` | warning | The file arrived, but its content wasn't read, because a request for more of its bytes failed or its reader failed. |
 | `:check/integrity` | error | The media file doesn't match the hash of its podcast:integrity. |
 | `:check/unverified` | info | The media file wasn't compared with its podcast:integrity, because a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file didn't arrive. |

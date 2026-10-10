@@ -1126,7 +1126,9 @@ too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 ```
 
 Without `:read? true`, it only sends a HEAD request and asks for the first
-bytes of each file. The limits on files, time and bytes are in
+bytes of each file. With it, it also reads the media files and the HLS
+playlists of video, and compares their duration, codecs and height with
+what the feed declares. The limits on files, time and bytes are in
 `check/default-limits`. If your server checks feeds that other people
 submit, give it `:allow-pred url/public?`, so it never requests your own
 network. For a single file, `http/probe!` gives the same facts, e.g. the

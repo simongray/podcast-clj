@@ -452,6 +452,69 @@
         (is (not (contains? r :duration)))
         (is (= [:mp4/fragments-unread] (map :id (mp4/report r))))))))
 
+(defn- playing-trak
+  "A track `id` of `handler` whose sample entry is `entry`, enabled unless
+  `disabled?`, and `width` by `height` in its tkhd box."
+  [id handler entry & {:keys [width height disabled?] :or {width 0 height 0}}]
+  (box "trak"
+       (box "tkhd" [0 0 0 (if disabled? 0 3)] (be 4 0) (be 4 0) (be 4 id) (repeat 60 0)
+            (be 4 (* width 65536)) (be 4 (* height 65536)))
+       (box "mdia"
+            (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 60000) [0 0 0 0])
+            (box "hdlr" [0 0 0 0] (be 4 0) (ascii handler) (repeat 12 0) [0])
+            (box "minf" (box "stbl" (box "stsd" [0 0 0 0] (be 4 1) entry))))))
+
+(defn- video-entry
+  "A visual sample entry of `type` with the configuration box `config`."
+  [type config]
+  (box type (repeat 78 0) config))
+
+(def aac-entry
+  (box "mp4a" (repeat 28 0)
+       (box "esds" [0 0 0 0] [3 25 0 1 0] [4 17 0x40 0x15] (repeat 11 0) [5 2 0x12 0x10] [6 1 2])))
+
+(defn- movie-file
+  "An MP4 file with the `traks`, its movie before the media data, or after
+  it when `last?`."
+  [last? & traks]
+  (let [moov (box "moov" (mvhd 1000 60000) (apply concat traks))
+        mdat (box "mdat" (repeat 16 0))]
+    (concat (box "ftyp" (ascii "isom") (be 4 0)) (if last? (concat mdat moov) (concat moov mdat)))))
+
+(deftest mp4-video-files
+  (testing "the codecs and the size of the tracks that play, video first"
+    (let [r (mp4/read (view (movie-file false
+                                        (playing-trak 2 "soun" aac-entry)
+                                        (playing-trak 1 "vide" (video-entry "avc1" (box "avcC" [1 0x64 0x00 0x1F 0xFF]))
+                                                      :width 1280 :height 720))))]
+      (is (= {:codecs "avc1.64001F,mp4a.40.2" :width 1280 :height 720 :fast-start? true}
+             (select-keys r [:codecs :width :height :fast-start?])))))
+  (testing "the codecs strings of HEVC, AV1, VP9 and the rest"
+    (let [codecs #(:codecs (mp4/read (view (movie-file false (playing-trak 1 "vide" %)))))]
+      (is (= "hvc1.1.6.L93.B0" (codecs (video-entry "hvc1" (box "hvcC" [1 0x01 0x60 0 0 0 0xB0 0 0 0 0 0 93])))))
+      (is (= "av01.0.08M.08" (codecs (video-entry "av01" (box "av1C" [0x81 0x08 0x0C 0])))))
+      (is (= "vp09.00.10.08" (codecs (video-entry "vp09" (box "vpcC" [1 0 0 0] [0 10 0x80 0])))))
+      (is (= "avc1" (codecs (video-entry "avc1" []))) "the type alone without a configuration")
+      (is (= "opus" (:codecs (mp4/read (view (movie-file false (playing-trak 1 "soun" (box "Opus" (repeat 28 0))))))))
+          "the type of another codec, in lower case")))
+  (testing "a movie after the media data starts late"
+    (is (false? (:fast-start? (mp4/read (view (movie-file true (playing-trak 1 "soun" aac-entry))))))))
+  (testing "a disabled track and a track of chapter pictures don't play"
+    (let [chapters (box "tref" (box "chap" (be 4 3)))
+          audio    (box "trak"
+                        (box "tkhd" [0 0 0 3] (be 4 0) (be 4 0) (be 4 1) (repeat 60 0))
+                        chapters
+                        (box "mdia"
+                             (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 60000) [0 0 0 0])
+                             (box "hdlr" [0 0 0 0] (be 4 0) (ascii "soun") (repeat 12 0) [0])
+                             (box "minf" (box "stbl" (box "stsd" [0 0 0 0] (be 4 1) aac-entry)))))
+          r        (mp4/read (view (movie-file false
+                                               audio
+                                               (playing-trak 2 "vide" (video-entry "avc1" []) :width 640 :height 360 :disabled? true)
+                                               (playing-trak 3 "vide" (video-entry "jpeg" []) :width 600 :height 600))))]
+      (is (= "mp4a.40.2" (:codecs r)))
+      (is (nil? (:height r))))))
+
 ;; the front
 
 (deftest reading-media

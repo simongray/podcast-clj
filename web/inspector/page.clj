@@ -449,14 +449,16 @@
   the answers to its requests told, what the file holds, and the ids of
   the `findings` about it."
   [findings {:keys [kind url facts] :as file}]
-  (let [{:keys [head image media read integrity] got :get} facts
+  (let [{:keys [head image media read integrity stream] got :get} facts
         answer  (or got head)
         failed  (told (or (:error facts) (:error answer)))
         ;; the length of a 206 is that of the part
         size    (or (get-in got [:range :total])
                     (when (= 200 (:status got)) (:length got))
                     (when (= 200 (:status head)) (:length head)))
-        unread  (told (or (:error media) (:error image) (:error read)))]
+        unread  (told (or (:error media) (:error image) (:error read)
+                          (:error stream)))
+        clock   #(some->> (time/format-clock %) (str " · "))]
     [:tr
      [:td (name kind)]
      [:td [:a {:href (link url)} (shorten url 70)]]
@@ -493,8 +495,15 @@
 
             (:format media)
             (str (name (:format media))
-                 (when-let [d (time/format-clock (:duration media))]
-                   (str " · " d)))
+                 (clock (:duration media))
+                 (when (:height media)
+                   (str " · " (:width media) "×" (:height media))))
+
+            stream
+            (str "HLS"
+                 (when-let [variants (seq (:variants stream))]
+                   (str " · " (count variants) " variants"))
+                 (clock (:duration stream)))
 
             read
             (str (:count read)
@@ -547,8 +556,9 @@
                            "them: HEAD and the first two bytes of the feed and "
                            "of each media file, HEAD and the header of each "
                            "image, HEAD and the whole of each transcript and "
-                           "chapters file, and what the media reader needs of "
-                           "each media file.")]
+                           "chapters file, what the media reader needs of "
+                           "each media file, and the playlists of each "
+                           "stream.")]
             (when (pos? hashed)
               [:p (if integrity?
                     [:span.muted (str judged " of the " hashed " files with a "

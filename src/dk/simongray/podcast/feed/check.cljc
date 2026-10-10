@@ -16,6 +16,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
@@ -69,23 +70,38 @@
                    (assoc :sources #{source}))}))
 
 (defn- alternate-files
-  "The media files of the alternate enclosures of `item`, under `path`.
+  "The media files and streams of the alternate enclosures of `item`, under
+  `path`.
 
   A source with a type of its own, such as a torrent, isn't the media file,
-  so the length and integrity of its enclosure aren't its own."
+  so the length and integrity of its enclosure aren't its own. A source
+  that repeats the type of its enclosure is the media file. An
+  alternate with no rel or the rel default holds the content of the
+  enclosure, by the podcast namespace, so it has the duration of the item."
   [item path]
-  (let [alternates (map-indexed vector (:podcast/alternate-enclosures item))]
-    (for [[j {:keys [sources type length integrity]}] alternates
-          {:keys [uri content-type]}                 sources
+  (let [alternates (map-indexed vector (:podcast/alternate-enclosures item))
+        duration   (resolve/duration item)]
+    (for [[j {:keys [sources type length integrity height codecs rel]}]
+          alternates
+          :let  [same? (contains? #{nil "default"} (some-> rel str/lower-case))]
+          {:keys [uri content-type]} sources
+          :let  [own-type? (and content-type
+                                (not= (headers/media-type content-type)
+                                      (headers/media-type type)))]
           :when (checkable? uri)]
-      {:kind     :media
+      {:kind     (if (hls/playlist? {:url uri :type (or content-type type)})
+                   :stream
+                   :media)
        :url      uri
        :path     (conj path :podcast/alternate-enclosures j)
-       :declared (if content-type
+       :declared (if own-type?
                    {:type content-type}
                    (present {:type      type
                              :length    length
-                             :integrity integrity}))})))
+                             :integrity integrity
+                             :height    height
+                             :codecs    codecs
+                             :duration  (when same? duration)}))})))
 
 (defn- item-files
   "The files of the `item` at the index `i` of the feed."
@@ -95,7 +111,7 @@
         chapters  (:podcast/chapters item)]
     (concat
      (when (checkable? (:url enclosure))
-       [{:kind     :media
+       [{:kind     (if (hls/playlist? enclosure) :stream :media)
          :url      (:url enclosure)
          :path     (conj path :rss/enclosure)
          :declared (present {:type     (:type enclosure)
@@ -155,11 +171,11 @@
 
   A file has its :kind, its :url, the :path in the feed of the element
   that names it, and what the feed :declared of it. The kinds are :feed,
-  :media, :image, :transcript and :chapters. What the feed declares
-  depends on the kind:
+  :media, :stream for the playlist of an HLS stream, :image, :transcript
+  and :chapters. What the feed declares depends on the kind:
 
-  - of a media file, the type, length and duration, and the integrity of
-    an alternate enclosure
+  - of a media file or a stream, the type, length and duration, and the
+    integrity, height and codecs of an alternate enclosure
   - of an image, the :sources, such as :itunes, :podcast or :rss, and the
     purpose and size that its podcast:image gives
   - of a transcript or chapters, the type
@@ -314,10 +330,36 @@
           (cond-> facts
             read
             (assoc :media (-> (read-facts read media/report)
-                              (select-keys [:format :duration :report :error])))
+                              (select-keys [:format :duration :codecs :width
+                                            :height :fast-start? :report
+                                            :error])))
 
             verified
             (assoc :integrity (attempted verified)))))))))
+
+(defn- probe-stream!
+  "Probe the HLS stream `file` through `send` with `opts`, and give its
+  facts, in a future or a promise.
+
+  They're the facts of a probe, and when `opts` ask to :read? the stream,
+  what its playlists say. The requests name the origin of the check, since
+  web players read playlists."
+  [send {:keys [url] :as file} {:keys [read?] :as opts}]
+  (let [headers {"Origin" origin}]
+    (async/then
+     (probe-url! send url headers)
+     (fn [{:keys [get] :as facts}]
+       (if (and read? (ok? get))
+         (async/then
+          (async/attempt #(hls/read! (or (:url get) url)
+                                     (assoc (reading-opts send opts)
+                                            :headers headers)))
+          (fn [attempt]
+            (assoc facts :stream (-> (attempted attempt)
+                                     (select-keys [:kind :duration :ended?
+                                                   :variants :report
+                                                   :error])))))
+         facts)))))
 
 (defn- probe-image!
   "Probe the image `file` through `send` with `opts`, and give its facts,
@@ -390,6 +432,7 @@
 (def ^:no-doc probes
   "The function that gets the facts of a file, by the kind of the file."
   {:media      probe-media!
+   :stream     probe-stream!
    :image      probe-image!
    :transcript probe-text!
    :chapters   probe-text!
@@ -585,14 +628,54 @@
                (not (ranged? get)))
       [(diagnostic file chosen :check/ranges :status (:status get))])))
 
+(defn ^:no-doc duration-verdict
+  "The diagnostic of a media `file` or stream whose `measured` duration
+  differs from the one that the feed declares by more than 10 seconds and
+  2 percent, by the `chosen` requirements."
+  [{:keys [declared] :as file} chosen measured]
+  (let [stated (:duration declared)]
+    (when (and (number? stated)
+               (number? measured)
+               (> (abs (- stated measured))
+                  (max 10 (* 0.02 stated))))
+      [(diagnostic file chosen :check/duration
+                   :declared stated
+                   :measured measured)])))
+
+(defn- codec-set
+  "The codecs of the RFC 6381 string `s` as a set, in lower case, or nil."
+  [s]
+  (some->> (str/split (str/lower-case (str s)) #",")
+           (map str/trim)
+           (remove str/blank?)
+           seq
+           set))
+
+(defn ^:no-doc rendition-verdicts
+  "The diagnostics of a `file` whose declared codecs or height match none
+  of the `found` renditions, the file itself or the variants of a stream,
+  each a map of its :codecs and :height, by the `chosen` requirements."
+  [{:keys [declared] :as file} chosen found]
+  (let [codecs  (codec-set (:codecs declared))
+        sets    (keep (comp codec-set :codecs) found)
+        height  (:height declared)
+        heights (keep :height found)]
+    (concat
+     (when (and codecs (seq sets) (not (some #{codecs} sets)))
+       [(diagnostic file chosen :check/codecs
+                    :declared (:codecs declared)
+                    :found    (str/join " " (distinct (keep :codecs found))))])
+     (when (and (number? height) (seq heights) (not (some #{height} heights)))
+       [(diagnostic file chosen :check/height
+                    :declared height
+                    :found    (apply max heights))]))))
+
 (defn- media-reading-verdicts
   "The diagnostics of what reading the media `file` found, `media`, against
   what the feed declares, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen media]
   (let [expected (formats (headers/media-type (:type declared)))
         found    (:format media)
-        stated   (:duration declared)
-        measured (:duration media)
         report   (:report media)
         unknown? #(= :file/unknown-format (:id %))]
     (cond
@@ -611,13 +694,10 @@
          [(diagnostic file chosen :check/format
                       :declared (:type declared)
                       :format   found)])
-       (when (and (number? stated)
-                  (number? measured)
-                  (> (abs (- stated measured))
-                     (max 10 (* 0.02 stated))))
-         [(diagnostic file chosen :check/duration
-                      :declared stated
-                      :measured measured)])
+       (duration-verdict file chosen (:duration media))
+       (when (false? (:fast-start? media))
+         [(diagnostic file chosen :check/slow-start)])
+       (rendition-verdicts file chosen [media])
        ;; a format that the reader does not know is :check/format already
        (passed-on file (remove unknown? report))))))
 
@@ -846,6 +926,29 @@
                      (:url a))]
       [(diagnostic file chosen id :allowed (:cors a) :redirect redirect)])))
 
+(defn- stream-verdicts
+  "The diagnostics of the HLS stream `file` from its `facts`, by the
+  `chosen` requirements: how it reached the check, whether a web player
+  can read it, and what its playlists say against what the feed declares.
+  The duration counts only for a stream that has ended."
+  [{:keys [url] :as file} chosen {:keys [head get stream] :as facts}]
+  (if-not (ok? get)
+    (reaching file chosen get)
+    (concat
+     (reaching file chosen get)
+     (head-verdict file chosen head)
+     (cors-verdict file chosen :check/cors url get)
+     (cond
+       (:error stream)
+       [(diagnostic file chosen :check/unread :reason (why stream))]
+
+       stream
+       (concat
+        (when (:ended? stream)
+          (duration-verdict file chosen (:duration stream)))
+        (rendition-verdicts file chosen (:variants stream))
+        (passed-on file (:report stream)))))))
+
 (defn- text-verdicts
   "The diagnostics of the transcript or chapters `file` from its `facts`,
   by the `chosen` requirements."
@@ -890,6 +993,7 @@
   "The function that gives the diagnostics of a file from its facts, by the
   kind of the file."
   {:media      media-verdicts
+   :stream     stream-verdicts
    :image      image-verdicts
    :transcript text-verdicts
    :chapters   text-verdicts
@@ -952,8 +1056,9 @@
   - :max-items, how many of the newest items to check the files of, or :all
   - :requirements, a name in requirements whose checks to add, or a map
     of the shape of its entries
-  - :read?, whether to read what the files hold: the format and duration
-    of media files, and transcripts and chapters whole
+  - :read?, whether to read what the files hold: the format, duration,
+    codecs and size of media files, the playlists of HLS streams, and
+    transcripts and chapters whole
   - :integrity?, whether to fetch whole each file with a podcast:integrity
   - :max-files, :max-seconds, :concurrency, :timeout-seconds and
     :max-bytes, the limits
