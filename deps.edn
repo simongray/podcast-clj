@@ -19,7 +19,7 @@
          {:git/url "https://github.com/simongray/wary-fetch"
           :git/sha "111e96e31102b131c1c24c66e5b470430c1a34f3"}
          dk.simongray/qname-hiccup   {:mvn/version "0.1.0"}
-         dk.simongray/html-pieces    {:mvn/version "0.1.0"}
+         dk.simongray/html-pieces    {:mvn/version "0.2.0"}
          dk.simongray/drop-in-search {:mvn/version "0.1.0"}
          dk.simongray/mind-meld
          {:git/url "https://github.com/simongray/mind-meld"
