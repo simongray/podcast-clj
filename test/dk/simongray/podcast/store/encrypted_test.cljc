@@ -4,13 +4,13 @@
   other platform opening here, and two devices kept in step through an
   encrypting store."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?@(:clj [[dk.simongray.podcast.profile :as profile]
-                      [dk.simongray.podcast.sync :as sync]])
+            #?(:clj [dk.simongray.podcast.sync :as sync])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.store.encrypted :as encrypted]
-            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a failed])]]))
+            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 failed note text
+                                                                          with-notes])]]))
 
 (def passphrase
   "correct horse battery staple")
@@ -111,23 +111,23 @@
 #?(:clj
    (deftest two-devices-through-an-encrypting-store
      (let [documents (atom {})
+           summary   (fn [state] {"summary.txt" (str (count (:notes state)) " notes")})
            backend   (fn [pass]
                        (sync/backend (encrypted/store (store/memory documents)
                                                        pass
-                                                       {:iterations 1000 :except #{sync/opml-name}})
-                                      {:opml? true}))
-           phone     (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
-                                 [(backend passphrase)] {:at t1})
-           laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] {:at t2})
-           phone2    (sync/sync! (:state phone) [(backend passphrase)] {:at t3 :cursors (:cursors phone)})]
+                                                       {:iterations 1000 :except #{"summary.txt"}})
+                                      (assoc with-notes :extra-documents-fn summary)))
+           phone     (sync/sync! (note {:device "phone"} "milk" "Buy milk" t0) [(backend passphrase)] (assoc with-notes :at t1))
+           laptop    (sync/sync! (note {:device "laptop"} "milk" "Buy oat milk" t1) [(backend passphrase)] (assoc with-notes :at t2))
+           phone2    (sync/sync! (:state phone) [(backend passphrase)] (assoc with-notes :at t3 :cursors (:cursors phone)))]
        (is (nil? (failed phone)))
        (is (nil? (failed laptop)))
        (is (nil? (failed phone2)))
-       (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
-       (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents sync/opml-name)))
+       (is (= "Buy oat milk" (text (:state phone2) "milk")))
+       (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents "summary.txt")))
            "every document at rest is ciphertext")
-       (is (str/includes? (:body (@documents sync/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
-       (let [step (sync/sync! (profile/make "tablet") [(backend "wrong")] {:at t3})]
+       (is (= "1 notes" (:body (@documents "summary.txt"))) "a document left in the clear stays readable, as asked")
+       (let [step (sync/sync! {:device "tablet"} [(backend "wrong")] (assoc with-notes :at t3))]
          (is (str/includes? (get (failed step) "memory") "does not open"))))))
 
 #?(:cljs

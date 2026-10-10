@@ -5,12 +5,12 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.store.webdav :as webdav]
             #?(:clj [dk.simongray.podcast.store.webdav.server :as server])
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.test-support :refer [t2 t3 a failed phone-state laptop-state fixture #?@(:clj [same?])]]
+            [dk.simongray.podcast.test-support :refer [t2 t3 failed fixture text with-notes phone-notes laptop-notes
+                                                       #?@(:clj [same?])]]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -22,8 +22,8 @@
 
 (deftest a-backend-over-a-collection
   (let [b (sync/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
-                                       {:credentials {:username "simon" :password "x"}})
-                         {:opml? true :app "test"})]
+                                      {:credentials {:username "simon" :password "x"}})
+                        (assoc with-notes :app "test"))]
     (is (= "cloud.example.org" (:name b)) "named after the host")
     (is (= "cloud.example.org" (:name (webdav/store "https://simon:secret@cloud.example.org/podcasts/")))
         "never after the credentials a URL carries")
@@ -34,12 +34,12 @@
 (deftest the-requests-go-through-send
   (let [sent    (atom nil)
         send    (fn [request] (reset! sent request) {:status 404 :headers {}})
-        backend (sync/backend (webdav/store root {:send send :timeout-seconds 5}))]
+        backend (sync/backend (webdav/store root {:send send :timeout-seconds 5}) with-notes)]
     ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn" {})
     (is (= [:get (str root "phone.edn") 5] ((juxt :method :url :timeout-seconds) @sent))
         "with the limit of time")
     (reset! sent nil)
-    ((:pull backend) (phone-state) nil t2)
+    ((:pull backend) (phone-notes) nil t2)
     (is (= :propfind (:method @sent)) "the backend passes :send on")))
 
 (deftest requests
@@ -314,15 +314,15 @@
            client    (dissoc (webdav/store "https://dav.example.org/dav/") :list :delete)]
        (with-redefs [http/send! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
          (let [{:keys [ok? checks]} (store/check! client)
-               backend (sync/backend client)
-               phone   (sync/sync! (phone-state) [backend] {:at t2})
-               laptop  (sync/sync! (laptop-state) [backend] {:at t3})]
+               backend (sync/backend client (assoc with-notes :document "state.edn"))
+               phone   (sync/sync! (phone-notes) [backend] (assoc with-notes :at t2))
+               laptop  (sync/sync! (laptop-notes) [backend] (assoc with-notes :at t3))]
            (is ok? (pr-str checks))
            (is (nil? (failed phone)))
            (is (nil? (failed laptop)))
-           (is (= #{"podcast.edn" store/probe-name} (set (keys @documents)))
+           (is (= #{"state.edn" store/probe-name} (set (keys @documents)))
                "one shared document, and the probe that the store cannot delete")
-           (is (= 900 (:position (profile/episode-entry (:state laptop) a)))))))))
+           (is (= #{"milk" "eggs" "bread"} (set (keys (:notes (:state laptop)))))))))))
 
 #?(:clj
    (deftest checking-a-collection
@@ -350,13 +350,13 @@
    (deftest two-devices-through-a-webdav-collection
      (let [documents (atom {})]
        (with-redefs [http/send! (stand-in documents)]
-         (let [backend (sync/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
-               phone   (sync/sync! (phone-state) [backend] {:at t2})
-               laptop  (sync/sync! (laptop-state) [backend] {:at t3})
-               phone2  (sync/sync! (:state phone) [backend] {:at t3 :cursors (:cursors phone)})]
+         (let [backend (sync/backend (webdav/store "https://dav.example.org/dav") with-notes)
+               phone   (sync/sync! (phone-notes) [backend] (assoc with-notes :at t2))
+               laptop  (sync/sync! (laptop-notes) [backend] (assoc with-notes :at t3))
+               phone2  (sync/sync! (:state phone) [backend] (assoc with-notes :at t3 :cursors (:cursors phone)))]
            (is (nil? (failed phone)) "the collection was made on the first put")
-           (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
-           (is (= 900 (:position (profile/episode-entry (:state phone2) a))))
+           (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))
+           (is (= "Buy six eggs" (text (:state phone2) "eggs")))
            (is (same? (:state laptop) (:state phone2)))
            (is (= "dav.example.org" (:name backend)) "named after the host")
            (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:cursors phone2) "dav.example.org")))
@@ -381,15 +381,15 @@
    (deftest two-devices-through-a-webdav-collection-with-send
      (async done
        (let [documents (atom {})
-             backend   (sync/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
-         (-> (sync/sync! (phone-state) [backend] {:at t2})
+             backend   (sync/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}) with-notes)]
+         (-> (sync/sync! (phone-notes) [backend] (assoc with-notes :at t2))
              (.then (fn [phone]
                       (is (nil? (failed phone)))
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))
-                      (sync/sync! (laptop-state) [backend] {:at t3})))
+                      (sync/sync! (laptop-notes) [backend] (assoc with-notes :at t3))))
              (.then (fn [laptop]
-                      (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
-                      (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
+                      (is (= "Buy six eggs" (text (:state laptop) "eggs")))
+                      (is (= #{"milk" "eggs" "bread"} (set (keys (:notes (:state laptop))))))
                       (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))
                       (store/check! (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))))
              (.then (fn [{:keys [ok? checks]}]
@@ -408,7 +408,8 @@
          ;; the global fetch, which sends outside Node
          (set! http/node? false)
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
-         (-> (sync/sync! (phone-state) [(sync/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
+         (-> (sync/sync! (phone-notes) [(sync/backend (webdav/store "https://dav.example.org/dav/") with-notes)]
+                         (assoc with-notes :at t2))
              (.then (fn [phone]
                       (is (nil? (failed phone)) "a store without :send sends with http/send!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))

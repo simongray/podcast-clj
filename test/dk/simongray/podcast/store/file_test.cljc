@@ -5,11 +5,11 @@
   failures that the listener can fix."
   (:require #?(:clj [clojure.java.io :as io])
             [clojure.test :refer [deftest is #?(:clj testing)]]
-            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.store.file :as file]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 a run same? #?(:clj with-temp-dir)]]
+            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 note text with-notes run same?
+                                                       #?(:clj with-temp-dir)]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -112,20 +112,19 @@
   (let [dir     (atom nil)
         phone   (atom nil)
         laptop  (atom nil)
-        backend #(sync/backend (file/store @dir) {:opml? true})]
+        backend #(sync/backend (file/store @dir) with-notes)]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
-         #(async/then (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
-                                  [(backend)] {:at t1})
+         #(async/then (sync/sync! (note {:device "phone"} "milk" "Buy milk" t0) [(backend)] (assoc with-notes :at t1))
                       (fn [step] (reset! phone step)))
-         #(async/then (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend)] {:at t2})
+         #(async/then (sync/sync! (note {:device "laptop"} "milk" "Buy oat milk" t1) [(backend)] (assoc with-notes :at t2))
                       (fn [step] (reset! laptop step)))
-         #(async/then (sync/sync! (:state @phone) [(backend)] {:at t3 :cursors (:cursors @phone)})
+         #(async/then (sync/sync! (:state @phone) [(backend)] (assoc with-notes :at t3 :cursors (:cursors @phone)))
                       (fn [{:keys [report state]}]
                         (is (= [] report) "no backend failed, and nothing else to report")
                         (is (same? (:state @laptop) state))
-                        (is (= 60 (:position (profile/episode-entry state a))))))
+                        (is (= "Buy oat milk" (text state "milk")))))
          #(async/then (names! @dir)
-                      (fn [names] (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} names))))
+                      (fn [names] (is (= #{"phone.edn" "laptop.edn"} names))))
          #(remove-folder! @dir))))
 
 #?(:clj
@@ -170,7 +169,7 @@
 
 #?(:cljs
    (deftest the-files-of-an-input
-     (let [laptop (profile/progress (profile/make "laptop") a 60 3600 t1)
+     (let [laptop (note {:device "laptop"} "milk" "Buy oat milk" t1)
            files  [(picked "Podcasts/laptop.edn" (sync/document laptop t2))
                    (picked "Podcasts/notes.txt" "not a document")
                    (picked "Podcasts/old/phone.edn" "in a folder of the folder")]
@@ -182,12 +181,12 @@
                          (fn [docs] (is (= ["laptop.edn" "notes.txt"] (map :name docs)) "only the top of the folder")))
             #(async/then ((:fetch s) "laptop.edn" {})
                          (fn [{:keys [body version]}]
-                           (is (= laptop (:state (sync/read-document body))))
+                           (is (= laptop (:state (sync/read-document body with-notes))))
                            (is (= "1000-" (subs version 0 5)))))
-            #(async/then (sync/sync! (profile/make "phone") [(sync/backend s)] {:at t3})
+            #(async/then (sync/sync! {:device "phone"} [(sync/backend s with-notes)] (assoc with-notes :at t3))
                          (fn [{:keys [report state]}]
                            (is (not-any? (comp #{:sync/backend-failed} :id) report) "the backend only pulls")
-                           (is (= 60 (:position (profile/episode-entry state a))))))))))
+                           (is (= "Buy oat milk" (text state "milk")))))))))
 
 #?(:cljs
    (defn- handle
