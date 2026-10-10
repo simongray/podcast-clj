@@ -347,13 +347,6 @@
                   "mhm1" "mp3" "vorbis"]
                  (repeat :audio))))
 
-(defn- codec-string-kinds
-  "The kinds of media of the codecs in the RFC 6381 string `s`, with nil
-  for a codec whose kind isn't known."
-  [s]
-  (set (for [codec (str/split (str/lower-case s) #",")]
-         (codec-kinds (first (str/split (str/trim codec) #"\."))))))
-
 (defn video?
   "Whether the `enclosure` is a video, or nil when nothing tells.
 
@@ -364,7 +357,11 @@
   video has. A stream such as HLS often tells nothing."
   [{:keys [medium type codecs height]}]
   (let [kind  (some-> type str/lower-case (str/split #"/") first)
-        kinds (some-> codecs codec-string-kinds)]
+        kinds (when codecs
+                ;; the kind of each codec, or nil for one that isn't known
+                (set (for [codec (str/split (str/lower-case codecs) #",")]
+                       (codec-kinds (first (str/split (str/trim codec)
+                                                      #"\."))))))]
     (cond
       medium                               (= "video" (str/lower-case medium))
       (= "video" kind)                     true
@@ -374,8 +371,8 @@
       (and (number? height) (pos? height)) true)))
 
 (defn audio?
-  "Whether the `enclosure`, one of those that enclosures gives, is audio,
-  or nil when nothing tells, as video? tells it."
+  "Whether the `enclosure` is audio, or nil when nothing tells, as video?
+  tells it."
   [enclosure]
   (some-> (video? enclosure) not))
 
@@ -388,9 +385,9 @@
         (enclosures item)))
 
 ;; ISO/IEC 23009-1; the podcast namespace, source
-(def ^:no-doc indirect-types
+(def ^:no-doc manifest-types
   "The types of a file that says where the media is rather than holds it,
-  in lower case, besides HLS: a DASH manifest and a torrent."
+  in lower case, besides an HLS playlist: a DASH manifest and a torrent."
   #{"application/dash+xml" "application/x-bittorrent"})
 
 (defn downloadable?
@@ -400,7 +397,7 @@
   [{:keys [url type transport] :as enclosure}]
   (let [served (some-> (or transport type) str/lower-case)]
     (boolean (and (url/web-url? url)
-                  (not (indirect-types served))
+                  (not (manifest-types served))
                   (not (hls/playlist? enclosure))))))
 
 (defn- language-tag

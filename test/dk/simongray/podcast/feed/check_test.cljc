@@ -145,14 +145,14 @@
   (testing "the video of an MP4 file"
     (let [video  (assoc media :declared {:type "video/mp4" :codecs "avc1.64001F,mp4a.40.2" :height 720})
           answer (-> served (assoc-in [:get :type] "video/mp4") (assoc-in [:head :type] "video/mp4"))
-          read   #(assoc answer :media (merge {:format :mp4 :report [] :fast-start? true
+          read   #(assoc answer :media (merge {:format :mp4 :report [] :movie-first? true
                                                :codecs "avc1.64001F,mp4a.40.2" :height 720}
                                               %))]
       (is (= #{} (ids video (read {}))))
       (is (= #{} (ids video (read {:codecs "mp4a.40.2, AVC1.64001f"}))) "in any order and case")
       (is (= #{:check/codecs} (ids video (read {:codecs "hvc1.1.6.L93.90,mp4a.40.2"}))))
       (is (= #{:check/height} (ids video (read {:height 1080}))))
-      (is (= #{:check/slow-start} (ids video (read {:fast-start? false}))))))
+      (is (= #{:check/slow-start} (ids video (read {:movie-first? false}))))))
   (testing "the integrity"
     (is (= #{:check/integrity} (ids media (assoc served :integrity {:valid? false :algorithm "sha384"}))))
     (is (= #{} (ids media (assoc served :integrity {:valid? true :algorithm "sha384"}))))

@@ -75,7 +75,7 @@
 (defn read
   "What the media file whose parts `view` holds says about itself, read
   with `opts`. It's a map of :format, :duration, :chapters and :artwork,
-  and for an MP4 file the :codecs, :width, :height and :fast-start? that
+  and for an MP4 file the :codecs, :width, :height and :movie-first? that
   format.media.mp4/read gives, each absent when the file doesn't have it.
 
   - :format is :mp3 or :mp4

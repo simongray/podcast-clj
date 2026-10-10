@@ -487,8 +487,8 @@
                                         (playing-trak 2 "soun" aac-entry)
                                         (playing-trak 1 "vide" (video-entry "avc1" (box "avcC" [1 0x64 0x00 0x1F 0xFF]))
                                                       :width 1280 :height 720))))]
-      (is (= {:codecs "avc1.64001F,mp4a.40.2" :width 1280 :height 720 :fast-start? true}
-             (select-keys r [:codecs :width :height :fast-start?])))))
+      (is (= {:codecs "avc1.64001F,mp4a.40.2" :width 1280 :height 720 :movie-first? true}
+             (select-keys r [:codecs :width :height :movie-first?])))))
   (testing "the codecs strings of HEVC, AV1, VP9 and the rest"
     (let [codecs #(:codecs (mp4/read (view (movie-file false (playing-trak 1 "vide" %)))))]
       (is (= "hvc1.1.6.L93.B0" (codecs (video-entry "hvc1" (box "hvcC" [1 0x01 0x60 0 0 0 0xB0 0 0 0 0 0 93])))))
@@ -498,7 +498,7 @@
       (is (= "opus" (:codecs (mp4/read (view (movie-file false (playing-trak 1 "soun" (box "Opus" (repeat 28 0))))))))
           "the type of another codec, in lower case")))
   (testing "a movie after the media data starts late"
-    (is (false? (:fast-start? (mp4/read (view (movie-file true (playing-trak 1 "soun" aac-entry))))))))
+    (is (false? (:movie-first? (mp4/read (view (movie-file true (playing-trak 1 "soun" aac-entry))))))))
   (testing "a disabled track and a track of chapter pictures don't play"
     (let [chapters (box "tref" (box "chap" (be 4 3)))
           audio    (box "trak"

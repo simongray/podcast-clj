@@ -579,7 +579,7 @@
             nil)
           (str/lower-case type)))))
 
-(defn- streams
+(defn- playing-tracks
   "The codecs, width and height of the tracks of `tracks` in `view` that
   play: the enabled video and audio tracks that hold no chapters, video
   first."
@@ -612,7 +612,7 @@
                                 (fragmented-duration view mvex scale tracks)))
         chapters  (view/part :chapters #(movie-chapters view tracks udta))
         art       (view/part :artwork #(when udta (artwork view udta)))
-        played    (view/part :codecs #(streams view tracks))
+        played    (view/part :codecs #(playing-tracks view tracks))
         longest   (longest-track tracks)
         stated?   (and d (pos? d))
         longest?  (and (not mvex)
@@ -624,7 +624,7 @@
                         longest?                         longest
                         (and stated? scale (pos? scale)) (/ d (double scale)))]
     (view/reported
-     (cond-> (merge {:fast-start? (not (:after-media? moov))}
+     (cond-> (merge {:movie-first? (not (:after-media? moov))}
                     (:value played))
        duration                (assoc :duration duration)
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
@@ -648,7 +648,7 @@
   - :codecs, the RFC 6381 codecs string of the tracks that play, e.g.
     \"avc1.64001F,mp4a.40.2\"
   - :width and :height of the video, in pixels
-  - :fast-start?, whether the movie comes before the media data, so that
+  - :movie-first?, whether the movie comes before the media data, so that
     a player can start before it has the end of the file
 
   The :except of `opts` is the ids of the quirks to leave out. When the

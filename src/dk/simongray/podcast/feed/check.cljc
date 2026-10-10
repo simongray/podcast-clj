@@ -331,7 +331,7 @@
             read
             (assoc :media (-> (read-facts read media/report)
                               (select-keys [:format :duration :codecs :width
-                                            :height :fast-start? :report
+                                            :height :movie-first? :report
                                             :error])))
 
             verified
@@ -692,7 +692,7 @@
                       :declared (:type declared)
                       :format   found)])
        (duration-verdict file chosen (:duration media))
-       (when (false? (:fast-start? media))
+       (when (false? (:movie-first? media))
          [(diagnostic file chosen :check/slow-start)])
        (rendition-verdicts file chosen [media])
        ;; a format that the reader does not know is :check/format already
