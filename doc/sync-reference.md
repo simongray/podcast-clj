@@ -78,32 +78,46 @@ The options of `sync/backend`:
 | `:strategy` | `:per-device` or `:shared` | `:per-device` if the store has `:list`, else `:shared` |
 | `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` if the store has `:put`, else `:pull` |
 | `:opml?` | Write `subscriptions.opml` next to the documents | `false` |
+| `:extra-documents-fn` | A function of the state that gives other documents to write next to the documents, as a map of name to body | none |
 | `:app` | The name of the app, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
-| `:document` | The name of the shared document | `"podcast.edn"` |
-| `:crdt` | The functions of another CRDT than the profile, as [below](#the-result-of-sync) | those of the profile |
+| `:document` | The name of the shared document | `podcast` and the extension of the codec |
+
+A backend also takes the options of the state, which `sync!` and the
+functions of the documents take too:
+
+| Option | Meaning | Default |
+|---|---|---|
+| `:schema` | The schema of a state of mind-meld, whose functions merge it | none |
+| `:crdt` | The functions of another CRDT, as [below](#the-result-of-sync), over those of a `:schema` | those of the profile |
+| `:version` | The version of the state's format | `sync/version` |
+| `:kind` | What state the documents hold, e.g. `"my-app/notes"` | none |
+| `:codec` | How a document is encoded, a map of its `:extension`, `:encode` and `:decode` | `sync/edn-codec` |
 
 With either strategy, a retired device writes nothing, and the report has
-`:sync/retired-device`.
+`:sync/retired-device`. An extra document is written when it changes, and
+its name can't end in the extension of the codec, since it would be read
+as a device's document.
 
 
 ## The per-device strategy
 
-Each device writes only its own document, `<device-id>.edn`. A step of
-`sync!` with this strategy does the following:
+Each device writes only its own document, `<device-id>.edn`, or with the
+extension of another codec. A step of `sync!` with this strategy does the
+following:
 
 1. List the store, and fetch every document whose version differs from the
-   one in the cursor, all at once. Only names that end in `.edn` are sync
-   documents, and a document without a version in the listing is always
-   fetched.
+   one in the cursor, all at once. Only names that end in the extension of
+   the codec are sync documents, and a document without a version in the
+   listing is always fetched.
 2. Read each document, and report any that doesn't read.
 3. Merge the states into the local state.
 4. If the merged state differs from what this device wrote last, put the
    document of this device. It needs no precondition, since no other device
    writes it.
-5. With `:opml?`, put `subscriptions.opml` if the subscription list changed.
-   The list is what `profile/to-opml` gives: the shows with their folders and
-   tags, and the followed lists.
+5. Put each extra document that changed. With `:opml?`, one of them is
+   `subscriptions.opml`, what `profile/to-opml` gives: the shows with their
+   folders and tags, and the followed lists.
 6. Delete the documents of retired devices.
 
 If the document of this device changed since the last step, another
@@ -124,12 +138,11 @@ All devices write one document, `podcast.edn` by default. A step of
    `:if-version` set to the version in the cursor.
 4. If the store refuses the put, fetch, merge and put again. After three
    retries, stop and report `:sync/conflict`.
-5. Unless step 4 stopped, put `subscriptions.opml` with `:opml?` if the
-   subscription list changed.
+5. Unless step 4 stopped, put each extra document that changed.
 
 If the document is gone from the store, the next push writes it again. A
-document in a newer format is left alone, since this device can't read all
-of it and a put would lose data.
+document in a newer format, or of another kind, is left alone, since this
+device can't read all of it and a put would lose data.
 
 
 ## The result of `sync!`
@@ -162,21 +175,23 @@ profile, and with the `:at`, `:clock` and `:failures` that
   the clock by default, `:cursors`, those of the last step, and
   `:compact`, which is `false` to keep every tombstone, or the options of
   `profile/compact`.
-- To sync another CRDT than the profile, give `:crdt` to `sync!` and to
-  `sync/backend`, a map of its `:merge`, `:compact` and `:problem`
-  functions, as `sync/default-crdt` holds those of the profile. Then
-  `:opml?` makes no sense.
+- To sync another state than the profile, give the same options of the
+  state to `sync!` and to `sync/backend`. For a state of mind-meld, its
+  `:schema` is enough. For another CRDT, `:crdt` is a map of its
+  `:merge`, `:compact` and `:problem` functions, as `sync/default-crdt`
+  holds those of the profile. Then `:opml?` makes no sense.
 
 
 ## The sync document
 
-A sync document is an EDN map:
+A sync document is an EDN map, unless the options give another codec:
 
 ```clojure
-{:version    1                     ; the version of the format
+{:version    1                     ; the version of the state's format
  :device     "8f1c9e2a-…"          ; the id of the device that wrote it
  :written-at #inst "2026-09-26T…"  ; when, by the clock of that device
  :app        "my-app"              ; the app that wrote it, optional
+ :kind       "my-app/notes"        ; the kind of state, optional
  :state      {…}}                  ; the whole profile of that device
 ```
 
@@ -188,6 +203,9 @@ A sync document is an EDN map:
   not for new keys.
 - A reader leaves out a document with a newer version, and reports
   `:sync/newer-format`.
+- A reader with a `:kind` leaves out a document of another kind, and
+  reports `:sync/other-kind`. A document without a kind is read by any
+  reader, and a reader without one reads any document.
 - A document takes a few hundred bytes per subscription, and about two
   hundred bytes per episode entry.
 

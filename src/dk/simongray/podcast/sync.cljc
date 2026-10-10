@@ -15,8 +15,17 @@
   :report, and a :state when it learned more while writing. Both take the
   instant of the sync and never read a clock.
 
-  The state is the profile, unless the :crdt of the options names the
-  functions of another CRDT."
+  The state is the profile, unless the options of the state say otherwise.
+  Give the same ones to a backend, to sync! and to the functions of the
+  documents:
+
+  - :schema, the schema of a state of mind-meld, whose functions merge it
+  - :crdt, the :merge, :compact and :problem functions of another CRDT, as
+    default-crdt has them, which go over those of a :schema
+  - :version, the version of the state's format, version by default
+  - :kind, what state the documents hold, e.g. \"my-app/notes\", so that a
+    document of another kind is left out
+  - :codec, how a document is encoded, edn-codec by default"
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -27,14 +36,14 @@
             [dk.simongray.wary-fetch.async :as async]))
 
 (def version
-  "The version of the document format, which changes only when the meaning
-  of a key changes, since a reader merges the keys it doesn't know by their
-  shape."
+  "The version of the profile's format that a document records. It changes
+  only when the meaning of a key changes, since a reader merges the keys
+  it doesn't know by their shape."
   1)
 
 (def default-crdt
   "The functions of the CRDT that a sync merges when its options give no
-  :crdt, those of the profile:
+  :schema or :crdt, those of the profile:
 
   - :merge, of two states
   - :compact, of a state at an instant with options, which drops the
@@ -45,46 +54,79 @@
    :compact profile/compact
    :problem profile/problem})
 
+(defn- schema-crdt
+  "The functions of the CRDT of mind-meld for the states of `schema`."
+  [schema]
+  {:merge   #(crdt/merge schema %1 %2)
+   :compact #(crdt/compact schema %1 %2 %3)
+   :problem #(crdt/problem schema %)})
+
 (defn- crdt-of
-  "The functions of the CRDT of `opts`, over those of the profile."
-  [opts]
-  (merge default-crdt (:crdt opts)))
+  "The functions of the CRDT of `opts`: those of their :crdt, over those of
+  their :schema, over those of the profile."
+  [{:keys [schema crdt] :as opts}]
+  (merge default-crdt (some-> schema schema-crdt) crdt))
+
+(def edn-codec
+  "The codec of documents in EDN, the default. A codec is a map of the
+  :extension of the names of the documents, and the functions that
+  :encode an envelope as the body of a document and :decode it.
+
+  An app that keeps values of its own in its state, e.g. with tagged
+  literals, gives a codec of its own."
+  {:extension ".edn"
+   :encode    (fn [envelope]
+                (binding [*print-length* nil
+                          *print-level*  nil]
+                  (pr-str envelope)))
+   :decode    (fn [s]
+                (when (string? s)
+                  (edn/read-string s)))})
 
 (defn document
-  "The document of `state` written at `at` with `opts`, as an EDN string.
+  "The document of `state` written at `at` with the options of the state
+  `opts`, encoded by their codec.
 
-  It's an envelope with the format version, the device, the state, and
-  the :app of `opts`, if any."
+  It's an envelope with the version of the state's format, the device,
+  the state, and the :app and :kind of `opts`, if any."
   ([state at]
    (document state at {}))
-  ([state at {:keys [app] :as opts}]
+  ([state at {:keys [app kind codec] :or {codec edn-codec} :as opts}]
    {:pre [(map? opts)]}
-   (let [envelope (cond-> {:version    version
+   (let [envelope (cond-> {:version    (:version opts version)
                            :device     (:device state)
                            :written-at (time/date at)
                            :state      state}
-                    app (assoc :app app))]
-     (binding [*print-length* nil
-               *print-level*  nil]
-       (pr-str envelope)))))
+                    app  (assoc :app app)
+                    kind (assoc :kind kind))]
+     ((:encode codec) envelope))))
+
+(defn- same-kind?
+  "Whether the `envelope` holds the kind of state of the options `opts`,
+  which it does unless both name a :kind and the kinds differ."
+  [envelope opts]
+  (or (nil? (:kind envelope))
+      (nil? (:kind opts))
+      (= (:kind envelope) (:kind opts))))
 
 (defn read-document
-  "The envelope in the EDN string `s`, a map of :version, :device,
-  :written-at, :app and :state, read with the :crdt of `opts`.
+  "The envelope in the document `s`, a map of :version, :device,
+  :written-at, :app, :kind and :state, decoded with the options of the
+  state `opts`.
 
-  It throws ::malformed when `s` isn't an envelope, or when it's of this
-  format version and the :problem of the CRDT finds a problem in its
+  It throws ::malformed when `s` isn't an envelope. It throws so too for an
+  envelope of the kind of state of `opts`, in their version of the format
+  or an older one, when the :problem of their CRDT finds a problem in its
   state."
   ([s]
    (read-document s {}))
-  ([s opts]
+  ([s {:keys [codec] :or {codec edn-codec} :as opts}]
    (let [envelope (try
-                    (when (string? s)
-                      (edn/read-string s))
+                    ((:decode codec) s)
                     ;; Throwable on the JVM for the StackOverflowError that
                     ;; deeply nested EDN brings about
                     (catch #?(:clj Throwable :cljs :default) e
-                      (throw (ex-info "The document is not EDN"
+                      (throw (ex-info "The document does not decode"
                                       {:type ::malformed}
                                       e))))]
      (when-not (and (map? envelope)
@@ -92,7 +134,8 @@
                     (map? (:state envelope)))
        (throw (ex-info "The document is not a sync document"
                        {:type ::malformed})))
-     (when-let [problem (and (<= (:version envelope) version)
+     (when-let [problem (and (same-kind? envelope opts)
+                             (<= (:version envelope) (:version opts version))
                              ((:problem (crdt-of opts)) (:state envelope)))]
        (throw (ex-info (str "The document holds a state that can't be "
                             "merged: " problem)
@@ -126,7 +169,13 @@
                    :name  name
                    :error (:error envelope)})
 
-      (> (:version envelope) version)
+      (not (same-kind? envelope opts))
+      (report acc {:id    :sync/other-kind
+                   :level :warning
+                   :name  name
+                   :kind  (:kind envelope)})
+
+      (> (:version envelope) (:version opts version))
       (report acc {:id      :sync/newer-format
                    :level   :warning
                    :name    name
@@ -142,15 +191,17 @@
                  :seconds (quot ahead 1000)})))))
 
 (defn read-documents
-  "The states in the documents `fetched`, read at `at` with the :crdt of
-  `opts`, as a map of :states and a :report.
+  "The states in the documents `fetched`, read at `at` with the options of
+  the state `opts`, as a map of :states and a :report.
 
   Each document is a map of :name and :body. The report has a diagnostic
   for each of these:
 
   - :sync/unreadable-document, a body that doesn't read
-  - :sync/newer-format, a document from a newer version of the library,
-    which is left out
+  - :sync/other-kind, a document of another kind of state, which is left
+    out
+  - :sync/newer-format, a document in a newer version of the state's
+    format, which is left out
   - :sync/clock-skew, a device whose clock is ahead of this one"
   ([fetched at]
    (read-documents fetched at {}))
@@ -158,7 +209,7 @@
    (reduce #(read-one %1 %2 at opts) {:states [] :report []} fetched)))
 
 (defn- with-states
-  "The `state` with the `states` merged in by the :merge of the :crdt of
+  "The `state` with the `states` merged in by the :merge of the CRDT of
   `opts`."
   [state states opts]
   (reduce (:merge (crdt-of opts)) state states))
@@ -179,12 +230,9 @@
 
   The documents are maps of :name and :body. What they tell is
   acknowledged in the device registry, and the tombstones that every
-  device has seen are compacted away. The `opts` are:
-
-  - :compact, false to keep the tombstones, or else the options of the
-    compact function of the CRDT
-  - :crdt, the functions of another CRDT than the profile, as
-    default-crdt has them"
+  device has seen are compacted away. The `opts` are the options of the
+  state, and :compact, false to keep the tombstones, or else the options
+  of the compact function of the CRDT."
   ([state fetched at]
    (reconcile state fetched at {}))
   ([state fetched at opts]
@@ -198,43 +246,52 @@
   (diagnostics/describe (assoc diagnostic :level :warning)))
 
 (defn document-name
-  "The name of the document that the device `device` writes."
-  [device]
-  (str device ".edn"))
+  "The name of the document that the device `device` writes, with the
+  extension of the codec of the options of the state `opts`."
+  ([device]
+   (document-name device {}))
+  ([device {:keys [codec] :or {codec edn-codec} :as opts}]
+   (str device (:extension codec))))
 
 (defn device-document
-  "The document that the device of `state` writes at `at`, with the :app of
-  `opts`, as a map of its :name and :body."
+  "The document that the device of `state` writes at `at`, with the options
+  of the state `opts` and their :app, as a map of its :name and :body."
   ([state at]
    (device-document state at {}))
   ([state at opts]
-   {:name (document-name (:device state))
-    :body (document state at (select-keys opts [:app]))}))
+   (let [opts (select-keys opts [:app :kind :version :codec])]
+     {:name (document-name (:device state) opts)
+      :body (document state at opts)})))
 
 (def opml-name
   "The name of the subscription list that a backend with :opml? writes
   beside the documents, for any podcast app to import."
   "subscriptions.opml")
 
+(defn- device-document?
+  "Whether the listed document `doc` is one that a device writes, by the
+  extension of the codec of the options of the state `opts`."
+  [doc {:keys [codec] :or {codec edn-codec} :as opts}]
+  (str/ends-with? (:name doc) (:extension codec)))
+
 (defn- pull-documents
   "The per-device pull from `store` for `state` at `at`: the documents that
-  changed since `cursor`, fetched at once and read with the :crdt of
-  `opts`.
+  changed since `cursor`, fetched at once and read with the options of the
+  state `opts`.
 
-  The documents are the .edn files of the listing, and one without a
-  version there is always fetched. The report notes when this device's own
-  document changed under it, and when the document is gone from the store,
-  the push writes it again."
+  The documents are those of the listing with the extension of the codec,
+  and one without a version there is always fetched. The report notes
+  when this device's own document changed under it, and when the
+  document is gone from the store, the push writes it again."
   [{:keys [list fetch] :as store} opts state {:keys [versions] :as cursor} at]
   (async/then
    (list)
    (fn [listing]
-     (let [own       (document-name (:device state))
+     (let [own       (document-name (:device state) opts)
            own?      #(= own (:name %))
-           edn?      #(str/ends-with? (:name %) ".edn")
            seen?     #(and (some? (:version %))
                            (= (:version %) (get versions (:name %))))
-           documents (filter edn? listing)
+           documents (filter #(device-document? % opts) listing)
            stale     (remove seen? documents)
            known?    (contains? versions own)
            gone?     (and known?
@@ -266,33 +323,56 @@
              :report (cond-> report
                        changed? (conj (describe shared)))})))))))
 
-(defn- mirror-opml
-  "Put the subscription list of `state` beside the documents of `store`,
-  when `opts` ask for it and the list changed since `cursor`.
+(defn- extra-documents
+  "The documents that the options `opts` of a backend ask it to write
+  beside those of the devices, for `state`, as a map of name to body.
 
-  The list has the shows with their folders and tags, and the lists that
-  the listener follows. Returns the cursor, which remembers the list last
-  mirrored."
-  [{:keys [put] :as store} {:keys [opml?] :as opts} state cursor]
-  (let [list    (when opml? (profile/to-opml state))
-        written (hash list)]
-    (if (and opml? (not= written (:opml cursor)))
-      (async/then (put opml-name (opml/emit list) {})
-                  (fn [_] (assoc cursor :opml written)))
-      cursor)))
+  They're those of the :extra-documents-fn of `opts`, and with :opml?, the
+  subscription list of the profile, which has the shows with their
+  folders and tags, and the lists that the listener follows."
+  [state {:keys [extra-documents-fn opml? codec] :or {codec edn-codec}
+          :as   opts}]
+  (let [documents (merge (when opml?
+                           {opml-name (opml/emit (profile/to-opml state))})
+                         (when extra-documents-fn
+                           (extra-documents-fn state)))]
+    (when-let [name (some #(when (str/ends-with? % (:extension codec)) %)
+                          (keys documents))]
+      (throw (ex-info (str "An extra document can't have the extension of "
+                           "the documents of the devices: " name)
+                      {:name name})))
+    documents))
+
+(defn- put-extras
+  "Put the extra documents that `opts` ask for beside the documents of
+  `store`, for `state`, each when it changed since `cursor`. Returns the
+  cursor, which remembers a hash of each document last put."
+  [{:keys [put] :as store} opts state cursor]
+  (let [changed (for [[name body] (extra-documents state opts)
+                      :when (not= (hash body) (get-in cursor [:extras name]))]
+                  [name body])
+        put!    (fn [cursor [name body]]
+                  (async/then cursor
+                              (fn [c]
+                                (async/then (put name body {})
+                                            (fn [_]
+                                              (assoc-in c [:extras name]
+                                                        (hash body)))))))]
+    (reduce put! cursor changed)))
 
 (defn- push-document
-  "The per-device push of `state` to `store` at `at`, with the :app of
-  `opts` and `cursor`.
+  "The per-device push of `state` to `store` at `at`, with the options of
+  the state `opts` and their :app, and `cursor`.
 
   It writes this device's document when the state changed since the
   cursor, and deletes the documents of retired devices."
   [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
   (let [own      (device-document state at opts)
         written  (hash state)
-        listed?  #(contains? versions (document-name %))
+        named    #(document-name % opts)
+        listed?  #(contains? versions (named %))
         retired  (filter listed? (keys (:retired state)))
-        delete!  #(delete (document-name %))]
+        delete!  #(delete (named %))]
     (async/then
      (when (not= written (:hash cursor))
        (put (:name own) (:body own) {}))
@@ -301,19 +381,30 @@
         (when delete
           (async/all delete! retired))
         (fn [_]
-          (let [left (reduce dissoc versions (map document-name retired))]
+          (let [left (reduce dissoc versions (map named retired))]
             {:cursor (cond-> (assoc cursor :hash written :versions left)
                        result
                        (assoc-in [:versions (:name own)]
                                  (:version result)))})))))))
 
+(defn- hands-off
+  "The marks for the cursor of a shared document whose reading gave
+  `report`, when this device must leave the document alone: :newer? for
+  one of a newer format, and :other-kind? for one of another kind of
+  state. Writing over either would lose what this device can't read."
+  [report]
+  (let [ids (set (map :id report))]
+    (cond-> {}
+      (ids :sync/newer-format) (assoc :newer? true)
+      (ids :sync/other-kind)   (assoc :other-kind? true))))
+
 (defn- pull-shared
   "The shared pull from `store`: the document `name`, read at `at` with the
-  :crdt of `opts`, when its version isn't the one in `cursor`.
+  options of the state `opts`, when its version isn't the one in `cursor`.
 
   When the document is gone from the store, the push writes it again. A
-  document of a newer format is marked in the cursor, so that the push
-  leaves it alone."
+  document that this device must leave alone is marked in the cursor, so
+  that the push doesn't write it."
   [{:keys [fetch] :as store} name opts {:keys [version] :as cursor} at]
   (async/then (fetch name {})
               (fn [doc]
@@ -327,27 +418,26 @@
                   {:states [] :cursor cursor :report []}
 
                   :else
-                  (let [named  [(assoc doc :name name)]
-                        {:keys [states report]} (read-documents named at opts)
-                        newer? (some #(= :sync/newer-format (:id %)) report)]
+                  (let [named [(assoc doc :name name)]
+                        {:keys [states report]} (read-documents named at opts)]
                     {:states states
-                     :cursor (cond-> (assoc cursor :version (:version doc))
-                               newer?       (assoc :newer? true)
-                               (not newer?) (dissoc :newer?))
+                     :cursor (-> cursor
+                                 (assoc :version (:version doc))
+                                 (dissoc :newer? :other-kind?)
+                                 (merge (hands-off report)))
                      :report report})))))
 
 (defn- push-shared
   "The shared push of `state` to the document `name` in `store` at `at`,
-  with the :app and the :crdt of `opts`, on condition of the version in
-  `cursor`.
+  with the options of the state `opts` and their :app, on condition of the
+  version in `cursor`.
 
   On a conflict, the document is fetched, merged and put again, up to
   three more times. The merged state comes back for the caller. A
-  document of a newer format is left alone, since writing over it would
-  lose what this library can't read."
+  document of a newer format or of another kind is left alone."
   [{:keys [fetch put] :as store} name opts state cursor at]
   (letfn [(put-conditionally [state {:keys [version] :as cursor} attempts]
-            (let [written (document state at (select-keys opts [:app]))]
+            (let [written (document state at opts)]
               (async/then
                (put name written {:if-version version})
                (fn [{:keys [conflict?] :as result}]
@@ -370,34 +460,39 @@
                (let [named  (when doc [(assoc doc :name name)])
                      {:keys [states report]} (read-documents named at opts)
                      merged (with-states state states opts)
-                     newer? (some #(= :sync/newer-format (:id %)) report)
+                     marks  (hands-off report)
                      cursor (assoc cursor :version (:version doc))]
-                 (if newer?
-                   {:cursor (assoc cursor :newer? true) :report report}
+                 (if (seq marks)
+                   {:cursor (merge cursor marks) :report report}
                    (async/then
                     (put-conditionally merged cursor (dec attempts))
                     (fn [retried]
                       (-> retried
                           (assoc :state merged)
                           (update :report #(into (vec report) %))))))))))]
-    (if (or (:newer? cursor) (= (hash state) (:hash cursor)))
+    (if (or (:newer? cursor)
+            (:other-kind? cursor)
+            (= (hash state) (:hash cursor)))
       {:cursor cursor}
       (put-conditionally state cursor 3))))
 
 (defn backend
   "A backend over `store`, a document store of dk.simongray.podcast.store,
-  with the `opts` below:
+  with the options of the state and the other `opts` below:
 
   - :strategy, :per-device for a document per device, or :shared for one
     document for all
   - :direction, :pull to read only, :push to write only, or :both
-  - :opml?, whether to write subscriptions.opml beside the documents
   - :app, the name of the app in the documents written
   - :name, the store's name by default, and distinct for each backend of
     one sync
-  - :document, the name of the shared document, podcast.edn by default
-  - :crdt, the functions of another CRDT than the profile, as
-    default-crdt has them, and then :opml? makes no sense
+  - :document, the name of the shared document, podcast and the extension
+    of the codec by default
+  - :extra-documents-fn, a function of the state that gives documents to
+    write beside those of the devices, as a map of name to body, e.g. for
+    other apps to read
+  - :opml?, whether to write subscriptions.opml beside the documents, for
+    the profile
 
   The :strategy is :per-device when the store has :list, and else
   :shared. With a document per device, every device writes its own,
@@ -405,14 +500,16 @@
   devices write the same document, and a folder that any sync client
   mirrors is a complete backend. One shared document is put on condition
   of the version that was fetched, and merged again on a conflict. The
-  :direction is :both when the store has :put, and else :pull."
+  :direction is :both when the store has :put, and else :pull.
+
+  An extra document is written when it changed, and can't have the
+  extension of the codec, since it would be read as a device's."
   ([store]
    (backend store {}))
-  ([store {:keys [strategy direction document]
-           :or   {document "podcast.edn"}
-           :as   opts}]
+  ([store {:keys [strategy direction codec] :or {codec edn-codec} :as opts}]
    {:pre [(map? opts)]}
-   (let [strategy  (or strategy (if (:list store) :per-device :shared))
+   (let [document  (:document opts (str "podcast" (:extension codec)))
+         strategy  (or strategy (if (:list store) :per-device :shared))
          direction (or direction (if (:put store) :both :pull))
          pull?     (not= :push direction)
          push?     (not= :pull direction)]
@@ -452,7 +549,7 @@
                      pushed
                      (let [latest (:state pushed state)]
                        (async/then
-                        (mirror-opml store opts latest (:cursor pushed))
+                        (put-extras store opts latest (:cursor pushed))
                         #(assoc pushed :cursor %))))))))})))
 
 (def default-cadence
@@ -575,14 +672,13 @@
        :report  [...]}               ; what reading and writing found
 
   In ClojureScript, each function of a backend can return a value or a
-  promise. The `opts` are:
+  promise. The `opts` are the options of the state, whose CRDT merges,
+  and these:
 
   - :at, the instant of the step, the time of the clock by default
   - :cursors, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
     else the options of the compact function of the CRDT
-  - :crdt, the functions of another CRDT than the profile, as
-    default-crdt has them
 
   A backend whose pull fails isn't pushed to and keeps its cursor, and one
   whose push fails keeps the cursor of its pull. The report has a

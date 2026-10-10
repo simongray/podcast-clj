@@ -2,11 +2,14 @@
   "The sync engine: documents in their envelope and what reading them
   reports, the memory store, two devices through a folder of documents and
   through one shared document, and a step through several backends with
-  one failing."
+  one failing. Also the options of a state other than the profile: a
+  schema of mind-meld, its kind, the version of its format, a codec and
+  extra documents."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            #?(:clj [dk.simongray.mind-meld :as crdt])
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
@@ -21,8 +24,8 @@
     (is (= {:version 1 :device "phone" :written-at t2 :app "test" :state s} (sync/read-document doc)))
     (is (= s (:state (sync/read-document (sync/document s t2)))))
     (testing "what is not a document"
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"EDN" (sync/read-document "{:version 1 :state")))
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"EDN" (sync/read-document (apply str (repeat 100000 "["))))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"decode" (sync/read-document "{:version 1 :state")))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"decode" (sync/read-document (apply str (repeat 100000 "["))))
           "not even when the reader runs out of stack")
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"sync document" (sync/read-document "[1 2 3]")))
       (is (thrown? #?(:clj Exception :cljs js/Error) (sync/read-document nil))))
@@ -80,6 +83,93 @@
              {:keys [state report]} (sync/sync! {:device "b" :n 2} [(backend)] {:at t2 :crdt counter})]
          (is (= [] report))
          (is (= 7 (:n state)) "through the documents of a store")))))
+
+(def notes
+  "The schema of a state of mind-meld that holds notes by id."
+  {:notes {:depth 1 :compact? true}})
+
+(defn- note
+  "The `state` with the note `id` of `text` written at `at`."
+  [state id text at]
+  (crdt/write state [:notes id] (constantly {:text text}) at))
+
+(deftest a-schema-of-mind-meld
+  (let [opts    {:schema notes}
+        fetched [{:name "phone.edn" :body (sync/document (note {:device "phone"} "milk" "Buy milk" t2) t2)}
+                 {:name "laptop.edn" :body (sync/document (note {:device "laptop"} "bread" "Buy bread" t3) t3)}]
+        {:keys [state report]} (sync/reconcile {:device "tablet"} fetched t3 opts)]
+    (is (= [] report))
+    (is (= #{"milk" "bread"} (set (keys (:notes state)))) "merged by mind-meld with the schema")
+    (testing "and its problems found by mind-meld"
+      (let [broken [{:name "car.edn" :body (sync/document {:device "car" :notes {"x" {:text "No stamp"}}} t2)}]]
+        (is (= [:sync/unreadable-document]
+               (map :id (:report (sync/reconcile {:device "tablet"} broken t3 opts)))))))))
+
+(deftest kinds-of-state
+  (let [opts    {:schema notes :kind "test/notes"}
+        doc     #(sync/document (note {:device %1} %1 "A note" t2) t2 %2)
+        fetched [{:name "a.edn" :body (doc "a" opts)}
+                 {:name "b.edn" :body (doc "b" {})}
+                 {:name "c.edn" :body (doc "c" (assoc opts :kind "test/other"))}]]
+    (is (= "test/notes" (:kind (sync/read-document (:body (first fetched)) opts))))
+    (let [{:keys [state report]} (sync/reconcile {:device "me"} fetched t2 opts)]
+      (is (= #{"a" "b"} (set (keys (:notes state)))) "a document without a kind is read by any device")
+      (is (= [[:sync/other-kind "c.edn" "test/other"]] (map (juxt :id :name :kind) report)))
+      (is (every? :message report)))
+    (is (= 3 (count (:states (sync/read-documents fetched t2 {:schema notes}))))
+        "a device that names no kind reads every kind")
+    #?(:clj
+       (testing "a shared document of another kind is left as it is"
+         (let [documents (atom {})
+               s         (dissoc (store/memory documents) :list)
+               theirs    (doc "c" (assoc opts :kind "test/other"))
+               _         ((:put s) "notes.edn" theirs {})
+               backend   #(sync/backend s (assoc opts :document "notes.edn"))
+               r         (sync/sync! (note {:device "me"} "x" "Mine" t2) [(backend)] (assoc opts :at t2))]
+           (is (= [:sync/other-kind] (map :id (:report r))))
+           (is (= theirs (:body (@documents "notes.edn"))))
+           (sync/sync! (:state r) [(backend)] (assoc opts :at t3 :cursors (:cursors r)))
+           (is (= theirs (:body (@documents "notes.edn"))) "the next step too"))))))
+
+(deftest versions-of-a-state
+  (let [doc     #(sync/document (note {:device %1} %1 "A note" t2) t2 {:version %2})
+        fetched [{:name "one.edn" :body (doc "one" 1)}
+                 {:name "two.edn" :body (doc "two" 2)}
+                 {:name "three.edn" :body (doc "three" 3)}]]
+    (is (= 2 (:version (sync/read-document (:body (second fetched))))))
+    (is (= [:sync/newer-format :sync/newer-format]
+           (map :id (:report (sync/read-documents fetched t2 {:schema notes}))))
+        "the default is version 1")
+    (let [{:keys [states report]} (sync/read-documents fetched t2 {:schema notes :version 2})]
+      (is (= ["one" "two"] (map :device states)) "a document of an older version is read")
+      (is (= [[:sync/newer-format "three.edn" 3]] (map (juxt :id :name :version) report))))))
+
+(def tagged-codec
+  "A codec that writes documents with the extension .notes, as EDN after a
+  line that names the format."
+  {:extension ".notes"
+   :encode    #(str "notes 1\n" (pr-str %))
+   :decode    #(edn/read-string (second (str/split % #"\n" 2)))})
+
+(deftest codecs
+  (let [opts {:schema notes :codec tagged-codec}
+        doc  (sync/document (note {:device "phone"} "milk" "Buy milk" t2) t2 opts)]
+    (is (str/starts-with? doc "notes 1\n{:version 1"))
+    (is (= "phone" (:device (sync/read-document doc opts))))
+    (is (= "phone.notes" (sync/document-name "phone" opts)))
+    (is (= "phone.notes" (:name (sync/device-document {:device "phone"} t2 opts))))
+    #?(:clj
+       (let [documents (atom {})
+             backend   #(sync/backend (store/memory documents) opts)
+             _         ((:put (store/memory documents)) "laptop.edn" (sync/document {:device "laptop"} t2) {})
+             phone     (sync/sync! (note {:device "phone"} "milk" "Buy milk" t2) [(backend)] (assoc opts :at t2))
+             laptop    (sync/sync! (note {:device "laptop"} "bread" "Buy bread" t3) [(backend)] (assoc opts :at t3))]
+         (is (= [] (:report phone)) "a document with another extension isn't a device's")
+         (is (= #{"laptop.edn" "phone.notes" "laptop.notes"} (set (keys @documents))))
+         (is (= #{"milk" "bread"} (set (keys (:notes (:state laptop))))))
+         (let [shared (atom {})]
+           (sync/sync! {:device "car"} [(sync/backend (dissoc (store/memory shared) :list) opts)] (assoc opts :at t3))
+           (is (= ["podcast.notes"] (keys @shared)) "the shared document takes the extension too"))))))
 
 (deftest the-memory-store
   (let [{:keys [fetch put list delete]} (store/memory)]
@@ -291,6 +381,23 @@
            "written when the folders, the tags or the lists change, and not for a position")
        (is (re-find #"<outline text=\"News\">\s*<outline[^>]*category=\"Daily\"" (:body (mirror))))
        (is (str/includes? (:body (mirror)) "type=\"include\"")))))
+
+#?(:clj
+   (deftest extra-documents
+     (let [documents (atom {})
+           summary   (fn [state] {"summary.txt" (str (count (:notes state)) " notes")})
+           opts      {:schema notes :extra-documents-fn summary}
+           backend   (sync/backend (store/memory documents) opts)
+           began     (sync/sync! (note {:device "phone"} "a" "A" t2) [backend] (assoc opts :at t2))
+           same      (sync/sync! (:state began) [backend] (assoc opts :at t3 :cursors (:cursors began)))
+           more      (sync/sync! (note (:state same) "b" "B" t3) [backend] (assoc opts :at t3 :cursors (:cursors same)))]
+       (is (= [nil nil nil] (map failed [began same more])))
+       (is (= "2 notes" (:body (@documents "summary.txt"))))
+       (is (= "2" (:version (@documents "summary.txt"))) "written again only when it changed")
+       (testing "with the extension of the documents of the devices"
+         (let [clash (sync/backend (store/memory) {:schema notes :extra-documents-fn (constantly {"all.edn" "{}"})})]
+           (is (str/includes? (str (failed (sync/sync! {:device "x"} [clash] {:schema notes :at t2})))
+                              "extension")))))))
 
 #?(:clj
    (deftest retiring-and-sharing-a-device

@@ -459,9 +459,13 @@
     {:id :sync/unreadable-document :level :warning
      :doc "A document in the store didn't read as a sync document, and was left
            out until its device writes one that reads."}
+    {:id :sync/other-kind :level :warning
+     :doc "A document holds another kind of state than the one this device
+           syncs, e.g. that of another app pointed at the same folder, and was
+           left out."}
     {:id :sync/newer-format :level :warning
-     :doc "A document was written by a newer version of podcast-clj than this
-           one reads, and was left out."}
+     :doc "A document was written in a newer version of the state's format than
+           this device reads, and was left out."}
     {:id :sync/malformed-state :level :error
      :doc "The profile of this device holds a value that the other devices can't
            merge, e.g. from an assoc, so the step wrote nothing. The :error says
