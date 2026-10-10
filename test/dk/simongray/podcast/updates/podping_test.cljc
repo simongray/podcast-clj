@@ -275,11 +275,14 @@
 #?(:cljs
    (deftest the-global-fetch-by-default
      (let [original (.-fetch js/globalThis)
+           node?    http/node?
            sent     (atom [])
            answers  {"https://api.hive.blog"        502
                      "https://api.deathwing.me"     :hang
                      "https://api.openhive.network" (chain 110255080)}]
        (run (fn []
+              ;; the global fetch, which sends outside Node
+              (set! http/node? false)
               (set! (.-fetch js/globalThis) (fetch-answering sent answers))
               (-> (podping/call! :head-block {} {:timeout-seconds 0.1})
                   (.then (fn [body]
@@ -288,4 +291,6 @@
                                     [[a "POST"] [b "POST"] [b :aborted] [c "POST"]])
                                   @sent)
                                "through http/send! and js/fetch, past a node that takes too long")))
-                  (.finally #(set! (.-fetch js/globalThis) original))))))))
+                  (.finally (fn []
+                              (set! (.-fetch js/globalThis) original)
+                              (set! http/node? node?)))))))))

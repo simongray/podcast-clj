@@ -196,7 +196,7 @@
 (defn signature
   "The signature of the bytes `body` with the text `secret`, by the hash
   algorithm `method` of signature-methods, or nil for any other method.
-  The secret can be a hidden text of dk.simongray.podcast.util.secret.
+  The secret can be a hidden text of dk.simongray.wary-fetch.secret.
 
   It's the HMAC of the body in hexadecimal, after the method and an
   equals sign, such as sha256=1f3a…. Section 7.1 of WebSub defines it as

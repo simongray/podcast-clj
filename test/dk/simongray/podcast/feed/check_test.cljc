@@ -10,6 +10,7 @@
             [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be with-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
+            #?(:cljs [dk.simongray.wary-fetch :as http])
             [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.security MessageDigest])))
 
@@ -402,6 +403,7 @@
    (deftest checking-a-feed-with-fetch
      (async done
        (let [real      (.-fetch js/globalThis)
+             node?     http/node?
              responses {"https://a/t.vtt" #(js/Response. "WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n"
                                                          #js {:status 200 :headers #js {"content-type" "text/vtt"}})
                         "https://a/c.json" #(js/Response. "{\"version\":\"1.2.0\",\"chapters\":[{\"startTime\":0}]}"
@@ -409,7 +411,8 @@
                                                                                          "access-control-allow-origin" "*"}})}
              feed      {:rss/items [{:podcast/transcripts [{:url "https://a/t.vtt" :type "text/vtt"}]
                                      :podcast/chapters    {:url "https://a/c.json" :type "application/json+chapters"}}]}]
-         ;; the global fetch, as http/send! finds it
+         ;; the global fetch, which sends outside Node
+         (set! http/node? false)
          (set! (.-fetch js/globalThis) (fn [url _] (js/Promise.resolve ((responses url)))))
          (-> (check/check-files! feed {:read? true})
              (.then (fn [{:keys [files report]}]
@@ -419,4 +422,5 @@
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []
                          (set! (.-fetch js/globalThis) real)
+                         (set! http/node? node?)
                          (done))))))))

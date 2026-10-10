@@ -233,14 +233,14 @@ that fetch a feed or the files it links to have no guard by default,
 because the app chose the feed. A server that fetches feeds for other people gives them
 `{:allow-pred url/public?}`.
 
-On the JVM, `public?` resolves the name and checks every address, and
-`http/send!` checks each redirect too. It follows redirects itself, because
-the JDK client sends the `Authorization` header on to other hosts. A browser
-can't resolve names and follows redirects without telling, so there
-`public?` only refuses the addresses and local names that a URL contains. A
-request from a browser comes from the user's own device anyway, but a Node
-server that fetches untrusted URLs should give these functions its own
-`:send`.
+On the JVM and in Node, `public?` checks every address that the name
+resolves to, and `http/send!` checks each redirect too. It follows
+redirects itself, because the JDK client sends the `Authorization` header
+on to other hosts. In Node, the request then connects only to the
+addresses that were checked. A browser can't resolve names and follows
+redirects without telling, so there `public?` only refuses the addresses
+and local names that a URL contains. A request from a browser comes from
+the user's own device anyway.
 
 ### Untrusted XML
 

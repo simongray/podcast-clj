@@ -79,7 +79,7 @@
   The owner of the other secret key gets the same key with the public key
   of this one. The key is for each payload between the two, so an app
   computes it once. It's as secret as the secret key, so it's a hidden
-  text of dk.simongray.podcast.util.secret.
+  text of dk.simongray.wary-fetch.secret.
 
   The section Encryption of NIP-44 defines it: the x coordinate of the
   point that the two keys share on secp256k1, extracted by HKDF with the

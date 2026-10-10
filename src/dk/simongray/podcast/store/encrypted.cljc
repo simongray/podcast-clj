@@ -49,7 +49,7 @@
 (defn- derive-key
   "The AES key for `passphrase` with `salt` over `iterations`. The
   passphrase is a string, or a hidden text of
-  dk.simongray.podcast.util.secret."
+  dk.simongray.wary-fetch.secret."
   [passphrase salt iterations]
   (aes-gcm/derive-key (secret/reveal passphrase) salt iterations))
 
@@ -162,7 +162,7 @@
 
   The `passphrase` is a string or a function of no arguments that returns
   one. The string can be a hidden text of
-  dk.simongray.podcast.util.secret. The `opts` are:
+  dk.simongray.wary-fetch.secret. The `opts` are:
 
   - :iterations, the PBKDF2 iterations of the key, default-iterations by
     default

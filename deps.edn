@@ -15,7 +15,7 @@
          org.clojure/data.json    {:mvn/version "2.5.2"}
          dk.simongray/wary-fetch
          {:git/url "https://github.com/simongray/wary-fetch"
-          :git/sha "19accb9fa2e7b9e985489a0f14e68eefa77e960e"}
+          :git/sha "6f0610349ae41c8387e260804b45aa3f8628d5f1"}
          dk.simongray/qname-hiccup
          {:git/url "https://github.com/simongray/qname-hiccup"
           :git/sha "bdca8a9bf320f174a43fad0b0a52459e9d806adc"}

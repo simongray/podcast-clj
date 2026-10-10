@@ -4,7 +4,7 @@
 
   Each key, message and signature is hexadecimal text, which is how Nostr
   writes them. A secret key can be a hidden text of
-  dk.simongray.podcast.util.secret. A verification reads no secret key,
+  dk.simongray.wary-fetch.secret. A verification reads no secret key,
   so the time that it takes tells nothing that's secret, but the time of
   anything that reads a secret key depends on it.
 
@@ -416,7 +416,7 @@
   is, without a hash.
 
   The result is as secret as the secret key, so it's a hidden text of
-  dk.simongray.podcast.util.secret. The time that this takes depends on
+  dk.simongray.wary-fetch.secret. The time that this takes depends on
   the secret key."
   [secret-key public-key]
   (when-let [d (secret-number secret-key)]

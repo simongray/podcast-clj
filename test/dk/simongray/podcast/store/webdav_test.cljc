@@ -377,7 +377,10 @@
    (deftest the-global-fetch-by-default
      (async done
        (let [documents (atom {})
-             original  (.-fetch js/globalThis)]
+             original  (.-fetch js/globalThis)
+             node?     http/node?]
+         ;; the global fetch, which sends outside Node
+         (set! http/node? false)
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
          (-> (sync/sync! (phone-state) [(sync/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
              (.then (fn [phone]
@@ -386,4 +389,5 @@
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []
                          (set! (.-fetch js/globalThis) original)
+                         (set! http/node? node?)
                          (done))))))))
