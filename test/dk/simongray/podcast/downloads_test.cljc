@@ -7,7 +7,9 @@
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed.guid :as guid]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.queue :as profile.queue]))
 
 (def day (* 24 60 60))
 
@@ -132,12 +134,12 @@
                     (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
                     (crdt/write [:inbox ["feed-a" "a3"]] (constantly {:removed? false}) (at 15)))]
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan state {})))))
-      (is (= [["feed-a" "a3"]] (ids (:download (plan (profile/dismiss state ["feed-a" "a4"] (at 23)) {}))))))
+      (is (= [["feed-a" "a3"]] (ids (:download (plan (profile.queue/dismiss state ["feed-a" "a4"] (at 23)) {}))))))
     (let [state (-> (with-rules subscribed {} {"feed-a" {:download? true :episodes {:limit 1}}})
                     (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
-                    (profile/dismiss ["feed-a" "a4"] (at 23)))]
+                    (profile.queue/dismiss ["feed-a" "a4"] (at 23)))]
       (is (= [] (ids (:download (plan state {})))) "the listener did not want the newest")
-      (is (= [["feed-a" "a4"]] (ids (:download (plan (profile/enqueue state ["feed-a" "a4"] (at 24)) {}))))
+      (is (= [["feed-a" "a4"]] (ids (:download (plan (profile.queue/enqueue state ["feed-a" "a4"] (at 24)) {}))))
           "and then put it in the queue")))
   (testing "a show in the listening order, for a show that a listener hears from the start"
     (let [serial (assoc show :itunes/type "serial")
@@ -152,9 +154,9 @@
 
 (deftest the-front-of-the-queue
   (let [state (-> (with-rules subscribed {:queue 2} {})
-                  (profile/enqueue ["feed-b" "b1"] (at 11))
-                  (profile/enqueue ["feed-a" "a1"] (at 12))
-                  (profile/enqueue ["feed-a" "a2"] (at 13)))]
+                  (profile.queue/enqueue ["feed-b" "b1"] (at 11))
+                  (profile.queue/enqueue ["feed-a" "a1"] (at 12))
+                  (profile.queue/enqueue ["feed-a" "a2"] (at 13)))]
     (is (= [{:id ["feed-b" "b1"] :url "https://example.org/b1.mp3" :type "audio/mpeg" :bytes 1000 :reason :queue}
             {:id ["feed-a" "a1"] :url "https://example.org/a1.mp3" :type "audio/mpeg" :bytes 100 :reason :queue}]
            (:download (plan state {}))))
@@ -199,8 +201,8 @@
             "without the feed of the show, nothing tells what the rule selects")))
     (testing "the files that stay"
       (let [state (-> (with-rules heard {:default {:played 0 :inactive 0 :trim? true :episodes {:limit 0}}} {})
-                      (profile/star ["feed-a" "a1"] (at 21))
-                      (profile/enqueue ["feed-a" "a4"] (at 24)))
+                      (profile.marks/star ["feed-a" "a1"] (at 21))
+                      (profile.queue/enqueue ["feed-a" "a4"] (at 24)))
             rules (downloads/rules state)
             keep  #(assoc-in rules [:default :keep] %)]
         (is (= [["feed-a" "a2"]] (ids (:delete (plan state files)))) "an episode with a star, and one in the queue")
@@ -209,7 +211,7 @@
         (is (= [["feed-a" "a1"] ["feed-a" "a4"]]
                (ids (:delete (plan state files {:rules (keep #{:in-progress})})))))
         (is (= [["feed-a" "a2"] ["feed-a" "a4"]]
-               (ids (:delete (plan (profile/add-to-playlist state "Trip" ["feed-a" "a1"] (at 25))
+               (ids (:delete (plan (profile.queue/add-to-playlist state "Trip" ["feed-a" "a1"] (at 25))
                                    files
                                    {:rules (keep #{:playlists})})))))
         (is (= [["feed-a" "a4"]]
@@ -268,7 +270,7 @@
              (parts {:rules (rules {:max-bytes 1500 :make-room? true})}))
           "no file goes for a download that has no room after that")
       (is (= [[["feed-a" "a2"] :room nil]]
-             (:delete (update-vals (plan (profile/star state ["feed-a" "a1"] (at 6)) files
+             (:delete (update-vals (plan (profile.marks/star state ["feed-a" "a1"] (at 6)) files
                                          {:rules (rules {:max-episodes 3 :make-room? true})})
                                    #(mapv (juxt :id :reason :limit) %))))
           "a file that the rule keeps makes no room"))
@@ -397,7 +399,7 @@
 
 (deftest the-same-plan-for-the-same-input
   (let [state (-> (with-rules subscribed {:default {:download? true :played 0} :queue 1 :max-episodes 5} {})
-                  (profile/enqueue ["feed-b" "b1"] (at 11))
+                  (profile.queue/enqueue ["feed-b" "b1"] (at 11))
                   (profile/mark-played ["feed-a" "a1"] (at 5)))
         files {["feed-a" "a1"] {:bytes 100 :at (at 2)}}]
     (is (= (plan state files)

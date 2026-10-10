@@ -8,7 +8,9 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.queue :as profile.queue]))
 
 (defn- in?
   [expected actual]
@@ -162,16 +164,20 @@
    :starred?    (fn [v ctx]
                   (fn [feed item]
                     (let [id (episode-id ctx feed item)]
-                      (= (boolean v) (profile/starred? (:profile ctx) id)))))
+                      (= (boolean v)
+                         (profile.marks/starred? (:profile ctx) id)))))
    :inbox?      (fn [v ctx]
                   (fn [feed item]
                     (let [id (episode-id ctx feed item)]
-                      (= (boolean v) (profile/in-inbox? (:profile ctx) id)))))
+                      (= (boolean v)
+                         (profile.queue/in-inbox? (:profile ctx) id)))))
    :rating      (fn [v ctx]
                   (let [opts (select-keys ctx [:scale])]
                     (fn [feed item]
                       (let [id (episode-id ctx feed item)]
-                        (within? v (profile/rating (:profile ctx) id opts))))))
+                        (within? v (profile.marks/rating (:profile ctx)
+                                                         id
+                                                         opts))))))
    :since-subscription?
    (fn [v ctx]
      (fn [feed item]
@@ -368,7 +374,7 @@
       (not (or (nil? limit) (number? limit)))
       (str "the limit is " (pr-str limit) ", not a number")
 
-      (not (or (nil? scale) (profile/scale? scale)))
+      (not (or (nil? scale) (profile.marks/scale? scale)))
       (str "the scale is " (pr-str scale) ", not a scale of ratings"))))
 
 #?(:clj

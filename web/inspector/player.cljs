@@ -19,6 +19,7 @@
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
@@ -207,7 +208,7 @@
   []
   (let [{:keys [library titles]} @app
         profile (:profile library)]
-    (doseq [[_ item-guid :as id] (profile/queue profile)
+    (doseq [[_ item-guid :as id] (profile.queue/queue profile)
             :let  [url (feed-url-of profile id)]
             :when (and url
                        (not (contains? titles id))
@@ -405,8 +406,8 @@
     :skip          (let [[id amount] args] (skip! id amount))
     :ended         (dispatch! event)
     :sleep         (swap! app update :library timed (first args))
-    :play-next     (operate! profile/play-next (first args))
-    :dequeue       (operate! profile/dequeue (first args))
+    :play-next     (operate! profile.queue/play-next (first args))
+    :dequeue       (operate! profile.queue/dequeue (first args))
     :prefer        (when-let [n (parse-long (.. e -target -value))]
                      (operate! profile/prefer {(first args) n}))
     :sync          (sync!)
@@ -440,8 +441,8 @@
   (operate! profile/add-remote-item id {:feed-url url})
   (case mode
     "now"  (play! id)
-    "next" (operate! profile/play-next id)
-    (operate! profile/enqueue id)))
+    "next" (operate! profile.queue/play-next id)
+    (operate! profile.queue/enqueue id)))
 
 (defn- add-from-query!
   []

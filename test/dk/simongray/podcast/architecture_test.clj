@@ -33,7 +33,8 @@
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
    "value" 3 "value.bolt11" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3
    "value.payment" 3 "value.webln" 3
-   "profile" 3 "criteria" 3 "downloads" 3
+   "profile" 3 "profile.queue" 3 "profile.marks" 3 "profile.opml" 3
+   "profile.player" 3 "criteria" 3 "downloads" 3
    "sync" 3 "sync.gpodder" 3 "sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "updates.podping" 3

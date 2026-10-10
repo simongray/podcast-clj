@@ -25,7 +25,7 @@ subscribe to a show:
 (require '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.profile :as profile]
+         '[dk.simongray.podcast.profile.queue :as profile.queue]
          '[dk.simongray.podcast.sync :as sync])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
@@ -104,7 +104,9 @@ element. Send each of its events to `step`, which returns the library
 with the effects to apply under `:effects`:
 
 ```clojure
-(-> (swap! lib library/update-profile profile/enqueue id) :profile profile/queue)
+(-> (swap! lib library/update-profile profile.queue/enqueue id)
+    :profile
+    profile.queue/queue)
 ;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]]
 
 (:effects (swap! lib library/step [:progress id 754 (:duration page)]))  ; => []

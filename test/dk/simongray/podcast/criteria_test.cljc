@@ -4,7 +4,8 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.criteria :as criteria]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]))
 
 (def t0 #inst "2026-03-01T00:00:00Z")
 (def t1 #inst "2026-03-02T00:00:00Z")
@@ -81,7 +82,7 @@
       ":status without a profile is a mistake, not an empty list")
   (testing "the stars and the inbox of the profile, and a saved filter"
     (let [marked (-> listened
-                     (profile/star ["feed-guid" "b"] t1)
+                     (profile.marks/star ["feed-guid" "b"] t1)
                      (crdt/write [:inbox ["feed-guid" "t"]] (constantly {:removed? false}) t1)
                      (profile/save-filter "Starred" {:where {:starred? true}} t1))]
       (is (= ["Bonus"] (titles {:where {:starred? true} :profile marked})))
@@ -91,25 +92,25 @@
                             (criteria/where {:inbox? true})))))
   (testing "the ratings of the listener, as a range"
     (let [rated (-> listened
-                    (profile/rate-episode ["feed-guid" "b"] 5 t1)
-                    (profile/rate-episode ["feed-guid" "t"] 2 t1))]
+                    (profile.marks/rate-episode ["feed-guid" "b"] 5 t1)
+                    (profile.marks/rate-episode ["feed-guid" "t"] 2 t1))]
       (is (= ["Bonus"] (titles {:where {:rating [4 nil]} :profile rated})))
       (is (= ["Trailer"] (titles {:where {:rating [nil 3]} :profile rated})))
       (is (= ["Trailer" "Bonus"] (titles {:where {:rating [1 5]} :profile rated}))
           "an episode with no rating is in no range")
       (is (= [] (titles {:where  {:rating [4 nil]}
-                         :profile (profile/unrate-episode rated ["feed-guid" "b"] #inst "2026-03-03T00:00:00Z")})))
+                         :profile (profile.marks/unrate-episode rated ["feed-guid" "b"] #inst "2026-03-03T00:00:00Z")})))
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:rating needs the profile"
                             (criteria/where {:rating [4 nil]})))))
   (testing "ratings in the scale of the app, and a saved filter that keeps its scale"
     (let [hundred {:worst 1 :best 100}
           rated   (-> listened
-                      (profile/rate-episode ["feed-guid" "b"] 90 t1 {:scale hundred})
-                      (profile/rate-episode ["feed-guid" "t"] 4 t1)
+                      (profile.marks/rate-episode ["feed-guid" "b"] 90 t1 {:scale hundred})
+                      (profile.marks/rate-episode ["feed-guid" "t"] 4 t1)
                       (profile/save-filter "Best" {:where {:rating [80 nil]} :scale hundred} t1))]
       (is (= ["Bonus"] (titles {:where {:rating [80 nil]} :scale hundred :profile rated}))
           "a 4 of 1 to 5 is 75.25 of 1 to 100")
-      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :scale profile/rating-scale :profile rated})))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :scale profile.marks/rating-scale :profile rated})))
       (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :profile rated}))
           "without a scale, each rating is the number that the state has")
       (is (= ["Bonus"] (titles (assoc (get (profile/filters rated) "Best") :profile rated))))

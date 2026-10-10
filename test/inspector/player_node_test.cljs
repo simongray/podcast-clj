@@ -8,6 +8,7 @@
             [clojure.test :refer [deftest is testing async]]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player :as shell]))
 
@@ -78,7 +79,7 @@
              (.dispatchEvent input (js/Event. "change" #js {:bubbles true}))
              (is (str/includes? (.-textContent bar) "−20s"))))
          (testing "what another tab saves is merged in"
-           (let [other {:library (update (:library @shell/app) :profile profile/enqueue ["feed" "b"] (js/Date.))
+           (let [other {:library (update (:library @shell/app) :profile profile.queue/enqueue ["feed" "b"] (js/Date.))
                         :titles  {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}}]
              (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                             #js {:key shell/storage-key :newValue (pr-str other)}))
@@ -86,9 +87,9 @@
              (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on")))
          (testing "a click on Play now makes a queued episode the current one"
            (.click (first (filter #(= "Play now" (.-textContent %)) (buttons app))))
-           (is (= ["feed" "b"] (profile/current (get-in @shell/app [:library :profile]))))
+           (is (= ["feed" "b"] (profile.queue/current (get-in @shell/app [:library :profile]))))
            (is (str/includes? (.-textContent bar) "From the other tab"))
-           (is (= [["feed" "b"] ["feed" "a"]] (profile/queue (get-in @shell/app [:library :profile]))) "and the other waits"))
+           (is (= [["feed" "b"] ["feed" "a"]] (profile.queue/queue (get-in @shell/app [:library :profile]))) "and the other waits"))
          (testing "the browser has an id of its own and a name"
            (is (= (get-in @shell/app [:library :device]) (.getItem js/localStorage shell/device-key)))
            (is (string? (get-in @shell/app [:library :profile :devices (.getItem js/localStorage shell/device-key) :name])))))
@@ -101,12 +102,12 @@
   (let [t      #(time/->inst (+ (inst-ms #inst "2026-01-01T00:00:00Z") (* % 24 60 60 1000)))
         a      ["feed" "a"]
         b      ["feed" "b"]
-        page   (fn [device id at] {:library (update (library/make device {:at (t 0)}) :profile profile/enqueue id at) :titles {}})
+        page   (fn [device id at] {:library (update (library/make device {:at (t 0)}) :profile profile.queue/enqueue id at) :titles {}})
         mine   (assoc-in (page "browser" a (t 0)) [:titles a] {:title "A"})
         other  (assoc-in (page "browser" b (t 1)) [:titles b] {:title "B"})]
     (testing "another tab's state joins this one's, titles and all"
       (let [merged (shell/with-other-tab mine other)]
-        (is (= [a b] (profile/queue (get-in merged [:library :profile]))))
+        (is (= [a b] (profile.queue/queue (get-in merged [:library :profile]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
     (testing "and the cursors of the other tab's later sync, so the next step knows what it wrote"
       (let [step   {:at (t 40) :cursors {"inspector" {:versions {"browser.edn" "7"}}} :report []}
@@ -114,7 +115,7 @@
         (is (= step (get-in merged [:library :sync])))))
     (testing "a sync step merges its result into the page's library, and gives the state of the step"
       (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
-        (is (= [a b] (profile/queue (get-in synced [:library :profile]))) "what this tab did meanwhile stays")
+        (is (= [a b] (profile.queue/queue (get-in synced [:library :profile]))) "what this tab did meanwhile stays")
         (is (= {:at (t 40) :report []} (get-in synced [:library :sync])))
         (is (false? (:syncing? synced)))
         (is (= {:at (t 40) :report []} (:synced synced)))))))

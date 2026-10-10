@@ -51,6 +51,9 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.opml :as profile.opml]
+            [dk.simongray.podcast.profile.player :as profile.player]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
@@ -328,7 +331,7 @@
                      etag          (assoc :etag etag)
                      last-modified (assoc :last-modified last-modified))
         was        (get-in library [:fetched-lists url :list])
-        refreshed  #(:profile (profile/refresh-list % url was list at))]
+        refreshed  #(:profile (profile.opml/refresh-list % url was list at))]
     (-> library
         (update :profile refreshed)
         (assoc-in [:fetched-lists url] entry))))
@@ -350,7 +353,7 @@
          details (select-keys opts [:title :folder])
          seconds (:list-seconds (options library opts))]
      (-> library
-         (update :profile profile/follow-list url details at)
+         (update :profile profile.opml/follow-list url details at)
          (listed url list at seconds opts)))))
 
 (defn unfollow-list
@@ -360,7 +363,7 @@
   ([library url opts]
    {:pre [(map? opts)]}
    (-> library
-       (update :profile profile/unfollow-list url (time-of library opts))
+       (update :profile profile.opml/unfollow-list url (time-of library opts))
        (update :fetched-lists dissoc url))))
 
 (defn- fetch-list!
@@ -487,7 +490,8 @@
 
                        old-feed
                        (let [{:keys [profile added]}
-                             (profile/refresh current url old-feed feed at)]
+                             (profile.queue/refresh current url
+                                                    old-feed feed at)]
                          (-> acc
                              (assoc-in [:library :profile] profile)
                              (noted feed-guid)
@@ -700,7 +704,7 @@
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as
-  profile/step takes them.
+  profile.player/step takes them.
 
   It has the new profile, the :effects to apply, and what's left of
   the :sleep timer of this device. The `opts` go over the :sleep of
@@ -712,7 +716,7 @@
    (let [at   (time-of library opts)
          opts (clojure.core/merge (select-keys library [:sleep]) opts)
          {:keys [profile effects sleep]}
-         (profile/step (:profile library) event at opts)]
+         (profile.player/step (:profile library) event at opts)]
      (cond-> (assoc (dissoc library :sleep) :profile profile :effects effects)
        sleep (assoc :sleep sleep)))))
 
@@ -793,7 +797,7 @@
                       (profile/remote-items profile))
         feeds   (merged-entries (:feeds library) (:feeds result) needed)
         lists   (merged-entries (:fetched-lists library) (:fetched-lists result)
-                                (profile/lists profile))
+                                (profile.opml/lists profile))
         same?   #(and (identical? (get-in library [:feeds % :feed])
                                   (get-in feeds [% :feed]))
                       (= (listing (:profile library) %) (listing profile %)))

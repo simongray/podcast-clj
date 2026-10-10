@@ -76,6 +76,14 @@
   "The id of an episode: the first of feed-a."
   ["feed-a" "a1"])
 
+(def b
+  "The id of another episode: the second of feed-a."
+  ["feed-a" "a2"])
+
+(def c
+  "The id of an episode of another show: the first of feed-b."
+  ["feed-b" "b1"])
+
 (defn phone-state
   "The state of a phone that named itself and subscribed to feed-a at `t0`,
   and was 100 seconds into `a` at `t1`."

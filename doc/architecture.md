@@ -10,7 +10,7 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  criteria  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.repair  feed.quirks
   0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics
@@ -498,8 +498,12 @@ the schema of its collections. The sync and the stores are its companion,
 [like-minded](https://github.com/simongray/like-minded), spun out too, to
 which `sync` gives the profile as the state.
 
-`step` takes the events of a player (`:progress`, `:ended`, `:play`,
-`:skip` and `:chapter`) and returns the new state with effects for the app,
+The parts of the profile have namespaces of their own: `profile.queue`
+for the queue, the inbox and the playlists, `profile.marks` for stars,
+bookmarks, clips and ratings, and `profile.opml` for the followed lists
+and OPML. In `profile.player`, `step` takes the events of a player
+(`:progress`, `:ended`, `:play`, `:skip` and `:chapter`) and returns the
+new state with effects for the app,
 such as to seek, stop or play the next episode. It's the only place where
 behaviour is composed, and it's kept short on purpose.
 

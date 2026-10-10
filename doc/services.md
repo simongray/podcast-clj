@@ -38,7 +38,7 @@ are relative to `dk.simongray.podcast`.
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
 | The requirements of a directory for artwork and media files | `feed.check.rules/requirements` | `:requirements`, as a name or a map | none |
-| The folder that an app writes around a whole OPML list | `profile/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
+| The folder that an app writes around a whole OPML list | `profile.opml/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
 There's no default for these, so you give them:
 
@@ -317,9 +317,9 @@ the listener sets a rule.
 
 Some apps write the whole subscription list inside one outline, a wrapper
 rather than a folder of the listener's own. OPML can't tell the two apart,
-so `profile/from-opml` goes by the name: a folder is a wrapper when it holds
-every feed of the list and its name is in `profile/wrappers`, whatever
-its case.
+so `profile.opml/from-opml` goes by the name: a folder is a wrapper when
+it holds every feed of the list and its name is in
+`profile.opml/wrappers`, whatever its case.
 
 | Name | App that writes it | Seen in September 2026 |
 |---|---|---|
@@ -327,7 +327,7 @@ its case.
 | `feeds` | Overcast | [an export file](https://github.com/vinhnx/podcasts/blob/main/overcast.opml) |
 
 A folder with another name stays a folder, so a listener's own folder that
-holds all the shows survives, and an export from `profile/to-opml` comes
+holds all the shows survives, and an export from `profile.opml/to-opml` comes
 back as it went out. For an app that writes another name, give the names
 as `:wrappers`, or `(constantly true)` to treat every folder that holds
 every feed as a wrapper.

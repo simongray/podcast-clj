@@ -29,7 +29,7 @@ profile, `sync/defaults`, under the options of each call:
 
 With `:opml?`, a backend of `sync/backend` also writes the listener's
 subscription list beside the documents as `subscriptions.opml`, for any
-podcast app to import. It holds what `profile/to-opml` gives: the shows
+podcast app to import. It holds what `profile.opml/to-opml` gives: the shows
 with their folders and tags, and the followed lists. It's an extra
 document of like-minded, so it's written when it changes. To leave it
 readable in an encrypted store, give its name, `sync/opml-name`, in the

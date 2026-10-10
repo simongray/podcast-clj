@@ -68,7 +68,11 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, single episodes of other shows, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
+| `profile` | The listener's profile, a CRDT that syncs between their devices: the subscriptions and their settings, the preferences, single episodes of other shows, progress, saved filters, listening counts and devices. Use `merge` to combine two profiles, and `compact` to drop old tombstones. |
+| `profile.queue` | The queue, the inbox and the playlists of the profile, with `to-list-feed` for a playlist as a list feed, and `refresh` for the new episodes of a feed. |
+| `profile.marks` | The stars, bookmarks, clips and ratings of the profile. |
+| `profile.opml` | The OPML lists that the listener follows, and the subscriptions as OPML with `to-opml` and `from-opml`. |
+| `profile.player` | The events of a player, with `step`, which gives the new profile and the effects for the UI. |
 | `criteria` | Criteria as data that select and order episodes, with `episodes`, for saved filters and download rules. Use `problem` to check criteria from another device. |
 | `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 

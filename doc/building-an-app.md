@@ -38,23 +38,24 @@ library between runs with `library/save!` and `library/restore!`, as
 [Keep the library between runs](#keep-the-library-between-runs) shows.
 
 The parts of the library work with the namespaces they come from, e.g.
-every function of `profile` takes `(:profile @lib)`. The profile is a
-CRDT, so that devices can merge their changes in any order, and where two
-changed the same thing, the later change wins. Change it only with the
-functions of `profile`, e.g.
-`(swap! lib library/update-profile profile/enqueue id)`, and never with
-`assoc` or `dissoc`.
+every function of `profile`, and of its parts such as `profile.queue`,
+takes `(:profile @lib)`. The profile is a CRDT, so that devices can merge
+their changes in any order, and where two changed the same thing, the
+later change wins. Change it only with these functions, e.g.
+`(swap! lib library/update-profile profile.queue/enqueue id)`, and never
+with `assoc` or `dissoc`.
 
 Each change is stamped with its time, which the functions of
 `app.library` read from the clock, the setting `:now-fn`, so a test can fix
 it. For an event that you handle later, e.g. in a background task, give
 the time it happened as the option `:at`. Since `update-profile` takes no
 options, call the function of `profile` with that time instead, e.g.
-`(swap! lib update :profile profile/enqueue id at)`.
+`(swap! lib update :profile profile.queue/enqueue id at)`.
 
 The examples call each namespace by the last part of its name, e.g.
 `library` for `dk.simongray.podcast.app.library`, or by a longer name
-where that part would be unclear, e.g. `feed.guid` or `nostr-comments`.
+where that part would be unclear, e.g. `feed.guid`, `profile.queue` or
+`nostr-comments`.
 [The last section](#the-namespaces-of-the-examples) requires them all.
 The examples run on the JVM, except those for a browser, and in
 ClojureScript the functions that send requests return promises.
@@ -358,7 +359,7 @@ The `:etag` makes the next fetch of the list conditional. After that,
 stays a subscription, since the listener may still like it. A show that
 the listener unsubscribed from doesn't come back, and a show is
 recognised by its feed URL, so it isn't added twice. In the OPML from
-`profile/to-opml`, the followed lists are includes.
+`profile.opml/to-opml`, the followed lists are includes.
 
 
 ## Keep the library between runs
@@ -533,7 +534,7 @@ element. Send each event of the media element to `library/step`, and do
 the effects it returns:
 
 ```clojure
-(swap! lib library/update-profile profile/enqueue id)
+(swap! lib library/update-profile profile.queue/enqueue id)
 
 (:effects (swap! lib library/step [:progress id 1234 3600]))  ; => []
 (:effects (swap! lib library/step [:skip id :forward]))
@@ -574,7 +575,7 @@ from a search or a link, add it to the library first:
 (let [fetched (podcast/fetch! url)
       id      [(feed.guid/feed-guid (:feed fetched) url) item-guid]]
   (swap! lib #(-> (library/add-episode % url fetched item-guid)
-                  (library/update-profile profile/enqueue id))))
+                  (library/update-profile profile.queue/enqueue id))))
 ```
 
 The profile keeps the episode as a remote item with the URL of its feed,
@@ -795,11 +796,11 @@ and it syncs like the rest:
          (-> profile
              (profile/configure guid {:folder "News" :inbox? true} at)
              (profile/tag guid "Daily" at)
-             (profile/star id at)
-             (profile/bookmark id 754 "The interview starts" at)
-             (profile/rate-episode id 5 at)
-             (profile/clip id 754 42.5 "The best answer" at)
-             (profile/add-to-playlist "Road trip" id at)
+             (profile.marks/star id at)
+             (profile.marks/bookmark id 754 "The interview starts" at)
+             (profile.marks/rate-episode id 5 at)
+             (profile.marks/clip id 754 42.5 "The best answer" at)
+             (profile.queue/add-to-playlist "Road trip" id at)
              (profile/save-filter "Starred"
                                   {:where {:starred? true :status :unplayed}
                                    :order :newest}
@@ -807,17 +808,18 @@ and it syncs like the rest:
 ```
 
 Each has a function to read it back, such as `profile/folders`,
-`profile/tagged`, `profile/inbox`, `profile/starred`, `profile/bookmarks`,
-`profile/clips` and `profile/playlist`.
+`profile/tagged`, `profile.queue/inbox`, `profile.marks/starred`,
+`profile.marks/bookmarks`, `profile.marks/clips` and
+`profile.queue/playlist`.
 
 - A show is in one folder at most, but it can have many tags. Both go into
-  OPML with `profile/to-opml`, and `profile/from-opml` reads them back,
-  including the OPML of other apps.
+  OPML with `profile.opml/to-opml`, and `profile.opml/from-opml` reads
+  them back, including the OPML of other apps.
 - Ratings are from 1 to 5 by default, and `:scale` takes another one, such
   as `{:worst 0 :best 1}` for thumbs. Each rating keeps its scale, so
-  `profile/rating` can give it in yours.
+  `profile.marks/rating` can give it in yours.
 - A playlist can be written as a list feed of the podcast namespace with
-  `profile/to-list-feed`, so other Podcasting 2.0 apps can play it.
+  `profile.queue/to-list-feed`, so other Podcasting 2.0 apps can play it.
 - The seconds heard of each show by month are in `profile/listened`, for
   statistics. Report the position at least every 30 seconds while an
   episode plays, or it isn't counted.
@@ -1362,6 +1364,9 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.opml :as profile.opml]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]

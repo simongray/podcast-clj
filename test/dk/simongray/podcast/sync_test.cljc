@@ -8,6 +8,7 @@
             [dk.simongray.like-minded.document :as document]
             #?(:clj [dk.simongray.like-minded.store :as store])
             [dk.simongray.podcast.profile :as profile]
+            #?(:clj [dk.simongray.podcast.profile.opml :as profile.opml])
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [t2 a phone-state laptop-state
                                                        #?@(:clj [t3 t4 failed])]]))
@@ -76,7 +77,7 @@
                                (profile/configure "feed-a" {:folder "News"} t3)
                                (profile/tag "feed-a" "Daily" t3))
                            t3)
-           followed  (step sorted (profile/follow-list (:state sorted) "https://l.example/picks.opml" {:title "Picks"} t4) t4)]
+           followed  (step sorted (profile.opml/follow-list (:state sorted) "https://l.example/picks.opml" {:title "Picks"} t4) t4)]
        (is (= [nil nil nil nil] (map failed [began heard sorted followed])))
        (is (= ["1" "1" "2" "3"] (map :mirror [began heard sorted followed]))
            "written when the folders, the tags or the lists change, and not for a position")

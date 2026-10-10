@@ -5,6 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [inspector.player.view :as view]))
 
 (def t0 #inst "2026-01-01T00:00:00Z")
@@ -17,8 +18,8 @@
 
 (def state
   {:profile (-> (profile/make "browser")
-                (profile/enqueue a t0)
-                (profile/enqueue b t0)
+                (profile.queue/enqueue a t0)
+                (profile.queue/enqueue b t0)
                 (profile/progress a 120 3600 t0))
    :titles  titles})
 

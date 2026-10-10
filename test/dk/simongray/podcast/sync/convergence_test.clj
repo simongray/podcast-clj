@@ -8,6 +8,10 @@
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.opml :as profile.opml]
+            [dk.simongray.podcast.profile.player :as profile.player]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]))
 
 (def devices
@@ -67,7 +71,7 @@
   [state feed-guid published at]
   (let [item  {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
         after {:podcast/guid feed-guid :rss/items [item]}]
-    (:profile (profile/refresh state (str "https://" feed-guid "/rss") {:podcast/guid feed-guid :rss/items []} after at))))
+    (:profile (profile.queue/refresh state (str "https://" feed-guid "/rss") {:podcast/guid feed-guid :rss/items []} after at))))
 
 (defn- apply-operation
   [state [kind x y z]]
@@ -75,30 +79,30 @@
     :subscribe            (profile/subscribe state x {:url (str "https://" x "/rss") :title x} y)
     :unsubscribe          (profile/unsubscribe state x y)
     :progress             (profile/progress state x y 3600 z)
-    :enqueue              (profile/enqueue state x y)
-    :play-next            (profile/play-next state x y)
-    :dequeue              (profile/dequeue state x y)
-    :advance              (profile/advance state x)
+    :enqueue              (profile.queue/enqueue state x y)
+    :play-next            (profile.queue/play-next state x y)
+    :dequeue              (profile.queue/dequeue state x y)
+    :advance              (profile.queue/advance state x)
     :prefer               (profile/prefer state {:skip-forward x} y)
     :configure            (profile/configure state x {:skip-intro y} z)
     :identify             (crdt/identify state {:name x} y)
-    :star                 (profile/star state x y)
-    :unstar               (profile/unstar state x y)
-    :bookmark             (profile/bookmark state x y "A bookmark" z)
-    :unbookmark           (profile/unbookmark state x y z)
+    :star                 (profile.marks/star state x y)
+    :unstar               (profile.marks/unstar state x y)
+    :bookmark             (profile.marks/bookmark state x y "A bookmark" z)
+    :unbookmark           (profile.marks/unbookmark state x y z)
     :arrive               (crdt/write state [:inbox x] (constantly {:removed? false}) y)
-    :dismiss              (profile/dismiss state x y)
+    :dismiss              (profile.queue/dismiss state x y)
     :folder               (profile/configure state x {:folder y} z)
     :tag                  (profile/tag state x y z)
     :untag                (profile/untag state x y z)
-    :follow-list          (profile/follow-list state x {:title x :folder y} z)
-    :unfollow-list        (profile/unfollow-list state x y)
+    :follow-list          (profile.opml/follow-list state x {:title x :folder y} z)
+    :unfollow-list        (profile.opml/unfollow-list state x y)
     :save-filter          (profile/save-filter state x {:where {:starred? true}} y)
     :remove-filter        (profile/remove-filter state x y)
-    :add-to-playlist      (profile/add-to-playlist state x y z)
-    :remove-from-playlist (profile/remove-from-playlist state x y z)
-    :rename-playlist      (profile/rename-playlist state "P" x y)
-    :listen               (:profile (profile/step state [:progress x y 3600] z))
+    :add-to-playlist      (profile.queue/add-to-playlist state x y z)
+    :remove-from-playlist (profile.queue/remove-from-playlist state x y z)
+    :rename-playlist      (profile.queue/rename-playlist state "P" x y)
+    :listen               (:profile (profile.player/step state [:progress x y 3600] z))
     :subscribe-with       (-> (profile/subscribe state x {:url (str "https://" x "/rss") :title x} z)
                               (profile/configure x {y true} z))
     :refresh              (refreshed state x y z)
@@ -146,17 +150,17 @@
   counts of listening and the preferences."
   [state]
   {:subscriptions (profile/subscriptions state)
-   :lists         (profile/lists state)
-   :playlists     (profile/playlists state)
+   :lists         (profile.opml/lists state)
+   :playlists     (profile.queue/playlists state)
    :listened      (profile/listened state)
    :settings      (:settings state)
    :folders       (profile/folders state)
    :tagged        (profile/tagged state)
-   :queue         (profile/queue state)
-   :inbox         (profile/inbox state)
+   :queue         (profile.queue/queue state)
+   :inbox         (profile.queue/inbox state)
    :episodes      (profile/episode-entries state)
-   :starred       (profile/starred state)
-   :bookmarks     (profile/bookmarks state)
+   :starred       (profile.marks/starred state)
+   :bookmarks     (profile.marks/bookmarks state)
    :filters       (profile/filters state)
    :preferences   (profile/preferences state)})
 
@@ -166,7 +170,7 @@
   only for a listener who follows none."
   [state]
   (let [flat (cond-> [:lists :queue :queue-moves :inbox :stars :filters]
-               (empty? (profile/lists state)) (conj :subscriptions))]
+               (empty? (profile.opml/lists state)) (conj :subscriptions))]
     (count (filter :removed? (concat (mapcat (comp vals state) flat)
                                      (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists :playlist-moves])))))))
 

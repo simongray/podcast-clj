@@ -23,6 +23,7 @@
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn item-href
@@ -54,7 +55,7 @@
   An episode that came through a sync from a device that told no data of
   it has nothing to play. The bar tells so, and the listener removes it."
   [{:keys [profile readout sleep] :as state}]
-  (when-let [id (profile/current profile)]
+  (when-let [id (profile.queue/current profile)]
     (let [{:keys [enclosure video?] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (profile/preferences profile)
           position (profile/resume-position profile (first id) id)]
@@ -92,11 +93,11 @@
 
 (defn- up-next
   [{:keys [profile] :as state}]
-  (let [queue (rest (profile/queue profile))]
+  (let [queue (rest (profile.queue/queue profile))]
     [:section
      [:h2 "Up next"]
      (if (empty? queue)
-       [:p.muted (if (profile/current profile)
+       [:p.muted (if (profile.queue/current profile)
                    "Nothing after this one. Open an item and add it."
                    "Nothing queued. Open an item and add it.")]
        [:ol
@@ -129,7 +130,7 @@
          (episode-link state id)
          [:span.muted (str " · " where)]
          (when (and (episode-of state id)
-                    (not= id (profile/current profile)))
+                    (not= id (profile.queue/current profile)))
            (list " " [:button {:on {:click [:play id]}} "Play now"]))])])])
 
 (defn- preferences
@@ -241,7 +242,7 @@
                   "Replicant renders it, the audio element in the bar "
                   "reports to it, and its effects drive the audio.")]
    (when error [:p.error error])
-   (when-let [id (profile/current profile)]
+   (when-let [id (profile.queue/current profile)]
      [:p "Now playing: " (episode-link state id)])
    (up-next state)
    (history state)

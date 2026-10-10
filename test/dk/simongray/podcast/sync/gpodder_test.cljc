@@ -12,6 +12,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as server]
@@ -410,7 +411,7 @@
 (deftest the-time-of-an-action
   (let [id     [g-a "a1"]
         ;; a device with a fast clock, which moves the clock of the phone ahead
-        fast   (profile/star (profile/make "laptop") [g-a "a9"] t4)
+        fast   (profile.marks/star (profile/make "laptop") [g-a "a9"] t4)
         s      (-> (profile/merge (phone) fast) (profile/progress id 120 3600 t1))
         action #(gpodder/entry-action id % "https://a.example/rss" "https://a.example/1.mp3" "phone")
         told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (profile/episode-entry state id))))]

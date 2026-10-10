@@ -12,7 +12,8 @@
   (:require [dk.simongray.like-minded :as like-minded]
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.podcast.format.opml :as opml]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.opml :as profile.opml]))
 
 (def version
   "The version of the profile's format that a document records. It changes
@@ -58,7 +59,7 @@
   [{:keys [extra-documents-fn] :as opts}]
   (assoc opts :extra-documents-fn
          (fn [state]
-           (merge {opml-name (opml/emit (profile/to-opml state))}
+           (merge {opml-name (opml/emit (profile.opml/to-opml state))}
                   (when extra-documents-fn
                     (extra-documents-fn state))))))
 

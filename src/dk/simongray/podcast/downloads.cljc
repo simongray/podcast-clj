@@ -16,7 +16,9 @@
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.queue :as profile.queue]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:
@@ -200,9 +202,9 @@
                    (and (not played?)
                         (number? position)
                         (pos? position)))]
-    {:starred     (set (profile/starred profile))
-     :queued      (set (profile/queue profile))
-     :playlists   (into #{} cat (vals (profile/playlists profile)))
+    {:starred     (set (profile.marks/starred profile))
+     :queued      (set (profile.queue/queue profile))
+     :playlists   (into #{} cat (vals (profile.queue/playlists profile)))
      :in-progress (into #{}
                         (comp (filter started?) (map first))
                         (profile/episode-entries profile))}))
@@ -345,7 +347,7 @@
   without queueing it."
   [profile id]
   (boolean (and (:removed? (get-in profile [:inbox id]))
-                (not (profile/queued? profile id)))))
+                (not (profile.queue/queued? profile id)))))
 
 (defn- wanted?
   "Whether to download the episode `id`, by the profile and files of `ctx`.
@@ -387,8 +389,8 @@
   `queue` value asks for: all, a number of them, or none."
   [profile queue]
   (cond
-    (true? queue)   (profile/queue profile)
-    (number? queue) (vec (take queue (profile/queue profile)))
+    (true? queue)   (profile.queue/queue profile)
+    (number? queue) (vec (take queue (profile.queue/queue profile)))
     :else           []))
 
 (defn- downloads
