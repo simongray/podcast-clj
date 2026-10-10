@@ -14,11 +14,11 @@
   in IndexedDB for the next visit."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
+            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.store.file :as file]
-            [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]

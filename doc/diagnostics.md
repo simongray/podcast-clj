@@ -21,7 +21,7 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `id3`, `mp3`, `mp4` and `file`: the media files and the images
 - `validate`: the validator
 - `check`: the checks over the network
-- `sync`: the sync between devices
+- `sync`: the sync between devices, through like-minded
 - `gpodder`: a sync through the gpodder API
 - `library`: a saved library
 - `podping`: a poll of the Hive chain
@@ -164,15 +164,6 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
 | `:validate/required` | error | A required element of the chosen requirements is missing. |
 | `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. |
-| `:sync/backend-failed` | warning | A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why. |
-| `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |
-| `:sync/other-kind` | warning | A document holds another kind of state than the one this device syncs, e.g. that of another app pointed at the same folder, and was left out. |
-| `:sync/newer-format` | warning | A document was written in a newer version of the state's format than this device reads, and was left out. |
-| `:sync/malformed-state` | error | The profile of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where. |
-| `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. When every other device is named, the clock of this device is probably behind. |
-| `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
-| `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so make a new library with a new device id to sync again. |
-| `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |
 | `:gpodder/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
 | `:gpodder/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |
 | `:gpodder/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
@@ -230,3 +221,12 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/not-a-node` | warning | The recipient isn't a node with a public key, or the payment has no amount, so keysend can't pay it and nothing was sent. Pay a Lightning address with an invoice. |
 | `:analytics/unreadable-pattern` | warning | A pattern in the list of user agents doesn't compile on this platform, so its entry was left out. |
 | `:analytics/unreachable` | warning | OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before it, and its continuation token names that page. |
+| `:sync/backend-failed` | warning | A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why. |
+| `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |
+| `:sync/other-kind` | warning | A document holds another kind of state than the one this device syncs, e.g. that of another app pointed at the same folder, and was left out. |
+| `:sync/newer-format` | warning | A document was written in a newer version of the state's format than this device reads, and was left out. |
+| `:sync/malformed-state` | error | The state of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where. |
+| `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. When every other device is named, the clock of this device is probably behind. |
+| `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
+| `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so give the state a new device id to sync again. |
+| `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |

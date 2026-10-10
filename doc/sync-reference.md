@@ -5,6 +5,11 @@ This page has the contracts and the formats of the sync between devices.
 app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls,
 and [Syncing](sync.md) explains the design.
 
+The engine and the stores are those of
+[like-minded](https://github.com/simongray/like-minded), and the `sync`
+namespace gives its functions the profile as the state. The namespaces of
+the stores below are under `dk.simongray.like-minded`.
+
 
 ## The store contract
 
@@ -81,18 +86,18 @@ The options of `sync/backend`:
 | `:extra-documents-fn` | A function of the state that gives other documents to write next to the documents, as a map of name to body | none |
 | `:app` | The name of the app, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
-| `:document` | The name of the shared document | `podcast` and the extension of the codec |
+| `:document` | The name of the shared document | `"podcast.edn"` |
 
 A backend also takes the options of the state, which `sync!` and the
-functions of the documents take too:
+functions of the documents take too. `sync/defaults` holds those of the
+profile:
 
 | Option | Meaning | Default |
 |---|---|---|
-| `:schema` | The schema of a state of mind-meld, whose functions merge it | none |
-| `:crdt` | The functions of another CRDT, as [below](#the-result-of-sync), over those of a `:schema` | those of the profile |
+| `:crdt` | The `:merge`, `:compact` and `:problem` functions of the state | `sync/default-crdt`, those of the profile |
 | `:version` | The version of the state's format | `sync/version` |
-| `:kind` | What state the documents hold, e.g. `"my-app/notes"` | none |
-| `:codec` | How a document is encoded, a map of its `:extension`, `:encode` and `:decode` | `sync/edn-codec` |
+| `:kind` | What state the documents hold | `sync/kind`, `"podcast-clj/profile"` |
+| `:codec` | How a document is encoded, a map of its `:extension`, `:encode` and `:decode` | like-minded's `document/edn-codec` |
 
 With either strategy, a retired device writes nothing, and the report has
 `:sync/retired-device`. An extra document is written when it changes, and
@@ -175,11 +180,8 @@ profile, and with the `:at`, `:clock` and `:failures` that
   the clock by default, `:cursors`, those of the last step, and
   `:compact`, which is `false` to keep every tombstone, or the options of
   `profile/compact`.
-- To sync another state than the profile, give the same options of the
-  state to `sync!` and to `sync/backend`. For a state of mind-meld, its
-  `:schema` is enough. For another CRDT, `:crdt` is a map of its
-  `:merge`, `:compact` and `:problem` functions, as `sync/default-crdt`
-  holds those of the profile. Then `:opml?` makes no sense.
+- To sync another state than the profile, call like-minded itself with
+  the options of that state, since `sync` gives each call the profile's.
 
 
 ## The sync document
@@ -191,7 +193,7 @@ A sync document is an EDN map, unless the options give another codec:
  :device     "8f1c9e2a-…"          ; the id of the device that wrote it
  :written-at #inst "2026-09-26T…"  ; when, by the clock of that device
  :app        "my-app"              ; the app that wrote it, optional
- :kind       "my-app/notes"        ; the kind of state, optional
+ :kind       "podcast-clj/profile" ; the kind of state, optional
  :state      {…}}                  ; the whole profile of that device
 ```
 
@@ -229,13 +231,13 @@ The store of `store.encrypted` wraps each body in this EDN map:
   an envelope, and is reported as a document that doesn't read.
 - A body that isn't an envelope passes through unchanged.
 - If the passphrase doesn't open a document, the call fails with the
-  exception type `:dk.simongray.podcast.store.encrypted/locked`.
+  exception type `:dk.simongray.like-minded.store.encrypted/locked`.
 - If the passphrase is a function, the store asks it again when a cached
   key doesn't open a document, and tries once more, so a corrected
   passphrase is used from the next document on.
 
 
-## The stores of podcast-clj
+## The stores of like-minded
 
 | Store | Namespace | Platform | Version token |
 |---|---|---|---|

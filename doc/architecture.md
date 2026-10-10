@@ -13,7 +13,7 @@ This page explains how each part of podcast-clj is built.
   3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
-  0  primitives   util.*  crypto.*  store  store.*  nostr  feed.guid  diagnostics
+  0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -21,8 +21,8 @@ registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
 The `app` namespaces are the only ones that require the root namespace,
 because they call `fetch!`. The names show two of the layers: `app` holds
-the top layer and nothing else, and `util`, `crypto`, `store` and `nostr`
-are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
+the top layer and nothing else, and `util`, `crypto` and `nostr` are
+primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
 
@@ -493,7 +493,9 @@ profile must only change through the functions of `profile` and
 `dk.simongray.mind-meld`, never with `assoc`. The CRDT itself is
 [mind-meld](https://github.com/simongray/mind-meld), a library that was
 spun out of podcast-clj and knows nothing of podcasts: `profile` gives it
-the schema of its collections.
+the schema of its collections. The sync and the stores are its companion,
+[like-minded](https://github.com/simongray/like-minded), spun out too, to
+which `sync` gives the profile as the state.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
 `:skip` and `:chapter`) and returns the new state with effects for the app,
@@ -562,8 +564,6 @@ a late download.
 | Instants | `java.util.Date` | `js/Date` |
 | Deferred values (`async`) | futures | promises |
 | HTTP (`http`) | `java.net.http` | `fetch` |
-| Folders (`store.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
-| Encryption (`crypto.aes-gcm`) | `javax.crypto` | WebCrypto |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`
 or js-joda, so they give the same result everywhere. The JavaScript XML
@@ -621,9 +621,9 @@ Java 11 with Clojure 1.11, the oldest versions podcast-clj supports.
 ## Not built yet
 
 - The Open Podcast API, whose spec for episodes is still a draft.
-- Stores over the HTTP APIs of cloud services. Each would be a short
-  namespace against the store contract.
-- A JSON form of the sync documents, for clients in other languages.
+- Stores over the HTTP APIs of cloud services, and a JSON form of the sync
+  documents for clients in other languages, both of which belong in
+  like-minded.
 - A lenient XML parser for JavaScript.
 - The extensions of Nostr Wallet Connect other than keysend: notifications,
   hold invoices, payment history and BOLT 12 offers.

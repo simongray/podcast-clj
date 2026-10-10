@@ -5,9 +5,9 @@
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
+            [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]))
 
 (def devices

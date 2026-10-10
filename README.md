@@ -144,16 +144,17 @@ An app in a few lines
 ---------------------
 
 You can create a full-featured podcast app with the `app.*` namespaces, and
-sync the listener's devices through `sync.*` and `store.*`, e.g. a folder,
+sync the listener's devices through `sync.*` and the stores of
+[like-minded](https://github.com/simongray/like-minded), e.g. a folder,
 WebDAV or the gpodder API. Subscribing, playing, refreshing, searching,
 saving, and syncing are each one function call.
 A call that changes the library returns a new version, and playing, refreshing
 and syncing also record what they did in it:
 
 ```clojure
-(require '[dk.simongray.podcast :as podcast]
+(require '[dk.simongray.like-minded.store.file :as file]
+         '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.store.file :as file]
          '[dk.simongray.podcast.sync :as sync])
 
 ;; make a library for this device, and subscribe to a show
@@ -204,7 +205,7 @@ not with `assoc`. [Syncing](doc/sync.md) explains how the devices merge.
 A podcast app in a browser also needs a server: a proxy for the files that
 other sites don't let a page read, and a folder to sync through. The
 [podcast server](server/README.md) in `server/` is that server for one
-listener. It serves the Ring handlers of wary-fetch's proxy, `store.webdav.server` and
+listener. It serves the Ring handlers of wary-fetch's proxy, like-minded's `store.webdav.server` and
 `sync.gpodder.server`, which you can also mount in a server of your own.
 
 Documentation

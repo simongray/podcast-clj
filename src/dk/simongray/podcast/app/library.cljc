@@ -37,6 +37,7 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
+            [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
@@ -49,7 +50,6 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]

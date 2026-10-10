@@ -23,8 +23,7 @@
    "util.time" 0
    "util.time.rrule" 0
    "util.entities" 0 "util.names" 0
-   "crypto.aes-gcm" 0 "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
-   "store" 0 "store.file" 0 "store.indexeddb" 0 "store.webdav" 0 "store.webdav.server" 0 "store.encrypted" 0
+   "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "feed.spec" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "feed.resolve" 3 "feed.check" 3 "feed.discovery" 3 "feed.publish" 3 "feed.search" 3
@@ -118,8 +117,8 @@
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)
-          :when (re-find #"^(util|crypto|store)\.|^(store|nostr)$" ns)]
-    (is (zero? (get layers ns -1)) (str ns " is under util, crypto or store, or is nostr, so it is a primitive"))))
+          :when (re-find #"^(util|crypto)\.|^nostr$" ns)]
+    (is (zero? (get layers ns -1)) (str ns " is under util or crypto, or is nostr, so it is a primitive"))))
 
 (deftest a-name-shows-the-high-level
   (doseq [ns (keys @graph)]

@@ -16,9 +16,9 @@ Every namespace of podcast-clj is under the root namespace,
   `value.nwc`. Use them when you need one part, or more control than the
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
-- **Not specific to podcasts.** The `util`, `store` and `crypto`
-  namespaces and `nostr` hold general tools, e.g. JSON, dates, stores of
-  documents, and the Nostr protocol and its cryptography.
+- **Not specific to podcasts.** The `util` and `crypto` namespaces and
+  `nostr` hold general tools, e.g. JSON, dates, and the Nostr protocol and
+  its cryptography.
 
 The `app` namespaces are built from all the others, and nothing outside
 `app` requires them, so you can use any other namespace without them.
@@ -75,20 +75,13 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `sync` | Sync between devices: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
+| `sync` | Sync between devices through like-minded, with the profile as the state: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
 | `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
 
-## Stores
-
-| Namespace | Contents |
-|---|---|
-| `store` | The contract of a store of documents, which the sync and a saved library share, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!` for many documents in one call. |
-| `store.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
-| `store.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
-| `store.webdav` | A WebDAV collection as a store. |
-| `store.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
-| `store.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
+The stores that the sync and a saved library share are those of
+[like-minded](https://github.com/simongray/like-minded): a folder, a
+WebDAV collection, IndexedDB, memory, and any of them encrypted.
 
 ## Feeds
 
@@ -185,5 +178,4 @@ option replaces the function that sends.
 | `nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
 | `crypto.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
 | `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
-| `crypto.aes-gcm` | AES-256-GCM under a key that PBKDF2 derives from a passphrase, on both platforms. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |

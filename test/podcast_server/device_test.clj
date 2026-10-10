@@ -4,12 +4,12 @@
   fetches the feed, and the gpodder API names the phone's episode by it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
+            [dk.simongray.like-minded.store.file :as file]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.store.file :as file]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [failed fixture with-temp-dir]]
             [dk.simongray.podcast.util.json :as json]

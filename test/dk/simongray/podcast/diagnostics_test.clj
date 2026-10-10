@@ -5,6 +5,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.like-minded.diagnostics :as sync-diagnostics]
             [dk.simongray.podcast.diagnostics :as diagnostics]))
 
 (def source
@@ -46,8 +47,10 @@
             [(keyword (subs id 1)) (keyword (subs level 1))])))
 
 (deftest the-catalogue-matches-the-source
-  (testing "the same ids"
-    (is (= (ids-in-source) (set (keys diagnostics/by-id)))))
+  (testing "the same ids, and those of like-minded, which the source can match on"
+    (is (= (set (map :id diagnostics/podcast-catalogue))
+           (set (remove (set (map :id sync-diagnostics/catalogue)) (ids-in-source)))))
+    (is (every? diagnostics/by-id (ids-in-source))))
   (testing "the same levels"
     (is (seq (levels-in-source)))
     (doseq [[id level] (levels-in-source)]

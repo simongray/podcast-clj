@@ -17,14 +17,15 @@
   - validate, the validator, whose diagnostics are about the feed rather
     than about reading it
   - check, the checks over the network of what the feed links to
-  - sync, a sync step
+  - sync, a sync step, whose diagnostics are those of like-minded
   - gpodder, a sync through the gpodder API
   - library, a library saved to a store and read back
   - podping, a poll of the Hive chain
   - comments, reading a thread of comments
   - value, the records of payments
   - analytics, the list of user agents"
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [dk.simongray.like-minded.diagnostics :as sync-diagnostics]))
 
 (defn- unwrap
   "The text `s` on one line, without the line breaks and the indentation
@@ -32,8 +33,9 @@
   [s]
   (str/replace s #"\s*\n\s*" " "))
 
-(def catalogue
-  "The diagnostics, in the order they tend to arise."
+(def podcast-catalogue
+  "The diagnostics that podcast-clj raises itself, in the order they tend
+  to arise."
   (mapv
    #(update % :doc unwrap)
    [;; fetching
@@ -452,40 +454,7 @@
     {:id :validate/recommended :level :warning
      :doc "A recommended element of the chosen requirements is missing."}
 
-    ;; syncing: what a step of keeping devices in step found
-    {:id :sync/backend-failed :level :warning
-     :doc "A backend failed in a pull or a push, so the step went on without it,
-           and it keeps its cursor. The :backend names it, and the :reason says
-           why."}
-    {:id :sync/unreadable-document :level :warning
-     :doc "A document in the store didn't read as a sync document, and was left
-           out until its device writes one that reads."}
-    {:id :sync/other-kind :level :warning
-     :doc "A document holds another kind of state than the one this device
-           syncs, e.g. that of another app pointed at the same folder, and was
-           left out."}
-    {:id :sync/newer-format :level :warning
-     :doc "A document was written in a newer version of the state's format than
-           this device reads, and was left out."}
-    {:id :sync/malformed-state :level :error
-     :doc "The profile of this device holds a value that the other devices can't
-           merge, e.g. from an assoc, so the step wrote nothing. The :error says
-           where."}
-    {:id :sync/clock-skew :level :warning
-     :doc "A device wrote its document more than a minute ahead of the clock of
-           this device. When every other device is named, the clock of this
-           device is probably behind."}
-    {:id :sync/shared-device :level :warning
-     :doc "The document of this device changed without this device writing it,
-           so two installations, or two tabs of one page, use the same device
-           id."}
-    {:id :sync/retired-device :level :warning
-     :doc "This device was retired from another device, so nothing was written
-           for it. Its changes no longer reach the other devices, so make a new
-           library with a new device id to sync again."}
-    {:id :sync/conflict :level :warning
-     :doc "The shared document changed during every attempt to write it, so the
-           step ended without writing."}
+    ;; gpodder: what a sync through the gpodder API found
     {:id :gpodder/unknown-episodes :level :info
      :doc "Episode actions from a gpodder server name episodes of feeds that
            aren't fetched yet. They wait in the cursor, and the next pull tries
@@ -697,6 +666,11 @@
      :doc "OP3 gave no page of downloads: the request failed, or OP3 answered
            with an error. The result has the downloads of the pages before it,
            and its continuation token names that page."}]))
+
+(def catalogue
+  "The diagnostics, in the order they tend to arise, and then those of a
+  sync step, from the catalogue of like-minded."
+  (into podcast-catalogue sync-diagnostics/catalogue))
 
 (def by-id
   "The catalogue by id."

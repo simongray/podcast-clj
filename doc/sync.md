@@ -4,6 +4,9 @@ This page explains how a listener's devices stay in step, and why it's
 safe. [Sync reference](sync-reference.md) has the contracts and the
 formats, and [How to build a podcast
 app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
+The engine and the stores are those of
+[like-minded](https://github.com/simongray/like-minded), with the profile
+as the state.
 
 
 ## How devices merge
@@ -86,8 +89,8 @@ value that the merge can't handle, such as a stamp that isn't an instant,
 since the merge would otherwise spread it to every device. When this
 device's own state holds such a value, e.g. after an `assoc`, the step
 writes nothing and reports it, since the other devices would leave out
-the whole document. A document from a newer version of podcast-clj is
-left out too, because this version can't understand all of it.
+the whole document. A document in a newer version of the profile's
+format is left out too, because this version can't understand all of it.
 
 The engine schedules nothing. Call `sync!` when the app starts, when it
 goes to the background, after a series of changes, and when a file watcher
@@ -282,11 +285,11 @@ keep it outside the profile.
 
 ## The stores
 
-[Sync reference](sync-reference.md#the-stores-of-podcast-clj) lists the
-stores that come with podcast-clj: in memory, a folder, a WebDAV
+[Sync reference](sync-reference.md#the-stores-of-like-minded) lists the
+stores that come with like-minded: in memory, a folder, a WebDAV
 collection, IndexedDB, and any of them encrypted. Any place that can hold
 one document per device, or one document with a version, can be a store
-without a change to podcast-clj. A saved library goes into a store too,
+without a change to like-minded. A saved library goes into a store too,
 so an app needs only one kind.
 
 
@@ -373,13 +376,13 @@ OAuth flows are up to you. The engine never sees the credentials, and no
 result, report or store name contains them.
 
 A sync document describes the listening habits of a listener, and the
-provider can read what it stores. The encrypting store, `store.encrypted`,
-wraps any other store, which is what the map-of-functions design was
-chosen for. It uses AES-256-GCM with a key that PBKDF2 derives from a
-passphrase, through `javax.crypto` on the JVM and WebCrypto in
-ClojureScript. Each document carries the salt, the IV and the iteration
-count that sealed it, so there's no key file to lose. Plain documents pass through, so you can
-start encrypting a folder at any time.
+provider can read what it stores. The encrypting store of like-minded,
+`store.encrypted`, wraps any other store, which is what the
+map-of-functions design was chosen for. It uses AES-256-GCM with a key
+that PBKDF2 derives from a passphrase, through `javax.crypto` on the JVM
+and WebCrypto in ClojureScript. Each document carries the salt, the IV and
+the iteration count that sealed it, so there's no key file to lose. Plain
+documents pass through, so you can start encrypting a folder at any time.
 
 
 ## Testing

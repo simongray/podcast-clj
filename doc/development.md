@@ -17,12 +17,12 @@ to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
 To change [wary-fetch](https://github.com/simongray/wary-fetch),
 [qname-hiccup](https://github.com/simongray/qname-hiccup),
 [html-pieces](https://github.com/simongray/html-pieces),
-[drop-in-search](https://github.com/simongray/drop-in-search) or
-[mind-meld](https://github.com/simongray/mind-meld) and podcast-clj at
+[drop-in-search](https://github.com/simongray/drop-in-search),
+[mind-meld](https://github.com/simongray/mind-meld) or
+[like-minded](https://github.com/simongray/like-minded) and podcast-clj at
 once, check them out beside this one, in `../wary-fetch`,
-`../qname-hiccup`, `../html-pieces`, `../drop-in-search` and
-`../mind-meld`, and add the
-`:local` alias, e.g.
+`../qname-hiccup`, `../html-pieces`, `../drop-in-search`, `../mind-meld`
+and `../like-minded`, and add the `:local` alias, e.g.
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
 deps.edn, or its version once it's released on Clojars.
 

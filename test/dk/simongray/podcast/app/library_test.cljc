@@ -7,6 +7,8 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
+            [dk.simongray.like-minded.store :as store]
+            #?(:cljs [dk.simongray.like-minded.store.indexeddb :as indexeddb])
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
@@ -15,7 +17,6 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.time :as time]
@@ -226,6 +227,22 @@
              (library/episodes lib {:where {:text "futu"}})))
       (is (= ["Episode 3 - The Future"]
              (mapv (comp :rss/title second) (library/episodes lib {:where {:text "futu"}})))))))
+
+#?(:cljs
+   (deftest a-library-in-indexeddb
+     (if-not (exists? js/indexedDB)
+       (is true "no IndexedDB here")
+       (let [name    (str "podcast-test-" (random-uuid))
+             s       (indexeddb/store name)
+             ids     #(mapv :id (library/search % "future"))
+             forget! #(js/Promise. (fn [resolve _]
+                                     (set! (.-onsuccess (.deleteDatabase js/indexedDB name)) resolve)))]
+         (run #(library/save! library s)
+              #(async/then (library/restore! (library/make "phone") s)
+                           (fn [restored]
+                             (is (= [] (:report (:restore restored))))
+                             (is (= (ids library) (ids restored)))))
+              forget!)))))
 
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]

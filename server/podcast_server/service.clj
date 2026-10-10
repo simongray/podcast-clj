@@ -16,8 +16,8 @@
   so reach it only through a private network."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [dk.simongray.podcast.store.file :as file]
-            [dk.simongray.podcast.store.webdav.server :as webdav-server]
+            [dk.simongray.like-minded.store.file :as file]
+            [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.ring :as ring]
