@@ -224,8 +224,8 @@ Look up:
 - [Namespaces](doc/namespaces.md): a line for each namespace.
 - [The feed model](doc/feed-model.md): every element with its key and type.
 - [Diagnostics](doc/diagnostics.md): every diagnostic that a report can hold.
-- [Sync reference](doc/sync-reference.md): the store contract, the documents,
-  and where the sync clients keep their folders.
+- [Sync reference](doc/sync-reference.md): the options and the documents of
+  a sync of the profile, and the gpodder backend.
 - [Services and their defaults](doc/services.md): what podcast-clj knows about each service.
 
 Understand:

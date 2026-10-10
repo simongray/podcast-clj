@@ -75,7 +75,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `sync` | Sync between devices through like-minded, with the profile as the state: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
+| `sync` | Sync between devices through like-minded, with the profile as the state: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `device-document`. |
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
 | `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
 

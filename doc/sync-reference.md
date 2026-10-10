@@ -1,297 +1,64 @@
 # Sync reference
 
-This page has the contracts and the formats of the sync between devices.
-[How to build a podcast
-app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls,
-and [Syncing](sync.md) explains the design.
-
-The engine and the stores are those of
-[like-minded](https://github.com/simongray/like-minded), and the `sync`
-namespace gives its functions the profile as the state. The namespaces of
-the stores below are under `dk.simongray.like-minded`.
+This page has the options and the formats that podcast-clj adds to the
+sync of [like-minded](https://github.com/simongray/like-minded). Its
+[reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md)
+has the contracts of a store and a backend, the strategies, the result
+of a step, the documents and the stores, and [Syncing](sync.md) explains
+the design.
 
 
-## The store contract
+## The options of the profile
 
-A store is a map of functions over named documents, each with a version
-token, e.g. the sync documents or a library that `library/save!` wrote:
+The functions of `sync` are those of like-minded, with the options of the
+profile, `sync/defaults`, under the options of each call:
 
-```clojure
-{:fetch  (fn [name opts])       ; {:body "…" :version "…"}, or nil
- :put    (fn [name body opts])  ; {:version "…"}, or {:conflict? true}, optional
- :list   (fn [])                ; [{:name "…" :version "…"} …], optional
- :delete (fn [name])            ; optional
- :name   "Nextcloud"}           ; for the UI and the report
-```
+| Option | Value |
+|---|---|
+| `:crdt` | `sync/default-crdt`, of `profile/merge`, `profile/compact` and `profile/problem` |
+| `:version` | `sync/version`, which is 1 |
+| `:kind` | `sync/kind`, which is `"podcast-clj/profile"` |
+| `:document` | `"podcast.edn"`, the name of a shared document |
 
-- A put refuses the write when `opts` has an `:if-version` that isn't the
-  current version of the document, and an `:if-version` of nil means that
-  the document mustn't exist yet. The check and the write happen as one
-  step, so of two puts with the same `:if-version`, only one succeeds. The
-  folder store guarantees this within one process, and in a browser
-  across the tabs of a site.
-- A refused write returns `{:conflict? true}` rather than throwing.
-- A body is text or bytes. A fetch gives it as text, or as bytes with
-  `{:as :bytes}` in its opts, whichever of the two was put, so a store
-  converts it when needed, e.g. with `bytes/as`.
-- On the JVM, each function returns its value and throws on failure. In
-  ClojureScript, it can return a value or a promise.
-- The credentials stay in the closure of the constructor, never in the
-  map, and `:name` mustn't contain them.
-- A store without `:list` can't hold one document per device, so it holds
-  one shared document.
-- A store without `:put` is read only, and a backend over it only pulls.
-
-To test a store against this contract, use `store/check!`. It writes a
-probe document, and for a store without `:list`, it checks that a put
-with a stale version and a put with an `:if-version` of nil are both
-refused, as one shared document needs. A store without `:delete` keeps
-the probe document.
-
-
-## The backend contract
-
-A backend is a map of two functions and a name, which `sync!` calls:
-
-```clojure
-{:pull (fn [state cursor at]) ; {:states […] :cursor cursor' :report […] :partial? false}
- :push (fn [state cursor at]) ; {:cursor cursor' :state state' :report […]}
- :name "gpodder.net"}
-```
-
-- The pull returns the states to merge and the cursor for the next step.
-  With `:partial? true`, the states are only the changes since a cursor, so
-  `sync!` doesn't acknowledge them.
-- The push writes the merged state and returns the cursor. Its `:state`
-  and `:report` are optional, and it returns a `:state` when it learned
-  more while it wrote.
-- The `at` is the instant of the step, so the functions never read a
-  clock.
-- The backends of one `sync!` need different names, since the cursors are
-  kept by name, and `sync!` throws on a duplicate.
-
-Any store becomes a backend through `sync/backend`. A service with its
-own model, such as gpodder, is a backend directly.
-
-
-## The options of a backend
-
-The options of `sync/backend`:
-
-| Option | Meaning | Default |
-|---|---|---|
-| `:strategy` | `:per-device` or `:shared` | `:per-device` if the store has `:list`, else `:shared` |
-| `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` if the store has `:put`, else `:pull` |
-| `:opml?` | Write `subscriptions.opml` next to the documents | `false` |
-| `:extra-documents-fn` | A function of the state that gives other documents to write next to the documents, as a map of name to body | none |
-| `:app` | The name of the app, written into each document | none |
-| `:name` | The name of the backend | the name of the store |
-| `:document` | The name of the shared document | `"podcast.edn"` |
-
-A backend also takes the options of the state, which `sync!` and the
-functions of the documents take too. `sync/defaults` holds those of the
-profile:
-
-| Option | Meaning | Default |
-|---|---|---|
-| `:crdt` | The `:merge`, `:compact` and `:problem` functions of the state | `sync/default-crdt`, those of the profile |
-| `:version` | The version of the state's format | `sync/version` |
-| `:kind` | What state the documents hold | `sync/kind`, `"podcast-clj/profile"` |
-| `:codec` | How a document is encoded, a map of its `:extension`, `:encode` and `:decode` | like-minded's `document/edn-codec` |
-
-With either strategy, a retired device writes nothing, and the report has
-`:sync/retired-device`. An extra document is written when it changes, and
-its name can't end in the extension of the codec, since it would be read
-as a device's document.
-
-
-## The per-device strategy
-
-Each device writes only its own document, `<device-id>.edn`, or with the
-extension of another codec. A step of `sync!` with this strategy does the
-following:
-
-1. List the store, and fetch every document whose version differs from the
-   one in the cursor, all at once. Only names that end in the extension of
-   the codec are sync documents, and a document without a version in the
-   listing is always fetched.
-2. Read each document, and report any that doesn't read.
-3. Merge the states into the local state.
-4. If the merged state differs from what this device wrote last, put the
-   document of this device. It needs no precondition, since no other device
-   writes it.
-5. Put each extra document that changed. With `:opml?`, one of them is
-   `subscriptions.opml`, what `profile/to-opml` gives: the shows with their
-   folders and tags, and the followed lists.
-6. Delete the documents of retired devices.
-
-If the document of this device changed since the last step, another
-installation, or another tab of the same page, is using the same device
-id, and the report has `:sync/shared-device`. If the document is gone from
-the store, the next push writes it again.
-
-
-## The shared strategy
-
-All devices write one document, `podcast.edn` by default. A step of
-`sync!` with this strategy does the following:
-
-1. Fetch the document. If its version is the one in the cursor, there's
-   nothing new to merge.
-2. Merge it into the local state.
-3. If the merged state differs from what this device put last, put it with
-   `:if-version` set to the version in the cursor.
-4. If the store refuses the put, fetch, merge and put again. After three
-   retries, stop and report `:sync/conflict`.
-5. Unless step 4 stopped, put each extra document that changed.
-
-If the document is gone from the store, the next push writes it again. A
-document in a newer format, or of another kind, is left alone, since this
-device can't read all of it and a put would lose data.
-
-
-## The result of `sync!`
-
-This is the result of `sync/sync!`. For a library, `library/sync!` keeps
-the step under `:sync`, without the `:state`, which went into the
-profile, and with the `:at`, `:clock` and `:failures` that
-`library/next-sync` reads.
-
-```clojure
-{:state   merged                ; the local state with the pulled states merged
- :cursors {"Nextcloud" {…} …}   ; by backend name
- :report  [...]}                ; the diagnostics of the step
-```
-
-- A backend that failed is in the report as `:sync/backend-failed`, with
-  its `:backend` and the `:reason`.
-- If the pull of a backend fails, `sync!` doesn't push to it, and its
-  cursor stays the same. If a push fails, the backend keeps the cursor of
-  its pull.
-- Run one step at a time, since a step that overlaps another can write an
-  older state after a newer one.
-- The `:state` doesn't include what the listener did during the step.
-  Merge it into the current state with `profile/merge`, then compact with
-  `profile/compact`, since the merge brings back the tombstones that the
-  step removed. For a library, `library/merge` does both.
-- On the JVM, `sync!` returns the map, and in ClojureScript a promise of
-  it.
-- Its options are `:at`, the instant of the step, which is the time of
-  the clock by default, `:cursors`, those of the last step, and
-  `:compact`, which is `false` to keep every tombstone, or the options of
-  `profile/compact`.
+- Each function has the name of its counterpart in like-minded, except
+  `sync/device-document`, which is like-minded's `document/for-device`.
+- To read a document of a profile, give `sync/defaults` to the functions
+  of like-minded's `document`, e.g. `(document/decode body sync/defaults)`.
 - To sync another state than the profile, call like-minded itself with
-  the options of that state, since `sync` gives each call the profile's.
+  the options of that state.
+
+With `:opml?`, a backend of `sync/backend` also writes the listener's
+subscription list beside the documents as `subscriptions.opml`, for any
+podcast app to import. It holds what `profile/to-opml` gives: the shows
+with their folders and tags, and the followed lists. It's an extra
+document of like-minded, so it's written when it changes. To leave it
+readable in an encrypted store, give its name, `sync/opml-name`, in the
+`:except` of `encrypted/store`.
 
 
-## The sync document
+## The document of a profile
 
-A sync document is an EDN map, unless the options give another codec:
-
-```clojure
-{:version    1                     ; the version of the state's format
- :device     "8f1c9e2a-…"          ; the id of the device that wrote it
- :written-at #inst "2026-09-26T…"  ; when, by the clock of that device
- :app        "my-app"              ; the app that wrote it, optional
- :kind       "podcast-clj/profile" ; the kind of state, optional
- :state      {…}}                  ; the whole profile of that device
-```
+A document of a profile has the kind `podcast-clj/profile`, and the whole
+profile of its device as its `:state`.
 
 - The profile is the map that the docstring of
   `dk.simongray.podcast.profile` describes. It's a CRDT, so
   `profile/merge` combines the profiles of any devices in any order, as
   [The profile as a CRDT](sync.md#the-profile-as-a-crdt) explains.
-- The version only changes when the meaning of an existing key changes,
-  not for new keys.
-- A reader leaves out a document with a newer version, and reports
-  `:sync/newer-format`.
-- A reader with a `:kind` leaves out a document of another kind, and
-  reports `:sync/other-kind`. A document without a kind is read by any
-  reader, and a reader without one reads any document.
 - A document takes a few hundred bytes per subscription, and about two
   hundred bytes per episode entry.
 
 
-## The encrypted envelope
+## A sync of a library
 
-The store of `store.encrypted` wraps each body in this EDN map:
-
-```clojure
-{:encrypted 1 :cipher "AES-256-GCM" :kdf "PBKDF2-HMAC-SHA256"
- :iterations 600000 :salt "…" :iv "…" :data "…"}
-```
-
-- The `:salt`, `:iv` and `:data` are base64.
-- Each store instance seals with one random salt, and each document gets a
-  new IV.
-- The key is derived from the passphrase with PBKDF2 and HMAC-SHA256,
-  using the iterations and the salt of the envelope.
-- An envelope can ask for at most `max-iterations`, ten times the default.
-  A body that asks for more, or whose salt, IV or data isn't base64, isn't
-  an envelope, and is reported as a document that doesn't read.
-- A body that isn't an envelope passes through unchanged.
-- If the passphrase doesn't open a document, the call fails with the
-  exception type `:dk.simongray.like-minded.store.encrypted/locked`.
-- If the passphrase is a function, the store asks it again when a cached
-  key doesn't open a document, and tries once more, so a corrected
-  passphrase is used from the next document on.
-
-
-## The stores of like-minded
-
-| Store | Namespace | Platform | Version token |
-|---|---|---|---|
-| A map in an atom | `store/memory` | both | a count of the writes |
-| A folder | `store.folder` | both | the modification time, as exact as the file system keeps it, and the size |
-| A WebDAV collection | `store.webdav` | both | the ETag |
-| An IndexedDB database | `store.indexeddb` | browser | a count of the writes |
-| Any store, encrypted | `store.encrypted` | both | the version of the wrapped store |
-
-The folder store takes a path on the JVM and in Node. In a browser, it
-takes a `FileSystemDirectoryHandle`, or the files of a file input or a
-drop:
-
-- A handle can come from `showDirectoryPicker` or from the origin private
-  file system. A write goes through `createWritable`, whose changes reach
-  the file only when the stream closes (File System, section 2.3.2).
-- The files of an input are read only. Their store has no `:put` or
-  `:delete`, so a backend over it only pulls. Of a folder loaded with
-  `<input webkitdirectory>`, only the files at its top count, and the
-  folder's name is the store's name.
-- In ClojureScript, `folder/query-permission!` and `folder/request-permission!`
-  give `:granted`, `:prompt` or `:denied`. A path, a folder of the origin
-  private file system and the files of an input give `:granted`, since
-  there's nothing to ask for. The browser asks the listener only during a
-  click.
-- The failures that the listener can fix have a `:type` in their ex-data:
-  `::folder/not-allowed` for a permission to renew, `::folder/gone` for a
-  folder that was moved, deleted or unplugged, and `::folder/read-only` for
-  a folder that the browser can't write to.
-
-On the JVM, `store.webdav.server/handler` serves any store over WebDAV:
-
-- A PROPFIND on the collection at depth 0 gives the collection alone, and
-  at depth 1 it also lists the documents.
-- If the store has no `:list`, a PROPFIND that lists the collection gets
-  403. If it has no `:put` or no `:delete`, a PUT or a DELETE gets 405,
-  and OPTIONS doesn't offer it. A 405 names the allowed methods in
-  `Allow`.
-- MKCOL gets 405, since the collection already exists.
-- A client of such a server removes the same keys from its WebDAV store,
-  e.g. `(dissoc (webdav/store url) :list)`, and the backend then uses one
-  shared document.
-- A PUT carries at most 32 MB, or the `:max-bytes` of the handler, and a
-  larger body gets 413.
-- A PUT with `If-Match: *` matches the document if it exists, and gets 412
-  if it doesn't.
-- A name with a slash or a control character, and the names `.` and `..`,
-  get 400.
-
-Give the credentials of a WebDAV store as `:credentials`. The store
-doesn't send a user name or password from the URL, such as
-`https://user:pass@host/`, and its name is the host alone. On the JVM, the
-credentials only go to the origin of the collection, never to another host
-after a redirect.
+A sync of a library keeps the step under `:sync`, without the `:state`,
+which went into the profile, and with the `:at`, `:clock` and `:failures`
+that `library/next-sync` reads. Put it into the library as it is by then
+with
+`library/merge`, which merges the profiles with `profile/merge`, and then
+compacts with `profile/compact`, since the merge brings back the
+tombstones that the step dropped. The `:compact` option of a sync is
+false to keep every tombstone, or the options of `profile/compact`.
 
 
 ## The gpodder backend
@@ -350,25 +117,10 @@ promise, so in ClojureScript, where `sync!` returns a promise, sync
 separately and merge the result into the atom.
 
 
-## Where the stores are, as of September 2026
+## gpodder servers, as of September 2026
 
-The URL of a WebDAV collection and the folder of a sync client are facts
-about other products that can change, so podcast-clj contains none of
-them. Use `store/check!` to make sure that a URL or a path still works.
-
-| WebDAV server | The URL of the collection | The credentials |
-|---|---|---|
-| Nextcloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password, from Settings, Security, Devices & sessions |
-| ownCloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password, from Settings, Security |
-| Seafile | `https://HOST/seafdav/LIBRARY/FOLDER/` | The WebDAV password, set in Settings |
-| Synology DiskStation | `https://HOST:5006/SHARED-FOLDER/FOLDER/` | The password of the account. The WebDAV Server package must be on. |
-| Fastmail | `https://myfiles.fastmail.com/FOLDER/` | An app password for Files (WebDAV). The user name is the email address. |
-| Hetzner Storage Box | `https://BOX.your-storagebox.de/FOLDER/` | The password of the box. WebDAV must be on, in the Robot. |
-| Box | `https://dav.box.com/dav/FOLDER/` | The password of the account, or an app password if two-step verification is on |
-| The inspector | `http://localhost:8300/dav/` | None |
-
-If a user name is an email address, percent-encode it in the path, e.g.
-`simon%40example.org`.
+The root of a gpodder server is a fact about another product that can
+change, so podcast-clj contains none of them.
 
 | gpodder server | The root to give `gpodder/backend` | `:api` | Notes |
 |---|---|---|---|
@@ -379,42 +131,8 @@ If a user name is an email address, percent-encode it in the path, e.g.
 | gpodder2go | `https://HOST` | `:gpodder` | It syncs the subscriptions, but not the episode actions. |
 | The inspector | `http://localhost:8300` | `:gpodder` | Any user name and password |
 
-| Sync client | macOS | Windows | Linux |
-|---|---|---|---|
-| iCloud Drive | `~/Library/Mobile Documents/com~apple~CloudDocs/` | `%USERPROFILE%\iCloudDrive\` | |
-| Dropbox | `~/Dropbox/` | `%USERPROFILE%\Dropbox\` | `~/Dropbox/` |
-| Google Drive | `~/Library/CloudStorage/GoogleDrive-EMAIL/My Drive/` | A drive letter, `G:\My Drive\` by default | |
-| OneDrive | `~/Library/CloudStorage/OneDrive-Personal/` | `%USERPROFILE%\OneDrive\` | |
-| Seafile | `~/Seafile/` | `%USERPROFILE%\Seafile\` | `~/Seafile/` |
-| Nextcloud | `~/Nextcloud/` | `%USERPROFILE%\Nextcloud\` | `~/Nextcloud/` |
-| Syncthing | The folder that you set up | | |
-
-With "Optimize Mac Storage" on, iCloud Drive removes files that haven't
-been used for a while and leaves a hidden `.name.icloud` placeholder. The
-folder store ignores hidden files, so it can't read such a document until
-iCloud Drive downloads it again.
-
-
-## Folders in a browser, as of October 2026
-
-Which browser can do what changes over time, so check for the feature
-itself, e.g. `(exists? js/showDirectoryPicker)`, rather than for a
-browser. The versions are from MDN's compatibility data of 1 October 2026,
-and the times were measured on 3 October 2026 in Chrome 152, Firefox 156
-and Safari 26.3.
-
-| | Chrome, Edge | Firefox | Safari |
-|---|---|---|---|
-| Pick a folder, `showDirectoryPicker` | 86, and 132 on Android | No | No |
-| Ask for a folder again, `requestPermission` | 86. From 122, the listener can allow a site on every visit. | No | No |
-| Write a file, `createWritable` | 86 | 111, in the origin private file system | 26, in the origin private file system |
-| Load a folder, `<input webkitdirectory>` | Yes | Yes | Yes, and on iOS from 18.4 |
-| Modification times in the origin private file system | Milliseconds | Milliseconds | Whole seconds |
-
-Mozilla and WebKit have both stated positions against picking folders, so
-expect to sync by hand in Firefox and Safari for a while. Since Safari
-keeps whole seconds, two writes of the same size within a second there get
-the same version. Each device writes only its own document, and rarely
-twice in a second, so the default strategy of a document per device is
-hardly affected. The shared strategy is, since its writes depend on the
-version.
+The inspector also serves a WebDAV collection at
+`http://localhost:8300/dav/`, with no credentials. For the URLs of the
+common WebDAV servers, the folders of the sync clients and what each
+browser can do with a folder, see like-minded's
+[Providers](https://github.com/simongray/like-minded/blob/master/doc/providers.md).

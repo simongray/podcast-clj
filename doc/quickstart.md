@@ -160,9 +160,10 @@ backend of a sync, here with the app's name in its document:
 The result under `:sync` has the cursors for the next sync and its report,
 which names any backend that failed. The folder now holds one
 document for this device, and another device that syncs through the same
-folder gets the subscription and the queue. [Sync
-reference](sync-reference.md) lists where the common sync clients and
-WebDAV servers keep their folders.
+folder gets the subscription and the queue. The [providers
+page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)
+of like-minded lists where the common sync clients and WebDAV servers
+keep their folders.
 
 ## What next
 

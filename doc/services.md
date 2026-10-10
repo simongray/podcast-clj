@@ -47,8 +47,11 @@ There's no default for these, so you give them:
 - the AppView that reads AT Protocol threads, as `:appview`. As of
   September 2026, Bluesky's `https://public.api.bsky.app` and Blacksky's
   `https://api.blacksky.community` answer without an account.
-- the root of a gpodder server and the URL of a WebDAV collection, some of
-  which [Sync reference](sync-reference.md) lists
+- the root of a gpodder server, some of which [Sync
+  reference](sync-reference.md#gpodder-servers-as-of-september-2026)
+  lists, and the URL of a WebDAV collection, some of which the [providers
+  page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)
+  of like-minded lists
 - the OPAWG list of user agents, which `analytics/user-agents` reads from
   files that you keep
 

@@ -1,12 +1,14 @@
 # Syncing
 
 This page explains how a listener's devices stay in step, and why it's
-safe. [Sync reference](sync-reference.md) has the contracts and the
+safe. The sync and the stores are those of
+[like-minded](https://github.com/simongray/like-minded), whose
+[reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md)
+explains the backends, the strategies and the documents. This page is
+about what podcast-clj adds: the profile as the state, and the gpodder
+API. [Sync reference](sync-reference.md) has their options and
 formats, and [How to build a podcast
 app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
-The engine and the stores are those of
-[like-minded](https://github.com/simongray/like-minded), with the profile
-as the state.
 
 
 ## How devices merge
@@ -28,101 +30,27 @@ the position 2:00, since the rewind came last.
 The merge gives the same result in any order, any number of times, which
 a generative test checks. In CRDT terms, it's commutative, associative and
 idempotent, so it's a join, and the profile is a CRDT. Nobody has to
-resolve a conflict, so the backend, the place that the devices sync
-through, only has to store documents. Three kinds of backend are enough:
-
-- **One document per device.** Each device writes only its own document and
-  reads the documents of the others, so no two devices ever write the same
-  file. A folder that a sync client such as Dropbox mirrors, a Git working
-  tree or a WebDAV collection is a complete backend, and a new device gets
-  everything by reading it. This is the default.
-- **One shared document.** A store that can't list its documents, e.g. a
-  key-value store, holds a single document. A device fetches it, merges,
-  and writes it back only if its version hasn't changed. On a conflict, it
-  fetches and merges again, which is safe since a second merge changes
-  nothing.
-- **A service with its own model.** Services like gpodder merge on the
-  server and report the changes since a cursor. The backend translates
-  in both directions: a push sends the changes since the last push as the
-  service's own actions, and a pull turns what the service reports into a
-  partial state that merges like any other.
-
-Two rules hold for all of them. The local state is only ever merged into,
-never replaced, so a failed pull changes nothing and a failed push is
-simply repeated. A device can also sync with several backends at once,
-merging what it reads from all of them, which lets a listener keep a folder
-and a server in step, or move from one store to another.
-
-
-## Backends and stores
-
-There are two levels. A backend is what the engine calls: `pull` returns
-the states to merge and a cursor, and `push` writes the merged state. A
-store is the common case below a backend, a set of named documents with
-version tokens. Any store becomes a backend through `sync/backend`, which
-adds the strategy, the retries and the reports, so a new store only needs
-one to four functions.
-
-A refused write is a value, not an exception, since it's a normal outcome
-of the shared strategy. Errors of the network or a service are exceptions,
-and the engine turns each one into a `:sync/backend-failed` diagnostic in
-the report.
-
-A store is a map of functions rather than a protocol or a multimethod, for
-four reasons:
-
-- Wrapping a store means updating one of its keys, so an encrypting,
-  caching or logging store is a few lines over any other store, and a store
-  that fails on cue in a test is two anonymous functions.
-- The optional functions are optional keys, with no `satisfies?` checks.
-- The credentials stay in the constructor's closure, so a store never
-  prints a token, as a record with a token field would.
-- The constructor's argument is plain EDN that an app can save, and the
-  store is the value it uses.
-
-
-## The engine
-
-The engine in `sync` is pure, and all I/O happens in the backends. A
-document that doesn't read is reported and left out. So is a state with a
-value that the merge can't handle, such as a stamp that isn't an instant,
-since the merge would otherwise spread it to every device. When this
-device's own state holds such a value, e.g. after an `assoc`, the step
-writes nothing and reports it, since the other devices would leave out
-the whole document. A document in a newer version of the profile's
-format is left out too, because this version can't understand all of it.
-
-The engine schedules nothing. Call `sync!` when the app starts, when it
-goes to the background, after a series of changes, and when a file watcher
-or the service says that something changed. For when to sync next, ask
-like-minded's `next-sync`, or `library/next-sync` for a library. Only run
-one step at a time, since a step that overlaps another can write an older
-state after a newer one. A file watcher also sees the writes of the step
-itself, so let such a call wait until the step ends.
-
-For control over the I/O, e.g. in an iOS background task with a time
-budget, do the steps yourself: fetch the documents whose names end in
-`.edn`, merge them with `reconcile`, and put the document that
-`sync/device-document` gives.
+resolve a conflict, so the place that the devices sync through only has
+to store documents. By default, each device writes a document of its own
+into a folder that a sync client such as Dropbox mirrors, or into a
+WebDAV collection, and reads the documents of the others. A saved library
+goes into the same kind of store, so an app needs only one. A gpodder
+server is different, since it merges on the server, as [The gpodder
+API](#the-gpodder-api) explains.
 
 
 ## The documents
 
-The documents of one listener live under one root, such as a folder or a
-WebDAV collection, and the layout doesn't depend on the app. Two apps
-built on podcast-clj can share a root, since the state belongs to
-podcast-clj rather than to either app.
+The documents of a profile have the kind `podcast-clj/profile`, whichever
+app wrote them, so two apps built on podcast-clj can sync through the
+same folder: the profile belongs to podcast-clj rather than to either
+app. Its format only gets a new version when the meaning of an existing
+key changes. The merge handles keys it doesn't know by the shape of their
+values, so the profile can grow without one.
 
-The format is EDN, which needs no new dependency and holds the state as it
-is. JSON can come later as a defined mapping for clients in other
-languages. The episode ids are vectors, which JSON can't use as keys, so
-that mapping will have to list them. Transit would carry EDN over JSON, but
-it's a dependency with no use yet.
-
-The format version only changes when the meaning of an existing key
-changes. A reader merges keys it doesn't know by the shape of their values,
-so podcast-clj can grow the state, and an app can add entries of its own,
-without a new version.
+The documents are EDN. A JSON form for clients in other languages would
+need a mapping of its own, since the episode ids are vectors, which JSON
+can't use as keys.
 
 
 ## The profile as a CRDT
@@ -181,11 +109,10 @@ gain.
 A clock that's a few seconds off does no harm. A clock that's years ahead
 spreads its year to every device through the merge, so the stamps no longer
 say when things happened, and tombstones are kept longer. Nothing is lost,
-and the states still agree. Refusing such a state wouldn't help, because
-the device couldn't sync and its own state would keep the future stamps
-even after its clock was fixed. So the sync only warns: `:sync/clock-skew`
-names a device that wrote its document more than a minute ahead of this
-device's clock.
+and the states still agree. The sync only warns of such a device, with
+`:sync/clock-skew`, for the reasons that like-minded's
+[reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md#the-document)
+gives.
 
 ### The queue
 
@@ -196,9 +123,10 @@ a finished episode stays removed, and only two devices that move the same
 episode at the same time need a winner, the later one. A move writes the
 episode's new place as an entry of its own, so it never brings back an
 episode that another device removed meanwhile. Ranks stay short at the
-ends of the list, where most episodes are added. Episodes that one device appends at once share a block of
-ranks named after the device, so batches that two devices append at the
-same time don't mix. Playlists work the same way.
+ends of the list, where most episodes are added. Episodes that one device
+appends at once share a block of ranks named after the device, so batches
+that two devices append at the same time don't mix. Playlists work the
+same way.
 
 ### Listening counts
 
@@ -283,16 +211,6 @@ between devices, as in the mainstream apps. If you want a queue per device,
 keep it outside the profile.
 
 
-## The stores
-
-[Sync reference](sync-reference.md#the-stores-of-like-minded) lists the
-stores that come with like-minded: in memory, a folder, a WebDAV
-collection, IndexedDB, and any of them encrypted. Any place that can hold
-one document per device, or one document with a version, can be a store
-without a change to like-minded. A saved library goes into a store too,
-so an app needs only one kind.
-
-
 ## The gpodder API
 
 AntennaPod, Kasts, gPodder and most other open-source podcast apps sync
@@ -368,29 +286,21 @@ its sessions and arrival times in memory, and after a restart, a device
 reads again what it read before, which changes nothing.
 
 
-## Credentials and privacy
-
-The constructor of a store takes `:credentials` as a map, or as a function
-that returns the current map, so that you can refresh tokens that expire.
-OAuth flows are up to you. The engine never sees the credentials, and no
-result, report or store name contains them.
+## Privacy
 
 A sync document describes the listening habits of a listener, and the
-provider can read what it stores. The encrypting store of like-minded,
-`store.encrypted`, wraps any other store, which is what the
-map-of-functions design was chosen for. It uses AES-256-GCM with a key
-that PBKDF2 derives from a passphrase, through `javax.crypto` on the JVM
-and WebCrypto in ClojureScript. Each document carries the salt, the IV and
-the iteration count that sealed it, so there's no key file to lose. Plain
-documents pass through, so you can start encrypting a folder at any time.
+provider can read what it stores. To keep them from the provider, wrap
+the store in the encrypting store of like-minded, `store.encrypted`,
+which seals each document with a key from a passphrase. The subscription
+list can stay readable for other apps, as [How to build a podcast
+app](building-an-app.md#sync-the-devices-of-a-listener) shows.
 
 
 ## Testing
 
-The merge properties have a counterpart for the whole engine. Several
-devices apply random operations and sync in random order through one
-store, with either strategy, followed by three quiet rounds: one for the
-entries to reach every device, one for the acknowledgements, and one for
-the compaction that follows. At the end, every state is the same. A second
-property checks that compaction drops every tombstone that it may, and
-changes nothing that the listener sees.
+As in like-minded, a generative test carries the merge's properties
+through the whole sync, here with the profile: several devices apply
+random operations of a listener and sync in random order through one
+store, with either strategy, and end with the same profile. Compaction
+then drops every tombstone that it may, and changes nothing that the
+listener sees.

@@ -856,8 +856,10 @@ those of [like-minded](https://github.com/simongray/like-minded), to which
 ```
 
 A store can be a WebDAV collection or a folder that a sync client such as
-Dropbox mirrors. [Sync reference](sync-reference.md) has the URLs and
-paths of some providers. With `sync/backend`, a store becomes the
+Dropbox mirrors. The [providers
+page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)
+of like-minded has the URLs and paths of some of them. With
+`sync/backend`, a store becomes the
 backend of a sync: `:app` names your app in the documents, and `:opml?`
 also writes the subscriptions as OPML for other apps.
 
@@ -897,9 +899,9 @@ To serve a store from your own Clojure server, mount the Ring handler of
 `store.webdav.server`, and for the gpodder API that of
 `sync.gpodder.server`. Each serves one listener, so give each listener a
 handler of their own behind your login, as their docstrings show. To sync
-through a service that has no store yet, write one: [Sync
-reference](sync-reference.md) gives the contract, a map of one to four
-functions.
+through a service that has no store yet, write one: like-minded's
+[reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md#the-store-contract)
+gives the contract, a map of one to four functions.
 
 ### Sync through a folder in a browser
 
@@ -937,9 +939,10 @@ load the folder with `<input type="file" webkitdirectory>`:
 The store of the files of an input has no `:put`, so its backend only
 reads them. Check for the picker itself rather than for a browser, so
 that the app uses it wherever it arrives.
-[Sync reference](sync-reference.md#folders-in-a-browser-as-of-october-2026)
-has what each browser can do, and the inspector's player in
-`web/inspector/player.cljs` does all of the above.
+The [providers
+page](https://github.com/simongray/like-minded/blob/master/doc/providers.md#folders-in-a-browser-as-of-october-2026)
+of like-minded has what each browser can do, and the inspector's player
+in `web/inspector/player.cljs` does all of the above.
 
 ### Sync the listeners of a website
 
