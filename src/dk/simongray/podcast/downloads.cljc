@@ -55,14 +55,17 @@
   - :queue, how many episodes at the front of the queue to download, or
     true for all of them
   - :max-episodes and :max-bytes, the most files and bytes on the device
+  - :max-file-bytes, the most bytes of one file, e.g. to keep a video of
+    several gigabytes from a phone
   - :make-room?, whether the files of played episodes go when a download
     needs room"
-  {:default      {}
-   :shows        {}
-   :queue        nil
-   :max-episodes nil
-   :max-bytes    nil
-   :make-room?   false})
+  {:default        {}
+   :shows          {}
+   :queue          nil
+   :max-episodes   nil
+   :max-bytes      nil
+   :max-file-bytes nil
+   :make-room?     false})
 
 (def bytes-per-second
   "The bytes of one second of an episode whose feed gives neither its
@@ -133,12 +136,13 @@
 
 (def ^:no-doc checks
   "The tests of the values of the rules, by key."
-  {:queue        #(or (nil? %) (boolean? %) (amount? %))
-   :max-episodes #(or (nil? %) (amount? %))
-   :max-bytes    #(or (nil? %) (amount? %))
-   :make-room?   #(or (nil? %) (boolean? %))
-   :default      #(or (nil? %) (map? %))
-   :shows        #(or (nil? %) (map? %))})
+  {:queue          #(or (nil? %) (boolean? %) (amount? %))
+   :max-episodes   #(or (nil? %) (amount? %))
+   :max-bytes      #(or (nil? %) (amount? %))
+   :max-file-bytes #(or (nil? %) (amount? %))
+   :make-room?     #(or (nil? %) (boolean? %))
+   :default        #(or (nil? %) (map? %))
+   :shows          #(or (nil? %) (map? %))})
 
 (defn- show-problem
   "A description of what this version of podcast-clj doesn't know in
@@ -433,14 +437,16 @@
   `rules`.
 
   With room for the file, the entry goes under :download. With
-  :make-room?, files from :spare move to :delete until it fits. Otherwise
-  the entry goes under :waiting, with the limit that stopped it as
-  :limit."
-  [rules {:keys [total spare] :as plan} entry]
-  (let [need  (over rules total (:bytes entry))
-        clear (cond
-                (every? zero? (vals need)) []
-                (:make-room? rules)        (room spare need))]
+  :make-room?, files from :spare move to :delete until it fits. Otherwise,
+  or when the file is above :max-file-bytes, the entry goes under
+  :waiting, with the limit that stopped it as :limit."
+  [{:keys [max-file-bytes] :as rules} {:keys [total spare] :as plan} entry]
+  (let [too-big? (and max-file-bytes (> (:bytes entry) max-file-bytes))
+        need     (over rules total (:bytes entry))
+        clear    (cond
+                   too-big?                   nil
+                   (every? zero? (vals need)) []
+                   (:make-room? rules)        (room spare need))]
     (if clear
       (-> plan
           (update :download conj entry)
@@ -449,7 +455,10 @@
                  :total {:episodes (- (inc (:episodes total)) (count clear))
                          :bytes    (- (+ (:bytes total) (:bytes entry))
                                       (reduce + (map #(:bytes % 0) clear)))}))
-      (let [limit (if (pos? (:episodes need)) :max-episodes :max-bytes)]
+      (let [limit (cond
+                    too-big?                :max-file-bytes
+                    (pos? (:episodes need)) :max-episodes
+                    :else                   :max-bytes)]
         (update plan :waiting conj (assoc entry :limit limit))))))
 
 (defn- planned
@@ -492,8 +501,8 @@
   - :rule, what the rules of the shows select, newest first
 
   Played or dismissed episodes aren't downloaded, and downloads without
-  room within :max-episodes and :max-bytes wait. A file is deleted for one
-  of these reasons:
+  room within :max-episodes and :max-bytes wait, as do files above
+  :max-file-bytes. A file is deleted for one of these reasons:
 
   - :played, the episode was played :played seconds ago
   - :inactive, it wasn't played for :inactive seconds

@@ -198,6 +198,19 @@
     (is (= "https://a/480.mp4" (:url (resolve/enclosure item {:types ["video/mp4"] :max-height 720}))))
     (is (= "https://a/1080.mp4" (:url (resolve/enclosure item {:types ["video/mp4"]}))))))
 
+(deftest subtitles-of-media-rss
+  (let [item {:podcast/transcripts [{:url "https://a/t.html" :type "text/html"}]
+              :media/subtitles     [{:href "https://a/item.vtt" :type "text/vtt" :lang "en"}]
+              :media/group         {:contents [{:url "https://a/1.mp4" :type "video/mp4"
+                                                :subtitles [{:href "https://a/da.vtt" :type "text/vtt" :lang "da"}]}]}}]
+    (is (= [{:url "https://a/t.html" :type "text/html"}
+            {:url "https://a/da.vtt" :type "text/vtt" :language "da" :rel "captions" :source :media}
+            {:url "https://a/item.vtt" :type "text/vtt" :language "en" :rel "captions" :source :media}]
+           (resolve/transcripts item))
+        "the podcast namespace, then the deepest subtitles first")
+    (is (= "https://a/da.vtt" (:url (resolve/transcript nil item {:languages ["da"]}))))
+    (is (= "https://a/da.vtt" (:url (resolve/transcript item))) "WebVTT before HTML")))
+
 (deftest content-links
   (is (= [{:href "https://youtube.com/watch?v=1" :text "Watch on YouTube"} {:href "https://twitch.tv/x"}]
          (resolve/content-links {:podcast/content-links [{:href "https://youtube.com/watch?v=1" :content " Watch on YouTube "}

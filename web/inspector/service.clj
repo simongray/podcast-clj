@@ -777,18 +777,21 @@
 
 (defn episode-edn
   "The item that the url and guid parameters of `request` name, as the EDN
-  the browser player needs: its identity, titles, enclosure and duration."
+  the browser player needs: its identity, titles, enclosure, whether that
+  is a video, and its duration."
   [request]
   (with-feed request
     (fn [{:keys [feed url feed-url]}]
-      (let [guid (get-in request [:query-params :guid])
-            item (item-in feed guid)]
+      (let [guid      (get-in request [:query-params :guid])
+            item      (item-in feed guid)
+            enclosure (some-> item resolve/enclosure)]
         (if item
           (text "application/edn; charset=utf-8"
                 (pr-str {:id         (feed.guid/episode-id feed feed-url item)
                          :title      (resolve/title item)
                          :feed-title (resolve/title feed)
-                         :enclosure  (:url (resolve/enclosure item))
+                         :enclosure  (:url enclosure)
+                         :video?     (true? (resolve/video? enclosure))
                          :duration   (resolve/duration item)
                          :url        url
                          :guid       guid}))

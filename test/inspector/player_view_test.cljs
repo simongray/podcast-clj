@@ -51,6 +51,12 @@
           "a timer that runs, and the button that stops it"))
     (is (str/includes? (text bar) "First"))
     (is (str/includes? (text bar) "at 2:00") "the resume position until the audio reports"))
+  (testing "a video in a video element, with the same events"
+    (let [bar   (view/bar (assoc-in state [:titles a :video?] true))
+          video (first (elements bar :video#player))]
+      (is (empty? (elements bar :audio#player)))
+      (is (= "https://x/a.mp3" (:src (second video))))
+      (is (= [:audio/loaded a 120] (get-in video [1 :on :loadedmetadata])))))
   (testing "the readout the audio reported, and an episode without an enclosure"
     (is (str/includes? (text (view/bar (assoc state :readout "at 1:00 of 1:00:00"))) "at 1:00 of 1:00:00"))
     (let [bar (view/bar (assoc-in state [:titles a :enclosure] nil))]

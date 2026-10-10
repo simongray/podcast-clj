@@ -246,6 +246,11 @@
               :delete   []
               :waiting  [[["feed-b" "b2"] :rule :max-bytes] [["feed-b" "b1"] :rule :max-bytes]]}
              (parts {:rules (rules {:max-bytes 1000})}))))
+    (testing "a limit on the bytes of one file, which no room makes up for"
+      (is (= {:download [[["feed-a" "a4"] :rule nil] [["feed-a" "a3"] :rule nil] [["feed-b" "b1"] :rule nil]]
+              :delete   []
+              :waiting  [[["feed-b" "b2"] :rule :max-file-bytes]]}
+             (parts {:rules (rules {:max-file-bytes 1000 :make-room? true})}))))
     (testing "played files that go to make room, the earliest played first"
       (is (= {:download [[["feed-a" "a4"] :rule nil] [["feed-a" "a3"] :rule nil]]
               :delete   [[["feed-a" "a1"] :room nil] [["feed-a" "a2"] :room nil]]

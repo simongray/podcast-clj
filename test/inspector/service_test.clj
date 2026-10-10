@@ -343,6 +343,7 @@
         (is (str/starts-with? (get headers "Content-Type") "application/edn"))
         (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id episode)))
         (is (string? (:enclosure episode)))
+        (is (false? (:video? episode)))
         (is (string? (:title episode))))
       (is (= 404 (:status (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "nope")))))
     (testing "the compiled player is served when it exists and explained when it does not"
@@ -470,9 +471,9 @@
           (is (str/includes? body (str "<a href=\"" self "\">")))
           (is (= named (first (:id (read-string (:body (get* "/episode.edn" "url" "corpus/self" "guid" "g"))))))))
         (is (= 404 (:status (get* "/corpus/nope")))))
-      (testing "an item without audio can't be added to the player"
+      (testing "an item without media can't be added to the player"
         (let [body (:body (get* "/item" "url" "corpus/self" "guid" "g"))]
-          (is (str/includes? body "No audio to play"))
+          (is (str/includes? body "Nothing to play"))
           (is (not (str/includes? body "Play now")))))
       (testing "an item is named by a guid, and no guid names none"
         (is (= 404 (:status (get* "/item" "url" "corpus/self"))))

@@ -17,8 +17,8 @@
       [:folder/pick] [:folder/allow] [:folder/forget]
       [:document/save] [:document/load] [:device/retire id]
 
-  The audio element raises [:audio/loaded id position], [:audio/time id]
-  and [:audio/paused id]."
+  The audio or video element raises [:audio/loaded id position],
+  [:audio/time id] and [:audio/paused id]."
   (:require [cljs.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -48,26 +48,27 @@
 
 (defn bar
   "The persistent player of the page `state`: the current episode, its
-  audio element, the skip buttons and the sleep timer, or nil when nothing
-  is queued.
+  audio or video element, the skip buttons and the sleep timer, or nil
+  when nothing is queued.
 
   An episode that came through a sync from a device that told no data of
   it has nothing to play. The bar tells so, and the listener removes it."
   [{:keys [profile readout sleep] :as state}]
   (when-let [id (profile/current profile)]
-    (let [{:keys [enclosure] :as episode} (episode-of state id)
+    (let [{:keys [enclosure video?] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (profile/preferences profile)
           position (profile/resume-position profile (first id) id)]
       [:div.bar
        [:span (episode-link state id)]
        (cond
          enclosure
-         [:audio#player {:controls true :preload "metadata" :src enclosure
-                         :replicant/key id
-                         :on {:loadedmetadata [:audio/loaded id position]
-                              :timeupdate     [:audio/time id]
-                              :pause          [:audio/paused id]
-                              :ended          [:ended id]}}]
+         [(if video? :video#player :audio#player)
+          {:controls true :preload "metadata" :src enclosure
+           :replicant/key id
+           :on {:loadedmetadata [:audio/loaded id position]
+                :timeupdate     [:audio/time id]
+                :pause          [:audio/paused id]
+                :ended          [:ended id]}}]
 
          episode
          [:span.muted "No enclosure to play."]

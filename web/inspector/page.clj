@@ -64,7 +64,8 @@
                border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
    #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;
                     align-items:center;flex-wrap:wrap}
-   #player-bar audio{height:32px}")
+   #player-bar audio{height:32px}
+   #player-bar video{max-width:320px;max-height:180px}")
 
 (defn layout
   "The page skeleton around `body`, titled `title`."
@@ -776,7 +777,7 @@
                  (list [:a.badge {:href (into-player "now")} "Play now"]
                        [:a.badge {:href (into-player "last")} "Add to queue"]
                        [:a.badge {:href (into-player "next")} "Play next"])
-                 [:span.badge.muted "No audio to play"])
+                 [:span.badge.muted "Nothing to play"])
                [:a.badge {:href (feed-href "/comments" url {:guid guid})}
                 "Comments"]
                (when value

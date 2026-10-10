@@ -1267,6 +1267,21 @@ Restrictions on the media, e.g. by country.
 | `relationship` | `:relationship` | text | required |
 | `type` | `:type` | text |  |
 
+### `<media:subTitle>`
+
+A subtitle or caption file, one per language.
+
+- Key: `:media/subtitles` under channel, `:media/subtitles` under item (and liveItem), `:subtitles` under <media:content>, `:subtitles` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
+- Count: many
+- Text: none
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `href` | `:href` | url | required |
+| `lang` | `:lang` | language |  |
+| `type` | `:type` | mime |  |
+
 ## Google Play and Spotify
 
 The namespaces of two directories, which some feeds still contain.

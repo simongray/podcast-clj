@@ -498,9 +498,31 @@
   (or (= "captions" (some-> rel str/lower-case))
       (contains? timed-transcript-types (str/lower-case (str type)))))
 
+;; Media RSS 1.5.1, sections 5 and 5.22: deeper subtitles come first
+(defn transcripts
+  "Every transcript and caption file that `item` links to: those of the
+  podcast namespace, then the Media RSS subtitles of its media contents,
+  its media:group and the item itself.
+
+  A Media RSS subtitle is a map of the :url, the :type and :language when
+  declared, the :rel captions, since it's a subtitle or caption file, and
+  the :source :media."
+  [item]
+  (concat
+   (:podcast/transcripts item)
+   (for [{:keys [href type lang]} (concat (mapcat :subtitles
+                                                  (media-contents item))
+                                          (:subtitles (:media/group item))
+                                          (:media/subtitles item))
+         :when href]
+     (cond-> {:url href :rel "captions" :source :media}
+       type (assoc :type type)
+       lang (assoc :language lang)))))
+
 (defn transcript
   "The transcript reference of `item` that an app is best served by, given
-  the `feed`, which can be nil, and the `opts` below.
+  the `feed`, which can be nil, and the `opts` below. It's one of those
+  that transcripts gives.
 
   - :types, the wanted types, by default WebVTT, SRT, JSON, HTML and plain
     text
@@ -526,7 +548,7 @@
                               [(language-rank languages language)
                                (if untimed? 1 0)
                                (type-rank types type)]))]
-     (first (sort-by rank (:podcast/transcripts item))))))
+     (first (sort-by rank (transcripts item))))))
 
 (defn chapters-url
   "The URL of the JSON chapters file that `item` links to, if any."

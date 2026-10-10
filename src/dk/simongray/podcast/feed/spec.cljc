@@ -532,6 +532,10 @@
     :parent media-parents :count :many
     :attrs {:relationship req :type {}}
     :doc "Restrictions on the media, e.g. by country."}
+   {:tag :media/subTitle :key (media-key :subtitles)
+    :parent media-parents :count :many :content :none
+    :attrs {:href req-url :type {:type :mime} :lang {:type :language}}
+    :doc "A subtitle or caption file, one per language."}
 
    ;; Podlove Simple Chapters
    {:tag :psc/chapters :key :psc/chapters

@@ -624,7 +624,9 @@ To follow the plan:
 - Delete each file of `:delete`, and keep its entry with `:removed?`, so it
   isn't downloaded again.
 - Show the listener what's in `:waiting`, which didn't fit within
-  `:max-episodes` or `:max-bytes`.
+  `:max-episodes` or `:max-bytes`, or was a file above `:max-file-bytes`.
+  Stop a download that runs past `:max-file-bytes` yourself, since a feed
+  can give the wrong length.
 
 Set `:keep?` in the entry of a file the listener asked for, and no rule
 deletes it. For rules that only apply to this device, give `plan` the
