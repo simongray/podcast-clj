@@ -121,6 +121,37 @@
                        (is (= :file/unreachable (:id (:error (:transcript v)))) "the plain transcript has no route")
                        (is (= [[:transcript :file/unreachable]] (map (juxt :part :id) (episode/report v)))))))))))
 
+(deftest what-a-stream-says
+  (let [log     (atom [])
+        master  "https://s.example/ep/master.m3u8"
+        feed    {:rss/title "Show"
+                 :rss/items [{:rss/title "Ep" :rss/guid {:content "ep"} :itunes/duration 600
+                              :rss/enclosure {:url master :type "application/vnd.apple.mpegurl" :length 0}}]}
+        answers {master
+                 {:status 200
+                  :body   (str "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720,"
+                               "CODECS=\"avc1.64001F,mp4a.40.2\"\n720/index.m3u8\n")}
+                 "https://s.example/ep/720/index.m3u8"
+                 {:status 200
+                  :body   (str "#EXTM3U\n#EXT-X-TARGETDURATION:10\n"
+                               (apply str (repeat 70 "#EXTINF:10,\nseg.ts\n")) "#EXT-X-ENDLIST\n")}}
+        read    (fn [answers]
+                  (episode/read-files! (episode/view feed (first (:rss/items feed)))
+                                       {:send (answering answers log) :except #{:chapters :transcript}}))]
+    (run
+     (fn []
+       (async/then (read answers)
+                   (fn [{:keys [media duration] :as files}]
+                     (testing "the playlists of an HLS enclosure"
+                       (is (= [:hls true 700.0 1] [(:format media) (:video? media) duration (count (:variants media))]))
+                       (is (= [[:media :file/duration]] (map (juxt :part :id) (episode/report files)))
+                           "a stream 100 seconds longer than the feed says, so a position may not carry over")))))
+     (fn []
+       (async/then (read (assoc-in answers [master :status] 404))
+                   (fn [{:keys [media]}]
+                     (testing "a playlist that isn't there"
+                       (is (= :file/unreachable (:id (:error media)))))))))))
+
 (deftest the-order-of-the-chapter-sources
   (let [log      (atom [])
         embedded (assoc item :psc/chapters [{:start "00:00:00" :title "Embedded"}])

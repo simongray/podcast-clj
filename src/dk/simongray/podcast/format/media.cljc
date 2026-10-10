@@ -57,6 +57,16 @@
     (cond-> (assoc (dissoc file :chapters) :format :mp4)
       chapters (assoc :chapters document))))
 
+(defn durations-differ?
+  "Whether the `measured` duration of a media file or stream differs from
+  the `declared` one by more than 10 seconds and 2 percent, both in
+  seconds. It's false unless both are numbers."
+  [declared measured]
+  (and (number? declared)
+       (number? measured)
+       (> (abs (- declared measured))
+          (max 10 (* 0.02 declared)))))
+
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
   [file]

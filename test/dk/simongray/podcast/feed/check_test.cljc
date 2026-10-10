@@ -446,6 +446,40 @@
                  (is (= [(str base "/feed.xml")] (map :url (:files result))) "the URL without them")
                  (is (= #{"/feed.xml"} (set (keep #(when (:authorization %) (:path %)) @requests))))))))))))
 
+#?(:clj
+   (deftest checking-a-stream-over-http
+     (let [requests (atom [])
+           master   (str "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720,"
+                         "CODECS=\"avc1.64001F,mp4a.40.2\"\n720/index.m3u8\n")
+           media    (str "#EXTM3U\n#EXT-X-TARGETDURATION:10\n"
+                         (apply str (repeat 70 "#EXTINF:10,\nseg.ts\n")) "#EXT-X-ENDLIST\n")
+           hls      {"Content-Type" "application/vnd.apple.mpegurl"}]
+       (with-server
+         {"/master.m3u8"    {:body master :headers (assoc hls "Access-Control-Allow-Origin" "*")}
+          "/720/index.m3u8" {:body media :headers hls}
+          "/closed.m3u8"    {:body master :headers hls}}
+         #(swap! requests conj %)
+         (fn [base]
+           (let [item   (fn [path codecs]
+                          {:rss/title "E" :itunes/duration 600
+                           :rss/enclosure {:url (str base "/e.mp3") :type "audio/mpeg"}
+                           :podcast/alternate-enclosures
+                           [{:type "application/vnd.apple.mpegurl" :length 0 :height 720 :codecs codecs
+                             :sources [{:uri (str base path)}]}]})
+                 check  (fn [items]
+                          (check/check-files! {:rss/title "T" :rss/items items} {:read? true}))
+                 found  (fn [result path]
+                          (set (map :id (filter #(= (str base path) (:url %)) (:report result)))))
+                 result (check [(item "/master.m3u8" "avc1.64001F,mp4a.40.2")])
+                 facts  (:facts (first (filter #(= :stream (:kind %)) (:files result))))]
+             (testing "the playlists of a stream, read with the Origin of the check"
+               (is (= [:multivariant 700.0 true] ((juxt :kind :duration :ended?) (:stream facts))))
+               (is (= #{:check/duration} (found result "/master.m3u8")) "100 seconds longer than the feed says")
+               (is (every? :origin (filter #(str/ends-with? (:path %) ".m3u8") @requests))))
+             (testing "a playlist that web players can't read, of codecs that the feed doesn't name"
+               (is (= #{:check/cors :check/duration :check/codecs}
+                      (found (check [(item "/closed.m3u8" "hvc1.1.6.L93.B0,mp4a.40.2")]) "/closed.m3u8"))))))))))
+
 #?(:cljs
    (deftest checking-a-feed-with-fetch
      (async done

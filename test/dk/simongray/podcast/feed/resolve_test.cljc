@@ -207,8 +207,13 @@
                       :podcast/alternate-enclosures
                       [{:type "application/x-mpegURL" :sources [{:uri "https://a/m.m3u8"}]}]}]
         (is (= "https://a/m.m3u8" (:url (resolve/enclosure streamed {:video? true})))
-            "a stream that says nothing before the audio, for video")
-        (is (= "https://a/en.mp3" (:url (resolve/enclosure streamed {:video? false})))))))
+            "a stream that says nothing counts as a video")
+        (is (= "https://a/en.mp3" (:url (resolve/enclosure streamed {:video? false})))))
+      (let [peertube {:rss/enclosure {:url "https://p/360.mp4" :type "video/mp4"}
+                      :podcast/alternate-enclosures
+                      [{:type "application/x-mpegURL" :sources [{:uri "https://p/master.m3u8"}]}]}]
+        (is (= "https://p/360.mp4" (:url (resolve/enclosure peertube {:video? false})))
+            "for audio, no stream that says nothing before a video file"))))
   (let [video-only {:rss/enclosure {:url "https://a/v.mp4" :type "video/mp4"}}]
     (is (= "https://a/v.mp4" (:url (resolve/enclosure video-only {:video? false})))
         "a preference, so a show of video alone still plays")))

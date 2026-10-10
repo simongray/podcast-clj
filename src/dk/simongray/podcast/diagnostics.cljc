@@ -284,6 +284,12 @@
      :doc "The file ends before its structures say it does."}
     {:id :file/malformed :level :warning
      :doc "The file doesn't read as its format says."}
+    {:id :file/duration :level :info
+     :doc "The duration of the media file or stream differs from the one that
+           the feed declares by more than 10 seconds and 2 percent. A host
+           that inserts ads can explain it, but then a position in this file
+           may not be the same moment in another file of the episode, such as
+           its video."}
     {:id :file/incomplete :level :warning
      :doc "The bytes that the reader needed didn't arrive, or a limit stopped
            the reading, so nothing was read."}

@@ -111,6 +111,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:file/unknown-format` | warning | The file isn't in a format that its reader knows, so nothing was read from it. Media files can be MP3 or MP4, and images PNG, JPEG, GIF or WebP, while AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO images are only recognised by their type. |
 | `:file/truncated` | warning | The file ends before its structures say it does. |
 | `:file/malformed` | warning | The file doesn't read as its format says. |
+| `:file/duration` | info | The duration of the media file or stream differs from the one that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it, but then a position in this file may not be the same moment in another file of the episode, such as its video. |
 | `:file/incomplete` | warning | The bytes that the reader needed didn't arrive, or a limit stopped the reading, so nothing was read. |
 | `:file/unreachable` | warning | The file couldn't be fetched: the request failed, or the server answered with a status that isn't a success. |
 | `:file/unverifiable` | info | This podcast:integrity can't be checked. A PGP signature needs the key of the publisher, and an sri value must name a sha256, sha384 or sha512 hash. |

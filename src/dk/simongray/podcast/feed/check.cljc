@@ -634,10 +634,7 @@
   2 percent, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen measured]
   (let [stated (:duration declared)]
-    (when (and (number? stated)
-               (number? measured)
-               (> (abs (- stated measured))
-                  (max 10 (* 0.02 stated))))
+    (when (media/durations-differ? stated measured)
       [(diagnostic file chosen :check/duration
                    :declared stated
                    :measured measured)])))

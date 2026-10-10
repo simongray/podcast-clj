@@ -243,7 +243,10 @@
   - :transcript is the reference that `view` chose, with its :document
     and :report.
   - :media is the :duration, :artwork and :report of the media file. For
-    an HLS stream, it's what format.hls/read! gives, with :video?.
+    an HLS stream, it's what format.hls/read! gives, with :video?. The
+    report has :file/duration when the duration differs from the one that
+    the feed declares, so that a position may not carry over to another
+    file of the episode.
   - :duration is that of the media file or the stream.
 
   Nothing is thrown for what the network or a server does, and a part
@@ -278,7 +281,19 @@
      (async/then (async/all force files)
                  (fn [[file transcript media]]
                    (let [chapters (best-chapters file own media)
-                         duration (:duration media)]
+                         duration (:duration media)
+                         stated   (:duration view)
+                         whole?   (or (not= :hls (:format media))
+                                      (:ended? media))
+                         other    {:id       :file/duration
+                                   :declared stated
+                                   :measured duration}
+                         media    (cond-> media
+                                    (and whole?
+                                         (media/durations-differ? stated
+                                                                  duration))
+                                    (update :report (fnil conj [])
+                                            (diagnostics/describe other)))]
                      (cond-> {}
                        chapters   (assoc :chapters chapters)
                        transcript (assoc :transcript transcript)

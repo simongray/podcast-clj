@@ -355,12 +355,13 @@
          (codec-kinds (first (str/split (str/trim codec) #"\."))))))
 
 (defn video?
-  "Whether the `enclosure`, one of those that enclosures gives, is a video,
-  or nil when nothing tells.
+  "Whether the `enclosure` is a video, or nil when nothing tells.
 
-  Its Media RSS medium tells first, then an audio or video type, then the
-  codecs, and then a height above 0, which only a video has. A stream such
-  as HLS often tells nothing."
+  The `enclosure` is one of those that enclosures gives, or any map of
+  the same keys, e.g. a variant of an HLS stream or what format.media
+  reads of a file. Its Media RSS medium tells first, then an audio or
+  video type, then the codecs, and then a height above 0, which only a
+  video has. A stream such as HLS often tells nothing."
   [{:keys [medium type codecs height]}]
   (let [kind  (some-> type str/lower-case (str/split #"/") first)
         kinds (some-> codecs codec-string-kinds)]
@@ -457,11 +458,12 @@
 
   The languages count first, where a candidate that names none ranks after
   the matches and before the mismatches. The kind that :video? prefers
-  counts next, where a candidate whose kind isn't told, such as most HLS
-  streams, ranks between the two kinds. Then come the types, then the
-  bitrate and the height, where a candidate above the :max-bitrate or the
-  :max-height ranks last. Among equals, the enclosure comes first, then
-  the default alternate, then the rest, the most conventional first."
+  counts next, where a candidate whose kind isn't told counts as a video,
+  since most such candidates are HLS streams of video. Then come the
+  types, then the bitrate and the height, where a candidate above the
+  :max-bitrate or the :max-height ranks last. Among equals, the enclosure
+  comes first, then the default alternate, then the rest, the most
+  conventional first."
   ([item]
    (enclosure item nil))
   ([item {:keys [languages types max-bitrate max-height playable-pred]
@@ -474,14 +476,14 @@
                       :as   candidate}]
                   (let [over?    (or (above? max-bitrate bitrate)
                                      (above? max-height height))
-                        kind     (video? candidate)
+                        as-video (not (false? (video? candidate)))
                         default? (or (true? default)
                                      (true? is-default))]
                     [(language-rank languages lang)
-                     (cond (nil? prefer-video?)   0
-                           (= prefer-video? kind) 0
-                           (nil? kind)            1
-                           :else                  2)
+                     (if (or (nil? prefer-video?)
+                             (= prefer-video? as-video))
+                       0
+                       1)
                      (if types (type-rank types type) 0)
                      (if over? 1 0)
                      (source-rank source)
