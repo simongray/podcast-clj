@@ -59,6 +59,23 @@ where that part would be unclear, e.g. `feed.guid` or `nostr-comments`.
 The examples run on the JVM, except those for a browser, and in
 ClojureScript the functions that send requests return promises.
 
+Some of the namespaces come from libraries that were spun out of
+podcast-clj. It depends on them, so they come with it:
+
+- [wary-fetch](https://github.com/simongray/wary-fetch), HTTP with limits
+  and a guard against private addresses, as `http`, `url`, `proxy` and
+  `secret`
+- [like-minded](https://github.com/simongray/like-minded), the sync
+  between devices and the stores of documents it goes through, as
+  `store`, `folder`, `webdav`, `webdav-server`, `encrypted` and
+  `indexeddb`
+- [mind-meld](https://github.com/simongray/mind-meld), the CRDT of the
+  profile, as `crdt`
+- [drop-in-search](https://github.com/simongray/drop-in-search), full-text
+  search, as `search`, `search.queries` and `ciff`
+- [html-pieces](https://github.com/simongray/html-pieces), HTML as Hiccup,
+  as `html`
+
 
 ## What you build yourself
 
@@ -98,7 +115,8 @@ it with `:deps true`. A browser needs no npm packages, and Node only the
 
 Few feed hosts and directories let a page of another site read their
 answers, so a page sends its requests through your own server. Mount the
-proxy of wary-fetch there, and give its sender as `:send`:
+proxy of [wary-fetch](https://github.com/simongray/wary-fetch) there, and
+give its sender as `:send`:
 
 ```clojure
 ;; on the server, as a route of Pedestal or any other Ring router
@@ -815,8 +833,9 @@ first:
 ## Sync the devices of a listener
 
 Each device writes its whole profile as one document to a store, and
-reads the documents of the other devices. [Syncing](sync.md) explains why
-this is safe.
+reads the documents of the other devices. The stores and the sync are
+those of [like-minded](https://github.com/simongray/like-minded), to which
+`sync` gives the profile. [Syncing](sync.md) explains why this is safe.
 
 ```clojure
 (def creds {:username "simon" :password (secret/hide "app-password")})
@@ -861,7 +880,7 @@ To keep the documents encrypted on the server, wrap the store with
 
 Each sync removes the tombstones that every device has seen, once they're
 30 days old. A device that stopped syncing blocks this. Such devices are
-listed by `crdt/lagging`, and `crdt/retire` removes one.
+listed by `crdt/lagging` of mind-meld, and `crdt/retire` removes one.
 
 To share the subscriptions and the progress of episodes with AntennaPod,
 Kasts and other apps of the gpodder API, add a gpodder server as a backend.
@@ -1295,6 +1314,9 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 
 ## The namespaces of the examples
+
+The namespaces outside `dk.simongray.podcast` are those of the libraries
+that [Before you start](#before-you-start) lists.
 
 ```clojure
 (ns my.app

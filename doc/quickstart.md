@@ -140,15 +140,17 @@ waits longer before the next try.
 
 Each device writes its profile to a store as one document, and reads
 the documents of the other devices. A folder that a sync client mirrors is
-a store, and so is a WebDAV collection. With `sync/backend`, a store
-becomes the backend of a sync, here with the app's name in its document:
+a store, and so is a WebDAV collection. The stores come from
+[like-minded](https://github.com/simongray/like-minded), which podcast-clj
+syncs through and brings along. With `sync/backend`, a store becomes the
+backend of a sync, here with the app's name in its document:
 
 ```clojure
-(def folder
+(def dropbox
   (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")
                 {:app "quickstart"}))
 
-(-> (swap! lib library/merge (library/sync! @lib [folder]))
+(-> (swap! lib library/merge (library/sync! @lib [dropbox]))
     :sync
     (select-keys [:at :report]))
 ;; => {:at #inst "…" :report []}

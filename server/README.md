@@ -42,6 +42,12 @@ through the folder:
 (.then (library/sync! @lib backends) #(swap! lib library/merge %))
 ```
 
+Here `proxy` is `dk.simongray.wary-fetch.proxy` of
+[wary-fetch](https://github.com/simongray/wary-fetch), and `webdav` is
+`dk.simongray.like-minded.store.webdav` of
+[like-minded](https://github.com/simongray/like-minded), two libraries that
+come with podcast-clj.
+
 [How to build a podcast app](../doc/building-an-app.md#sync-the-listeners-of-a-website)
 says what else a page needs, e.g. where to keep the library. The
 client's pages can only run scripts from the server's own files, so an

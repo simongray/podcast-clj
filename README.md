@@ -205,7 +205,9 @@ not with `assoc`. [Syncing](doc/sync.md) explains how the devices merge.
 A podcast app in a browser also needs a server: a proxy for the files that
 other sites don't let a page read, and a folder to sync through. The
 [podcast server](server/README.md) in `server/` is that server for one
-listener. It serves the Ring handlers of wary-fetch's proxy, like-minded's `store.webdav.server` and
+listener. It serves the Ring handlers of the proxy of
+[wary-fetch](https://github.com/simongray/wary-fetch), the WebDAV server of
+[like-minded](https://github.com/simongray/like-minded) and
 `sync.gpodder.server`, which you can also mount in a server of your own.
 
 Documentation
