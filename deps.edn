@@ -21,7 +21,7 @@
          dk.simongray/drop-in-search {:mvn/version "0.1.0"}
          dk.simongray/mind-meld
          {:git/url "https://github.com/simongray/mind-meld"
-          :git/sha "78331e5ad011f0a5c00fc804ef40dabfe22bc709"}}
+          :git/sha "b72137662bf70261835daae4fe3083868cd85da9"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
