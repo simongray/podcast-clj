@@ -75,6 +75,8 @@ podcast-clj. It depends on them, so they come with it:
   search, as `search`, `search.queries` and `ciff`
 - [html-pieces](https://github.com/simongray/html-pieces), HTML as Hiccup,
   as `html`
+- [websub-clj](https://github.com/simongray/websub-clj), WebSub, as
+  `websub`
 
 
 ## What you build yourself
@@ -315,7 +317,8 @@ their pings with `podping/pings`.
 A server can instead have the feeds pushed to it by a WebSub hub, which
 needs a public callback URL. The result of `fetch!` has `:websub` when the
 feed names a hub. Subscribe with a secret that nobody can guess, one for
-each subscription, and handle the callback with `websub/handler`:
+each subscription, e.g. from `websub/token`, and handle the callback with
+`websub/handler`:
 
 ```clojure
 (let [{:keys [hubs topic]} (:websub result)]
@@ -332,8 +335,8 @@ each subscription, and handle the callback with `websub/handler`:
 
 The `:deliver!` function only gets feeds with the right signature. Return
 from it quickly, and parse the feed afterwards. Renew the subscription
-before the lease runs out, and keep polling on the normal schedule too,
-since a hub can fail.
+before the lease runs out, at `websub/next-renewal`, and keep polling on
+the normal schedule too, since a hub can fail.
 
 
 ## Follow lists of shows
@@ -1267,8 +1270,7 @@ about each change:
 (def feed
   (update feed :atom/links conj {:rel "hub" :href "https://hub.example.org/"}))
 
-(websub/call! (websub/publish-request "https://hub.example.org/"
-                                      "https://example.org/feed.xml"))
+(websub/publish! ["https://hub.example.org/"] "https://example.org/feed.xml")
 ```
 
 A private feed has a token for each subscriber. You make and check the
@@ -1362,7 +1364,6 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]
-            [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
@@ -1371,5 +1372,6 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.proxy :as proxy]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.websub :as websub]))
 ```

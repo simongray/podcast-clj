@@ -12,7 +12,7 @@ Every namespace of podcast-clj is under the root namespace,
 - **One part of podcasting each.** The other namespaces each cover one
   part, such as the feed model in `feed`, the listener's profile in
   `profile` and payments in `value`. Many of them are named for the
-  standard they implement, e.g. `format.opml`, `updates.websub` or
+  standard they implement, e.g. `format.opml`, `updates.podping` or
   `value.nwc`. Use them when you need one part, or more control than the
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
@@ -32,9 +32,10 @@ these docs. The XML of feeds and lists is read and written by
 show notes and comments is read by
 [html-pieces](https://github.com/simongray/html-pieces), full-text search
 comes from [drop-in-search](https://github.com/simongray/drop-in-search),
-and the profile is a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld). These are five
-libraries in repositories of their own.
+the profile is a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld), and WebSub comes
+from [websub-clj](https://github.com/simongray/websub-clj). Each is a
+library in a repository of its own.
 
 The tables follow the same order. Names in them are relative to the root,
 and everything runs on the JVM and in ClojureScript unless the table says
@@ -110,7 +111,6 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model, and `fetch-remote-item!` and `fetch-remote-value!`, which resolve remote items. |
 | `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
 | `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
-| `updates.websub` | WebSub, for a server: `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback. For hosts, there's `publish-request`. |
 
 ## Formats
 

@@ -35,7 +35,7 @@
    "profile" 3 "criteria" 3 "downloads" 3
    "sync" 3 "sync.gpodder" 3 "sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
-   "updates.podping" 3 "updates.websub" 3
+   "updates.podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "comments.nostr" 3
    "analytics" 3 "analytics.op3" 3

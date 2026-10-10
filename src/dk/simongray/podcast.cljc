@@ -5,11 +5,11 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
-            [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.websub :as websub]))
 
 (def ^:no-doc feed-types
   "The Accept header of a request for a feed."
@@ -67,7 +67,7 @@
         parse-opts           (assoc opts :url (:url response))
         {:keys [feed error]} (rss/try-parse (str body) parse-opts)
         hubs                 (when feed
-                               (websub/discover response feed))]
+                               (websub/discover response (:atom/links feed)))]
     (cond-> {}
       body  (assoc :body body)
       feed  (assoc :feed feed)

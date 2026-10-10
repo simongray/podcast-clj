@@ -351,10 +351,9 @@ before the gap.
 With WebSub, a hub sends the feed to each subscriber when it changes, so a
 subscriber must be a server with a public URL. An app on a phone uses
 Podping instead, and a server that keeps the feeds of many listeners can use
-both. `updates.websub` has `discover`, `request`, and a Ring `handler` for
-the callback, which checks the hub's HMAC signature before the app sees the
-feed. It answers 200 to a wrong signature too, so a stranger learns nothing
-about the secret.
+both. WebSub isn't specific to podcasts, so it's a library of its own,
+[websub-clj](https://github.com/simongray/websub-clj), and `fetch!` uses it
+to give the hubs that a feed names.
 
 
 ## Links to the apps

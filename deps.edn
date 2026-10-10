@@ -4,8 +4,9 @@
  ;; side of the JSON adapter (chapters, transcripts, Podcast Index),
  ;; wary-fetch for HTTP, qname-hiccup for the XML of feeds and lists,
  ;; html-pieces for the HTML in show notes and comments, drop-in-search for
- ;; full-text search, mind-meld for the CRDT of the listener's profile, and
- ;; like-minded for syncing it and for the stores.
+ ;; full-text search, mind-meld for the CRDT of the listener's profile,
+ ;; like-minded for syncing it and for the stores, and websub-clj for
+ ;; WebSub.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -16,7 +17,7 @@
          org.clojure/data.json    {:mvn/version "2.5.2"}
          dk.simongray/wary-fetch
          {:git/url "https://github.com/simongray/wary-fetch"
-          :git/sha "04fec7f7c79de3004612998e0e085adab5df3536"}
+          :git/sha "111e96e31102b131c1c24c66e5b470430c1a34f3"}
          dk.simongray/qname-hiccup   {:mvn/version "0.1.0"}
          dk.simongray/html-pieces    {:mvn/version "0.1.0"}
          dk.simongray/drop-in-search {:mvn/version "0.1.0"}
@@ -25,7 +26,10 @@
           :git/sha "b72137662bf70261835daae4fe3083868cd85da9"}
          dk.simongray/like-minded
          {:git/url "https://github.com/simongray/like-minded"
-          :git/sha "a691f1bf62fe003f375f9f04cc232330fbedfba0"}}
+          :git/sha "a691f1bf62fe003f375f9f04cc232330fbedfba0"}
+         dk.simongray/websub-clj
+         {:git/url "https://github.com/simongray/websub-clj"
+          :git/sha "d3bb85e3070f0a22d22899c01fbdeb77d6329082"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
@@ -108,16 +112,17 @@
                        slipset/deps-deploy            {:mvn/version "0.2.5"}}
           :ns-default build}
 
-  ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld and
-  ;; like-minded from checkouts beside this one, to change them and
-  ;; podcast-clj at once, e.g. clojure -M:dev:local:nrepl
+  ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
+  ;; like-minded and websub-clj from checkouts beside this one, to change
+  ;; them and podcast-clj at once, e.g. clojure -M:dev:local:nrepl
   :local {:override-deps
           {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
            dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
            dk.simongray/html-pieces    {:local/root "../html-pieces"}
            dk.simongray/drop-in-search {:local/root "../drop-in-search"}
            dk.simongray/mind-meld      {:local/root "../mind-meld"}
-           dk.simongray/like-minded    {:local/root "../like-minded"}}}
+           dk.simongray/like-minded    {:local/root "../like-minded"}
+           dk.simongray/websub-clj     {:local/root "../websub-clj"}}}
 
   ;; clojure -M:dev:nrepl
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}}

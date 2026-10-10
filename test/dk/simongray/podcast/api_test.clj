@@ -21,8 +21,6 @@
     "a call names the listener and the device, which the options give"
     dk.simongray.podcast.sync.gpodder.server/handler
     "a handler serves the :state and checks credentials with :authorized-pred"
-    dk.simongray.podcast.updates.websub/handler
-    "a handler asks :wanted-pred and gives each feed to :deliver!"
     dk.simongray.podcast.comments.activitypub/requests
     "comments/requests calls it with the limits"
     dk.simongray.podcast.comments.atproto/requests

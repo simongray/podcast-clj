@@ -13,11 +13,11 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [run secret-key]]
             [dk.simongray.podcast.updates.podping :as podping]
-            [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.websub :as websub]))
 
 (def password "hunter2-and-more")
 

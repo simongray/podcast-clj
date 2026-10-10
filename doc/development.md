@@ -18,11 +18,12 @@ To change [wary-fetch](https://github.com/simongray/wary-fetch),
 [qname-hiccup](https://github.com/simongray/qname-hiccup),
 [html-pieces](https://github.com/simongray/html-pieces),
 [drop-in-search](https://github.com/simongray/drop-in-search),
-[mind-meld](https://github.com/simongray/mind-meld) or
-[like-minded](https://github.com/simongray/like-minded) and podcast-clj at
+[mind-meld](https://github.com/simongray/mind-meld),
+[like-minded](https://github.com/simongray/like-minded) or
+[websub-clj](https://github.com/simongray/websub-clj) and podcast-clj at
 once, check them out beside this one, in `../wary-fetch`,
-`../qname-hiccup`, `../html-pieces`, `../drop-in-search`, `../mind-meld`
-and `../like-minded`, and add the `:local` alias, e.g.
+`../qname-hiccup`, `../html-pieces`, `../drop-in-search`, `../mind-meld`,
+`../like-minded` and `../websub-clj`, and add the `:local` alias, e.g.
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
 deps.edn, or its version once it's released on Clojars.
 
