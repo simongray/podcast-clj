@@ -247,6 +247,8 @@ Background:
 - [The needs of podcast-clj, October 2026](doc/needs-2026.md): what essential
   podcast software still needs from the library, and what is only nice to have,
   each scored by difficulty and gain.
+- [What real feeds look like, October 2026](doc/corpus-study-2026.md): the
+  Podcast Index and a sample of 5,000 feeds, measured with the library.
 
 
 Development
