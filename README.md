@@ -258,6 +258,9 @@ Background:
   three more walks through the library, and what they found.
 - [A subtractive review, October 2026](doc/subtractive-review-2026.md): what
   the library can lose without a reader losing anything.
+- [The needs of the sibling libraries, October 2026](doc/siblings-2026.md):
+  what the seven libraries podcast-clj is built on still need for their
+  own audiences, and what a 1.0 of each takes.
 
 
 Development
