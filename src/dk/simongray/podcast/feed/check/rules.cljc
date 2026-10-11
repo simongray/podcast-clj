@@ -65,12 +65,13 @@
   "The diagnostic `id` about `file`, with the `details`, at the level of
   the catalogue unless the `chosen` requirements raise it."
   [{:keys [url path] :as file} chosen id & {:as details}]
-  (merge {:id    id
-          :level (or (get-in chosen [:levels id])
-                     (:level (diagnostics/by-id id)))
-          :url   url
-          :path  path}
-         (into {} (remove (comp nil? val)) details)))
+  (diagnostics/masked
+   (merge {:id    id
+           :level (or (get-in chosen [:levels id])
+                      (:level (diagnostics/by-id id)))
+           :url   url
+           :path  path}
+          (into {} (remove (comp nil? val)) details))))
 
 (defn ^:no-doc reaching
   "The diagnostics of how the `answer` to a request for `file` reached it,

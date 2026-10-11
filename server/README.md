@@ -126,10 +126,11 @@ PODCAST_SERVER_PASSWORD=…
 Every request must then give the password with HTTP Basic
 authentication, with any user name. The browser asks for it when you
 open the client, and a gpodder app takes it as the password of its
-account. Nothing slows down the guesses of an attacker, which is why the
-password must be long. To change it, edit `server/.env` and run the
-`docker compose` command again, which also ends the sessions of the
-gpodder apps.
+account. After a wrong password, the address that sent it waits a
+second before the server answers it again, twice as long after each one
+more, up to a minute. That slows an attacker down, but the password must
+still be long. To change it, edit `server/.env` and run the `docker
+compose` command again, which also ends the sessions of the gpodder apps.
 
 The server speaks plain HTTP, so put a server for HTTPS in front of it,
 e.g. Caddy with this `Caddyfile`, and give the domain in
@@ -159,9 +160,18 @@ Each setting is an environment variable.
 | `PODCAST_SERVER_PRIVATE_NETWORK` | false | Whether only a private network reaches the server, e.g. through tailscale serve, so that it can start without a password on another address than localhost |
 | `PODCAST_SERVER_DATA` | `data`, or `/data` in the image | The folder of its data, with the documents in `sync/` |
 | `PODCAST_SERVER_CLIENT` | none | The folder of the client's files. A file or folder whose name starts with a dot isn't served. |
+| `PODCAST_SERVER_MAX_SYNC_DOCUMENTS` | 1000 | The most documents that the sync folder holds |
+| `PODCAST_SERVER_MAX_SYNC_BYTES` | 536870912 (512 MB) | The most bytes that the documents of the sync folder add up to |
 
 The server refuses a request that names it by any other name, as a page
-that points a domain of its own at the server would. It refuses a write
-from a page of another site, e.g. a form that posts to the gpodder API.
-Without a password, it also refuses whatever Tailscale Funnel brings from
-the public internet.
+that points a domain of its own at the server would. Any other client can
+send the name it likes, so the check only keeps out web pages. It refuses
+a write from a page of another site, e.g. a form that posts to the gpodder
+API. Without a password, it also refuses whatever Tailscale Funnel brings
+from the public internet.
+
+Whoever has the password is the listener, so the server limits what a
+leaked one can cost: the sync folder holds no more than its settings
+allow, the proxy fetches four files at once and makes the others wait,
+and a gpodder app adds at most 1000 subscriptions at a time, of feeds on
+the public internet only.

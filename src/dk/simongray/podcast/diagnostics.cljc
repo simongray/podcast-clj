@@ -25,7 +25,8 @@
   - value, the records of payments
   - analytics, the list of user agents"
   (:require [clojure.string :as str]
-            [dk.simongray.like-minded.diagnostics :as sync-diagnostics]))
+            [dk.simongray.like-minded.diagnostics :as sync-diagnostics]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn- unwrap
   "The text `s` on one line, without the line breaks and the indentation
@@ -676,13 +677,40 @@
   "The catalogue by id."
   (into {} (map (juxt :id identity)) catalogue))
 
+(def ^:no-doc secret-param
+  "The pattern of the name of a query parameter whose value can be a
+  secret, e.g. the token of a private feed or an API key."
+  #"(?i)token|key|secret|pass|auth|sig|session")
+
+(defn ^:no-doc masked-url
+  "The `url` without a user name and password, and with … as the value of
+  each query parameter whose name sounds secret, e.g. ?token=…"
+  [url]
+  (str/replace (first (url/split-credentials url))
+               #"([?&])([^=&#]*)=([^&#]*)"
+               (fn [[whole separator k _]]
+                 (if (re-find secret-param k)
+                   (str separator k "=…")
+                   whole))))
+
+(defn ^:no-doc masked
+  "The `diagnostic` with the secrets of its :url masked, there and in its
+  :reason, so that a log that holds it holds no token of a private feed."
+  [{:keys [url reason] :as diagnostic}]
+  (if (string? url)
+    (let [m (masked-url url)]
+      (cond-> (assoc diagnostic :url m)
+        (string? reason) (update :reason str/replace url m)))
+    diagnostic))
+
 (defn describe
   "The `diagnostic` with a :message and a :level: its own, or else those
   that the catalogue gives for its id. An id that the catalogue doesn't
-  know is left as it is."
+  know is left as it is. The secrets of its :url are masked, e.g. the
+  ?token= of a private feed."
   [diagnostic]
   (let [{:keys [doc level]} (by-id (:id diagnostic))]
-    (cond-> diagnostic
+    (cond-> (masked diagnostic)
       (and doc (not (:message diagnostic)))  (assoc :message doc)
       (and level (not (:level diagnostic))) (assoc :level level))))
 

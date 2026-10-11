@@ -24,6 +24,7 @@
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.wary-fetch.proxy :as proxy]
             [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.ring-middlewares :as ring-middlewares]
@@ -32,8 +33,9 @@
             [io.pedestal.service.interceptors :as interceptors]
             [io.pedestal.service.resources :as resources]
             [podcast-server.device :as device])
-  (:import [java.security MessageDigest]
-           [java.util.concurrent Executors])
+  (:import [java.io File]
+           [java.security MessageDigest]
+           [java.util.concurrent Executors Semaphore TimeUnit])
   (:gen-class))
 
 (def defaults
@@ -50,31 +52,38 @@
     e.g. through tailscale serve, so that it can do without a password
     while it listens beyond localhost, e.g. in Docker
   - :data-dir, the folder of its data, with the sync folder in it
-  - :client-dir, the folder of the client's files, or nil for none"
-  {:port             8400
-   :host             "localhost"
-   :names            #{}
-   :password         nil
-   :private-network? false
-   :data-dir         "data"
-   :client-dir       nil})
+  - :client-dir, the folder of the client's files, or nil for none
+  - :max-sync-documents and :max-sync-bytes, the most documents that the
+    sync folder holds and the most bytes that they add up to"
+  {:port               8400
+   :host               "localhost"
+   :names              #{}
+   :password           nil
+   :private-network?   false
+   :data-dir           "data"
+   :client-dir         nil
+   :max-sync-documents 1000
+   :max-sync-bytes     (* 512 1024 1024)})
 
 (def environment
   "The environment variable of each setting. The names are separated by
   commas, and whether the network is private is true or false."
-  {:port             "PODCAST_SERVER_PORT"
-   :host             "PODCAST_SERVER_HOST"
-   :names            "PODCAST_SERVER_NAMES"
-   :password         "PODCAST_SERVER_PASSWORD"
-   :private-network? "PODCAST_SERVER_PRIVATE_NETWORK"
-   :data-dir         "PODCAST_SERVER_DATA"
-   :client-dir       "PODCAST_SERVER_CLIENT"})
+  {:port               "PODCAST_SERVER_PORT"
+   :host               "PODCAST_SERVER_HOST"
+   :names              "PODCAST_SERVER_NAMES"
+   :password           "PODCAST_SERVER_PASSWORD"
+   :private-network?   "PODCAST_SERVER_PRIVATE_NETWORK"
+   :data-dir           "PODCAST_SERVER_DATA"
+   :client-dir         "PODCAST_SERVER_CLIENT"
+   :max-sync-documents "PODCAST_SERVER_MAX_SYNC_DOCUMENTS"
+   :max-sync-bytes     "PODCAST_SERVER_MAX_SYNC_BYTES"})
 
 (defn- setting
   "The setting `k` from the value `v` of its environment variable `var`. A
   password has at least 16 characters, and it's kept as a hidden text."
   [k var v]
-  ;; nothing slows down the guesses of an attacker
+  ;; long, since the waits after wrong guesses slow an attacker, but only
+  ;; down to a guess a minute
   (case k
     :port             (or (parse-long v)
                           (throw (ex-info (str var " is not a port number: " v)
@@ -94,6 +103,11 @@
                         (throw (ex-info (str var " is neither true nor "
                                              "false: " v)
                                         {var v})))
+
+    (:max-sync-documents :max-sync-bytes)
+    (or (some-> (re-matches #"\d{1,15}" v) parse-long)
+        (throw (ex-info (str var " is not a number: " v) {var v})))
+
     v))
 
 (defn settings
@@ -136,7 +150,8 @@
 
   A web page that points a name of its own at this server's address gets
   a 403, since without a password the server checks no credentials (DNS
-  rebinding)."
+  rebinding). The check is against web pages: a client that isn't a
+  browser can send any name, or none, as HTTP/1.0 allows."
   [names]
   (let [known (into #{"localhost" "127.0.0.1" "[::1]"}
                     (map without-port)
@@ -190,6 +205,77 @@
   (let [digest #(bytes/sha256 (bytes/encode (str (secret/reveal %))))]
     (MessageDigest/isEqual ^bytes (digest password) ^bytes (digest given))))
 
+(defn- client-address
+  "The address of the client of `request`: the one that the proxy in front
+  names in X-Forwarded-For when the request came from this machine, e.g.
+  through Caddy or tailscale serve, or else the one that connected. An
+  IPv6 address counts by its first 64 bits, since one client can hold all
+  the addresses of a /64."
+  [{:keys [remote-addr headers] :as request}]
+  (let [from      (url/ip-address (str remote-addr))
+        local?    (or (= 127 (first from))
+                      (= (conj (vec (repeat 15 0)) 1) from))
+        forwarded (some-> (get headers "x-forwarded-for")
+                          (str/split #",")
+                          last
+                          str/trim)
+        address   (if (and local? forwarded) forwarded remote-addr)
+        b         (url/ip-address (str address))]
+    (if (= 16 (count b))
+      (subvec b 0 8)
+      (or b address))))
+
+(defn- waits
+  "The `book` of the clients that guessed wrong, by address, with a wrong
+  guess of the client `k` at the instant `now-ms` added.
+
+  The wait is a second after the first wrong guess and twice as long
+  after each one more, up to a minute. A client that hasn't guessed for
+  ten minutes leaves the book."
+  [book k now-ms]
+  (let [n      (inc (get-in book [k :count] 0))
+        wait   (min 60 (bit-shift-left 1 (min 6 (dec n))))
+        recent (fn [[_ {:keys [until]}]] (< (- now-ms until) 600000))]
+    (-> (into {} (filter recent) book)
+        (assoc k {:count n :until (+ now-ms (* 1000 wait))}))))
+
+(defn wrong-guesses
+  "An interceptor that makes a client wait after each wrong password,
+  judged by the clock `now-ms-fn`, a function of no arguments that gives
+  the milliseconds.
+
+  A client gets a 429 with a Retry-After until its wait is over, whatever
+  it sends, so that guesses come at most once a minute. The wait is short,
+  so that a household behind one address with someone guessing among them
+  isn't kept out for long. The right password ends the waits of its
+  client."
+  [now-ms-fn]
+  (let [book (atom {})]
+    (interceptor/interceptor
+     {:name  ::wrong-guesses
+      :enter (fn [{:keys [request] :as context}]
+               (let [until (get-in @book [(client-address request) :until] 0)
+                     wait  (- until (now-ms-fn))]
+                 (if (pos? wait)
+                   (assoc context :response
+                          {:status  429
+                           :headers {"Retry-After"  (str (quot (+ wait 999)
+                                                               1000))
+                                     "Content-Type" "text/plain; charset=utf-8"}
+                           :body    "Wait before you try the password again."})
+                   context)))
+      :leave (fn [{:keys [request response] :as context}]
+               (let [given? (get-in request [:headers "authorization"])
+                     status (:status response)
+                     k      (client-address request)]
+                 (cond
+                   (and given? (= 401 status))
+                   (swap! book waits k (now-ms-fn))
+
+                   (and given? status (< status 400))
+                   (swap! book dissoc k))
+                 context))})))
+
 ;; RFC 7617, section 2
 (defn login
   "An interceptor that lets in only requests with the `password` in their
@@ -235,24 +321,96 @@
                          :else
                          request))))}))
 
-(defn sync-store
-  "The store of the sync folder in the :data-dir of `settings`."
+(defn sync-dir
+  "The sync folder in the :data-dir of `settings`."
   [{:keys [data-dir] :as settings}]
-  (folder/store (io/file data-dir "sync")))
+  (io/file data-dir "sync"))
+
+(defn sync-store
+  "The store of the sync folder of `settings`."
+  [settings]
+  (folder/store (sync-dir settings)))
+
+(def max-document-bytes
+  "The most bytes that a document of the sync folder can hold."
+  (* 32 1024 1024))
+
+;; RFC 4918, section 11.5
+(defn within-quota
+  "The WebDAV `handler` of the sync folder `dir`, which refuses a put that
+  would take the folder past `max-documents` or `max-bytes` with a 507.
+
+  A put without a Content-Length counts as the most that a document can
+  hold, so that leaving it out passes no quota."
+  [dir max-documents max-bytes handler]
+  (fn [{:keys [request-method uri headers] :as request}]
+    (let [doc-name (url/percent-decode (str/replace uri #"^/dav/?" ""))]
+      (if (or (not= :put request-method) (str/blank? doc-name))
+        (handler request)
+        (let [document? #(and (.isFile ^File %)
+                              (not (str/starts-with? (.getName ^File %) ".")))
+              files     (filter document? (.listFiles (io/file dir)))
+              others    (remove #(= doc-name (.getName ^File %)) files)
+              size      (or (some->> (get headers "content-length")
+                                     (re-matches #"\d{1,15}")
+                                     parse-long)
+                            max-document-bytes)
+              total     (reduce + size (map #(.length ^File %) others))
+              full      #(assoc (refused %) :status 507)]
+          (cond
+            (and (= (count others) (count files))
+                 (<= max-documents (count files)))
+            (full (str "The sync folder holds no more than " max-documents
+                       " documents."))
+
+            (< max-bytes total)
+            (full (str "The sync folder holds no more than " max-bytes
+                       " bytes."))
+
+            :else
+            (handler request)))))))
+
+(defn at-most
+  "The Ring `handler` answering at most `n` requests at once, e.g. so that
+  the proxy holds no more than `n` bodies in memory. A request that waits
+  `seconds` for its turn gets a 503 with a Retry-After."
+  [n seconds handler]
+  (let [turns (Semaphore. n true)]
+    (fn [request]
+      (if (.tryAcquire turns (long seconds) TimeUnit/SECONDS)
+        (try
+          (handler request)
+          (finally
+            (.release turns)))
+        {:status  503
+         :headers {"Retry-After"  "5"
+                   "Content-Type" "text/plain; charset=utf-8"}
+         :body    "The server is busy. Try again in a few seconds."}))))
 
 (defn routes
   "The routes of the proxy, the sync folder `sync-store` and the gpodder
   API, in Pedestal's set syntax. The gpodder API names episodes by the
-  feeds in `lib`, an atom of the server's library, and lets in the apps
-  that give the `password`, or any app when it's nil."
-  [sync-store lib password]
-  (let [dav         (webdav-server/handler sync-store "/dav/")
+  feeds in `lib`, an atom of the server's library.
+
+  The :password of `settings` lets in the apps of the gpodder API, or any
+  app when it's nil, and the sync folder holds no more than their
+  :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
+  once, of 32 MB at most, so that a heap of 256 MB holds them."
+  [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
+                   :as   settings}]
+  (let [dav         (within-quota (sync-dir settings)
+                                  max-sync-documents
+                                  max-sync-bytes
+                                  (webdav-server/handler
+                                   sync-store "/dav/"
+                                   {:max-bytes max-document-bytes}))
         authorized? (if password
                       (fn [_ given] (password? password given))
                       (constantly true))
-        gpodder     (device/gpodder-handler sync-store lib authorized?)]
-    #{["/proxy" :any (proxy/handler {:user-agent client/user-agent})
-       :route-name ::proxy]
+        gpodder     (device/gpodder-handler sync-store lib authorized?)
+        proxy       (at-most 4 30 (proxy/handler {:user-agent
+                                                  client/user-agent}))]
+    #{["/proxy" :any proxy :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
       ["/api/2/*path" :any gpodder :route-name ::gpodder]}))
@@ -288,21 +446,25 @@
   "A Jetty connector of the server with `settings`, over the sync folder
   `sync-store` and the server's library `lib`, an atom; not yet started."
   [{:keys [host port names password client-dir] :as settings} sync-store lib]
-  (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}]
+  (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}
+        guard  (if password
+                 [(wrong-guesses #(System/currentTimeMillis)) (login password)]
+                 [no-funnel])]
     (-> (conn/default-connector-map host port)
         (conn/with-interceptors
-          [hidden-credentials
-           interceptors/log-request
-           interceptors/not-found
-           ;; scripts from this server only, with eval for the development
-           ;; builds of shadow-cljs; art, media and the rest from any host
-           (secure-headers/secure-headers
-            {:content-security-policy-settings policy})
-           (known-names names)
-           same-origin-writes
-           (if password (login password) no-funnel)
-           folders])
-        (conn/with-routes (routes sync-store lib password)
+          (-> [hidden-credentials
+               interceptors/log-request
+               interceptors/not-found
+               ;; scripts from this server only, with eval for the
+               ;; development builds of shadow-cljs; art, media and the rest
+               ;; from any host
+               (secure-headers/secure-headers
+                {:content-security-policy-settings policy})
+               (known-names names)
+               same-origin-writes]
+              (into guard)
+              (conj folders)))
+        (conn/with-routes (routes sync-store lib settings)
           (client-routes client-dir))
         (jetty/create-connector nil))))
 

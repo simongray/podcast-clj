@@ -129,7 +129,11 @@
     (let [r (feeds/refresh feeds guid {:status 404 :url url} (at 3600))]
       (is (= [[:fetch/status 404 guid]] (map (juxt :id :status :feed-guid) (:report r))))
       (is (string? (:message (first (:report r)))) "described")
-      (is (= [1 404] ((juxt :failures :status) (get-in r [:feeds guid]))))))
+      (is (= [1 404] ((juxt :failures :status) (get-in r [:feeds guid])))))
+    (let [private (str url "?token=abc")
+          r       (feeds/refresh (assoc-in feeds [guid :url] private) guid {:status 404 :url private} (at 3600))]
+      (is (= [(str url "?token=…")] (map :url (:report r))) "the token of a private feed, masked for a log")
+      (is (= private (get-in r [:feeds guid :url])) "but kept for the next fetch")))
   (testing "failures in a row wait longer, up to the last wait, and the server's word wins when later"
     (let [gone  {:status 503 :url url}
           step  (fn [[fs t]] [(:feeds (feeds/refresh fs guid gone t)) (time/->inst (+ (inst-ms t) 100000))])

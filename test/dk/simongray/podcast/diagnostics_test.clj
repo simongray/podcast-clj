@@ -58,6 +58,14 @@
   (testing "every entry documented"
     (is (every? (comp seq :doc) diagnostics/catalogue))))
 
+(deftest the-secrets-of-a-url
+  (let [url    "https://u:p@a.example/feed.xml?token=abc&page=2&api_key=K#top"
+        masked "https://a.example/feed.xml?token=…&page=2&api_key=…#top"
+        d      (diagnostics/fetch-failure {:url url :reason (str "The request to " url " is not allowed")})]
+    (is (= masked (:url d)) "the token and the key of a private feed, and the credentials")
+    (is (= (str "The request to " masked " is not allowed") (:reason d)) "in the reason too"))
+  (is (= "https://a.example/feed.xml?q=1" (diagnostics/masked-url "https://a.example/feed.xml?q=1"))))
+
 (deftest summarizing-diagnostics
   (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}
                      {:id :a :level :warning :message "m" :path [:rss/items 1]}

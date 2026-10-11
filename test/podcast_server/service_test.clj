@@ -17,10 +17,14 @@
 
 (defn- connector
   "A connector of the server over the folders in `dir`, with the client's
-  files when `client?` and the `more` settings."
+  files when `client?` and the `more` settings, whose waits after a wrong
+  password go by the milliseconds of `clock`, by default a clock whose
+  every tick passes any wait."
   ([dir client?]
    (connector dir client? {}))
   ([dir client? more]
+   (connector dir client? more (let [t (atom 0)] #(swap! t + 120000))))
+  ([dir client? more clock]
    (let [client (io/file dir "client")]
      (when client?
        (.mkdirs client)
@@ -31,8 +35,10 @@
                             :names      #{"pi.example.ts.net"}
                             :data-dir   (io/file dir "data")
                             :client-dir (when client? client)}
-                           more)]
-       (service/connector settings (service/sync-store settings) (atom (device/make)))))))
+                           more)
+           guesses  service/wrong-guesses]
+       (with-redefs [service/wrong-guesses (fn [_] (guesses clock))]
+         (service/connector settings (service/sync-store settings) (atom (device/make))))))))
 
 (def password
   "correct horse battery staple")
@@ -58,7 +64,11 @@
                       [:port :names :client-dir]))
       "a blank variable keeps the default")
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_PORT is not a port number"
-                        (service/settings {"PODCAST_SERVER_PORT" "eighty"}))))
+                        (service/settings {"PODCAST_SERVER_PORT" "eighty"})))
+  (is (= [5 1000] ((juxt :max-sync-documents :max-sync-bytes)
+                   (service/settings {"PODCAST_SERVER_MAX_SYNC_DOCUMENTS" "5" "PODCAST_SERVER_MAX_SYNC_BYTES" "1000"}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_MAX_SYNC_BYTES is not a number"
+                        (service/settings {"PODCAST_SERVER_MAX_SYNC_BYTES" "1 GB"}))))
 
 (deftest an-open-server
   (is (not (service/open? service/defaults)) "no password, on localhost")
@@ -195,3 +205,58 @@
             after  (connector dir false {:password (secret/hide "a new password, as long")})]
         (is (= 401 (:status (response-for after :get "/api/2/devices/simon.json" :headers {"cookie" cookie})))
             "ends the sessions, at the restart that sets it")))))
+
+(deftest waits-after-wrong-guesses
+  (with-temp-dir
+    (fn [dir]
+      (let [t     (atom 0)
+            c     (connector dir true {:password (secret/hide password)} #(deref t))
+            wrong (basic "simon" "correct horse battery stapler")
+            mine  (basic "simon" password)
+            ask   #(response-for c :get "/" :headers %)]
+        (is (= 401 (:status (ask wrong))))
+        (is (= [429 "1"] ((juxt :status #(get-in % [:headers "Retry-After"])) (ask mine)))
+            "for a second, when even the right password waits")
+        (reset! t 1000)
+        (is (= 401 (:status (ask wrong))))
+        (reset! t 2500)
+        (is (= 429 (:status (ask mine))) "twice as long after the second")
+        (reset! t 3000)
+        (is (= 200 (:status (ask mine))))
+        (is (= 401 (:status (ask wrong))))
+        (reset! t 4000)
+        (is (= 200 (:status (ask mine))) "a count started again by the right password")
+        (is (= 401 (:status (response-for c :post "/api/2/auth/simon/login.json" :headers wrong))))
+        (is (= 429 (:status (ask mine))) "a wrong guess at the gpodder API counts too")
+        (is (= 60000 (:until (get (nth (iterate #(#'service/waits % :k 0) {}) 12) :k)))
+            "a minute at most")))))
+
+(deftest the-address-of-a-client
+  (let [address #'service/client-address]
+    (is (= [203 0 113 9] (address {:remote-addr "203.0.113.9" :headers {"x-forwarded-for" "10.0.0.1"}}))
+        "the one that connected, whatever it says")
+    (is (= [198 51 100 7] (address {:remote-addr "127.0.0.1" :headers {"x-forwarded-for" "1.2.3.4, 198.51.100.7"}}))
+        "or behind the proxy in front, the one that the proxy saw")
+    (is (= (address {:remote-addr "2001:db8:1:2::1"}) (address {:remote-addr "[2001:db8:1:2:ffff::9]"}))
+        "an IPv6 client by its /64")))
+
+(deftest a-quota-on-the-sync-folder
+  (with-temp-dir
+    (fn [dir]
+      (let [c   (connector dir false {:max-sync-documents 2 :max-sync-bytes 100})
+            put #(:status (response-for c :put (str "/dav/" %1) :body %2 :headers {"content-length" (str (count %2))}))]
+        (is (= [201 201] [(put "a.edn" "{:a 1}") (put "b.edn" "{:b 1}")]))
+        (is (= 507 (put "c.edn" "{}")) "a third document")
+        (is (= 204 (put "a.edn" "{:a 2}")) "but a document replaced")
+        (is (= 507 (put "a.edn" (apply str (repeat 95 "x")))) "nor more bytes than the folder holds")))))
+
+(deftest requests-at-once
+  (let [started (java.util.concurrent.CountDownLatch. 1)
+        gate    (promise)
+        handler (service/at-most 1 0 (fn [_] (.countDown started) @gate {:status 200}))
+        first   (future (handler {}))]
+    (.await started)
+    (is (= [503 "5"] ((juxt :status #(get-in % [:headers "Retry-After"])) (handler {}))) "one more than it takes")
+    (deliver gate true)
+    (is (= 200 (:status @first)))
+    (is (= 200 (:status (handler {}))) "and its turn again, once the first is done")))

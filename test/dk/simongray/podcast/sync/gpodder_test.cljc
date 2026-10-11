@@ -167,6 +167,18 @@
           "a time that does not read tells nothing of when, so the action is left out")
       (is (= [9 t3] (heard "a2")) "an action without a time counts as made when it arrived"))))
 
+(deftest what-a-push-can-add
+  (let [clock        (atom t1)
+        [state send] (serve clock)
+        junk         ["ftp://x/" "not a url" "http://192.168.1.2/feed.xml" "http://nas.local/rss" "http://0x7f.0.0.1/"]]
+    (is (= [200 {"timestamp" (quot (inst-ms t1) 1000) "update_urls" (mapv #(vector % "") junk)}]
+           (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" (into [feed-a] junk)}))
+        "a URL that isn't on the public internet, rewritten to nothing, as gpodder.net does")
+    (is (= [feed-a] (map :url (vals (:subscriptions @state)))) "and not subscribed to")
+    (is (= 400 (first (ask send :post "/api/2/subscriptions/simon/phone.json"
+                           {"add" (mapv #(str "https://a.example/" % ".xml") (range 1001))})))
+        "more than a push can add")))
+
 (deftest the-sessions-of-the-server
   (let [clock      (atom t1)
         [_ send]   (serve clock)

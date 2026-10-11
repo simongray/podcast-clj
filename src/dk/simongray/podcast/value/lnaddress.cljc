@@ -55,9 +55,7 @@
                 (re-matches form (str/lower-case (str/trim s))))]
     (when-let [[_ user domain] found]
       (let [host (url/host (str "https://" domain "/"))]
-        (when (and host
-                   (url/public-name? host)
-                   (not (re-matches #"[0-9.]+" host)))
+        (when (and host (url/public-name? host))
           {:user (if (= "" user) "_" user) :domain domain})))))
 
 (defn ^:no-doc well-known

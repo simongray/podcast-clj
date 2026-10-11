@@ -43,3 +43,8 @@ and it has a small player that syncs. To start it on http://localhost:8300/:
 clojure -M:cljs compile player  # once: the browser player
 clojure -M:web
 ```
+
+It's for your own machine: it listens on localhost and answers no other
+name, and it has no login, since anyone who reaches it can sync and pay
+through it. It fetches feeds and their files from the public internet
+only, so a page that posts a URL to it can't reach your network.

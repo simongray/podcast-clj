@@ -128,15 +128,31 @@
                 "timestamp" seconds}
        :book   (update-in book [:devices device] #(or % {}))})))
 
+(defn ^:no-doc public-url?
+  "Whether `s` is an http or https URL whose host is on the public internet
+  by its text alone, without a lookup, since a push can name many."
+  [s]
+  (and (url/web-url? s)
+       (let [h (url/host s)]
+         (if-let [b (url/ip-address h)]
+           (url/public-ip? b)
+           (url/public-name? h)))))
+
+;; gpodder.net API 2, Upload Subscription Changes: a URL that isn't allowed
+;; is rewritten to the empty string and ignored
 (defn- change-subscriptions
   "The answer that applies the subscription changes of the JSON body in
   the call context `ctx` to its state, as the device made them when the
   call came.
 
-  The body is a JSON object with the URLs to \"add\" and to \"remove\"."
-  [{:keys [state book names device json at seconds] :as ctx}]
+  The body is a JSON object with the URLs to \"add\" and to \"remove\". An
+  added URL that the :allow-pred refuses comes back in update_urls as
+  the empty string, and a push adds at most :max-additions."
+  [{:keys [state book names device json at seconds allow-pred max-additions]
+    :as   ctx}]
   (let [{:strs [add remove]} (when (map? json) json)
-        urls? #(or (nil? %) (and (sequential? %) (every? string? %)))]
+        urls?   #(or (nil? %) (and (sequential? %) (every? string? %)))
+        allowed (filterv allow-pred add)]
     (cond
       (not (and (map? json) (urls? add) (urls? remove)))
       {:status 400
@@ -146,10 +162,18 @@
       {:status 400
        :body   "The same URL cannot be added and removed at the same time"}
 
+      (< max-additions (count allowed))
+      {:status 400
+       :body   (str "A push can add at most " max-additions
+                    " subscriptions")}
+
       :else
       {:status 200
-       :body   {"timestamp" seconds "update_urls" []}
-       :state  (gpodder/apply-subscriptions state {:add add :remove remove}
+       :body   {"timestamp"   seconds
+                "update_urls" (vec (for [u add :when (not (allow-pred u))]
+                                     [u ""]))}
+       :state  (gpodder/apply-subscriptions state {:add    allowed
+                                                   :remove remove}
                                             names device at)
        :book   (update-in book [:devices device] #(or % {}))})))
 
@@ -312,10 +336,12 @@
   routes, on the server `env`, and give the Ring response.
 
   The call runs once the state is in step, and the state is brought in
-  step again after the call changed it."
+  step again after the call changed it. It also has the :allow-pred and
+  the :max-additions of the server."
   [{:keys [state book settle!] :as env} request answer who at]
   (let [before (settle! at)
-        result (answer (merge who (call env request before at)))]
+        limits (select-keys env [:allow-pred :max-additions])
+        result (answer (merge who limits (call env request before at)))]
     (some->> (:book result) (reset! book))
     (when-let [s (:state result)]
       (put! state before s)
@@ -388,6 +414,11 @@
   - :now-fn, a function of no arguments that gives the time, the clock by
     default
   - :max-bytes, the most that a request can send, 10 MB by default
+  - :allow-pred, a predicate of a feed URL that an app may subscribe to,
+    by default public-url?, so that the URLs that the server's own device
+    fetches are on the public internet
+  - :max-additions, the most subscriptions that one push can add, 1000 by
+    default, as a first sync of an app adds all of its own
 
   A request has Basic credentials or the session of a login, and the user
   in the path must be the one who logged in. A session lasts a day, and
@@ -426,8 +457,10 @@
                   (let [settled @state]
                     (swap! book update :index arrived settled (inst-ms at))
                     settled))
-        env     (merge {:now-fn    time/now
-                        :max-bytes (* 10 1024 1024)}
+        env     (merge {:now-fn        time/now
+                        :max-bytes     (* 10 1024 1024)
+                        :allow-pred    public-url?
+                        :max-additions 1000}
                        opts
                        {:book book :settle! settle!})
         one     #?(:clj  (let [lock (ReentrantLock.)]
