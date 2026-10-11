@@ -211,6 +211,11 @@
          :else
          [status b headers]))))
 
+(def local?
+  "An :allow-pred that lets a request through to a test server on this
+  machine, which the functions that fetch refuse by default."
+  (constantly true))
+
 #?(:clj
    (defn with-server
      "Call `f` with the URL of a server on localhost that serves `files`, a

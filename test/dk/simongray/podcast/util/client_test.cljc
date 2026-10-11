@@ -14,6 +14,13 @@
     (is (= "Mine" (:user-agent (client/send! {:url "https://a.example/" :user-agent "Mine"})))
         "unless the request names another")))
 
+#?(:clj
+   (deftest the-version-in-the-user-agent
+     (let [version #"\(def version\s+\"[^\"]*\"\s+\"([^\"]+)\""]
+       (is (= (str "podcast-clj/" (second (re-find version (slurp "build.clj"))))
+              client/user-agent)
+           "the version that build.clj builds"))))
+
 (deftest the-user-agent-option
   (let [sent (atom [])
         send (fn [request]

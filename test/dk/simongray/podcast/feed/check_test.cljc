@@ -7,7 +7,7 @@
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be with-server])]]
+            [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be local? with-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
             #?(:cljs [dk.simongray.wary-fetch :as http])
@@ -161,7 +161,7 @@
                                          :podcast/alternate-enclosures [{:type "video/mp4" :length 200
                                                                          :integrity {:type "sri" :value (sri video)}
                                                                          :sources [{:uri (str base "/v.mp4")}]}]}]}
-                 check (fn [opts] (check/check-files! feed (merge {:url (str base "/feed.xml") :requirements :apple} opts)))
+                 check (fn [opts] (check/check-files! feed (merge {:url (str base "/feed.xml") :requirements :apple :allow-pred local?} opts)))
                  found (fn [result path] (set (map :id (filter #(= (str base path) (:url %)) (:report result)))))]
              (testing "two bytes of each file, and the header of the image"
                (let [result (check {})]
@@ -203,7 +203,8 @@
                      "and no request for the whole file")))
              (reset! requests [])
              (testing "a private feed, whose credentials go to it alone"
-               (let [result (check/check-files! {:rss/items []} {:url (str (str/replace base "http://" "http://user:pw@") "/feed.xml")})]
+               (let [result (check/check-files! {:rss/items []} {:url        (str (str/replace base "http://" "http://user:pw@") "/feed.xml")
+                                                                 :allow-pred local?})]
                  (is (= [(str base "/feed.xml")] (map :url (:files result))) "the URL without them")
                  (is (= #{"/feed.xml"} (set (keep #(when (:authorization %) (:path %)) @requests))))))))))))
 
@@ -228,7 +229,7 @@
                            [{:type "application/vnd.apple.mpegurl" :length 0 :height 720 :codecs codecs
                              :sources [{:uri (str base path)}]}]})
                  check  (fn [items]
-                          (check/check-files! {:rss/title "T" :rss/items items} {:read? true}))
+                          (check/check-files! {:rss/title "T" :rss/items items} {:read? true :allow-pred local?}))
                  found  (fn [result path]
                           (set (map :id (filter #(= (str base path) (:url %)) (:report result)))))
                  result (check [(item "/master.m3u8" "avc1.64001F,mp4a.40.2")])

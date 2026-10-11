@@ -229,11 +229,12 @@ own network, with its routers, internal services and cloud metadata.
 
 Each function that sends requests takes an `:allow-pred` and puts it
 on every request map, so `http/send!` and an app's own `:send` can both
-check it. The functions that fetch untrusted URLs default to `url/public?`,
-which refuses loopback, private and other special addresses. The functions
-that fetch a feed or the files it links to have no guard by default,
-because the app chose the feed. A server that fetches feeds for other people gives them
-`{:allow-pred url/public?}`.
+check it. The functions that fetch a feed, a page or a file default to
+`url/public?`, as wary-fetch's own do, which refuses loopback, private and
+other special addresses. So a URL that someone types into a server can't
+reach the server's network. To fetch from the app's own network, e.g. a
+feed on a home server, give `(constantly true)` or a predicate of your
+own.
 
 On the JVM and in Node, `public?` checks every address that the name
 resolves to, and `http/send!` checks each redirect too. It follows

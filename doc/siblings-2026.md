@@ -35,7 +35,6 @@ The needs, by gain:
 
 | Library | Need | Difficulty | Gain |
 |---|---|---|---|
-| wary-fetch | An IPv4 host read as the URL Standard reads it | 1 | 3 |
 | html-pieces | A body start tag closes an open head | 1 | 3 |
 | websub-clj | A hook for a confirmed subscription, with its lease | 1 | 3 |
 | drop-in-search | The total number of matches with a page | 1 | 3 |
@@ -63,8 +62,7 @@ register, and that is what breaks removal. And the twenty lines that
 finish a sync step in app.library are what like-minded leaves to every
 app.
 
-Across the seven, the security claims hold on the JVM and the one hole
-is wary-fetch's IPv4 parsing off the JVM. Every README says what its
+Across the seven, the security claims hold. Every README says what its
 library is for and shows the main call, the public APIs are the right
 ones, and the floors of Clojure 1.11 and Java 11 are tested in CI. None
 of the seven runs its tests in a browser, though all seven claim it.
@@ -78,24 +76,16 @@ tool that downloads files.
 
 ### Needs
 
-**An IPv4 host read as the URL Standard reads it.** Difficulty 1, gain
-3. The first promise of the README is that a stranger's URL can't reach
-the local network. In Node and in a browser that breaks on an IPv4
-address written in octal, hex or fewer than four parts. The parser
-(url.cljc:411) reads only dotted decimal, so it reads 012.0.0.1 as
-12.0.0.1, which is public. The URL Standard, section 3.5.3, reads a
-leading zero as octal, and so do Node and every browser: Node 24 reads
-`http://012.0.0.1/` as 10.0.0.1, and 0177.0.0.1, 0x7f.0.0.1 and 127.1 as
-127.0.0.1. In Node, `send-public!` sees an address, skips the lookup,
-calls it public and hands node:http the hostname that Node's own parser
-gives, so it connects to 10.0.0.1. In a browser the three forms that the
-parser can't read at all count as public names (url.cljc:480), and fetch
-connects to 127.0.0.1. On the JVM the check and the client use the same
-JDK parser, so they agree, though the JDK reads 0177.0.0.1 as 177.0.0.1,
-unlike every browser. What it takes: the IPv4 parser of the URL Standard
-in the address check, and a name of only digits and dots never counted
-as a public name. The README's line that in Node "its guards are those
-of the JVM" is wrong until then.
+**Corrected on 11 October 2026.** This section first named an IPv4 hole
+as the top need: that in Node and in a browser, a URL such as
+`http://012.0.0.1/` passes the check and reaches the local network. It
+doesn't. Off the JVM, wary-fetch reads the host with the platform's own
+URL parser, which already gives 10.0.0.1, and in Node `send-public!`
+refused all six spellings of 127.0.0.1 that were tried. On the JVM the
+check and the client both read 0177.0.0.1 as 177.0.0.1. What was wrong
+is smaller: given the raw text, `url/public-name?` took 10.0.0.1 or
+0x7f.0.0.1 for a name. Version 0.2.0 refuses a host whose last part is a
+number, as the URL Standard's ends in a number checker does.
 
 **Network failures as typed data.** Difficulty 2, gain 3. A failure has
 a :type only for a timeout, a body too large, a refused request and a
@@ -172,8 +162,8 @@ the internals are marked. JVM and Node are tested in CI with local
 servers. The browser client has no test at all; the one named for a
 browser runs in Node through the Node client. The tests are broad on
 the JVM (redirects, limits, slow bodies, ranges, digests, the proxy)
-and thinner in Node. A 1.0 needs the IPv4 fix, typed failures, a sink
-and a browser run.
+and thinner in Node. A 1.0 needs typed failures, a sink and a browser
+run.
 
 
 ## qname-hiccup
@@ -732,21 +722,19 @@ README:
 
 By gain and then by difficulty:
 
-1. wary-fetch's IPv4 parser, an hour, since it's a security promise that
-   doesn't hold off the JVM.
-2. The hour-long needs with gain 3: html-pieces' head fix, websub-clj's
+1. The hour-long needs with gain 3: html-pieces' head fix, websub-clj's
    :verified!, drop-in-search's total, like-minded's step helper, with
    podcast-clj's `library/sync!` rewritten on the last.
-3. wary-fetch's typed failures and sink, and drop-in-search's term hook,
+2. wary-fetch's typed failures and sink, and drop-in-search's term hook,
    a day each.
-4. The gain-2 needs of an hour each: qname-hiccup's white space and
+3. The gain-2 needs of an hour each: qname-hiccup's white space and
    attribute-less Hiccup, html-pieces' tables and rows, websub-clj's
    discovery and concurrency, drop-in-search's dates.
-5. mind-meld's field-wise entry, a few days, with podcast-clj's settings
+4. mind-meld's field-wise entry, a few days, with podcast-clj's settings
    as the first user; or its documented substitute first.
-6. The releases: mind-meld, then like-minded, then the bumps in
+5. The releases: mind-meld, then like-minded, then the bumps in
    websub-clj and podcast-clj.
-7. The browser step in CI, once, for all seven.
+6. The browser step in CI, once, for all seven.
 
 
 ## Method
@@ -760,7 +748,8 @@ nice-to-haves, defects and release readiness with scores, line
 references and the standard each feature builds on. The author's own
 projects, podcast-clj and indieblog, were the second audience.
 
-Every finding in this page was then re-run by the editor in a fresh JVM,
-with Node's own URL parser for the IPv4 case. All of them held. The
+Every finding in this page was then re-run by the editor in a fresh JVM.
+All of them held but the IPv4 hole, which was checked against Node's own
+URL parser rather than through wary-fetch, and is corrected above. The
 release facts were gathered from each repository's deps.edn, tags, CI
 workflow and Clojars page.

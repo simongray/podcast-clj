@@ -5,7 +5,8 @@
   against a server on localhost."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast])
+            [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.test-support :refer [local?]])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]))
 
@@ -51,10 +52,18 @@
       (finally
         (.stop server 0)))))
 
+(defn- fetch!
+  "The podcast/fetch! of `url` with `opts`, let through to the test servers
+  on this machine, which it refuses by default."
+  ([url]
+   (fetch! url {}))
+  ([url opts]
+   (podcast/fetch! url (merge {:allow-pred local?} opts))))
+
 (deftest fetching-and-polling
   (with-server
     (fn [base]
-      (let [fresh (podcast/fetch! (str base "/feed.xml"))]
+      (let [fresh (fetch!(str base "/feed.xml"))]
         (testing "a fresh fetch parses the feed and hands back the validators"
           (is (= 200 (:status fresh)))
           (is (str/starts-with? (:body fresh) "<?xml") "the XML comes along, for a cache")
@@ -64,11 +73,11 @@
           (is (= "https://new.example/feed.xml" (:new-feed-url fresh)))
           (is (str/ends-with? (:url fresh) "/feed.xml")))
         (testing "the validators handed back earn a 304 without a feed"
-          (let [again (podcast/fetch! (str base "/feed.xml") {:etag (:etag fresh) :last-modified (:last-modified fresh)})]
+          (let [again (fetch!(str base "/feed.xml") {:etag (:etag fresh) :last-modified (:last-modified fresh)})]
             (is (= 304 (:status again)))
             (is (not (contains? again :feed)))))
         (testing "an error status comes back without a feed"
-          (let [gone (podcast/fetch! (str base "/gone"))]
+          (let [gone (fetch!(str base "/gone"))]
             (is (= 404 (:status gone)))
             (is (not (contains? gone :feed)))
             (is (not (contains? gone :error)) "a status is an answer")))))))
@@ -115,26 +124,26 @@
     (fn [base]
       (let [titles #(map :rss/title (:rss/items (:feed %)))]
         (testing "one page unless asked for more"
-          (is (= ["E9" "E8" "E7"] (titles (podcast/fetch! (str base "/feed.xml"))))))
+          (is (= ["E9" "E8" "E7"] (titles (fetch!(str base "/feed.xml"))))))
         (testing "the pages joined, each item once, and a page named before ends them"
-          (is (= ["E9" "E8" "E7" "E6" "E5" "E4"] (titles (podcast/fetch! (str base "/feed.xml") {:max-pages 10}))))
-          (is (= ["E9" "E8" "E7" "E6" "E5"] (titles (podcast/fetch! (str base "/feed.xml") {:max-pages 2})))))
+          (is (= ["E9" "E8" "E7" "E6" "E5" "E4"] (titles (fetch!(str base "/feed.xml") {:max-pages 10}))))
+          (is (= ["E9" "E8" "E7" "E6" "E5"] (titles (fetch!(str base "/feed.xml") {:max-pages 2})))))
         (testing "a page that does not read ends the pages, and the report says so"
-          (let [r (podcast/fetch! (str base "/broken.xml") {:max-pages 5})]
+          (let [r (fetch!(str base "/broken.xml") {:max-pages 5})]
             (is (= ["E1"] (titles r)))
             (is (= [[:fetch/page-failed (str base "/missing.xml") "HTTP 404"]]
                    (map (juxt :id :url :reason) (:report r))))))
         (testing "the credentials of a private feed"
-          (is (= 401 (:status (podcast/fetch! (str base "/private.xml")))))
-          (is (= ["E1"] (titles (podcast/fetch! (str base "/private.xml") {:credentials {:username "u" :password "p"}})))))
+          (is (= 401 (:status (fetch!(str base "/private.xml")))))
+          (is (= ["E1"] (titles (fetch!(str base "/private.xml") {:credentials {:username "u" :password "p"}})))))
         (testing "the server's hints on when to ask again"
           (let [before (System/currentTimeMillis)
-                busy   (podcast/fetch! (str base "/busy.xml"))]
+                busy   (fetch!(str base "/busy.xml"))]
             (is (= 429 (:status busy)))
             (is (<= (+ before 120000) (inst-ms (:not-before busy)) (+ (System/currentTimeMillis) 120000))))
-          (is (inst? (:not-before (podcast/fetch! (str base "/feed.xml")))) "Cache-Control: max-age"))
+          (is (inst? (:not-before (fetch!(str base "/feed.xml")))) "Cache-Control: max-age"))
         (testing "a permanent redirect gives the URL to keep"
-          (let [old (podcast/fetch! (str base "/old.xml"))]
+          (let [old (fetch!(str base "/old.xml"))]
             (is (= (str base "/feed.xml") (:url old) (:permanent-url old)))))))))
 
 (deftest credentials-in-the-url
@@ -156,7 +165,7 @@
               :else                   (respond exchange 200 (page-xml (str other "/page3.xml") [2]) {})))
           (fn [base]
             (let [url (str/replace base "http://" "http://simon%40example.org:p%20p@")
-                  r   (podcast/fetch! (str url "/private.xml") {:max-pages 5})]
+                  r   (fetch!(str url "/private.xml") {:max-pages 5})]
               (is (= ["E3" "E2" "E1"] (map :rss/title (:rss/items (:feed r)))))
               (is (= (str base "/private.xml") (:url r)) "no URL in the result holds them")
               (is (= [["/private.xml" "Basic c2ltb25AZXhhbXBsZS5vcmc6cCBw"]
@@ -179,7 +188,7 @@
             (note [:private path] exchange)
             (respond exchange 302 "" {"Location" (str host "/feed.xml")}))
           (fn [private]
-            (let [r (podcast/fetch! (str private "/feed.xml") {:credentials {:username "u" :password "p"} :max-pages 5})]
+            (let [r (fetch!(str private "/feed.xml") {:credentials {:username "u" :password "p"} :max-pages 5})]
               (is (= (str host "/feed.xml") (:url r)))
               (is (= [[[:private "/feed.xml"] "Basic dTpw"]
                       [[:host "/feed.xml"] nil]
@@ -191,7 +200,7 @@
   (testing "a port where no server listens"
     (let [closed (with-open [s (java.net.ServerSocket. 0)] (.getLocalPort s))
           url    (str "http://127.0.0.1:" closed "/feed.xml")
-          r      (podcast/fetch! (str "http://u:p@127.0.0.1:" closed "/feed.xml"))]
+          r      (fetch!(str "http://u:p@127.0.0.1:" closed "/feed.xml"))]
       (is (= [:url :error] (keys r)) "a result with the error, and nothing thrown")
       (is (= url (:url r)) "no URL in the result holds the credentials")
       (is (= [:fetch/unreachable :warning url] ((juxt :id :level :url) (:error r))))
@@ -207,23 +216,23 @@
         (respond exchange 200 feed-xml {})))
     (fn [base]
       (testing "a URL that the app does not allow"
-        (let [r (podcast/fetch! (str base "/feed.xml") {:allow-pred (constantly false)})]
+        (let [r (fetch!(str base "/feed.xml") {:allow-pred (constantly false)})]
           (is (= [:url :error] (keys r)))
           (is (= :fetch/unreachable (:id (:error r))))
           (is (str/includes? (:reason (:error r)) "is not allowed"))))
       (testing "an answer that is too large"
-        (is (= :fetch/unreachable (:id (:error (podcast/fetch! (str base "/feed.xml") {:max-bytes 100}))))))
+        (is (= :fetch/unreachable (:id (:error (fetch!(str base "/feed.xml") {:max-bytes 100}))))))
       (testing "a body that is no feed"
         (doseq [path ["/page.html" "/data.json" "/empty.xml"]
-                :let [r (podcast/fetch! (str base path))]]
+                :let [r (fetch!(str base path))]]
           (is (= [200 :fetch/malformed (str base path)] [(:status r) (:id (:error r)) (:url (:error r))]) path)
           (is (not (contains? r :feed)) path)
           (is (string? (:reason (:error r))) path))
-        (let [r (podcast/fetch! (str base "/atom.xml"))]
+        (let [r (fetch!(str base "/atom.xml"))]
           (is (= [200 :fetch/unsupported-format "Atom"] [(:status r) (:id (:error r)) (:format (:error r))])
               "a feed in another format")
           (is (not (contains? r :feed))))
-        (let [r (podcast/fetch! (str base "/page.html"))]
+        (let [r (fetch!(str base "/page.html"))]
           (is (= "\"p\"" (:etag r)) "the validators of the answer")
           (is (str/starts-with? (:body r) "<html>") "and the body, where an app can look for the feed"))))))
 
@@ -242,13 +251,13 @@
           (respond exchange 200 feed-xml {})))
       (fn [base]
         (is (= {:hubs ["https://header.example/"] :topic (str base "/linked.xml")}
-               (:websub (podcast/fetch! (str base "/linked.xml"))))
+               (:websub (fetch!(str base "/linked.xml"))))
             "from the Link headers of the answer first")
         (is (= {:hubs ["https://hub.example/"] :topic "https://a.example/feed.xml"}
-               (:websub (podcast/fetch! (str base "/hubbed.xml"))))
+               (:websub (fetch!(str base "/hubbed.xml"))))
             "and else from the links of the feed")
         (is (= {:hubs ["https://hub.example/"] :topic (str base "/selfless.xml")}
-               (:websub (podcast/fetch! (str base "/selfless.xml"))))
+               (:websub (fetch!(str base "/selfless.xml"))))
             "with the URL of the feed as the topic when it names none")
-        (is (not (contains? (podcast/fetch! (str base "/feed.xml")) :websub))
+        (is (not (contains? (fetch!(str base "/feed.xml")) :websub))
             "a feed that names no hub")))))

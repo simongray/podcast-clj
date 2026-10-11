@@ -38,7 +38,7 @@ Within a tier the cheap steps go first, so that a fix of an hour doesn't
 wait two weeks behind a big batch. Each step is one batch in one
 repository, or a short chain of them, so you can stop after any step.
 Steps 1 to 4 take about a week and close every gap that the threat model
-ranks, the IPv4 hole in wary-fetch, and the wrong answers on real feeds;
+ranks and the wrong answers on real feeds;
 steps 5 to 8 take about two weeks and fix the ways a listener loses data.
 
 
@@ -47,7 +47,7 @@ steps 5 to 8 take about two weeks and fix the ways a listener loses data.
 | # | Step | Where | Size | Why it's here |
 |---|---|---|---|---|
 | 1 | [Close the server's holes](#1-close-the-servers-holes) | podcast server | a day | Reproduced: an open server behind Caddy, cross-site writes, the password in the log |
-| 2 | [A security release of wary-fetch](#2-a-security-release-of-wary-fetch) | wary-fetch, then four pins | hours | Off the JVM, a stranger's URL reaches the local network |
+| 2 | [A release of wary-fetch](#2-a-release-of-wary-fetch) | wary-fetch, then four pins | hours | 5% of feeds refuse its User-Agent |
 | 3 | [The wrong answers that take an hour](#3-the-wrong-answers-that-take-an-hour) | podcast-clj | a day | Wrong on real feeds today; 64% of feeds wait more than a day between checks |
 | 4 | [Ceilings on a leaked password](#4-ceilings-on-a-leaked-password) | podcast server, inspector | two days | Finishes the threat model before the long batches |
 | 5 | [A version for the saved library](#5-a-version-for-the-saved-library) | podcast-clj | a few days | An older app overwrites a newer library, and steps 6 to 8 change what's saved |
@@ -67,16 +67,14 @@ steps 5 to 8 take about two weeks and fix the ways a listener loses data.
 
 The reports leave these open. Each blocks the step it names.
 
-- **Step 1.** Should the server refuse to start without a password unless
-  it's bound to localhost? The plan assumes yes, as the server walk
-  proposes. And is "for yourself and a friend" one listener? Then the
+- **Step 1.** Is "for yourself and a friend" one listener? Then the
   README's public section needs a paragraph saying so; if not, it should
-  point a household at the many-listeners gap.
+  point a household at the many-listeners gap. (Decided: the server
+  refuses to start without a password unless it's bound to localhost or
+  told that only a private network reaches it.)
   ([Questions](hosts-and-servers-2026.md#questions))
-- **Step 2.** Should wary-fetch's `fetch!`, `probe!`, `fetcher` and
-  `digest!` default to `url/public?` rather than allow every address? It
-  changes every caller, so it belongs in a release if at all.
-  ([wary-fetch](siblings-2026.md#wary-fetch))
+- **Step 2.** (Decided: wary-fetch's `fetch!`, `probe!`, `fetcher` and
+  `digest!` default to `url/public?` from 0.2.0.)
 - **Step 4.** Should the library mask a private feed's `?token=` in every
   diagnostic, as the checker does for credentials in a URL, rather than
   only in the server's log?
@@ -138,29 +136,27 @@ and item 0 of [What to build first](hosts-and-servers-2026.md#what-to-build-firs
 rows 1, 5 and 6 of [Gaps, ranked](threat-model-2026.md#gaps-ranked), and
 [A web page in the listener's browser](threat-model-2026.md#a-web-page-in-the-listeners-browser).
 
-### 2. A security release of wary-fetch
+### 2. A release of wary-fetch
 
-- Read an IPv4 host as section 3.5.3 of the URL Standard does, octal, hex
-  and short forms included, and never count a name of only digits and
-  dots as a public name. Today Node connects `http://012.0.0.1/` to
-  10.0.0.1 after the check called it 12.0.0.1, and in a browser
-  `0x7f.0.0.1` passes as a public name.
-- Correct the README's line that in Node the guards are those of the JVM.
 - Make the default User-Agent a name and a version without the URL, in
   wary-fetch and in podcast-clj. Cloudflare-fronted hosts such as Omny,
   Riverside, Audioboom and Castbox refuse wary-fetch's agent, 5% of the
   sampled feeds, and one host refuses any agent with a URL in it.
+- Refuse a host whose last part is a number in `url/public-name?`, as the
+  URL Standard does.
+- Default the :allow-pred of `fetch!`, `probe!`, `fetcher` and `digest!`
+  to `url/public?`.
 - Release it, and bump the pin in podcast-clj, websub-clj, like-minded and
   indieblog.
 
-**Why here.** It breaks the first promise of a released library: a
-stranger's URL can reach the local network from Node. It's below step 1
-only because the check holds on the JVM, where the podcast server runs.
-The two repositories don't overlap, so steps 1 and 2 can run side by
-side. The User-Agent rides along because it needs a release anyway.
+This step was first a security release, for an IPv4 hole off the JVM
+that the siblings report named. A probe showed that there's none, and the
+report is corrected.
 
-**Read more.** The needs under [wary-fetch](siblings-2026.md#wary-fetch)
-and item 1 of [What to build first](siblings-2026.md#what-to-build-first);
+**Why here.** A twentieth of the feeds refuse the default agent, and the
+fix needs a release, which the other two changes ride along with.
+
+**Read more.** The correction under [wary-fetch](siblings-2026.md#wary-fetch);
 the user agents under [Fetching](corpus-study-2026.md#fetching).
 
 ### 3. The wrong answers that take an hour
@@ -349,7 +345,7 @@ helper, nothing here changes what podcast-clj gets wrong.
 
 **Read more.** [Summary](siblings-2026.md#summary), the needs of each
 library, [Release readiness across the seven](siblings-2026.md#release-readiness-across-the-seven)
-and items 2, 4 and 6 of [What to build first](siblings-2026.md#what-to-build-first).
+and items 1, 3 and 5 of [What to build first](siblings-2026.md#what-to-build-first).
 
 ### 11. A complete validator
 

@@ -241,7 +241,8 @@
   - :integrity?, whether to fetch whole each file with a podcast:integrity
   - :max-files, :max-seconds, :concurrency, :timeout-seconds and
     :max-bytes, the limits
-  - :allow-pred, which URLs a request can go to, as for http/send!
+  - :allow-pred, which URLs a request can go to, as for http/send!, and
+    url/public? by default
   - :user-agent, as http/send! takes it
   - :send, how to send the requests, in place of client/send!
   - :now-fn, a function that gives the time, the clock by default
@@ -255,7 +256,6 @@
   as far as its duration.
 
   Each request has the :timeout-seconds, the :max-bytes and the :allow-pred.
-  A server that checks feeds for strangers gives url/public? as :allow-pred.
 
   For the integrity of a file, a check fetches the whole file, with the
   :allow-pred and the time that the check has left. Without a :send on the

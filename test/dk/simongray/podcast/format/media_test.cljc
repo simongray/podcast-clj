@@ -17,7 +17,7 @@
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
-                                                       #?(:clj with-file-server)]]
+                                                       #?@(:clj [local? with-file-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.time :as time]
@@ -563,16 +563,18 @@
            log (atom [])]
        (with-file-server b {:log log}
          (fn [url]
-           (let [r (media/read! url)]
+           (let [r (media/read! url {:allow-pred local?})]
              (is (= 150.5 (:duration r)))
              (is (= ["Intro" "Talk"] (map :title (:chapters (:chapters r)))))
-             (is (every? some? @log) "every request for a range")))))
+             (is (every? some? @log) "every request for a range"))
+           (is (= :file/unreachable (get-in (media/read! url) [:error :id]))
+               "but by default only a file on the public internet"))))
      (testing "a server that ignores ranges, of whose file the start is read"
        (let [b     (bytes/of (concat (tag 3 (text 3 "TIT2" "T")) (apply concat (repeat 2500 (audio-frame)))))
              sizes (atom [])]
          (with-file-server b {:ranges? false}
            (fn [url]
-             (let [fetch (http/fetcher url {})
+             (let [fetch (http/fetcher url {:allow-pred local?})
                    r     (media/read! url {:fetch (fn [start end]
                                                     (let [part (fetch start end)]
                                                       (swap! sizes conj (bytes/length (:bytes part)))
@@ -585,9 +587,9 @@
          (with-file-server b {}
            (fn [url]
              (is (= {:valid? true :algorithm "sha384"}
-                    (integrity/verify! url {:type "sri" :value (str "sha256-nope sha384-" digest)})))
+                    (integrity/verify! url {:type "sri" :value (str "sha256-nope sha384-" digest)} {:allow-pred local?})))
              (is (= {:valid? false :algorithm "sha384"}
-                    (integrity/verify! url {:type "sri" :value "sha384-AAAA"})))))))))
+                    (integrity/verify! url {:type "sri" :value "sha384-AAAA"} {:allow-pred local?})))))))))
 
 ;; files built to hurt a reader
 

@@ -215,9 +215,9 @@ To subscribe without a fetch, e.g. while offline, leave the result out:
 and a feed that would take over another subscription goes in its report
 instead of throwing.
 
-On a server that fetches feeds for its users, give `fetch!` the option
-`{:allow-pred url/public?}`, so that a URL that someone types can't reach
-your own network.
+By default, `fetch!` refuses a URL on your own network, so that a URL that
+someone types into a server can't reach it. For a feed on a home server,
+give it `{:allow-pred (constantly true)}`.
 
 If the listener gives a show's website, a domain or a link from another app
 instead of a feed, find the feeds with `discovery/find-feeds!`:
@@ -1156,9 +1156,9 @@ Without `:read? true`, it only sends a HEAD request and asks for the first
 bytes of each file. With it, it also reads the media files and the HLS
 playlists of video, and compares their duration, codecs and height with
 what the feed declares. The limits on files, time and bytes are in
-`check/default-limits`. If your server checks feeds that other people
-submit, give it `:allow-pred url/public?`, so it never requests your own
-network. For a single file, `http/probe!` gives the same facts, e.g. the
+`check/default-limits`. Like `fetch!`, it requests nothing on your own
+network unless you give it an `:allow-pred`. For a single file,
+`http/probe!` gives the same facts, e.g. the
 size of an episode before downloading it.
 
 
