@@ -80,6 +80,31 @@
     (is (= [c a b] (profile.queue/queue (:profile (profile.player/step s [:play c] t1)))))
     (is (= {:profile s :effects []} (profile.player/step s [:volume 3] t1)) "unknown events change nothing")))
 
+(deftest the-next-and-the-previous-episode
+  (let [s (-> (profile/make "phone")
+              (profile.queue/enqueue a t0)
+              (profile.queue/enqueue b t0)
+              (profile/progress c 600 3600 t0)
+              (profile/progress a 100 3600 t1))]
+    (testing "the next skips the current episode, which isn't played"
+      (let [{:keys [profile effects]} (profile.player/step s [:next a] t2)]
+        (is (= [[:play b]] effects))
+        (is (= [b] (profile.queue/queue profile)))
+        (is (not (profile/played? profile a)))
+        (is (= 100 (:position (profile/episode-entry profile a))) "and it keeps its position")))
+    (testing "from an episode outside the queue, the next is the current one"
+      (is (= [[:play a]] (:effects (profile.player/step s [:next c] t2)))))
+    (testing "with nothing else queued, nothing changes"
+      (let [alone (profile.queue/dequeue s b t2)]
+        (is (= {:profile alone :effects []} (profile.player/step alone [:next a] t3)))))
+    (testing "the previous goes back to the episode heard before, which becomes current"
+      (let [{:keys [profile effects]} (profile.player/step s [:previous a] t2)]
+        (is (= [[:play c]] effects))
+        (is (= [c a b] (profile.queue/queue profile)))))
+    (testing "with nothing heard before, nothing changes"
+      (let [fresh (profile.queue/enqueue (profile/make "phone") a t0)]
+        (is (= {:profile fresh :effects []} (profile.player/step fresh [:previous a] t1)))))))
+
 (deftest skipping-the-outro
   (let [s (-> (profile/make "phone")
               (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
@@ -172,7 +197,7 @@
         (is (= [[:stop b]] (:effects second-end)))
         (is (not (contains? second-end :sleep)))))
     (testing "each other event keeps the timer as it is"
-      (doseq [event [[:progress a 100 3600] [:skip a 30] [:play b] [:chapter a :next chapters-doc] [:volume 3]]]
+      (doseq [event [[:progress a 100 3600] [:skip a 30] [:play b] [:chapter a :next chapters-doc] [:next a] [:previous a] [:volume 3]]]
         (is (= {:episodes 2} (:sleep (profile.player/step s event t1 (sleep 2)))) (pr-str event))))
     (testing "without a timer, the result has none"
       (is (= #{:profile :effects} (set (keys (profile.player/step s [:ended a] t1)))))

@@ -209,6 +209,9 @@ the item on bounded growth under
   artwork and the chapters.
 - A summary of each refresh: how many feeds were checked, unchanged,
   changed and failed, and how long it took.
+- Added after it: the rest of the Media Session, its position state and
+  its buttons as player events, with the preference `:track-buttons` for
+  where next and previous go.
 
 **Why here.** Most apps want each, and each is an hour.
 
@@ -298,8 +301,11 @@ All gain 2 and an hour each:
 - The artwork of a subscription kept in the profile, so a synced device
   shows it before its first refresh.
 - Continuous play, where new episodes join the queue and how many,
-  defaults for new subscriptions, a rewind after a long pause, and bulk
-  arities of the marks and the queue.
+  defaults for new subscriptions, a rewind after a long pause or an
+  interruption, which Safari's Audio Session reports, and bulk arities of
+  the marks and the queue.
+- A `:playable-pred` from a browser's Media Capabilities, for Opus, video
+  codecs and alternate enclosures.
 - A string form of episode ids for routes and native bridges.
 - Media files and images read from a local file or a Blob.
 - `podping/notify!` beside `notify-request`, and rules on the delivery
@@ -369,6 +375,9 @@ readers are written once, the way the others will be.
   Content-Range, over the sink of wary-fetch.
 - In the podcast server, a media route for the enclosures of the
   listener's feeds alone, so that the server isn't an open relay.
+- Background Fetch where the browser has it, which is Chromium alone, so
+  that a download goes on after the page closes, and the streaming proxy
+  elsewhere.
 
 **Why here.** Playing needs no proxy, but saving an episode in a browser
 does, since hosts rarely send CORS headers on audio. Today the proxy holds

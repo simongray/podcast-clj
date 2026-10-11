@@ -377,8 +377,16 @@
   - :rate, the playback rate
   - :video?, whether to watch the video of an episode that offers audio
     and video
-  - :notify?, whether the new episodes of a show are announced"
-  {:skip-forward 30 :skip-back 15 :rate 1.0 :video? false :notify? false})
+  - :notify?, whether the new episodes of a show are announced
+  - :track-buttons, what the next and previous buttons of a lock screen or
+    headphones go to: :chapters, the episodes of the :queue, or
+    :chapters-first, which goes to the queue once no chapter is left"
+  {:skip-forward  30
+   :skip-back     15
+   :rate          1.0
+   :video?        false
+   :notify?       false
+   :track-buttons :chapters})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."

@@ -8,7 +8,7 @@ This page explains how each part of podcast-clj is built.
 ## Layers
 
 ```
-  5  high level   app.library  app.show  app.episode  app.feeds
+  5  high level   app.library  app.show  app.episode  app.feeds  app.media-session
   4  root         dk.simongray.podcast
   3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema

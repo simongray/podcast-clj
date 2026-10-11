@@ -641,22 +641,38 @@ To start an episode, `library/playback` gives what the player needs: the
 file, where the listener left it or the end of its intro, the show's
 rate, the title and artwork, the chapters, a transcript for captions, and
 the metadata of the Media Session, which a browser shows on the lock
-screen:
+screen. With `media-session/apply!`, the buttons there and on the
+headphones send their events through `library/step` too:
 
 ```clojure
 (defn play-episode!
   "Start the episode `id` of the library in the media element `audio`."
   [audio id]
-  (let [{:keys [src position rate metadata]} (library/playback @lib id)]
+  (let [{:keys [src position rate] :as playback} (library/playback @lib id)
+        step! #(apply-effects! audio (:effects (swap! lib library/step %)))]
     (set! (.-src audio) src)
     (set! (.-playbackRate audio) rate)
     (.addEventListener audio "loadedmetadata"
                        #(set! (.-currentTime audio) position)
                        #js {:once true})
-    (set! (.. js/navigator -mediaSession -metadata)
-          (js/MediaMetadata. (clj->js metadata)))
+    (media-session/apply! playback
+                          (media-session/actions @lib id)
+                          (fn [details]
+                            (run! step! (media-session/events
+                                         @lib id (.-currentTime audio)
+                                         details))))
     (.play audio)))
 ```
+
+So that the lock screen shows how far the episode has come, call
+`media-session/position!` with the element at its `loadedmetadata`,
+`seeked` and `ratechange` events. The next and previous buttons go to
+the chapters of the episode by default. The listener's preference
+`:track-buttons` can send them to the episodes of the queue instead,
+with `:queue`, or to the queue once no chapter is left, with
+`:chapters-first`. For buttons of your own, the events
+`[:next id]` and `[:previous id]` of `library/step` skip to the next
+episode of the queue and go back to the one heard before.
 
 The file is the downloaded one when the config's `:local-file-fn` gives
 one for the episode's id, e.g. an object URL, and else the enclosure.
@@ -913,7 +929,9 @@ and it syncs like the rest:
 Each has a function to read it back, such as `profile/folders`,
 `profile/tagged`, `profile.queue/inbox`, `profile.marks/starred`,
 `profile.marks/bookmarks`, `profile.marks/clips` and
-`profile.queue/playlist`.
+`profile.queue/playlist`. To show the size of the inbox on the app's
+icon, give `(count (profile.queue/inbox profile))` to
+`navigator.setAppBadge` in a browser, or to the platform's badge.
 
 - A show is in one folder at most, but it can have many tags. Both go into
   OPML with `profile.opml/to-opml`, and `profile.opml/from-opml` reads
@@ -1536,6 +1554,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]

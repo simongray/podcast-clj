@@ -101,6 +101,12 @@
   - [:ended id] marks it played and drops it from the queue when it was
     current, with the effect [:play next] when another episode is queued.
   - [:play id] makes it current, at the front of the queue.
+  - [:next id] skips it: it leaves the queue without counting as played,
+    with the effect [:play next] for the first episode left in the queue.
+    Nothing changes when no other episode is queued.
+  - [:previous id] goes back to the episode heard before it, the latest
+    other one of profile/history, which becomes current, with the effect
+    [:play earlier].
   - [:skip id amount] moves that many seconds, or the preferred amount for
     :forward or :back, with the effect [:seek id position], and
     [:played id] when it now counts as played.
@@ -162,6 +168,17 @@
            entries (profile.queue/queue-entries profile)
            rank    (crdt.list/rank-between entries nil (first others))]
        (stepped (profile.queue/place profile id rank at) [] sleep))
+
+     :next
+     (if-let [later (first (remove #{id} (profile.queue/queue profile)))]
+       (stepped (profile.queue/dequeue profile id at) [[:play later]] sleep)
+       (stepped profile [] sleep))
+
+     :previous
+     (if-let [earlier (first (remove #{id} (profile/history profile)))]
+       (update (step profile [:play earlier] at opts) :effects conj
+               [:play earlier])
+       (stepped profile [] sleep))
 
      (stepped profile [] sleep))))
 
