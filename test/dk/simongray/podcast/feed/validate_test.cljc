@@ -71,6 +71,21 @@
                   (filter (comp #{:validate/required} :id))
                   (map :path)))
           "Apple requires the guid of an episode"))
+    (testing "an enclosure without an absolute URL"
+      (let [errors (fn [url]
+                     (->> (validate/validate (assoc-in f [:rss/items 0 :rss/enclosure :url] url) {:requirements :apple})
+                          (filter (comp #{:error} :level))
+                          (map (juxt :id :path))))]
+        (is (= [[:validate/missing-attribute [:rss/items 0 :rss/enclosure :url]]] (errors ""))
+            "a blank URL is missing, and the requirement doesn't count it twice")
+        (is (= [[:validate/required [:rss/items 0 :rss/enclosure]]] (errors "episode.mp3"))
+            "a relative URL, which nothing can play")))
+    (testing "a channel description that RSS 2.0 requires too"
+      (is (= [[:validate/missing-element [:rss/description]]]
+             (->> (validate/validate (dissoc f :rss/description) {:requirements :apple})
+                  (filter (comp #{:error} :level))
+                  (map (juxt :id :path))))
+          "is one error, not two"))
     (testing "and against the requirements that an app gives"
       (let [own {:name    "A directory of our own"
                  :channel {:required [:podcast/guid :itunes/new-feed-url] :recommended [:podcast/locked]}

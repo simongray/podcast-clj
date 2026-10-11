@@ -31,8 +31,11 @@
 (defn- fetch-document!
   "Fetch the document at `url` with `opts`, asking for the `accept` types,
   and give the answer of the server. A 200 answer has what `parse-fn` gives
-  of the response merged in, and a failed request has the :error.
-  Deferred."
+  of the response merged in, and a failed request or an answer that failed
+  has the :error. Deferred.
+
+  An answer that failed keeps no ETag or Last-Modified, which are those of
+  the error page."
   [url accept parse-fn opts]
   (let [http-opts (->> (select-keys opts [:etag :last-modified :credentials
                                           :timeout-seconds :max-bytes
@@ -53,8 +56,14 @@
                        :error (diagnostics/fetch-failure
                                {:url url :reason (async/explain error)})}
 
-                      (not= 200 (:status response))
+                      (= 304 (:status response))
                       answer
+
+                      (not= 200 (:status response))
+                      (-> (dissoc answer :etag :last-modified)
+                          (assoc :error (diagnostics/fetch-failure
+                                         {:url    url
+                                          :status (:status response)})))
 
                       :else
                       (merge answer (parse-fn response))))))))
@@ -111,10 +120,11 @@
                        :limit (dec max-pages)))))
 
 (defn- joined
-  "The answer `page` with the `pages` after it joined into its feed: the
-  :feed, its :report, and the :new-feed-url when the feed declares a move.
-  A page that can't be read gets a diagnostic in the report."
-  [{first-page :feed :as page} pages]
+  "The answer `page` to a request for `asked` with the `pages` after it
+  joined into its feed: the :feed, its :report, and the :new-feed-url when
+  the feed declares a move. A page that can't be read gets a diagnostic in
+  the report."
+  [asked {first-page :feed :as page} pages]
   (let [failed  (first (remove :feed pages))
         failure (when failed
                   {:id     :fetch/page-failed
@@ -126,7 +136,7 @@
                           (feed/join-pages (cons first-page (keep :feed pages)))
                           first-page)
                   failure (vary-meta update :podcast/report conj failure))
-        moved   (resolve/new-feed-url feed)]
+        moved   (resolve/new-feed-url feed [asked (:url page)])]
     (cond-> (assoc page :feed feed :report (rss/report feed))
       moved (assoc :new-feed-url moved))))
 
@@ -141,7 +151,7 @@
        :body \"…\" :feed {…} :report [...] ; on a 200
        :new-feed-url \"…\"                ; when the feed declares a move
        :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
-       :error {…}}                      ; when there's no answer or no feed
+       :error {…}}                      ; when the fetch failed
 
   The `opts` are those of http/fetch! and rss/parse, and:
 
@@ -151,7 +161,8 @@
     feed can change within the freshness that its server names
 
   Nothing is thrown for what the network, the server or the body does,
-  and any status besides 200 comes back as :status."
+  and any status besides 200 comes back as :status. A status other than
+  200 and 304 also has a :fetch/status :error, e.g. a 404."
   ([url]
    (fetch! url {}))
   ([url opts]
@@ -161,7 +172,7 @@
                  (fn [{:keys [feed] :as page}]
                    (if feed
                      (async/then (fetch-later-pages! url page opts)
-                                 #(joined page %))
+                                 #(joined url page %))
                      page))))))
 
 (defn fetch-list!
@@ -174,10 +185,11 @@
        :etag \"…\" :last-modified \"…\"    ; to send next time
        :not-before #inst \"…\"            ; when the server asks you to wait
        :list {…}                         ; on a 200
-       :error {…}}                       ; when there's no answer or no list
+       :error {…}}                       ; when the fetch failed
 
   Nothing is thrown for what the network, the server or the body does,
-  and any status besides 200 comes back as :status."
+  and any status besides 200 comes back as :status. A status other than
+  200 and 304 also has a :fetch/status :error, e.g. a 404."
   ([url]
    (fetch-list! url {}))
   ([url opts]

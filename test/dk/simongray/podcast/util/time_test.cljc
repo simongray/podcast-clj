@@ -85,6 +85,8 @@
   (is (= 7997 (time/parse-duration "02:13:17")))
   (is (= 1635 (time/parse-duration "27:15")))
   (is (= 5259 (time/parse-duration " 1:27:39 ")))
+  (is (= 6192 (time/parse-duration "103:12")) "minutes past the hour, without hours")
+  (is (nil? (time/parse-duration "1:103:12")) "but not with them")
   (is (nil? (time/parse-duration "abc")))
   (is (nil? (time/parse-duration nil)))
   (is (= 2.76 (time/parse-clock "00:00:02,760")))

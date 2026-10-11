@@ -79,7 +79,7 @@
                         (is (nil? list))))
          #(async/then (podcast/fetch-list! "https://a.example/gone.opml" {:send send})
                       (fn [{:keys [status error]}]
-                        (is (= [404 nil] [status error]) "a status is an answer")))
+                        (is (= [404 :fetch/status] [status (:id error)]) "a status that failed has its diagnostic")))
          #(async/then (podcast/fetch-list! "https://a.example/list.opml"
                                            {:send (fn [_] (throw (ex-info "offline" {})))})
                       (fn [{:keys [error]}]

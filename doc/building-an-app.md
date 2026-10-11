@@ -280,10 +280,12 @@ moves its subscription too, and a feed that failed stays as it was and
 waits longer before the next try.
 
 When to check a feed again depends on its update frequency, its `ttl` or
-the interval between its episodes, as `schedule/next-check` reads them. The
-setting `:cadence` changes the defaults, and `:credentials-of` gives the
-credentials of a private feed by its URL, so no password is stored in the
-library and none goes to another feed.
+the interval between its episodes, as `schedule/next-check` reads them,
+but it's never more than twelve hours away, so that an early or an extra
+episode shows up the same day. The setting `:cadence` changes those
+defaults, e.g. `{:max-wait 21600}` for six hours, and `:credentials-of`
+gives the credentials of a private feed by its URL, so no password is
+stored in the library and none goes to another feed.
 
 The library keeps every feed whole, which takes about twice the size of
 its XML in memory. A device that never shows the feeds, such as a server

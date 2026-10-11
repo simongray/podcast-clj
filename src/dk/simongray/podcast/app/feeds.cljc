@@ -26,13 +26,16 @@
             [dk.simongray.wary-fetch.async :as async]))
 
 (def default-cadence
-  "How many seconds to wait before the next fetch of a feed that gives no
-  time itself.
+  "How many seconds to wait before the next fetch of a feed.
 
-  The wait is :silent for most feeds, :complete for a feed that says it's
-  complete, and :after-failure for each failure in a row, repeating the
-  last wait."
-  {:silent        86400
+  A feed is fetched when it says that it changes, but at most :max-wait
+  later, so that an early or an extra episode shows up the same day. That's
+  twelve hours by default, as in AntennaPod. The wait is :silent for a feed
+  that gives no time itself, :complete for a feed that says it's complete,
+  which :max-wait doesn't cap, and :after-failure for each failure in a
+  row, repeating the last wait."
+  {:max-wait      43200
+   :silent        43200
    :complete      604800
    :after-failure [900 3600 14400 86400]})
 
@@ -42,13 +45,16 @@
 
 (defn- check-at
   "When to fetch `feed` again, at `at`: when the feed says, or else after
-  the wait of `cadence`, and no earlier than the server's `not-before`."
+  the wait of `cadence`, but within its :max-wait unless the feed is
+  complete, and no earlier than the server's `not-before`."
   [feed at not-before cadence]
-  (let [wait (if (resolve/complete? feed)
-               (:complete cadence)
-               (:silent cadence))]
-    (time/latest (or (schedule/next-check feed at)
-                     (time/later at wait))
+  (let [complete? (resolve/complete? feed)
+        wait      (if complete? (:complete cadence) (:silent cadence))
+        ceiling   (when-not complete?
+                    (some->> (:max-wait cadence) (time/later at)))]
+    (time/latest (time/earliest (or (schedule/next-check feed at)
+                                    (time/later at wait))
+                                ceiling)
                  not-before)))
 
 (defn- fetched

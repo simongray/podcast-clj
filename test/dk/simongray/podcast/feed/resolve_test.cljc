@@ -401,6 +401,12 @@
     (is (resolve/locked? f))
     (is (not (resolve/locked? {})))
     (is (= "https://new/feed.xml" (resolve/new-feed-url {:itunes/new-feed-url "https://new/feed.xml"})))
+    (is (nil? (resolve/new-feed-url {:itunes/new-feed-url "https://a/rss"
+                                     :atom/links          [{:href "http://a/rss/" :rel "self"}]}))
+        "a feed that names itself by its self link, in another form")
+    (is (nil? (resolve/new-feed-url {:itunes/new-feed-url "https://a/rss"} ["https://old/rss" "https://A/rss"]))
+        "or by a URL that it was fetched from")
+    (is (= "https://new/rss" (resolve/new-feed-url {:itunes/new-feed-url "https://new/rss"} ["https://a/rss"])))
     (is (= "https://a/rss" (resolve/self-url {:atom/links [{:href "https://hub" :rel "hub"} {:href "https://a/rss" :rel "Self"}]})))
     (is (nil? (resolve/self-url f)))
     (is (= ["https://hub" "https://hub2"]

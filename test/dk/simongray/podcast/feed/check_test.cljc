@@ -7,7 +7,7 @@
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be local? with-server])]]
+            [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be local? with-file-server with-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
             #?(:cljs [dk.simongray.wary-fetch :as http])
@@ -241,6 +241,15 @@
              (testing "a playlist that web players can't read, of codecs that the feed doesn't name"
                (is (= #{:check/cors :check/duration :check/codecs}
                       (found (check [(item "/closed.m3u8" "hvc1.1.6.L93.B0,mp4a.40.2")]) "/closed.m3u8"))))))))))
+
+#?(:clj
+   (deftest a-video-of-the-type-psp-1-names
+     (with-file-server (byte-array 100) {}
+       (fn [url]
+         (let [feed   {:rss/items [{:rss/title "E" :rss/enclosure {:url url :type "video/m4v" :length 100}}]}
+               result (check/check-files! feed {:read? true :allow-pred local?})]
+           (is (contains? (:facts (first (:files result))) :media)
+               "is read, as one of Apple's video/x-m4v is"))))))
 
 #?(:cljs
    (deftest checking-a-feed-with-fetch

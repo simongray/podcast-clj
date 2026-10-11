@@ -6,6 +6,7 @@
   takes the feed and an item, and the item overrides or inherits what the
   channel declares."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.wary-fetch.url :as url]))
@@ -777,12 +778,6 @@
       (= slug "google") (true? (:googleplay/block x))
       :else             false)))
 
-(defn new-feed-url
-  "Where `feed` says that it has moved to, if anywhere."
-  [feed]
-  (or (:itunes/new-feed-url feed)
-      (:googleplay/new-feed-url feed)))
-
 (defn ^:no-doc atom-links
   "The atom:links of `feed` with the link relation `rel`, given in lower
   case, in the order of the feed."
@@ -794,6 +789,23 @@
   "The canonical URL of `feed`, from its atom:link rel=self."
   [feed]
   (some :href (atom-links feed "self")))
+
+(defn new-feed-url
+  "Where `feed` says that it has moved to, if anywhere, judged by the
+  `urls` that it was fetched from.
+
+  A feed that names itself, by its self link or by one of the `urls`,
+  hasn't moved, as every feed of Podbean and Substack names itself."
+  ([feed]
+   (new-feed-url feed []))
+  ([feed urls]
+   (let [declared (or (:itunes/new-feed-url feed)
+                      (:googleplay/new-feed-url feed))
+         own      (into #{}
+                        (comp (remove nil?) (map guid/normal-url))
+                        (cons (self-url feed) urls))]
+     (when-not (or (nil? declared) (own (guid/normal-url declared)))
+       declared))))
 
 (defn hubs
   "The URLs of the WebSub hubs of `feed`, from its atom:links with

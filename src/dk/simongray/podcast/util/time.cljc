@@ -91,6 +91,13 @@
   (when-let [present (seq (remove nil? instants))]
     (->inst (reduce max (map inst-ms present)))))
 
+(defn earliest
+  "The earliest of the `instants`, with nils left out, or nil when none is
+  left, e.g. a due time brought forward to the longest wait of an app."
+  [& instants]
+  (when-let [present (seq (remove nil? instants))]
+    (->inst (reduce min (map inst-ms present)))))
+
 (defn floor-seconds
   "The instant `inst` with its milliseconds dropped, the precision an RFC
   2822 date can carry."
@@ -324,12 +331,12 @@
 (defn parse-clock
   "The seconds of the clock-style timestamp `s`, such as \"1:02:03\",
   \"02:03\", \"00:00:02.760\" or the SRT-style \"00:00:02,760\", or nil when
-  `s` isn't one."
+  `s` isn't one. Without hours, the minutes can pass 59, e.g. \"103:12\"."
   [s]
-  (let [clock #"^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2}(?:[.,]\d+)?)\s*$"]
-    (when-let [[_ hh mm ss] (re-find clock s)]
+  (let [clock #"^(?:(\d{1,3}):(\d{1,2})|(\d{1,6})):(\d{1,2}(?:[.,]\d+)?)$"]
+    (when-let [[_ hh mm minutes ss] (re-find clock (str/trim s))]
       (+ (* 3600 (if hh (parse-long hh) 0))
-         (* 60 (parse-long mm))
+         (* 60 (parse-long (or mm minutes)))
          (parse-number ss)))))
 
 (defn parse-duration

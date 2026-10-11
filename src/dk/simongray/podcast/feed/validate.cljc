@@ -34,6 +34,13 @@
   (let [v (str/lower-case (str v))]
     (boolean (some #(= v (str/lower-case %)) values))))
 
+;; RFC 3986, section 3.1
+(defn- absolute-url?
+  "Whether `v` is a URL that starts with its scheme."
+  [v]
+  (and (string? v)
+       (boolean (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v))))
+
 (defn- typed-diagnostics
   "The diagnostics of the value `v` of `type` at `path`, by the enumeration
   `values` and whether `https?` is expected.
@@ -66,7 +73,7 @@
 
     (and (= type :url)
          (string? v)
-         (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v)))
+         (not (absolute-url? v)))
     [(diagnostic :validate/invalid-url :warning path
                  (str "not an absolute URL: " (pr-str v)))]
 
@@ -83,15 +90,18 @@
 
 (defn- attr-diagnostics
   "The diagnostics of the attributes of the map value `m` of `entry` at
-  `path`."
+  `path`. A required attribute that's blank is missing, e.g. url=\"\"."
   [entry m path]
   (let [https? (= "podcast" (namespace (:tag entry)))]
     (mapcat (fn [[k {:keys [type required values]}]]
-              (let [k'    (names/attr-key k)
-                    path' (conj path k')
-                    type  (or type :text)]
-                (if (contains? m k')
-                  (typed-diagnostics type values (get m k') path' https?)
+              (let [k'     (names/attr-key k)
+                    path'  (conj path k')
+                    type   (or type :text)
+                    v      (get m k')
+                    blank? (and (string? v) (str/blank? v))]
+                (if (and (contains? m k')
+                         (not (and required blank?)))
+                  (typed-diagnostics type values v path' https?)
                   (when required
                     [(diagnostic :validate/missing-attribute :error path'
                                  (str "required attribute " (name k)
@@ -305,14 +315,17 @@
   Apple's A Podcaster's Guide to RSS, as of September 2026."
   (let [self-link [:atom/links
                    #(some (comp #{"self"} :rel) %)
-                   "atom:link rel=self"]]
+                   "atom:link rel=self"]
+        enclosure [:rss/enclosure
+                   (comp absolute-url? :url)
+                   "rss:enclosure with an absolute url"]]
     {:psp-1 {:name    "Podcast Standards Project PSP-1"
              :channel {:required    [self-link :rss/title :rss/description
                                      :rss/link :rss/language :itunes/categories
                                      :itunes/explicit :itunes/image]
                        :recommended [:podcast/locked :podcast/guid
                                      :itunes/author]}
-             :item    {:required    [:rss/title :rss/enclosure :rss/guid]
+             :item    {:required    [:rss/title enclosure :rss/guid]
                        :recommended [:rss/link :rss/pub-date :rss/description
                                      :itunes/duration :itunes/image
                                      :itunes/explicit :podcast/transcripts]}}
@@ -321,7 +334,7 @@
                                      :rss/language :itunes/categories
                                      :itunes/explicit]
                        :recommended [:itunes/author :rss/link]}
-             :item    {:required    [:rss/title :rss/enclosure :rss/guid]
+             :item    {:required    [:rss/title enclosure :rss/guid]
                        :recommended [:rss/pub-date :rss/description
                                      :itunes/duration :rss/link :itunes/image
                                      :itunes/explicit]}}}))
@@ -352,6 +365,12 @@
                       (missing it item [:rss/items i]))
                     (map-indexed vector (:rss/items feed))))))
 
+(defn- reported?
+  "Whether `found`, a set of the paths that have an error, already has one
+  at `path` or below it."
+  [found path]
+  (some #(= path (take (count path) %)) found))
+
 (defn validate
   "The diagnostics of `feed` with the `opts` below: the checks of the
   registry, the basics of RSS 2.0, and the requirements that `opts` name.
@@ -361,7 +380,8 @@
     entries
 
   The feed is normalized first, so the shorthand that a producer can write
-  passes too."
+  passes too. A requirement that an error of the other checks already
+  covers isn't reported again, so one fix counts once."
   ([feed]
    (validate feed {}))
   ([feed {chosen :requirements
@@ -376,12 +396,17 @@
                      {:requirements chosen
                       :known        (set (keys requirements))})))
    (let [registry (spec/registry registry)
-         feed     (feed/normalize feed {:registry registry})]
-     (vec (concat (rss-diagnostics feed)
-                  (children-diagnostics registry :channel feed [])
-                  (unknown-key-diagnostics registry :channel nil feed [])
-                  (when chosen
-                    (requirements-diagnostics feed chosen)))))))
+         feed     (feed/normalize feed {:registry registry})
+         checked  (vec (concat (rss-diagnostics feed)
+                               (children-diagnostics registry :channel feed [])
+                               (unknown-key-diagnostics registry :channel nil
+                                                        feed [])))
+         errors   (into #{} (comp (filter (comp #{:error} :level)) (map :path))
+                        checked)]
+     (into checked
+           (when chosen
+             (remove #(reported? errors (:path %))
+                     (requirements-diagnostics feed chosen)))))))
 
 (defn valid?
   "Whether `feed` has no errors, with the `opts` of validate."

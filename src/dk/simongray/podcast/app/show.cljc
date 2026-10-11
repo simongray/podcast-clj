@@ -99,12 +99,10 @@
   (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
                                       :max-bytes :user-agent])]
     (async/then (podcast/fetch! url fetch-opts)
-                (fn [{:keys [feed error status]}]
-                  (cond
-                    feed  {:feed feed}
-                    error {:error error}
-                    :else {:error (diagnostics/fetch-failure
-                                   {:url url :status status})})))))
+                (fn [{:keys [feed error]}]
+                  (if feed
+                    {:feed feed}
+                    {:error error})))))
 
 (defn- held
   "How many bytes the view `v` holds from the start of the file on."

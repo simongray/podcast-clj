@@ -31,6 +31,7 @@
   [facts]
   (get-in facts [:error :reason]))
 
+;; PSP-1, the enclosure types, with Apple's spellings beside them
 (def ^:no-doc formats
   "The format that the media reader finds in a file of each declared type.
   The reader knows no other."
@@ -39,6 +40,7 @@
    "audio/x-m4a"     :mp4
    "audio/m4a"       :mp4
    "video/mp4"       :mp4
+   "video/m4v"       :mp4
    "video/x-m4v"     :mp4
    "video/quicktime" :mp4})
 

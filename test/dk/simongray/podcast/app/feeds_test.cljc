@@ -41,11 +41,12 @@
   (let [entry (get feeds guid)]
     (is (= [url "\"v1\"" 0 200 now] ((juxt :url :etag :failures :status :fetched-at) entry)))
     (is (= show (:feed entry)))
-    (is (= (at 86400) (:next-check entry)) "the gap between the episodes of the example feed is a day")
+    (is (= (at 43200) (:next-check entry))
+        "the gap between the episodes of the example feed is a day, and :max-wait twelve hours")
     (is (= [] (feeds/due feeds now)))
-    (is (= [guid] (feeds/due feeds (at 86400))))
+    (is (= [guid] (feeds/due feeds (at 43200))))
     (let [silent (assoc fresh :feed (assoc show :rss/items []))]
-      (is (= (at 86400) (:next-check (get (feeds/add {} url silent now) guid))) "a feed that gives no time: a day")
+      (is (= (at 43200) (:next-check (get (feeds/add {} url silent now) guid))) "a feed that gives no time: twelve hours")
       (is (= [] (feeds/due (feeds/add {} url silent now {:silent 3600}) (at 3599))))
       (is (= [guid] (feeds/due (feeds/add {} url silent now {:silent 3600}) (at 3600))) "the cadence given"))
     (is (= [guid] (feeds/due {guid {:url url :feed show}} now)) "an entry without a next check is due")
@@ -87,6 +88,21 @@
         fs       (feeds/add {} url (assoc fresh :feed complete) now)]
     (is (= (at 604800) (:next-check (get fs guid))) "a week")))
 
+(deftest a-ceiling-on-the-wait
+  (let [every (fn [days]
+                (assoc show :rss/items (vec (for [i (range 5)]
+                                              {:rss/guid     {:value (str i)}
+                                               :rss/pub-date (at (* -1 i days 86400))}))))
+        check (fn [feed result cadence]
+                (:next-check (get (feeds/add {} url (assoc result :feed feed) now cadence) guid)))]
+    (doseq [[what days] [["a weekly show" 7] ["a monthly show" 30]]]
+      (testing what
+        (is (= (at 43200) (check (every days) fresh {})) "is checked again within twelve hours")
+        (is (= (at (* days 86400)) (check (every days) fresh {:max-wait nil}))
+            "and when it says, without a ceiling")
+        (is (= (at 100000) (check (every days) (assoc fresh :not-before (at 100000)) {}))
+            "and no earlier than the server allows")))))
+
 (deftest the-results-of-a-fetch
   (testing "a fresh feed"
     (let [newer (assoc show :rss/title "Newer")
@@ -94,9 +110,9 @@
       (is (= [guid] changed))
       (is (nil? moved))
       (is (nil? report))
-      (is (= ["Newer" "\"v2\"" (at 3600) (at (+ 3600 86400)) 0 200]
+      (is (= ["Newer" "\"v2\"" (at 3600) (at (+ 3600 43200)) 0 200]
              ((juxt (comp :rss/title :feed) :etag :fetched-at :next-check :failures :status) (get-in r [:feeds guid])))))
-    (is (= (at (+ 3600 86400))
+    (is (= (at (+ 3600 43200))
            (:next-check (get-in (feeds/refresh feeds guid (assoc fresh :not-before (at 7200)) (at 3600)) [:feeds guid])))
         "the server's word holds the check back, and never brings it forward"))
   (testing "a 304 keeps the feed, and sets the next check, no earlier than the server allows"

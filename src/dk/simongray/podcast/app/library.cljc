@@ -389,11 +389,7 @@
                  (let [entry (get-in library [:fetched-lists url])]
                    (async/then (fetch-list! url entry opts) #(vector url %))))
         apply1 (fn [{:keys [library] :as acc} [url fetched]]
-                 (let [{:keys [status list not-before]} fetched
-                       error   (or (:error fetched)
-                                   (when-not (#{200 304} status)
-                                     (diagnostics/fetch-failure
-                                      {:url url :status status})))
+                 (let [{:keys [status list not-before error]} fetched
                        seconds (:list-seconds opts)
                        later   (time/latest (time/later at seconds)
                                             not-before)
