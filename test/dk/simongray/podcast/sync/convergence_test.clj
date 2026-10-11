@@ -56,7 +56,9 @@
     (gen/tuple (gen/return :add-to-playlist) (gen/elements ["P" "Q"]) episode-ids instants)
     (gen/tuple (gen/return :remove-from-playlist) (gen/elements ["P" "Q"]) episode-ids instants)
     (gen/tuple (gen/return :rename-playlist) (gen/elements [nil "Q"]) instants)
-    (gen/tuple (gen/return :listen) episode-ids (gen/choose 0 3600) instants)]))
+    (gen/tuple (gen/return :listen) episode-ids (gen/choose 0 3600) instants)
+    (gen/tuple (gen/return :mark-played) episode-ids instants)
+    (gen/tuple (gen/return :mark-unplayed) episode-ids instants)]))
 
 (def feed-operation
   "A random operation of what a feed brings about, or a subscription with
@@ -107,6 +109,8 @@
     :remove-from-playlist (profile.queue/remove-from-playlist state x y z)
     :rename-playlist      (profile.queue/rename-playlist state "P" x y)
     :listen               (:profile (profile.player/step state [:progress x y 3600] z))
+    :mark-played          (profile/mark-played state x y)
+    :mark-unplayed        (profile/mark-unplayed state x y)
     :subscribe-with       (-> (profile/subscribe state x {:url (str "https://" x "/rss") :title x} z)
                               (profile/configure x {y true} z))
     :refresh              (refreshed state x y z)
@@ -180,6 +184,15 @@
     (count (filter :removed? (concat (mapcat (comp vals state) flat)
                                      (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists :playlist-moves])))))))
 
+(defn- played
+  "The episodes that `state` counts as played, of those that the operations
+  name."
+  [state]
+  (set (filter #(profile/played? state %)
+               (for [[g i] [["feed-a" "a1"] ["feed-b" "b1"]]
+                     i     [i (str i "-moved")]]
+                 [g i]))))
+
 (defspec devices-converge-through-a-folder-of-documents 100
   (prop/for-all [steps schedule]
     (apply = (run :per-device steps {}))))
@@ -195,3 +208,17 @@
       (and (apply = states)
            (every? zero? (map tombstones states))
            (every? (fn [s] (= (seen-by-the-listener s) (seen-by-the-listener (profile/compact s far {:keep-for 0})))) states)))))
+
+(defspec devices-converge-while-every-sync-archives 100
+  (prop/for-all [steps schedule]
+    (apply = (run :per-device steps {:compact {:archive-after 0}}))))
+
+(defspec archiving-keeps-every-played-mark 100
+  (prop/for-all [steps schedule]
+    (let [far (java.util.Date. (* 1000 3600))]
+      (every? (fn [s]
+                (let [archived (profile/compact s far {:archive-after 0})]
+                  (and (= (played s) (played archived))
+                       (= (dissoc (seen-by-the-listener s) :episodes)
+                          (dissoc (seen-by-the-listener archived) :episodes)))))
+              (run :per-device steps {})))))

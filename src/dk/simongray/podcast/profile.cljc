@@ -13,6 +13,7 @@
        :lists          {url {:title :folder :removed?}}  ; followed OPML lists
        :episodes       {id {:position :duration :reported-at}}
        :played         {id {:played? true :played-at}}
+       :archive        {feed-guid {device-id {:items #{item-guid} :n 1}}}
        :queue          {id {:rank \"V\" :removed? false}}
        :queue-moves    {id {:rank \"W\" :removed? false}}  ; moved ranks
        :playlists      {name {id {:rank \"V\" :removed? false}}}
@@ -32,6 +33,8 @@
   it happens at, and stamps what it changed with that time and the :device
   of the profile. A feed is identified by its key, the guid that its first
   fetch settled on, and an episode by its id, [feed-guid item-guid].
+  Once nothing has changed a played episode for a year, compact moves it
+  from :episodes and :played to the :archive of its show.
 
   This namespace has the subscriptions, their settings, the preferences
   and the progress of the episodes. The other parts have namespaces of
@@ -59,8 +62,7 @@
 (def ^:no-doc collections
   "The schema of a profile for dk.simongray.mind-meld: the :depth of the
   entries of each collection, whether its tombstones can be dropped, the
-  key of the listening counts, which only grow, and which collections are
-  ordered."
+  key of a count that only grows, and which collections are ordered."
   {:subscriptions  {:depth 1 :compact? true}
    :remote-items   {:depth 1 :compact? true}
    :settings       {:depth 1}
@@ -68,6 +70,8 @@
    :lists          {:depth 1 :compact? true}
    :episodes       {:depth 1}
    :played         {:depth 1}
+   ;; each device's set of item guids only grows, so the larger is newer
+   :archive        {:depth 2 :count-key :n}
    :queue          {:depth 1 :compact? true :ranked? true}
    :queue-moves    {:depth 1 :compact? true :ranked? true}
    :playlists      {:depth 2 :compact? true :ranked? true}
@@ -216,7 +220,7 @@
   [entries]
   (into {} (map (fn [[k e]] [k (:value e)])) entries))
 
-(declare tags)
+(declare archived? tags)
 
 (defn rekey
   "The `profile` with the subscription `feed-guid` moved to `new-guid` at
@@ -249,9 +253,9 @@
 
   The places in the queue and the playlists, the inbox, the marks and a
   remote item move, leaving tombstones, while the progress and the played
-  mark are copied, since they're never dropped. Nothing is written where
-  `new-id` has an entry already, e.g. from a device that renamed it
-  first."
+  mark are copied, an archived one too, since their collections keep every
+  tombstone. Nothing is written where `new-id` has an entry already, e.g.
+  from a device that renamed it first."
   [profile old-id new-id at]
   (let [moves  (concat
                 (for [c [:queue :queue-moves :inbox :stars :ratings
@@ -265,9 +269,14 @@
                   [[c name old-id] [c name new-id]]))
         copies (for [c [:episodes :played]]
                  [[c old-id] [c new-id]])
+        entry  (fn [[c id :as path]]
+                 (or (get-in profile path)
+                     ;; of an archived episode, only the mark is left
+                     (when (and (= :played c) (archived? profile id))
+                       {:played? true})))
         copied (fn [[from to]]
-                 (let [e (get-in profile from)]
-                   (when (and e (nil? (get-in profile to)))
+                 (let [e (entry from)]
+                   (when (and e (nil? (entry to)))
                      [[to (constantly e)]])))
         moved  (fn [[from :as paths]]
                  (when (crdt/live? (get-in profile from))
@@ -501,53 +510,129 @@
     (crdt/write profile [:filters name] #(assoc % :removed? true) at)
     profile))
 
-(defn compact
-  "Drop from `profile` at `at` the tombstones that every live device has
-  merged, once they're older than the :keep-for of `opts`, as
-  dk.simongray.mind-meld/compact does.
-
-  Played marks and listening counts are never dropped, and the tombstones
-  of unsubscriptions stay while the listener follows a list."
-  ([profile at]
-   (compact profile at {}))
-  ([profile at opts]
-   ;; a list can name an unsubscribed show again
-   (let [follows? (some crdt/live? (vals (:lists profile)))
-         schema   (cond-> collections
-                    follows? (assoc-in [:subscriptions :compact?] false))]
-     (crdt/compact schema profile at opts))))
-
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it,
   by default."
   30)
 
+(defn archived?
+  "Whether the archive of `profile` holds the episode `id` as played."
+  [profile [feed-guid item-guid :as id]]
+  (boolean (some #(contains? (:items %) item-guid)
+                 (vals (get-in profile [:archive feed-guid])))))
+
+(defn- archived-mark
+  "The played mark of the episode `id` that the archive of `profile` holds,
+  or nil. It has the earliest stamp of the archives that hold it, which is
+  no earlier than its move there."
+  [profile [feed-guid item-guid :as id]]
+  (let [holders (filter #(contains? (:items %) item-guid)
+                        (vals (get-in profile [:archive feed-guid])))]
+    (when (seq holders)
+      {:played?    true
+       :updated-at (:updated-at (apply min-key crdt/stamp-ms holders))})))
+
 (defn episode-entry
   "The entry of the episode `id` in `profile` with its played mark, or nil.
-  It has the stamp and the device of the later of the two."
+  It has the stamp and the device of the later of the two.
+
+  An archived episode counts as played, and without a position, its entry
+  is the mark alone, with the stamp of the archive."
   [profile id]
   ;; the position and the mark are entries of their own, so that a report
   ;; of the position from another device never undoes a mark
   (let [e (get-in profile [:episodes id])
         m (get-in profile [:played id])]
-    (when (or e m)
-      (clojure.core/merge e
-                          (select-keys m [:played? :played-at])
-                          (select-keys (max-key crdt/stamp-ms m e)
-                                       [:updated-at :device])))))
+    (cond
+      m     (clojure.core/merge e
+                                (select-keys m [:played? :played-at])
+                                (select-keys (max-key crdt/stamp-ms m e)
+                                             [:updated-at :device]))
+      e     (cond-> e (archived? profile id) (assoc :played? true))
+      :else (archived-mark profile id))))
 
 (defn episode-entries
   "The entries of the episodes of `profile` by id, each with its played
-  mark."
+  mark, except those that are only in the archive."
   [profile]
   (let [ids (distinct (concat (keys (:episodes profile))
                               (keys (:played profile))))]
     (zipmap ids (map (partial episode-entry profile) ids))))
 
 (defn played?
-  "Whether the episode `id` counts as played in `profile`."
+  "Whether the episode `id` counts as played in `profile`, by its mark or
+  else by the archive."
   [profile id]
-  (boolean (:played? (get-in profile [:played id]))))
+  (if-let [m (get-in profile [:played id])]
+    (boolean (:played? m))
+    (archived? profile id)))
+
+(def archive-after
+  "How long nothing may change a played episode before compact moves it to
+  the archive of its show, in milliseconds: a year."
+  (* 365 24 60 60 1000))
+
+(defn ^:no-doc archivable
+  "The ids of the played episodes of `profile` that nothing changed in the
+  `archive-after` milliseconds before `at`."
+  [profile at archive-after]
+  (let [cutoff (- (inst-ms at) archive-after)
+        old?   #(or (nil? %) (< (crdt/stamp-ms %) cutoff))]
+    (for [id    (distinct (concat (keys (:played profile))
+                                  (keys (:episodes profile))))
+          :when (and (old? (get-in profile [:played id]))
+                     (old? (get-in profile [:episodes id]))
+                     ;; the archive is a set of item guids
+                     (string? (get id 1))
+                     (played? profile id))]
+      id)))
+
+;; The entries go without a tombstone: a device that still holds them
+;; brings back what the archive says too, that the episode is played, and
+;; an unplay from a device that hasn't seen the move still wins.
+(defn- archive
+  "The `profile` with the played episodes `ids` moved to the archive at
+  `at`: their entries go, and their guids join the archive of this device,
+  unless the archive of a device holds them already."
+  [profile ids at]
+  (let [fresh  (group-by first (remove (partial archived? profile) ids))
+        writes (for [[feed-guid ids] fresh]
+                 [[:archive feed-guid (:device profile)]
+                  (fn [{:keys [items]}]
+                    (let [items (into (or items #{}) (map second) ids)]
+                      {:items items :n (count items)}))])
+        forget (fn [entries]
+                 (apply dissoc entries ids))]
+    (cond-> profile
+      (:played profile)   (update :played forget)
+      (:episodes profile) (update :episodes forget)
+      (seq writes)        (crdt/write-each writes at))))
+
+(defn compact
+  "Move the old played episodes of `profile` to the archive at `at`, and
+  drop the tombstones that every live device has merged, once they're
+  older than the :keep-for of `opts`, as dk.simongray.mind-meld/compact
+  does.
+
+  A played episode moves once nothing has changed it for the
+  :archive-after of `opts`, in milliseconds and a year by default. Its
+  position and stamps go, and the archive of its show keeps it as played.
+  Listening counts are never dropped, and the tombstones of unsubscriptions
+  stay while the listener follows a list."
+  ([profile at]
+   (compact profile at {}))
+  ([profile at opts]
+   {:pre [(map? opts)]}
+   ;; a list can name an unsubscribed show again
+   (let [follows? (some crdt/live? (vals (:lists profile)))
+         schema   (cond-> collections
+                    follows? (assoc-in [:subscriptions :compact?] false))
+         ids      (archivable profile at (:archive-after opts archive-after))]
+     (crdt/compact schema
+                   (cond-> profile
+                     (seq ids) (archive ids at))
+                   at
+                   opts))))
 
 (defn- heard-to-the-end?
   [position duration threshold]
@@ -735,6 +820,18 @@
                    " is not counted in seconds"))))
         (:listened profile)))
 
+(defn- archive-problem
+  [profile]
+  (some (fn [[feed-guid devices]]
+          (some (fn [[_ {:keys [items n]}]]
+                  (when-not (and (set? items)
+                                 (every? string? items)
+                                 (= n (count items)))
+                    (str "the archive of " (pr-str feed-guid)
+                         " is not a set of item guids with its count")))
+                devices))
+        (:archive profile)))
+
 (defn- criteria-problem
   [profile]
   (some (fn [[name {:keys [criteria]}]]
@@ -753,7 +850,7 @@
   "The checks of a profile after those of dk.simongray.mind-meld, in order.
   Each takes a profile that is a map and returns a description of the
   first problem of its kind, or nil, and relies on the checks before it."
-  [key-problem mark-problem count-problem criteria-problem
+  [key-problem mark-problem count-problem archive-problem criteria-problem
    remote-item-problem])
 
 ;; a merge spreads the values of another device to every device, where a
@@ -769,6 +866,7 @@
   - A rating is a number of its scale, and a clip lasts a number of
     seconds.
   - A listening count is a number of seconds.
+  - An archive is a set of item guids, counted by its :n.
   - The criteria of a saved filter are a map.
   - A remote item names the URL of its feed.
 

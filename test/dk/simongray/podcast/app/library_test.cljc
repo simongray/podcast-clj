@@ -577,6 +577,25 @@
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
 
+(deftest archiving-by-the-config
+  (let [id      [guid "old"]
+        played  (update library :profile profile/mark-played id (at 10))
+        horizon (assoc-in played [:config :archive-after] 60000)
+        backend #(sync/backend (store/memory (atom {})) {:app "test"})]
+    (run #(async/then (library/sync! played [(backend)] {:at (at 100)})
+                      (fn [lib]
+                        (is (= [id] (keys (get-in lib [:profile :played]))) "a mark stays for a year")
+                        (let [merged (library/merge horizon lib)]
+                          (is (empty? (get-in merged [:profile :played])) "but a merge archives by the config")
+                          (is (profile/played? (:profile merged) id)))))
+         #(async/then (library/sync! horizon [(backend)] {:at (at 100)})
+                      (fn [lib]
+                        (is (empty? (get-in lib [:profile :played])) "and so does a sync")
+                        (is (profile/played? (:profile lib) id))))
+         #(async/then (library/sync! horizon [(backend)] {:at (at 100) :compact false})
+                      (fn [lib]
+                        (is (= [id] (keys (get-in lib [:profile :played]))) "unless it doesn't compact"))))))
+
 (deftest syncs-that-fail-in-a-row
   (let [broken {:name "broken" :pull (fn [_ _ _] (throw (ex-info "down" {}))) :push (fn [_ _ _] {:cursor {}})}
         good   (sync/backend (store/memory (atom {})) {:app "test"})]
@@ -603,6 +622,11 @@
                                         (is (= {} (library/subscriptions merged)))
                                         (is (= {} (:feeds merged)) "so refresh! no longer fetches it")
                                         (is (= [] (library/episodes merged {})))))))))))
+
+(deftest merging-before-the-first-sync
+  (let [left (library/unsubscribe library guid {:at (at 10)})]
+    (is (= {} (library/subscriptions (library/merge (library/make "tablet") {:profile (:profile left)})))
+        "a tombstone, and no sync to compact at")))
 
 (deftest merging-what-a-fetch-gave
   (let [id      [guid "https://example.com/ep0003"]
@@ -739,6 +763,7 @@
         made      #(library/make "phone" {:config {:now-fn (constantly now)}})
         doc-name  (library/document-name guid (get-in library [:feeds guid :changed-at]))
         saved     #(binding [*print-namespace-maps* false] (pr-str %))
+        too-new   {:version (inc library/version) :profile {:from :the-future}}
         later     #inst "2026-10-01T12:00:00Z"
         changed   (-> library
                       (assoc-in [:feeds guid :changed-at] later)
@@ -749,7 +774,7 @@
                       (fn [{:keys [put]}]
                         (is (= doc-name (first put)) "each feed in a document of its own")
                         (let [edn (edn/read-string (:body (get @documents "library.edn")))]
-                          (is (= 3 (:version edn)))
+                          (is (= library/version (:version edn)))
                           (is (= doc-name (get-in edn [:feeds guid :document])))
                           (is (not (contains? (get-in edn [:feeds guid]) :feed)) "and not in library.edn"))))
          #(async/then (library/save! changed s)
@@ -774,15 +799,16 @@
                             (is (= (:feeds library) (:feeds lib)) "a library of version 1, with the feeds inline")
                             (library/save! lib s))))
          #(is (contains? @documents doc-name) "and written out at the next save")
-         #(do (swap! documents assoc "library.edn" {:body (saved {:version 4 :profile {:from :the-future}}) :version "2"})
+         #(do (swap! documents assoc "library.edn" {:body (saved too-new) :version "2"})
               (async/then (library/restore! (made) s)
                           (fn [lib]
-                            (is (= [[:library/newer-format 4]] (map (juxt :id :version) (:report (:restore lib)))))
+                            (is (= [[:library/newer-format (:version too-new)]]
+                                   (map (juxt :id :version) (:report (:restore lib)))))
                             (is (= (:profile (made)) (:profile lib)) "nothing of a newer version")
                             (async/then (library/save! lib s)
                                         (fn [{:keys [error]}]
                                           (is (= :library/newer-format (:id error))))))))
-         #(is (= "{:version 4, :profile {:from :the-future}}" (:body (get @documents "library.edn")))
+         #(is (= (saved too-new) (:body (get @documents "library.edn")))
               "which a save doesn't write over")
          #(do (swap! documents assoc "library.edn"
                      {:body (saved {:version 2 :profile (assoc (:profile library) :subscriptions "nope")}) :version "3"})

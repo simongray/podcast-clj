@@ -331,6 +331,10 @@
                              [{:ratings {a {:rating 3 :worst 3 :best 3 :updated-at t0 :device "x"}}}
                               #"not a number of the scale"]
                              [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
+                             [{:archive {"feed-a" {"x" {:items ["a1"] :n 1 :updated-at t0 :device "x"}}}}
+                              #"the archive of \"feed-a\" is not a set"]
+                             [{:archive {"feed-a" {"x" {:items #{"a1"} :n 9 :updated-at t0 :device "x"}}}}
+                              #"with its count"]
                              [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]
                              [{:app/notes {"n1" "text"}} #"\[:app/notes \"n1\"\] is not in a stamped entry"]]]
       (is (re-find found (str (profile/problem profile))) (pr-str profile))))
@@ -461,6 +465,51 @@
         (is (= {"tablet" nil "laptop" t1} (crdt/lagging (assoc-in phone [:devices "laptop" :seen "phone"] t1)))
             "a device part of the way is named with how far it got")
         (is (= ["feed-a"] (keys (:subscriptions (profile/compact (crdt/retire phone "tablet" t3) far)))))))))
+
+(deftest archiving-played-episodes
+  (let [year   (* 365 24 60 60 1000)
+        later  (time/->inst (+ (inst-ms t2) year))
+        phone  (-> (profile/make "phone")
+                   (profile/progress a 3590 3600 t0)
+                   (profile/mark-played b t0)
+                   (profile/progress c 100 3600 t0))
+        moved  (profile/compact phone later)
+        laptop (assoc phone :device "laptop")]
+    (testing "a played episode that nothing changed for a year moves to the archive of its show"
+      (is (= {"phone" {:items #{"a1" "a2"} :n 2 :updated-at later :device "phone"}} (get-in moved [:archive "feed-a"])))
+      (is (= {} (:played moved)))
+      (is (= [c] (keys (:episodes moved))) "an episode that isn't played stays")
+      (is (every? #(profile/played? moved %) [a b]))
+      (is (= {:played? true :updated-at later} (profile/episode-entry moved a)) "a mark with no position or time of its own")
+      (is (= [c] (keys (profile/episode-entries moved))) "and the history keeps to the year")
+      (is (= moved (profile/compact moved later)))
+      (is (nil? (profile/problem moved))))
+    (testing "the time is an option"
+      (is (= phone (profile/compact phone later {:archive-after (* 2 year)}))))
+    (testing "a device that hasn't seen the move brings back what the archive says too"
+      (let [both (profile/merge moved laptop)]
+        (is (every? #(profile/played? both %) [a b]))
+        (is (= moved (profile/compact both later)))))
+    (testing "an unplay from a device that hasn't seen the move wins, now and later"
+      (let [both (profile/merge moved (profile/mark-unplayed laptop a later))]
+        (is (not (profile/played? both a)))
+        (is (not (profile/played? (profile/compact both (time/->inst (+ (inst-ms later) year))) a)))))
+    (testing "an archived episode heard again has its position, and is archived again a year later"
+      (let [again (profile/progress moved a 600 3600 later)]
+        (is (= {:position 600 :played? true} (select-keys (profile/episode-entry again a) [:position :played?])))
+        (is (= 600 (:position (profile/episode-entry (profile/compact again later) a))))
+        (is (= (dissoc moved :clock)
+               (dissoc (profile/compact again (time/->inst (+ (inst-ms later) year 1000))) :clock)))))
+    (testing "two devices that archive an episode both hold it, and one that knows the other's archive adds nothing"
+      (let [laptop' (profile/compact laptop later)
+            both    (profile/merge moved laptop')]
+        (is (= #{"phone" "laptop"} (set (keys (get-in both [:archive "feed-a"])))))
+        (is (every? #(profile/played? both %) [a b]))
+        (is (= (:archive moved) (:archive (profile/compact (profile/merge laptop moved) later))))))
+    (testing "a new guid of an archived episode is played too"
+      (let [renamed (profile/rename-episode moved a ["feed-a" "a1-new"] later)]
+        (is (profile/played? renamed ["feed-a" "a1-new"]))
+        (is (= renamed (profile/rename-episode renamed a ["feed-a" "a1-new"] later)))))))
 
 (deftest the-changes-since-a-state
   (let [taken   (-> (profile/make "phone")

@@ -85,6 +85,9 @@ These block the step they name.
   listening count of such an episode go, or does it stay as a total per
   show? ([A peer device](threat-model-2026.md#a-peer-device) and the
   item in [the needs report](needs-2026.md#the-profile-the-player-the-library-and-sync))
+  (Decided: a year by default, set by `:archive-after`, into a set of the
+  played item guids per show. The listening counts are per show and month
+  already, so they stay.)
 - **Step 13.** The reorganisation of the media readers was proposed in
   five batches on 10 October and never approved, and parts of two batches
   were done since. Do all five go ahead, or only what the two new readers

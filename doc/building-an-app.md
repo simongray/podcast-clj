@@ -927,6 +927,12 @@ included, `library/next-sync` asks for a sync within seconds, so while an
 episode plays, sync when it pauses instead. A button in the settings
 screen can test a store with `store/check!`.
 
+A sync also moves each played episode that nothing changed for a year to
+the archive of its show, so that the documents stop growing with every
+episode played. It still counts as played, but its position and the time
+it was played go. For another span, set `:archive-after` in the config,
+in milliseconds.
+
 To keep the documents encrypted on the server, wrap the store with
 `encrypted/store` and a passphrase, or a function that returns one. Use
 `:except` to leave the subscription list readable for other apps:

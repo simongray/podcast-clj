@@ -190,10 +190,20 @@ stamps, which holds for the devices in the registry. The entries that a
 service such as gpodder brings in can arrive in any order, so their
 tombstones stay. The others are dropped once they're also 30 days old,
 which leaves room for a device that joins with a state of its own.
-Played marks and listening counts are never dropped, since the listener
-still sees them. After a sync, the result is merged into the current
-state, which brings back the dropped tombstones, so `library/merge`
-compacts again afterwards.
+Listening counts are never dropped, since the listener still sees them.
+After a sync, the result is merged into the current state, which brings
+back the dropped tombstones, so `library/merge` compacts again
+afterwards.
+
+A played episode is two entries, its position and its mark, so the
+profile would grow with every episode played. Once nothing has changed
+one for a year, compaction moves it to the archive of its show instead:
+a set of the item guids of played episodes, one per device, that only
+grows. Its entries go without a tombstone. A device that still holds
+them brings back what the archive says too, that the episode is played,
+and the next compaction moves it again. An unplay is a new mark, which
+wins over the archive, so an unplay on a device that hasn't seen the
+move still holds.
 
 While the listener follows a list, the tombstones of unsubscriptions stay.
 A feed never gives a new device old episodes, but a list subscribes to

@@ -19,8 +19,8 @@
   says, and the views and listings mark each with its :retained fact.
   With :max-items, the oldest of them go once a feed has more items, but
   never one that the profile holds anything for, e.g. progress, a played
-  mark, a star or a place in the queue. The config holds the options that
-  the functions take, given once:
+  mark that isn't archived, a star or a place in the queue. The config
+  holds the options that the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of client/send!
@@ -33,6 +33,7 @@
        :concurrency    8              ; how many feeds are fetched at once
        :max-pages      5              ; of a paged feed, at its first fetch
        :max-items      500            ; the most items of a feed, all by default
+       :archive-after  31536000000    ; when played episodes are archived, in ms
        :only-newer?    false          ; older episodes that appear are new too
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
        :now-fn         f              ; the clock, util.time/now by default
@@ -887,13 +888,23 @@
   [library f & args]
   (update library :profile #(apply f % (concat args [(time-of library {})]))))
 
+(defn- compacting
+  "The :compact option of a sync of `library` with `opts`: false, or the
+  options of profile/compact, with the :archive-after of `opts` or of the
+  config."
+  [library opts]
+  (let [{:keys [compact archive-after]} (options library opts)]
+    (if (false? compact)
+      false
+      (into (if archive-after {:archive-after archive-after} {}) compact))))
+
 (defn sync!
   "Sync `library` with the listener's other devices through `backends`,
   with the `opts` of sync/sync! except :cursors and :failures.
 
-  It keeps the cursors for the next sync, and compacts the tombstones. It
-  returns the library with the result under :sync, in ClojureScript as a
-  promise:
+  It keeps the cursors for the next sync, and compacts the profile as
+  profile/compact does, with the :archive-after of the config. It returns
+  the library with the result under :sync, in ClojureScript as a promise:
 
       {:cursors  {…}         ; those of the stores, for the next sync
        :at       #inst \"…\"
@@ -905,6 +916,7 @@
   ([library backends opts]
    {:pre [(map? opts)]}
    (let [before    (:profile library)
+         opts      (assoc opts :compact (compacting library opts))
          sync-opts (clojure.core/merge
                     opts
                     {:at (time-of library opts)}
@@ -955,12 +967,16 @@
                                   (get-in feeds [% :feed]))
                       (= (listing (:profile library) %) (listing profile %)))
         guids   (into (set (keys feeds)) (keys (:feeds library)))
-        changed (remove same? guids)]
+        changed (remove same? guids)
+        compact (compacting library {})]
     (reduce reindexed
             (cond-> (assoc library
                            :profile       (cond-> profile
-                                            (not= synced (:sync library))
-                                            (profile/compact (:at synced)))
+                                            (and compact
+                                                 (:at synced)
+                                                 (not= synced (:sync library)))
+                                            (profile/compact (:at synced)
+                                                             compact))
                            :feeds         feeds
                            :fetched-lists lists)
               synced  (assoc :sync synced)
@@ -1013,10 +1029,11 @@
   [:profile :feeds :fetched-lists :sync])
 
 (def version
-  "The version of the shape of a saved library: 3 since the settings of a
-  subscription are one entry, 2 since each feed went to a document of its
-  own. A saved library without one is version 1."
-  3)
+  "The version of the shape of a saved library: 4 since a played episode
+  can be in the archive alone, 3 since the settings of a subscription are
+  one entry, 2 since each feed went to a document of its own. A saved
+  library without one is version 1."
+  4)
 
 (def migrations
   "The migration of a saved library from each version to the next, by the
@@ -1024,7 +1041,7 @@
 
   Version 1 holds the feeds inline, and they stay so until the next save
   writes them out as documents. Version 2 holds an entry for each setting
-  of a subscription."
+  of a subscription. Version 3 has no archive, so it reads as it is."
   {1 (fn [saved]
        (cond-> saved
          (map? (:feeds saved))
@@ -1034,7 +1051,8 @@
                     (assoc :changed-at (:fetched-at %))))))
    2 (fn [saved]
        (cond-> saved
-         (map? (:profile saved)) (update :profile profile/upgrade)))})
+         (map? (:profile saved)) (update :profile profile/upgrade)))
+   3 identity})
 
 (defn ^:no-doc document-name
   "The name of the document of the feed `feed-guid` that changed at the

@@ -19,8 +19,9 @@
 (def version
   "The version of the profile's format that a document records. It changes
   only when the meaning of a key changes, since a reader merges the keys
-  it doesn't know by their shape."
-  1)
+  it doesn't know by their shape: 2 since an episode without a played
+  mark can be played by the archive."
+  2)
 
 (def kind
   "The kind of state that the documents of a profile hold."
