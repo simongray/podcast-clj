@@ -229,12 +229,11 @@ pages of the inspector as a podcaster.
   level, so a validator guesses that an error under `:apple` means Apple
   Podcasts Connect rejects the feed. One paragraph in the diagnostics
   namespace, which the reference page is generated from. An hour.
-- **`<guid>` is required under `:apple`, which Apple may list as
-  recommended.** Two listed feeds fail the Apple requirements on that
-  alone. PSP-1 requires the guid; Apple's guide, as far as both walks
-  remember, recommends it and keys episodes on the enclosure URL without
-  it. The standards audit checks the live page; if it agrees, the row
-  moves to recommended. An hour.
+- **Two listed feeds fail the Apple requirements for lacking `<guid>`
+  alone.** Both walks remembered Apple's guide as recommending the guid.
+  A read of the guide on the same day settles it the other way: `<guid>`
+  is under the required episode tags, as the `:apple` table has it, so
+  the two feeds are wrong and the table is right. Nothing to change.
 
 ### What the validator still writes
 
@@ -276,9 +275,6 @@ Tailscale, is written up here when it completes.
 
 ## Questions
 
-- Does Apple's guide list `<guid>` as recommended, and does Apple
-  Podcasts Connect take a feed without guids? Both walks think so; the
-  standards audit of the same day should settle it.
 - Should `feed/normalize` read a producer's strings, which makes the
   plain-data path as lenient as the parser, or should the model stay
   typed and only the message change?
