@@ -323,7 +323,7 @@
      :book     @book
      :names    (gpodder/namer state env)
      :at       at
-     :seconds  (quot (inst-ms at) 1000)
+     :seconds  (time/unix-seconds at)
      :params   params
      :since-ms (some->> (get params "since")
                         (re-matches #"\d{1,12}")
@@ -427,11 +427,7 @@
   scheme of the request or the X-Forwarded-Proto of a proxy. The calls run
   one at a time, as sync steps must, so :sync can be:
 
-      (let [cursors (atom nil)]
-        (fn [state]
-          (let [result (sync/sync! state [backend] {:cursors @cursors})]
-            (reset! cursors (:cursors result))
-            (:state result))))
+      (sync/stepper [backend])
 
   A :sync gives a state, not a promise of one, so in ClojureScript, sync
   in the app and merge the result into the atom. The server merges what

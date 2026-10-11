@@ -50,6 +50,24 @@
        (is (= written (:version (@documents "phone.edn"))) "nothing written"))))
 
 #?(:clj
+   (deftest one-step-at-a-time
+     (let [documents (atom {})
+           fetched   (atom [])
+           counted   (update (store/memory documents) :fetch
+                             (fn [f] (fn [& args] (swap! fetched conj (first args)) (apply f args))))
+           backend   (sync/backend counted)
+           _         (sync/sync! (laptop-state) [backend] {:at t2})
+           step      (sync/stepper [backend] {:at t3})
+           state     (do (reset! fetched []) (step (phone-state)))
+           first-run @fetched]
+       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions state))))
+           "the state, with what the other device wrote")
+       (is (= ["laptop.edn"] first-run))
+       (reset! fetched [])
+       (is (= state (step state)))
+       (is (= [] @fetched) "the next step starts from the cursors of the last"))))
+
+#?(:clj
    (deftest a-folder-of-profiles-and-their-subscription-list
      (let [documents (atom {})
            backend   (sync/backend (store/memory documents) {:opml? true})

@@ -86,7 +86,7 @@
         cookie  (when session
                   (secret/hide (str "sessionid=" session)))]
     (cond-> {:method  (if get? :get :post)
-             :url     (str (str/replace root #"(^|[^/])/+$" "$1")
+             :url     (str (url/without-trailing-slashes root)
                            (path api call (:username creds) device)
                            (when get? (str "?since=" (or since 0))))
              :headers (cond-> {"Accept" "application/json"}

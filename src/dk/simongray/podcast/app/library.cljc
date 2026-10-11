@@ -1176,9 +1176,9 @@
                  (fn [{:keys [value error]}]
                    (cond
                      refused {:error refused}
-                     error   {:error (diagnostics/describe
-                                      {:id     :library/save-failed
-                                       :reason (async/explain error)})}
+                     error   (diagnostics/failed
+                              {:id     :library/save-failed
+                               :reason (async/explain error)})
                      :else   value))))))
 
 (defn- reconciled

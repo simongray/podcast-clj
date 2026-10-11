@@ -30,9 +30,7 @@
   (-> url
       str/trim
       (str/replace #"^[a-zA-Z][a-zA-Z0-9+.-]*://" "")
-      ;; a match may start only where a run of slashes starts: /+$ alone is
-      ;; tried again from every slash of a long run, quadratically
-      (str/replace #"(^|[^/])/+$" "$1")))
+      url/without-trailing-slashes))
 
 (defn from-url
   "The podcast:guid of a feed at `url` whose author didn't declare one."

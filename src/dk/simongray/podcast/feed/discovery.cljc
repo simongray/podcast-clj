@@ -122,8 +122,8 @@
                               :guid   guid})
 
        :else
-       {:error (diagnostics/describe {:id    :discovery/unreadable
-                                      :input (str s)})}))))
+       (diagnostics/failed {:id    :discovery/unreadable
+                            :input (str s)})))))
 
 (defn- nodes-of
   "The nodes of the web page `s`, its elements and texts at any depth."
@@ -254,8 +254,7 @@
                             (str url))
           path     (or path "")]
       [(str/replace host #"^www\." "")
-       ;; a match may start only where a run of slashes starts
-       (str/replace path #"(^|[^/])/+$" "$1")])))
+       (url/without-trailing-slashes path)])))
 
 (defn page-name
   "The name that the web page `s` at `url` gives itself, to search a
@@ -441,9 +440,9 @@
           rss-opts (-> (select-keys opts [:quirks? :registry :except])
                        (assoc :url url))]
       (if-not (feed-document? body)
-        {:error (diagnostics/describe {:id     :fetch/malformed
-                                       :url    url
-                                       :reason "The answer isn't a feed"})}
+        (diagnostics/failed {:id     :fetch/malformed
+                             :url    url
+                             :reason "The answer isn't a feed"})
         (let [{:keys [feed error]} (rss/try-parse body rss-opts)]
           (if error
             {:error error}
@@ -501,7 +500,7 @@
         podcastindex (of-api :podcastindex)
         index-id     (or podcast-guid guid podcastindex-id)
         signed       {:credentials index
-                      :auth-date   (quot (inst-ms (now-fn)) 1000)}]
+                      :auth-date   (time/unix-seconds (now-fn))}]
     (cond-> []
       (and apple apple-id)
       (conj [apple (directory/request apple :lookup {:id apple-id})])
@@ -562,7 +561,7 @@
     (if (nil? q)
       acc
       (let [signed   {:credentials index
-                      :auth-date   (quot (inst-ms (now-fn)) 1000)}
+                      :auth-date   (time/unix-seconds (now-fn))}
             asked    (for [source (map directory/entry search)]
                        [source (directory/request source :search
                                                   {:q q :limit max-candidates}

@@ -205,24 +205,27 @@
   (str "data:" type ";base64," (base64 b)))
 
 (defn decode
-  "The text of the bytes `b` from `start` to `end` in `encoding`: :latin1,
-  :utf8, :utf16le or :utf16be. A byte order mark stays, and a sequence that
-  isn't valid becomes U+FFFD, on both platforms."
-  [b start end encoding]
-  #?(:clj  (String. ^bytes b (int start) (int (- end start))
-                    (case encoding
-                      :latin1  StandardCharsets/ISO_8859_1
-                      :utf8    StandardCharsets/UTF_8
-                      :utf16le StandardCharsets/UTF_16LE
-                      :utf16be StandardCharsets/UTF_16BE))
-     :cljs (if (= :latin1 encoding)
-             (binary-string (.subarray b start end))
-             (let [label   (case encoding
-                             :utf8    "utf-8"
-                             :utf16le "utf-16le"
-                             :utf16be "utf-16be")
-                   decoder (js/TextDecoder. label #js {:ignoreBOM true})]
-               (.decode decoder (.subarray b start end))))))
+  "The text of the bytes `b`, or of those from `start` to `end`, in
+  `encoding`: :latin1, :utf8, :utf16le or :utf16be. A byte order mark
+  stays, and a sequence that isn't valid becomes U+FFFD, on both
+  platforms."
+  ([b encoding]
+   (decode b 0 (length b) encoding))
+  ([b start end encoding]
+   #?(:clj  (String. ^bytes b (int start) (int (- end start))
+                     (case encoding
+                       :latin1  StandardCharsets/ISO_8859_1
+                       :utf8    StandardCharsets/UTF_8
+                       :utf16le StandardCharsets/UTF_16LE
+                       :utf16be StandardCharsets/UTF_16BE))
+      :cljs (if (= :latin1 encoding)
+              (binary-string (.subarray b start end))
+              (let [label   (case encoding
+                              :utf8    "utf-8"
+                              :utf16le "utf-16le"
+                              :utf16be "utf-16be")
+                    decoder (js/TextDecoder. label #js {:ignoreBOM true})]
+                (.decode decoder (.subarray b start end)))))))
 
 (defn encode
   "The text `s` as the bytes of its UTF-8."
@@ -246,7 +249,7 @@
   "The bytes that the base64 in the bytes `b` names, or nil. It may have
   spaces and lack its padding, as a data URL may."
   [b]
-  (let [s (-> (decode b 0 (length b) :latin1)
+  (let [s (-> (decode b :latin1)
               (str/replace #"[\t\n\f\r ]" "")
               (str/replace #"={1,2}$" ""))]
     (from-base64 (str s (subs "===" 0 (mod (- (count s)) 4))))))
@@ -279,7 +282,7 @@
   (cond
     (= :bytes kind) (if (string? x) (encode x) x)
     (string? x)     x
-    :else           (decode x 0 (length x) :utf8)))
+    :else           (decode x :utf8)))
 
 ;; RFC 3629, section 3
 (defn utf8?

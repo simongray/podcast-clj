@@ -138,17 +138,11 @@
   server's library. It lets in the apps that `authorized-pred`, a function
   of a user name and a password, says yes to."
   [sync-store lib authorized-pred]
-  (let [backend (sync/backend sync-store)
-        cursors (atom nil)
-        state   (atom (crdt/identify (profile/make "podcast-server-gpodder")
-                                     {:name "Podcast server, for gpodder apps"}
-                                     (time/now)))
-        sync!   (fn [state]
-                  (let [result (sync/sync! state [backend] {:cursors @cursors})]
-                    (reset! cursors (:cursors result))
-                    (:state result)))]
+  (let [state (atom (crdt/identify (profile/make "podcast-server-gpodder")
+                                   {:name "Podcast server, for gpodder apps"}
+                                   (time/now)))]
     (gpodder-server/handler
      {:state           state
       :authorized-pred authorized-pred
       :identities-fn   (identities lib)
-      :sync            sync!})))
+      :sync            (sync/stepper [(sync/backend sync-store)])})))

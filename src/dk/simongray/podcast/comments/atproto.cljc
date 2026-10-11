@@ -48,7 +48,7 @@
   "The request to the AppView at `appview` for the thread below the post
   `uri`: ten levels of replies, and none of the posts above it."
   [appview uri]
-  (let [root  (str/replace appview #"/+$" "")
+  (let [root  (url/without-trailing-slashes appview)
         query (url/query-string {"uri" uri "depth" 10 "parentHeight" 0})]
     {:method        :get
      :url           (str root "/xrpc/app.bsky.feed.getPostThread?" query)

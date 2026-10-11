@@ -127,17 +127,12 @@
                                        {:category category}))))]
      (not-empty (str/join "," (map named parts))))))
 
-(defn- now-seconds
-  "The current Unix time in seconds, for the calls that send."
-  []
-  #?(:clj  (quot (System/currentTimeMillis) 1000)
-     :cljs (quot (.now js/Date) 1000)))
-
 (defn- dated
   "The `opts` with the time of the clock as their :auth-date, unless they
   give one."
   [opts]
-  (cond-> opts (not (:auth-date opts)) (assoc :auth-date (now-seconds))))
+  (cond-> opts
+    (not (:auth-date opts)) (assoc :auth-date (time/unix-seconds (time/now)))))
 
 (defn ^:no-doc auth-headers
   "The headers that authenticate a request with `credentials` at the Unix
@@ -175,7 +170,7 @@
                     {:call call})))
   (let [path (or (paths call)
                  (throw (ex-info "Unknown Podcast Index call" {:call call})))
-        root (str/replace (:base-url opts base-url) #"(^|[^/])/+$" "$1")
+        root (url/without-trailing-slashes (:base-url opts base-url))
         qs   (url/query-string params)]
     {:method  :get
      :url     (str root "/" path (when (seq qs) (str "?" qs)))

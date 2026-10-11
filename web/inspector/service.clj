@@ -875,20 +875,14 @@
   players added and the inspector fetches. It lets in any user name and
   password, since the inspector listens on localhost alone."
   [sync-store]
-  (let [cursors (atom nil)
-        backend (sync/backend sync-store)
-        state   (atom (profile/make "inspector-gpodder"))
-        names   #(gpodder/identities (concat (cached-feeds)
-                                             (remote-feeds @state)))
-        sync!   (fn [state]
-                  (let [result (sync/sync! state [backend] {:cursors @cursors})]
-                    (reset! cursors (:cursors result))
-                    (:state result)))]
+  (let [state (atom (profile/make "inspector-gpodder"))
+        names #(gpodder/identities (concat (cached-feeds)
+                                           (remote-feeds @state)))]
     (gpodder-server/handler
      {:state           state
       :authorized-pred (constantly true)
       :identities-fn   names
-      :sync            sync!})))
+      :sync            (sync/stepper [(sync/backend sync-store)])})))
 
 (defn routes
   "The inspector's routes in Pedestal's set syntax, with the WebDAV ones

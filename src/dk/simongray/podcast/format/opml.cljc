@@ -166,7 +166,7 @@
        (let [malformed (cond-> {:id     :fetch/malformed
                                 :reason (async/explain e)}
                          url (assoc :url url))]
-         {:error (diagnostics/describe malformed)})))))
+         (diagnostics/failed malformed))))))
 
 (defn ^:no-doc text-of
   "The OPML text of the value `v`:

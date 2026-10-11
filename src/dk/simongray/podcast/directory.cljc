@@ -186,7 +186,7 @@
   "The URL of `path` below the URL `root`, whether `root` ends with a slash
   or not."
   [root path]
-  (str (str/replace (str root) #"(^|[^/])/+$" "$1") "/" path))
+  (str (url/without-trailing-slashes root) "/" path))
 
 (defn- get-request
   [url]
@@ -640,7 +640,7 @@
   ([source call {:keys [limit] :as params}
     {:keys [send] :or {send client/send!} :as opts}]
    {:pre [(map? opts)]}
-   (let [auth-date (quot (inst-ms (time/now)) 1000)
+   (let [auth-date (time/unix-seconds (time/now))
          opts      (cond-> opts
                      (not (:auth-date opts)) (assoc :auth-date auth-date))
          timeout   (:timeout-seconds opts 15)

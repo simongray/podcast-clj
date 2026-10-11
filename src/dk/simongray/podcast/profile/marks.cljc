@@ -5,7 +5,8 @@
   Each is a collection of the profile, so a mark syncs like the rest of
   it. The played mark is the profile's own, since
   dk.simongray.podcast.profile/progress sets it."
-  (:require [dk.simongray.mind-meld :as crdt]))
+  (:require [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn starred?
   "Whether the episode `id` has a star in `profile`."
@@ -37,7 +38,7 @@
   "The whole second of `position`, or nil when it isn't a number of
   seconds from the start."
   [position]
-  (when (and (number? position) (<= 0 position) (not (infinite? position)))
+  (when (and (time/finite? position) (<= 0 position))
     (long position)))
 
 (defn bookmark
@@ -114,9 +115,8 @@
   ([profile id start duration title at]
    (let [s     (second-of start)
          kept? (and s
-                    (number? duration)
-                    (pos? duration)
-                    (not (infinite? duration)))]
+                    (time/finite? duration)
+                    (pos? duration))]
      (if kept?
        (let [entry {:duration duration :title title :removed? false}]
          (crdt/write profile [:clips id s] (constantly entry) at))
@@ -152,11 +152,10 @@
   "Whether `x` is a rating scale, a map whose :worst and :best are two
   different numbers."
   [x]
-  (let [finite? #(and (number? %) (== % %) (not (infinite? %)))]
-    (and (map? x)
-         (finite? (:worst x))
-         (finite? (:best x))
-         (not (== (:worst x) (:best x))))))
+  (and (map? x)
+       (time/finite? (:worst x))
+       (time/finite? (:best x))
+       (not (== (:worst x) (:best x)))))
 
 (defn ^:no-doc checked-scale
   "The :worst and :best of a `scale` from the options. It throws when that

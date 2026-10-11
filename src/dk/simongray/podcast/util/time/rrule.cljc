@@ -25,7 +25,7 @@
 (def ^:no-doc byday-pattern
   "A BYDAY value: a weekday code, perhaps after a signed ordinal from 1 to
   53, e.g. \"-1FR\"."
-  #"([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(SU|MO|TU|WE|TH|FR|SA)")
+  #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(SU|MO|TU|WE|TH|FR|SA)$")
 
 (defn- in-range?
   "Whether RFC 5545 allows the number `n` in the rule part `k`."

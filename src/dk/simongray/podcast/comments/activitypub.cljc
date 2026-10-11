@@ -816,7 +816,7 @@
   [uri paths]
   (when-let [[_ origin path] (when (string? uri)
                                (re-find #"^(https?://[^/?#]+)(/[^?#]*)" uri))]
-    (let [path (str/replace path #"(^|[^/])/+$" "$1")
+    (let [path (url/without-trailing-slashes path)
           id   (some (fn [pattern]
                        (let [match (re-matches pattern path)]
                          (when (vector? match) (second match))))

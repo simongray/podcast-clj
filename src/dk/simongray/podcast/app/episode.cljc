@@ -313,10 +313,9 @@
   "A map of the :error that the value block of the `remote` item of a time
   split couldn't be fetched, with the `details` of why that aren't nil."
   [remote details]
-  {:error (diagnostics/describe
-           (into {:id :value/remote-unresolved :remote-item remote}
-                 (remove (comp nil? val))
-                 details))})
+  (diagnostics/failed (into {:id :value/remote-unresolved :remote-item remote}
+                            (remove (comp nil? val))
+                            details)))
 
 (defn- index-answer
   "What the `attempt` of the request to `url` for the value block of the
@@ -355,7 +354,7 @@
   index has none, or of an :error."
   [remote {:keys [index send now-fn] :as opts}]
   (let [requests (podcastindex/remote-value-requests
-                  index remote {:auth-date (quot (inst-ms (now-fn)) 1000)})
+                  index remote {:auth-date (time/unix-seconds (now-fn))})
         answer!  (fn [request]
                    (async/then (http/try-send! send request opts)
                                (partial index-answer remote (:url request))))]

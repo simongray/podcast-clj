@@ -102,7 +102,7 @@
     (let [payment {:action :boost :sats 50 :message "Great episode" :app-name "My app"}
           command (nwc/pay-keysend payment recipient)
           records (get-in command [:params "tlv_records"])
-          text    (fn [hex] (let [b (bytes/from-hex hex)] (bytes/decode b 0 (bytes/length b) :utf8)))]
+          text    (fn [hex] (bytes/decode (bytes/from-hex hex) :utf8))]
       (is (= {:method "pay_keysend" :params {"amount" 50000 "pubkey" (:address recipient)}}
              (update command :params dissoc "tlv_records")))
       (is (= [696969 7629169] (map #(get % "type") records)))

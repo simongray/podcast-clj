@@ -38,6 +38,12 @@
           high? #(<= 0xD800 (code %) 0xDBFF)]
       (subs s 0 (if (and (pos? n) (high? (dec n))) (dec n) n)))))
 
+(defn ^:no-doc node-key?
+  "Whether `x` is the public key of a Lightning node: hexadecimal text of
+  33 bytes that starts with 02 or 03."
+  [x]
+  (boolean (and (string? x) (re-matches #"(?i)0[23][0-9a-f]{64}" x))))
+
 (defn ^:no-doc json-value
   "The value `v` as a value that JSON holds: a keyword as its name, an
   instant as ISO 8601 text, and anything else as it is."
@@ -121,7 +127,7 @@
             (map? x)                                    x
             (string? x)                                 (json/parse x)
             #?(:clj (bytes? x) :cljs (instance? js/Uint8Array x))
-            (json/parse (bytes/decode x 0 (bytes/length x) :utf8)))]
+            (json/parse (bytes/decode x :utf8)))]
     (when (map? o)
       o)))
 

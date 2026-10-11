@@ -53,12 +53,6 @@
   section Encryption."
   "nip44_v2")
 
-(defn- key-text?
-  "Whether `x` is hexadecimal text of 32 bytes in lower case, as the
-  events of Nostr have a key."
-  [x]
-  (boolean (and (string? x) (re-matches #"[0-9a-f]{64}" x))))
-
 (defn- query
   "The parameters of the query string `s`, decoded, as pairs of a name and
   a value in their order. A name can come more than once."
@@ -123,8 +117,8 @@
   its secret when it's printed."
   [x]
   (boolean (and (map? x)
-                (key-text? (:wallet x))
-                (key-text? (secret-key x))
+                (nostr/hex-id? (:wallet x))
+                (nostr/hex-id? (secret-key x))
                 (secp256k1/public-key? (:wallet x))
                 (some? (secp256k1/public-key (secret-key x)))
                 (vector? (:relays x))
@@ -173,12 +167,6 @@
               msat     (assoc "amount" msat)
               metadata (assoc "metadata" metadata))}))
 
-(defn- node-key?
-  "Whether `x` is the public key of a Lightning node: hexadecimal text of
-  33 bytes that starts with 02 or 03."
-  [x]
-  (boolean (and (string? x) (re-matches #"(?i)0[23][0-9a-f]{64}" x))))
-
 (defn pay-keysend
   "The command that pays `payment` to `recipient` with keysend, as NWC-04
   defines it, or nil for a recipient that isn't a node or a payment
@@ -194,7 +182,7 @@
         records (value/records payment recipient)
         tlv     (fn [[type text]]
                   {"type" type "value" (bytes/hex (bytes/encode text))})]
-    (when (and msat (pos? msat) (node-key? address))
+    (when (and msat (pos? msat) (value.payment/node-key? address))
       (with-meta {:method "pay_keysend"
                   :params {"amount"      msat
                            "pubkey"      (str/lower-case address)
@@ -245,11 +233,6 @@
   []
   {:method "get_info" :params {}})
 
-(defn- seconds
-  "The instant `at` as the seconds of a Nostr event."
-  [at]
-  (quot (inst-ms at) 1000))
-
 (defn request-event
   "The event that asks the wallet of `connection` to do `command`, made
   from `opts`, or nil for a command with more bytes than a payload of
@@ -286,19 +269,15 @@
         shared  (nip44/conversation-key secret wallet)
         payload (json/write-str {"method" method "params" params})]
     (when-let [content (nip44/encrypt payload shared nonce)]
-      (let [tags (cond-> [["encryption" encryption] ["p" wallet]]
-                   expires-at (conj ["expiration" (str (seconds expires-at))]))]
+      (let [expiry (some-> expires-at time/unix-seconds str)
+            tags   (cond-> [["encryption" encryption] ["p" wallet]]
+                     expiry (conj ["expiration" expiry]))]
         (nostr/signed {"kind"       (:request kinds)
-                       "created_at" (seconds at)
+                       "created_at" (time/unix-seconds at)
                        "tags"       tags
                        "content"    content}
                       secret
                       aux)))))
-
-(defn ^:no-doc failure
-  "A map with the diagnostic `d` under :error."
-  [d]
-  {:error (diagnostics/describe d)})
 
 (def ^:no-doc fields
   "The key and the type of each field of a result that NIP-47 defines. An
@@ -373,7 +352,8 @@
   preimage."
   [{:keys [wallet] :as connection} event]
   (check-connection connection)
-  (let [unreadable #(failure {:id :value/wallet-unreadable :reason %})
+  (let [unreadable #(diagnostics/failed {:id     :value/wallet-unreadable
+                                         :reason %})
         verified?  (nostr/verified? event)
         content    (when (and verified? (= wallet (get event "pubkey")))
                      (let [app-key (secret-key connection)
@@ -403,11 +383,11 @@
 
       (map? (get body "error"))
       (let [{:strs [code message]} (get body "error")]
-        (failure (cond-> {:id     :value/wallet-refused
-                          :code   (json/text code)
-                          :reason (json/text message)}
-                   method  (assoc :method method)
-                   request (assoc :request request))))
+        (diagnostics/failed (cond-> {:id     :value/wallet-refused
+                                     :code   (json/text code)
+                                     :reason (json/text message)}
+                              method  (assoc :method method)
+                              request (assoc :request request))))
 
       (not (map? (get body "result")))
       (unreadable "The answer has no result and no error")
@@ -456,12 +436,13 @@
   (when info
     (cond
       (not (some #{encryption} (:encryption info)))
-      (failure {:id :value/wallet-unsupported :encryption (:encryption info)})
+      (diagnostics/failed {:id         :value/wallet-unsupported
+                           :encryption (:encryption info)})
 
       (not (some #{method} (:methods info)))
-      (failure {:id      :value/wallet-unsupported
-                :method  method
-                :methods (:methods info)}))))
+      (diagnostics/failed {:id      :value/wallet-unsupported
+                           :method  method
+                           :methods (:methods info)}))))
 
 (defn- ask-relays!
   "Send the request that `request-of` makes to each of `relays` in turn,
@@ -500,7 +481,7 @@
                                 "The relay has no event")]
                  (next! {:reason    reason
                          :answered? (not (:timeout? value))})))))))
-    (failure {:id :value/wallet-unreachable :relays tried})))
+    (diagnostics/failed {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
   "The `opts` of a request to a wallet over their defaults: the limits, the
@@ -538,8 +519,8 @@
      (async/then (ask-relays! opts #(info-request connection %) known relays [])
                  (fn [{:keys [error] :as read}]
                    (if (some :answered? (:relays error))
-                     (failure {:id     :value/no-wallet-info
-                               :relays (:relays error)})
+                     (diagnostics/failed {:id     :value/no-wallet-info
+                                          :relays (:relays error)})
                      read))))))
 
 (defn- answered
@@ -563,15 +544,18 @@
       nil
 
       (empty? events)
-      (failure {:id :value/wallet-silent :request id :expires-at expires-at})
+      (diagnostics/failed {:id         :value/wallet-silent
+                           :request    id
+                           :expires-at expires-at})
 
       (:error read)
       read
 
       (or (not= method (:method read))
           (not= id (:request read)))
-      (failure {:id     :value/wallet-unreadable
-                :reason "The answer is the answer to another request"})
+      (diagnostics/failed {:id     :value/wallet-unreadable
+                           :reason (str "The answer is the answer to another"
+                                        " request")})
 
       (= "pay_invoice" method)
       (let [proof (bolt11/proves? (:preimage read) (get params "invoice"))]
@@ -608,7 +592,8 @@
       (unsupported info command)
 
       (nil? event)
-      (failure {:id :value/command-too-large :method (:method command)})
+      (diagnostics/failed {:id     :value/command-too-large
+                           :method (:method command)})
 
       :else
       (ask-relays! opts asking read relays []))))

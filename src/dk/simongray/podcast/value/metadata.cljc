@@ -216,8 +216,7 @@
    (fetch! url {}))
   ([url opts]
    (let [defaults {:send client/send! :allow-pred url/public?}
-         opts     (merge default-limits defaults opts)
-         failure  (fn [d] {:error (diagnostics/describe d)})]
+         opts     (merge default-limits defaults opts)]
      (async/then
       (when (url/origin url)
         (http/try-send! (:send opts) (request url) opts))
@@ -226,17 +225,17 @@
                       (headers/header (:headers value) header-name))]
           (cond
             error
-            (failure {:id     :value/unreachable
-                      :url    url
-                      :reason (async/explain error)})
+            (diagnostics/failed {:id     :value/unreachable
+                                 :url    url
+                                 :reason (async/explain error)})
 
             found
             (parse-header found)
 
             :else
-            (failure {:id     :value/no-metadata
-                      :url    url
-                      :status (:status value)}))))))))
+            (diagnostics/failed {:id     :value/no-metadata
+                                 :url    url
+                                 :status (:status value)}))))))))
 
 (comment
   (def sample

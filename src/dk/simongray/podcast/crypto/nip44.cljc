@@ -241,7 +241,7 @@
          (when (bytes/same? (check check-key nonce sealed) mac)
            (let [opened (chacha20/encrypt cipher-key cipher-nonce sealed)]
              (when-let [text (unpadded opened)]
-               (bytes/decode text 0 (bytes/length text) :utf8)))))))))
+               (bytes/decode text :utf8)))))))))
 
 (comment
   ;; the secret keys 1 and 2, and the public key of each

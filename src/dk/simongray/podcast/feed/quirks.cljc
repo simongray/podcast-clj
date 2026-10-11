@@ -10,7 +10,8 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.qname-hiccup :as xml]))
+            [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn ^:no-doc uri-key
   "The namespace `uri` in the form to look it up by, without scheme, case
@@ -19,9 +20,7 @@
   (-> (str uri)
       str/lower-case
       (str/replace #"^https?://" "")
-      ;; a match may start only where a run of slashes starts: /+$ alone is
-      ;; tried again from every slash of a long run, quadratically
-      (str/replace #"(^|[^/])/+$" "$1")))
+      url/without-trailing-slashes))
 
 (def ^:no-doc uri-variants
   "The namespace URIs in feeds that differ from the canonical ones by more

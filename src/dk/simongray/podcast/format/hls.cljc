@@ -205,12 +205,12 @@
              parsed (when-not failed
                       (parse (str (:body value)) (or (:url value) url)))]
          (cond
-           failed {:error (diagnostics/describe failed)}
+           failed (diagnostics/failed failed)
            parsed parsed
-           :else  {:error (diagnostics/describe
-                           {:id     :file/malformed
-                            :url    url
-                            :reason "It isn't an HLS playlist"})}))))))
+           :else  (diagnostics/failed
+                   {:id     :file/malformed
+                    :url    url
+                    :reason "It isn't an HLS playlist"})))))))
 
 (defn read!
   "Read the HLS playlist at `url` with `opts`, and give what parse gives,

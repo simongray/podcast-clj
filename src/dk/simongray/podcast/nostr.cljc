@@ -182,11 +182,6 @@
             (let [entry [(bytes/at b i) (bytes/copy b (+ i 2) end)]]
               (recur end (conj out entry)))))))))
 
-(defn- text-of
-  "The text of the bytes `b`, as UTF-8."
-  [b]
-  (bytes/decode b 0 (bytes/length b) :utf8))
-
 (defn- with-fields
   "The name of the type `type` whose data are the fields `fs`, as a map.
   Nil when the field that names the thing has a wrong size."
@@ -200,7 +195,7 @@
                     (reduce (fn [acc i] (+ (* 256 acc) (bytes/at b i)))
                             0
                             (range 4))))
-        extras  (cond-> {:relays (mapv text-of (of-type 1))}
+        extras  (cond-> {:relays (mapv #(bytes/decode % :utf8) (of-type 1))}
                   author (assoc :author author)
                   kind   (assoc :kind kind))]
     (case type
@@ -209,7 +204,9 @@
       :nevent   (when-let [id (key-of special)]
                   (assoc extras :type type :id id))
       :naddr    (when (and special author kind)
-                  (assoc extras :type type :identifier (text-of special))))))
+                  (assoc extras
+                         :type       type
+                         :identifier (bytes/decode special :utf8))))))
 
 (defn decode
   "What the name `s` names, as a map with its :type, or nil for another
@@ -366,7 +363,7 @@
   in lower case, and without a slash at the end."
   [s]
   (when (string? s)
-    (let [url   (str/replace (str/trim s) #"/+$" "")
+    (let [url   (url/without-trailing-slashes (str/trim s))
           lower (fn [[_ scheme host]]
                   (str (str/lower-case scheme) "://" (str/lower-case host)))]
       (when (re-matches #"(?i)wss?://[^\s/?#]+(?:[/?#]\S*)?" url)

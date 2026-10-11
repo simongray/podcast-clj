@@ -86,7 +86,7 @@
   it's the item as it is."
   [item {:keys [index send now-fn] :as opts}]
   (let [requests (podcastindex/remote-item-requests
-                  index item {:auth-date (quot (inst-ms (now-fn)) 1000)})
+                  index item {:auth-date (time/unix-seconds (now-fn))})
         show     (fn [{:keys [value]}]
                    (when (string? (:body value))
                      (:feed (try
@@ -165,8 +165,8 @@
                                   :url url))}
 
                   :else
-                  {:error (diagnostics/describe
-                           (assoc (first (view/report result)) :url url))}))))
+                  (diagnostics/failed
+                   (assoc (first (view/report result)) :url url))))))
 
 (defn- find-podroll-show!
   "Give the remote `item` of a podroll with its :show, in a future or a

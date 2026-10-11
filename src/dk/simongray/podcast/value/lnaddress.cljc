@@ -84,19 +84,14 @@
      :url     (well-known parts "keysend")
      :headers {"Accept" "application/json"}}))
 
-(defn ^:no-doc failure
-  "A map with the diagnostic `d` under :error."
-  [d]
-  {:error (diagnostics/describe d)})
-
 (defn ^:no-doc refusal
   "The error of the JSON `raw` of an answer from `url` whose status is
   ERROR, with its reason, or nil for another answer."
   [raw url]
   (when (= "ERROR" (get raw "status"))
-    (failure {:id     :value/lnurl-error
-              :url    url
-              :reason (json/text (get raw "reason"))})))
+    (diagnostics/failed {:id     :value/lnurl-error
+                         :url    url
+                         :reason (json/text (get raw "reason"))})))
 
 (defn ^:no-doc secure-url?
   "Whether `s` is an https URL, or an http URL of an onion service, as
@@ -112,7 +107,7 @@
   service, or an answer that names no URL."
   [url]
   (when (and url (not (secure-url? url)))
-    (failure {:id :value/insecure :url url})))
+    (diagnostics/failed {:id :value/insecure :url url})))
 
 (defn- whole-of
   "The whole number above zero that the JSON number `x` gives, rounded up
@@ -175,9 +170,9 @@
               description        (assoc :description description)
               identifier         (assoc :identifier identifier)
               (string? metadata) (assoc :metadata metadata))
-            (failure {:id     :value/malformed
-                      :url    url
-                      :status (:status response)}))))))
+            (diagnostics/failed {:id     :value/malformed
+                                 :url    url
+                                 :status (:status response)}))))))
 
 (defn sendable?
   "Whether a Lightning address with `terms` takes a payment of `msat`
@@ -287,16 +282,18 @@
           ;; some services hash other terms than they serve.
           (cond
             (nil? amount)
-            (failure {:id :value/malformed :url url :status (:status response)})
+            (diagnostics/failed {:id     :value/malformed
+                                 :url    url
+                                 :status (:status response)})
 
             (not= msat (:msat amount))
-            (failure {:id           :value/wrong-amount
-                      :url          url
-                      :msat         msat
-                      :invoice-msat (:msat amount)})
+            (diagnostics/failed {:id           :value/wrong-amount
+                                 :url          url
+                                 :msat         msat
+                                 :invoice-msat (:msat amount)})
 
             (= ::refused action)
-            (failure {:id :value/unknown-success-action :url url})
+            (diagnostics/failed {:id :value/unknown-success-action :url url})
 
             :else
             (cond-> {:invoice pr :msat msat :network (:network amount)}
@@ -318,8 +315,7 @@
         url    (:url response)
         pubkey (get raw "pubkey")
         node?  (and (= "keysend" (get raw "tag"))
-                    (string? pubkey)
-                    (re-matches #"0[23][0-9a-fA-F]{64}" pubkey))
+                    (value.payment/node-key? pubkey))
         listed (get raw "customData")]
     (or (insecure url)
         (refusal raw url)
@@ -329,9 +325,9 @@
                 v    (json/text (get data "customValue"))]
             (cond-> {:type "node" :address (str/lower-case pubkey)}
               (and k v) (assoc :custom-key k :custom-value v)))
-          (failure {:id     :value/no-keysend
-                    :url    url
-                    :status (:status response)})))))
+          (diagnostics/failed {:id     :value/no-keysend
+                               :url    url
+                               :status (:status response)})))))
 
 (defn ^:no-doc send!
   "Send `request` by the :send of `opts` within its limits, and give the
@@ -341,9 +337,9 @@
   (async/then (http/try-send! send request opts)
               (fn [{:keys [value] e :error}]
                 (if e
-                  (failure {:id     :value/unreachable
-                            :url    (:url request)
-                            :reason (async/explain e)})
+                  (diagnostics/failed {:id     :value/unreachable
+                                       :url    (:url request)
+                                       :reason (async/explain e)})
                   value))))
 
 (defn ^:no-doc ask!
@@ -356,7 +352,8 @@
   (async/then request
               (fn [request]
                 (if-not request
-                  (failure {:id :value/not-an-address :address (str address)})
+                  (diagnostics/failed {:id      :value/not-an-address
+                                       :address (str address)})
                   (async/then (send! request opts)
                               #(if (:error %) % (read %)))))))
 
@@ -412,10 +409,10 @@
                      offer
 
                      (not (sendable? offer msat))
-                     (failure {:id       :value/amount-out-of-range
-                               :msat     msat
-                               :min-msat (:min-msat offer)
-                               :max-msat (:max-msat offer)})
+                     (diagnostics/failed {:id       :value/amount-out-of-range
+                                          :msat     msat
+                                          :min-msat (:min-msat offer)
+                                          :max-msat (:max-msat offer)})
 
                      :else
                      (let [text (if (fn? comment) (comment offer) comment)]

@@ -66,6 +66,13 @@
     (is (= (str "The request to " masked " is not allowed") (:reason d)) "in the reason too"))
   (is (= "https://a.example/feed.xml?q=1" (diagnostics/masked-url "https://a.example/feed.xml?q=1"))))
 
+(deftest a-step-that-failed
+  (let [{:keys [error] :as result} (diagnostics/failed {:id :fetch/malformed :url "https://a.example/?token=abc"})]
+    (is (= [:error] (keys result)))
+    (is (= [:fetch/malformed :warning "https://a.example/?token=…"] ((juxt :id :level :url) error))
+        "described, with its secrets masked")
+    (is (string? (:message error)))))
+
 (deftest summarizing-diagnostics
   (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}
                      {:id :a :level :warning :message "m" :path [:rss/items 1]}

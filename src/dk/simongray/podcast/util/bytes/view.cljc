@@ -190,8 +190,7 @@
   "The text of the bytes of `view` from `start` to `end` in `encoding`:
   :latin1, :utf8, :utf16le or :utf16be."
   [view start end encoding]
-  (let [b (slice view start end)]
-    (bytes/decode b 0 (bytes/length b) encoding)))
+  (bytes/decode (slice view start end) encoding))
 
 (defn code
   "The `n` bytes of `view` at `p` as characters of ISO-8859-1, the form of

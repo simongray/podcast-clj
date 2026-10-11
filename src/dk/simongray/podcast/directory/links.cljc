@@ -17,6 +17,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.url :as url]))
 
 (def apps
@@ -450,12 +451,6 @@
                      (apply str (map pattern-of parts))
                      "(?:[/?#].*)?$"))))
 
-(defn- utf8
-  "The bytes `b` as UTF-8 text, or nil for no bytes."
-  [b]
-  (when b
-    (bytes/decode b 0 (bytes/length b) :utf8)))
-
 (defn- value-of
   "The value of the key that the part `p` of a form names, read from the
   `text` of the part in a link, or nil when the text doesn't read as one.
@@ -468,8 +463,10 @@
                           (not (str/includes? text "://")))
         v            (case encoding
                        :encoded   (url/percent-decode text)
-                       :base64url (utf8 (bytes/from-base64url text))
-                       :hex       (utf8 (bytes/from-hex text))
+                       :base64url (some-> (bytes/from-base64url text)
+                                          (bytes/decode :utf8))
+                       :hex       (some-> (bytes/from-hex text)
+                                          (bytes/decode :utf8))
                        (if encoded-url? (url/percent-decode text) text))
         with-scheme  (cond->> v (= :bare encoding) (str "https://"))]
     (case k
@@ -526,10 +523,7 @@
   ([url start]
    (at-time url start nil))
   ([url start end]
-   (let [seconds #(when (and (number? %)
-                             (not (neg? %))
-                             (not (infinite? %))
-                             (== % %))
+   (let [seconds #(when (and (time/finite? %) (not (neg? %)))
                     (coerce/plain-decimal %))
          [a b]   [(seconds start) (seconds end)]
          base    (str/replace (str url) #"#.*$" "")]

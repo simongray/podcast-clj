@@ -182,7 +182,7 @@
       (let [doc (chapters/parse-json body)]
         {:count (count (:chapters doc)) :report (chapters/report doc)}))
     (catch #?(:clj Exception :cljs :default) e
-      {:error (diagnostics/describe (view/failure e))})))
+      (diagnostics/failed (view/failure e)))))
 
 (defn- probe-text!
   "Probe the transcript or chapters `file` through `send` with `opts`, and

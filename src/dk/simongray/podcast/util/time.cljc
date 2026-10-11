@@ -98,11 +98,17 @@
   (when-let [present (seq (remove nil? instants))]
     (->inst (reduce min (map inst-ms present)))))
 
+(defn unix-seconds
+  "The whole seconds from the epoch to the instant `inst`, as Unix time
+  counts them."
+  [inst]
+  (quot (inst-ms inst) 1000))
+
 (defn floor-seconds
   "The instant `inst` with its milliseconds dropped, the precision an RFC
   2822 date can carry."
   [inst]
-  (->inst (* 1000 (quot (inst-ms inst) 1000))))
+  (->inst (* 1000 (unix-seconds inst))))
 
 (defn ^:no-doc civil->ms
   "The epoch milliseconds of the civil time `y`-`m`-`d` `hh`:`mm`:`ss` and
@@ -366,6 +372,11 @@
   [x]
   (and (number? x)
        (< (abs x) max-whole)))
+
+(defn finite?
+  "Whether `x` is a number that's neither infinite nor NaN."
+  [x]
+  (and (number? x) (== x x) (not (infinite? x))))
 
 (defn format-clock
   "The `seconds` as \"H:MM:SS\", or \"M:SS\" under an hour, without any

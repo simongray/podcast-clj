@@ -14,7 +14,7 @@
   No standards body defines WebLN. The guide at webln.guide defines its
   methods, and doc/services.md tells when podcast-clj read it."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
+            #?(:cljs [dk.simongray.podcast.diagnostics :as diagnostics])
             [dk.simongray.podcast.value :as value]
             #?(:cljs [dk.simongray.podcast.value.bolt11 :as bolt11])
             [dk.simongray.podcast.value.payment :as value.payment]))
@@ -37,10 +37,8 @@
   custom key or value of the recipient. Don't send the payment then."
   [payment {:keys [address] :as recipient}]
   (let [[msat] (value.payment/amounts payment)
-        sats   (when msat (quot msat 1000))
-        node?  (and (string? address)
-                    (re-matches #"(?i)0[23][0-9a-f]{64}" address))]
-    (when (and sats (pos? sats) node?)
+        sats   (when msat (quot msat 1000))]
+    (when (and sats (pos? sats) (value.payment/node-key? address))
       (let [whole   (-> payment (dissoc :sats) (assoc :msat (* 1000 sats)))
             records (value/records whole recipient)
             by-name (into {} (map (fn [[k v]] [(str k) v])) records)]
@@ -48,11 +46,6 @@
                     "amount"        (str sats)
                     "customRecords" by-name}
           (meta records))))))
-
-(defn ^:no-doc failure
-  "A map with the diagnostic `d` under :error."
-  [d]
-  {:error (diagnostics/describe d)})
 
 #?(:cljs
    (defn provider
@@ -75,8 +68,9 @@
            (.then (fn [result] (read (js->clj result))))
            (.catch (fn [e]
                      (let [reason (str (or (some-> e .-message) e))]
-                       (failure {:id :value/wallet-refused :reason reason})))))
-       (js/Promise.resolve (failure {:id :value/no-provider})))))
+                       (diagnostics/failed {:id     :value/wallet-refused
+                                            :reason reason})))))
+       (js/Promise.resolve (diagnostics/failed {:id :value/no-provider})))))
 
 #?(:cljs
    (defn enable!

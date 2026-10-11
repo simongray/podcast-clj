@@ -832,6 +832,12 @@
   [m]
   (describe (assoc m :id (if (:status m) :fetch/status :fetch/unreachable))))
 
+(defn failed
+  "A map of the `diagnostic`, described, under :error, as a step gives it
+  when it fails."
+  [diagnostic]
+  {:error (describe diagnostic)})
+
 (defn summarize
   "Group `diagnostics` by id and message, most frequent first: one row per
   kind, with its :count and its first occurrence as :example."

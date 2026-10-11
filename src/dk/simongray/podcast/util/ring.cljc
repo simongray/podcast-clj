@@ -31,7 +31,7 @@
   UTF-8."
   [body max-bytes]
   (when-let [b (body-bytes body max-bytes)]
-    (bytes/decode b 0 (bytes/length b) :utf8)))
+    (bytes/decode b :utf8)))
 
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn credentials

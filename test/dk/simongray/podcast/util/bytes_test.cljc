@@ -70,7 +70,7 @@
     (is (= ["YQ" "YWI" "YWJj"] (map text ["a" "ab" "abc"])) "and without padding"))
   (doseq [s ["" "a" "ab" "abc" "???>>>"]]
     (is (= s (let [b (bytes/from-base64url (bytes/base64url (bytes/encode s)))]
-               (bytes/decode b 0 (bytes/length b) :utf8)))
+               (bytes/decode b :utf8)))
         (pr-str s)))
   (is (= "616263" (bytes/hex (bytes/from-base64url "YWJj="))) "padding is fine too")
   (is (every? nil? (map bytes/from-base64url ["a+b" "a/b" "Y" "!" nil])) "what isn't base64url"))

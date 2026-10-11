@@ -7,6 +7,11 @@
     (is (= t (time/date t)) "an instant of the platform")
     (is (< (inst-ms #inst "2026-01-01") (inst-ms t)))))
 
+(deftest numbers-of-seconds
+  (is (= 1790696888 (time/unix-seconds #inst "2026-09-29T15:48:08.999Z")))
+  (is (every? time/finite? [0 -1.5 9.0E15]))
+  (is (not-any? time/finite? [##Inf ##-Inf ##NaN nil "1"])))
+
 (deftest civil-arithmetic
   (is (= 0 (time/days-from-civil 1970 1 1)))
   (is (= [1970 1 1] (time/civil-from-days 0)))

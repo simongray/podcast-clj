@@ -99,18 +99,16 @@
   (view/need view start (+ start 4096))
   (if-let [h (frame-at? view start)]
     [start h]
-    (when-not (contains? (:except ctx) :mp3/junk-before-audio)
+    (when (id3/quirk? ctx :mp3/junk-before-audio)
       (let [end (min (+ start search-limit) (or (:total view) ##Inf))]
         (view/need view start (+ end 4096))
         (loop [p (inc start)]
           (when (< (+ p 4) end)
             (if-let [h (and (= 0xFF (view/u8 view p))
                             (frame-at? view p))]
-              (let [junk {:id      :mp3/junk-before-audio
-                          :level   :info
-                          :skipped (- p start)}]
-                (vswap! (:report ctx) conj junk)
-                [p h])
+              (do (id3/note! ctx (id3/diagnostic :mp3/junk-before-audio :info
+                                                 :skipped (- p start)))
+                  [p h])
               (recur (inc p)))))))))
 
 (defn- side-info
@@ -173,9 +171,8 @@
       (/ (* frames (:samples h)) (double (:sample-rate h)))
 
       (and h total)
-      (let [estimated {:id :mp3/estimated-duration :level :info}]
-        (vswap! (:report ctx) conj estimated)
-        (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
+      (do (id3/note! ctx (id3/diagnostic :mp3/estimated-duration :info))
+          (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
 
 (defn report
   "The diagnostics of the read `file`, with those of its tags. Each
@@ -197,11 +194,11 @@
   ranges."
   ([view]
    (read view {}))
-  ([view {:keys [except] :as opts}]
+  ([view opts]
    {:pre [(map? opts)]}
    (let [tags        (id3/read-all view 0 opts)
          start       (or (:end (peek tags)) 0)
-         ctx         {:except (set except) :report (volatile! [])}
+         ctx         (id3/context opts)
          [p h]       (first-frame ctx view start)
          result      {:tags        tags
                       :audio-start p

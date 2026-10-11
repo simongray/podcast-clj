@@ -309,9 +309,9 @@
      (try
        (f)
        (catch Exception e
-         {:error (diagnostics/describe
-                  (into {:id :podping/unavailable :reason (async/explain e)}
-                        (select-keys (ex-data e) [:failures])))}))))
+         (diagnostics/failed
+          (into {:id :podping/unavailable :reason (async/explain e)}
+                (select-keys (ex-data e) [:failures])))))))
 
 #?(:clj
    (defn- read-chunk!

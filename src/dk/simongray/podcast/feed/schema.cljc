@@ -12,18 +12,19 @@
   a parsed feed against them tells you where a value was kept as a
   string. Enumerations stay strings, since feeds vary their case."
   (:require [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.names :as names]))
+            [dk.simongray.podcast.util.names :as names]
+            [dk.simongray.podcast.util.time.rrule :as time.rrule]))
 
 (def ^:no-doc rrule
-  "The Malli schema of a parsed recurrence rule."
-  (let [weekdays ["MO" "TU" "WE" "TH" "FR" "SA" "SU"]
+  "The Malli schema of a parsed recurrence rule, from the tables of the
+  parser."
+  (let [weekdays time.rrule/weekday-codes
         byday    [:re {:gen/elements (conj weekdays "1MO" "-1FR")}
-                  #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(MO|TU|WE|TH|FR|SA|SU)$"]
+                  time.rrule/byday-pattern]
         monthday [:or [:int {:min 1 :max 31}] [:int {:min -31 :max -1}]]
         month    [:int {:min 1 :max 12}]]
     [:map
-     [:freq [:enum "SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY"
-             "YEARLY"]]
+     [:freq (into [:enum] (sort time.rrule/freq-values))]
      [:interval {:optional true} 'pos-int?]
      [:count {:optional true} 'pos-int?]
      [:until {:optional true} 'inst?]

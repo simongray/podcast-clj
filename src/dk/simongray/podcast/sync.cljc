@@ -13,7 +13,8 @@
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.profile.opml :as profile.opml]))
+            [dk.simongray.podcast.profile.opml :as profile.opml]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def version
   "The version of the profile's format that a document records. It changes
@@ -82,6 +83,21 @@
    (sync! state backends {}))
   ([state backends opts]
    (like-minded/sync! state backends (merge defaults opts))))
+
+(defn stepper
+  "A function of a state that syncs it through `backends` with `opts`, as
+  sync! does, and gives the state that results, in ClojureScript as a
+  promise. It keeps the cursors of each step for the next, e.g. as the
+  :sync of a gpodder server, which calls it one step at a time."
+  ([backends]
+   (stepper backends {}))
+  ([backends opts]
+   (let [cursors (atom (:cursors opts))]
+     (fn [state]
+       (async/then (sync! state backends (assoc opts :cursors @cursors))
+                   (fn [result]
+                     (reset! cursors (:cursors result))
+                     (:state result)))))))
 
 (defn finish
   "The `state` as it is by now with the `step` of sync! merged in and

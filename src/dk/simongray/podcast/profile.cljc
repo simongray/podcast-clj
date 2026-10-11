@@ -622,10 +622,9 @@
   ([profile id seconds at opts]
    {:pre [(map? opts)]}
    (let [{:keys [position duration]} (episode-entry profile id)
-         finite?  #(and (number? %) (== % %) (not (infinite? %)))
-         target   (+ (if (finite? position) position 0) seconds)
+         target   (+ (if (time/finite? position) position 0) seconds)
          ;; players report such durations before they know
-         known?   (and (finite? duration) (pos? duration))
+         known?   (and (time/finite? duration) (pos? duration))
          target   (max 0 (if known? (min target duration) target))]
      (progress profile id target nil at opts))))
 

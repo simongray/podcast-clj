@@ -37,7 +37,7 @@
   "The origin of the instance of OP3 that `opts` name, or else origin,
   without a slash at its end."
   [opts]
-  (str/replace (:origin opts origin) #"(^|[^/])/+$" "$1"))
+  (url/without-trailing-slashes (:origin opts origin)))
 
 (defn prefixed?
   "Whether the URL `url` goes through OP3, at the :origin of `opts`. Its

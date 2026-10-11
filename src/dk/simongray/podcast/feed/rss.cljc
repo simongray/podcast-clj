@@ -88,7 +88,7 @@
                                   {:id     :fetch/malformed
                                    :reason (async/explain e)})
                           url (assoc :url url))]
-         {:error (diagnostics/describe diagnostic)})))))
+         (diagnostics/failed diagnostic))))))
 
 (defn report
   "The diagnostics of `feed`, or of a parsed tree. Each is a map

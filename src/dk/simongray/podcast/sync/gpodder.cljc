@@ -229,10 +229,7 @@
   ([id e podcast media device {:keys [first?] :as opts}]
    (let [{:keys [position duration played?]} e
          whole (fn [x]
-                 (when (and (number? x)
-                            (== x x)
-                            (not (infinite? x))
-                            (not (neg? x)))
+                 (when (and (time/finite? x) (not (neg? x)))
                    (long x)))
          at    (whole position)
          total (let [d (whole duration)]
@@ -307,7 +304,7 @@
   [state cursor subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer state opts)
         local   #(get (:urls cursor) % %)
-        told    (or (:timestamp subs) (quot (inst-ms at) 1000))
+        told    (or (:timestamp subs) (time/unix-seconds at))
         ;; the API tells no time of a change to the subscriptions: one counts
         ;; as made when the pull before saw none, and at the first pull as
         ;; made then, so that the first sync joins two lists

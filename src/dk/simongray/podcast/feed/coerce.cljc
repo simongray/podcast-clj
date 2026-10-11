@@ -126,10 +126,6 @@
   [x]
   (= x ::invalid))
 
-(defn- finite?
-  [n]
-  (and (number? n) (== n n) (not (infinite? n))))
-
 (defn of-type?
   "Whether `v` is a model value of `type`, of the kind that a string of
   that type reads as. By type, that's:
@@ -145,14 +141,14 @@
   [type v]
   (case type
     :integer             (and (integer? v) (<= (abs v) time/max-whole))
-    (:decimal :duration) (finite? v)
+    (:decimal :duration) (time/finite? v)
     (:boolean :yes-no)   (boolean? v)
     :presence            (true? v)
     (:rfc2822 :iso8601)  (inst? v)
     :rrule               (and (map? v) (contains? rrule/freq-values (:freq v)))
     :geo                 (and (map? v)
-                              (finite? (:lat v))
-                              (finite? (:lon v)))
+                              (time/finite? (:lat v))
+                              (time/finite? (:lon v)))
     :osm                 (and (map? v)
                               (string? (:type v))
                               (integer? (:id v)))
