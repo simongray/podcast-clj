@@ -252,6 +252,10 @@ Background:
 - [A threat model of the server and the handlers, October 2026](doc/threat-model-2026.md):
   who can attack a podcast server built on the library, through what, and
   what holds.
+- [Standards currency, October 2026](doc/standards-currency-2026.md): what
+  moved in the specs and services the library implements since September.
+- [Hosts, validators and public servers, October 2026](doc/hosts-and-servers-2026.md):
+  three more walks through the library, and what they found.
 
 
 Development
