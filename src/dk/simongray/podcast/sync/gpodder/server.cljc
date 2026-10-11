@@ -355,10 +355,7 @@
         answer                  (get methods (:request-method request))
         at                      (now-fn)
         {:keys [who] :as from}  (asker env headers at)
-        ;; or by the X-Forwarded-Proto of a proxy in front, e.g. Caddy
-        https?                  (or (= :https (:scheme request))
-                                    (= "https"
-                                       (get headers "x-forwarded-proto")))]
+        https?                  (ring/https? (assoc request :headers headers))]
     (cond
       (nil? methods)
       (ring 404 "Not Found")

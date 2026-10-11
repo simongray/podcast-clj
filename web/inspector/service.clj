@@ -980,9 +980,11 @@
    (-> (conn/default-connector-map port)
        ;; Pedestal's default policy forbids every script tag; the browser
        ;; player is served from this origin, and its development build loads
-       ;; its modules through eval.
+       ;; its modules through eval. No HSTS, since the inspector answers
+       ;; plain HTTP alone (RFC 6797, section 7.2).
        (conn/with-default-interceptors
-         :secure-headers {:content-security-policy-settings
+         :secure-headers {:hsts-settings nil
+                          :content-security-policy-settings
                           (secure-headers/content-security-policy-header
                            {:object-src "'none'"
                             :script-src "'self' 'unsafe-eval'"})})

@@ -107,6 +107,10 @@
         (is (= "text/html" (get headers "Content-Type")) "the folder's index.html, typed by its name")
         (is (str/includes? body "app.js"))
         (is (= "script-src 'self' 'unsafe-eval'; object-src 'none'" (get headers "Content-Security-Policy")))
+        (is (nil? (get headers "Strict-Transport-Security")) "no HSTS over plain HTTP, as RFC 6797 forbids")
+        (is (= "max-age=31536000"
+               (get-in (response-for c :get "/" :headers {"x-forwarded-proto" "https"}) [:headers "Strict-Transport-Security"]))
+            "but over https through a proxy in front, and for the server's own name alone")
         (let [{:keys [status headers]} (response-for c :get "/app.js")]
           (is (= 200 status))
           (is (= "text/javascript" (get headers "Content-Type")))

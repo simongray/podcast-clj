@@ -145,6 +145,11 @@ podcasts.example.org {
 With Tailscale, `tailscale funnel` can do the same, since the server
 answers Funnel when it has a password.
 
+When a request came over HTTPS, as Caddy tells the server with
+X-Forwarded-Proto, the answer tells the browser to come back over HTTPS
+alone for a year (HSTS). That covers the server's own name only. To
+cover the names below it too, set the header at the server in front.
+
 
 Settings
 --------

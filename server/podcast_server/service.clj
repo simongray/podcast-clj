@@ -197,6 +197,20 @@
                    (assoc context :response (refused message)))
                  context)))}))
 
+;; RFC 6797, sections 6.1 and 7.2: over https alone, and for this name alone
+(def transport-security
+  "An interceptor that tells a browser to come back over https alone for a
+  year, on each answer to a request that came over https, here or through
+  a proxy in front. It goes on no answer over plain HTTP, and it covers no
+  name below the server's own, which a proxy in front can add."
+  (interceptor/interceptor
+   {:name  ::transport-security
+    :leave (fn [{:keys [request response] :as context}]
+             (cond-> context
+               (and response (ring/https? request))
+               (assoc-in [:response :headers "Strict-Transport-Security"]
+                         "max-age=31536000")))}))
+
 (defn password?
   "Whether `given` is the `password`, compared by their SHA-256 in constant
   time, so that the time of an answer tells nothing about the password.
@@ -457,9 +471,11 @@
                interceptors/not-found
                ;; scripts from this server only, with eval for the
                ;; development builds of shadow-cljs; art, media and the rest
-               ;; from any host
+               ;; from any host; and no HSTS on plain HTTP
                (secure-headers/secure-headers
-                {:content-security-policy-settings policy})
+                {:content-security-policy-settings policy
+                 :hsts-settings                    nil})
+               transport-security
                (known-names names)
                same-origin-writes]
               (into guard)

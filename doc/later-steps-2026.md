@@ -48,7 +48,7 @@ less.
 | # | Step | Where | Size | Why it's here |
 |---|---|---|---|---|
 | 1 | [html-pieces 0.4.1 everywhere](#1-html-pieces-041-everywhere) | websub-clj, podcast-clj | hours | A page can move the hub that websub-clj discovers |
-| 2 | [The server's small edges](#2-the-servers-small-edges) | wary-fetch, podcast server | a day | HSTS for a year on every subdomain of a self-hoster's domain |
+| 2 | [The server's small edges](#2-the-servers-small-edges) | wary-fetch, podcast server | a day | HSTS on plain HTTP and on names the self-hoster didn't choose |
 | 3 | [Wrong answers on real feeds](#3-wrong-answers-on-real-feeds) | podcast-clj | two days | Episodes listed twice, calls that can't work, a page that promises checks |
 | 4 | [A bound on the profile's growth](#4-a-bound-on-the-profiles-growth) | podcast-clj | a few days | The one way a peer device hurts the others |
 | 5 | [What an app asks after a refresh](#5-what-an-app-asks-after-a-refresh) | podcast-clj | a day or two | Gain 3 at an hour each |
@@ -78,7 +78,7 @@ These block the step they name.
 
 - **Step 2.** Should the server send HSTS only over https and without
   includeSubDomains, or not at all, leaving it to a proxy in front such as
-  Caddy? (Recommended: only over https, without includeSubDomains, and a
+  Caddy? (Decided: only over https, without includeSubDomains, and a
   line in the server's README.)
 - **Step 4.** How old may an episode's entry grow before it's folded into
   the show's played watermark: a year, or a number of episodes? And may a
@@ -126,9 +126,10 @@ of [the siblings report](siblings-2026.md#websub-clj).
 
 ### 2. The server's small edges
 
-- In wary-fetch's proxy, give a redirect that the client won't follow the
-  403 and the Proxy-Status of a refused URL. Today it comes back as a bare
-  30x with no Location and no Proxy-Status, so a page can't tell why.
+- In wary-fetch's proxy, give the page the Location of a redirect that
+  the client didn't follow, under a name that the browser doesn't follow,
+  so that the page gets what a direct request gives. Today it comes back
+  as a bare 30x with no Location, so a page can't tell why.
 - In the proxy, keep the type of a body that isn't text as it came. Today
   a binary body fetched without `as=bytes` gets a charset on its type.
 - Release wary-fetch 0.3.2, and take it in podcast-clj.
@@ -136,10 +137,11 @@ of [the siblings report](siblings-2026.md#websub-clj).
   default goes out on every answer, plain HTTP included, with
   includeSubDomains for a year, and the README doesn't mention it.
 
-**Why here.** HSTS with includeSubDomains, once a browser sees it over
-https, turns away plain HTTP on every other subdomain of the self-hoster's
-domain for a year, and nothing tells them why. The other two make the
-proxy answer wrongly. Each is an hour.
+**Why here.** RFC 6797 forbids HSTS over plain HTTP, though browsers
+ignore it there. Over https, includeSubDomains pins every name below the
+server's for a year without the self-hoster choosing it, and at the root
+of a domain that's every other subdomain. The other two make the proxy
+answer wrongly. Each is an hour.
 
 **Read more.** [The public server](hosts-and-servers-2026.md#docs-2) of
 the server walk.

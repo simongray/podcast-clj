@@ -33,6 +33,13 @@
   (when-let [b (body-bytes body max-bytes)]
     (bytes/decode b :utf8)))
 
+(defn https?
+  "Whether the Ring `request` came over https: by its scheme, or by the
+  X-Forwarded-Proto of a proxy in front, e.g. Caddy."
+  [{:keys [scheme headers] :as request}]
+  (or (= :https scheme)
+      (= "https" (get headers "x-forwarded-proto"))))
+
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn credentials
   "The credentials in the Authorization header `authorization`, as a map,
@@ -47,7 +54,7 @@
                                   (re-matches auth-pattern))]
     (case (some-> scheme str/lower-case)
       "basic"  (let [b       (bytes/from-base64 value)
-                     decoded (some-> b (bytes/decode 0 (bytes/length b) :utf8))
+                     decoded (some-> b (bytes/decode :utf8))
                      i       (some-> decoded (str/index-of ":"))]
                  (when i
                    {:username (subs decoded 0 i)
