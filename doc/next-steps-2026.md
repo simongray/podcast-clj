@@ -88,7 +88,8 @@ The reports leave these open. Each blocks the step it names.
 - **Step 10.** Should drop-in-search get a `:term-fn` hook, which has to
   be given again on every restore since a function can't be saved, or
   should its README drop the half-true promise that you can bring your
-  own stemmer? ([drop-in-search](siblings-2026.md#drop-in-search))
+  own stemmer? (Decided: the hook.)
+  ([drop-in-search](siblings-2026.md#drop-in-search))
 - **Step 10.** Where does the shared endpoint discovery go? The notes of
   webmention-clj put it in microformats-clj, and those of indieauth-clj in
   html-pieces, with options for the tags and whether the body counts,
