@@ -352,8 +352,10 @@ the unresolved name under [The host](hosts-and-servers-2026.md#the-host).
     base64url and a comparison in constant time; JSON responses; query
     parameters as pairs, so that a repeated one can be refused; the parts
     of a URL as written; a form request with a hidden body and the OAuth
-    errors of its answer; and perhaps Ring helpers for the server side,
-    and a sender of Ring handlers in memory for tests.
+    errors of its answer; a body cut at :max-bytes with a flag that says
+    so, rather than a throw, since Webmention reads the start of a large
+    source; and perhaps Ring helpers for the server side, and a sender of
+    Ring handlers in memory for tests.
   - In html-pieces, the head of a page and its base URL, the links of
     parsed nodes, and plain text as Hiccup, since `html/hiccup` reads
     "Use <b> for bold." as a tag.
