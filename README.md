@@ -256,6 +256,8 @@ Background:
   moved in the specs and services the library implements since September.
 - [Hosts, validators and public servers, October 2026](doc/hosts-and-servers-2026.md):
   three more walks through the library, and what they found.
+- [A subtractive review, October 2026](doc/subtractive-review-2026.md): what
+  the library can lose without a reader losing anything.
 
 
 Development
