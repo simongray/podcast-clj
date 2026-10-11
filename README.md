@@ -244,6 +244,9 @@ Background:
   image or ClojureDart.
 - [Video podcasts, October 2026](doc/video-podcasts-2026.md): where video
   podcasts are, what apps need to handle them, and what podcast-clj lacks.
+- [The needs of podcast-clj, October 2026](doc/needs-2026.md): what essential
+  podcast software still needs from the library, and what is only nice to have,
+  each scored by difficulty and gain.
 
 
 Development
