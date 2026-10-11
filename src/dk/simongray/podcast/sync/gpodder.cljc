@@ -44,7 +44,7 @@
   media."
   [{:keys [url feed]}]
   {:url   url
-   :guid  (guid/feed-guid feed url)
+   :guid  (guid/feed-key feed url)
    :index (delay
             (let [with-guid (fn [item]
                               (when-let [g (guid/item-guid item)]

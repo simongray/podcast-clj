@@ -37,7 +37,8 @@
 (def show
   (rss/parse (fixture "feeds/namespace-example.xml")))
 
-(def guid (:podcast/guid show))
+;; the example declares a guid that isn't a UUID, so its key is its URL's
+(def guid (feed.guid/feed-guid show url))
 
 (def fresh
   {:status 200 :url url :feed show :etag "\"v1\""})
@@ -47,7 +48,7 @@
 (def other
   "Another show, with one episode."
   (-> show
-      (assoc :podcast/guid "0ther-guid" :rss/title "Other")
+      (assoc :podcast/guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :rss/title "Other")
       (update :rss/items (fn [items] [(assoc (first items) :rss/guid {:content "o1"} :rss/title "Other one")]))))
 
 (def newer
@@ -211,7 +212,7 @@
     (testing "each result with its feed and item"
       (let [[episode] (library/search lib "future")]
         (is (= "Episode 3 - The Future" (:rss/title (:item episode))))
-        (is (= guid (:podcast/guid (:feed episode))))))
+        (is (= guid (feed.guid/feed-key (:feed episode) url)))))
     (testing "the words that matched with typos"
       (let [found (library/search lib "futrue ")]
         (is (= ["future"] (get-in (meta found) [:typos "futrue"])))
@@ -283,9 +284,9 @@
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
                        (is (= (at (* 2 86400)) (get-in lib' [:fetched-lists "https://example.org/picks.opml" :next-check]))))
                      (testing "the feed of the new subscription fetched and kept, under the guid that it declares"
-                       (is (= "Other" (:rss/title (:feed (get (library/subscriptions lib') "0ther-guid")))))
-                       (is (= #{guid "0ther-guid"} (set (keys (library/subscriptions lib')))) "the guid of the URL is gone")
-                       (is (= "Picks" (:folder (:settings (get (library/subscriptions lib') "0ther-guid")))) "the folder of the list moved with it")
+                       (is (= "Other" (:rss/title (:feed (get (library/subscriptions lib') "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")))))
+                       (is (= #{guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"} (set (keys (library/subscriptions lib')))) "the guid of the URL is gone")
+                       (is (= "Picks" (:folder (:settings (get (library/subscriptions lib') "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")))) "the folder of the list moved with it")
                        (is (= 2 (count (:feeds lib')))))
                      (testing "the due feed fetched, its new episode found and queued, and its move applied"
                        (is (= [[guid "new"]] added))
@@ -294,7 +295,13 @@
                        (is (= "https://example.com/moved.xml" (:url (get (library/subscriptions lib') guid))))
                        (is (= "https://example.com/moved.xml" (get-in lib' [:feeds guid :url])))
                        (is (= "\"v2\"" (get-in lib' [:feeds guid :etag]))))
-                     (is (= [] report)))))
+                     (testing "a feed that declares no guid moved, so it gives itself another, and keeps its key"
+                       (let [moved-guid (feed.guid/from-url "https://example.com/moved.xml")]
+                         (is (= [[:fetch/guid-changed guid guid moved-guid]] (map (juxt :id :feed-guid :old :new) report)))
+                         (is (= moved-guid (get-in lib' [:profile :subscriptions guid :guid]) (get-in lib' [:feeds guid :guid]))
+                             "noted for the other devices, and for a takeover check")
+                         (is (= [guid "new"] (library/episode-id lib' (get-in lib' [:feeds guid :feed]) {:rss/guid {:content "new"}}))
+                             "and the ids of its episodes keep it too"))))))
      (fn []
        (reset! asked [])
        (async/then (library/refresh! lib {:at    later
@@ -320,14 +327,14 @@
         unchanged (fn [request] (swap! sent conj request) {:status 304 :headers {} :body ""})
         busy      (fn [request] (swap! sent conj request) {:status 503 :headers {"retry-after" "600"} :body ""})
         cadence   {:silent 60 :complete 60}
-        next-of   #(get-in (feeds/add {} other-url {:status 200 :url other-url :feed other} later %) ["0ther-guid" :next-check])]
+        next-of   #(get-in (feeds/add {} other-url {:status 200 :url other-url :feed other} later %) ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :next-check])]
     (is (not= (next-of cadence) (next-of {})) "a cadence that tells the two apart")
     (run
      (fn []
        (async/then (library/refresh! lib {:at later :fetch fetch :send unchanged :list-seconds 60 :cadence cadence})
                    (fn [lib']
                      (is (= (at (+ 86400 60)) (get-in lib' [:fetched-lists picks-url :next-check])) "the :list-seconds of the call")
-                     (is (= (next-of cadence) (get-in lib' [:feeds "0ther-guid" :next-check]))
+                     (is (= (next-of cadence) (get-in lib' [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :next-check]))
                          "the :cadence of the call for the feed of a new subscription"))))
      (fn []
        (reset! sent [])
@@ -366,20 +373,20 @@
        (async/then (library/refresh! lib {:at    now
                                           :fetch (fn [u _] {:status 200 :url u :feed other :permanent-url there})})
                    (fn [{{:keys [added moved report]} :refresh :as lib'}]
-                     (let [sub (get (library/subscriptions lib') "0ther-guid")]
+                     (let [sub (get (library/subscriptions lib') "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")]
                        (is (= [] report))
                        (is (= [] added) "the episodes of a new subscription aren't new ones")
-                       (is (= ["0ther-guid"] (keys (library/subscriptions lib'))) "under the guid that the feed declares")
-                       (is (= ["0ther-guid"] (keys (:feeds lib'))))
+                       (is (= ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"] (keys (library/subscriptions lib'))) "under the guid that the feed declares")
+                       (is (= ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"] (keys (:feeds lib'))))
                        (is (= "Other" (:title sub)) "with the title of the feed")
-                       (is (= {"0ther-guid" there} moved))
+                       (is (= {"0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" there} moved))
                        (is (= there (:url sub)) "and its move")))))
      (fn []
        (async/then (library/refresh! lib {:at         now
                                           :feed-guids []
                                           :fetch      (fn [u _] {:status 200 :url u :feed other})})
                    (fn [lib']
-                     (is (= ["0ther-guid"] (keys (:feeds lib')))
+                     (is (= ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"] (keys (:feeds lib')))
                          "a new subscription is fetched besides the feeds that are asked for")))))))
 
 (def others
@@ -391,7 +398,7 @@
 (deftest an-episode-of-another-show
   (let [fetched {:status 200 :url other-url :feed others}
         lib     (library/add-episode library other-url fetched "o1")
-        id      ["0ther-guid" "o1"]
+        id      ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o1"]
         ids     (fn [lib]
                   (set (for [[feed item] (library/episodes lib)]
                          (library/episode-id lib feed item))))]
@@ -404,36 +411,36 @@
       (is (= (search/query (:index lib) "other")
              (search/query (library/index lib) "other"))
           "an index built again from the feeds finds the same")
-      (is (= "Other two" (:title (library/episode lib ["0ther-guid" "o2"]))) "the whole feed for its pages"))
+      (is (= "Other two" (:title (library/episode lib ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]))) "the whole feed for its pages"))
     (testing "it throws without a feed or the episode"
       (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url {:status 404 :url other-url} "o1")))
       (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url fetched "nope"))))
     (testing "removed, its feed goes"
       (let [gone (library/remove-episode lib id)]
         (is (= {} (profile/remote-items (:profile gone))))
-        (is (not (contains? (:feeds gone) "0ther-guid")))
+        (is (not (contains? (:feeds gone) "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")))
         (is (= [] (library/search gone "other")))))
     (testing "an unsubscription keeps the feed of a remote item"
       (let [both (-> (library/subscribe library other-url fetched)
                      (library/add-episode other-url fetched "o1"))
-            left (library/unsubscribe both "0ther-guid")]
+            left (library/unsubscribe both "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")]
         (is (= 5 (count (ids both))))
         (is (= (ids lib) (ids left)))
         (is (= [id] (mapv :id (library/search left "other"))))))
     (testing "a merge keeps the feed, and indexes a remote item that came with it"
-      (let [two    (library/update-profile lib profile/add-remote-item ["0ther-guid" "o2"] {:feed-url other-url})
+      (let [two    (library/update-profile lib profile/add-remote-item ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"] {:feed-url other-url})
             merged (library/merge lib {:profile (:profile two)})]
-        (is (contains? (:feeds merged) "0ther-guid"))
-        (is (= #{id ["0ther-guid" "o2"]} (set (map :id (library/search merged "other")))))))))
+        (is (contains? (:feeds merged) "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"))
+        (is (= #{id ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]} (set (map :id (library/search merged "other")))))))))
 
 (deftest an-episode-of-another-show-on-another-device
-  (let [id     ["0ther-guid" "o1"]
+  (let [id     ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o1"]
         lib    (library/add-episode library other-url {:status 200 :url other-url :feed others} "o1")
         synced (library/merge (library/make "tablet") {:profile (:profile lib)})
         newer  (update others :rss/items conj (assoc (first (:rss/items others)) :rss/guid {:content "o3"}))
         fetch  (fn [feed] (fn [u _] (if (= u other-url) {:status 200 :url u :feed feed} {:status 304 :url u})))
         listed #(set (map :id (library/search % "other")))]
-    (is (not (contains? (:feeds synced) "0ther-guid")) "the sync brings the remote item, and no feed")
+    (is (not (contains? (:feeds synced) "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")) "the sync brings the remote item, and no feed")
     (run (fn []
            (async/then (library/refresh! synced {:at now :fetch (fetch others)})
                        (fn [{{:keys [added report]} :refresh :as lib'}]
@@ -447,13 +454,14 @@
 
 (deftest a-feed-that-declares-the-guid-of-another
   (let [evil-url "https://evil.example/feed.xml"
+        evil     (assoc show :podcast/guid guid)
         sent     (atom [])
         fetch    (fn [u opts]
                    (swap! sent conj [u (:credentials opts)])
-                   {:status 200 :url u :feed show})
+                   {:status 200 :url u :feed (if (= u evil-url) evil show)})
         listed   (library/update-profile library profile/subscribe (feed.guid/feed-guid {} evil-url) {:url evil-url})]
     (testing "subscribing to it throws, and names the subscription it would take over"
-      (let [e (try (library/subscribe library evil-url show)
+      (let [e (try (library/subscribe library evil-url evil)
                    nil
                    (catch #?(:clj Exception :cljs :default) e e))]
         (is (= [:fetch/guid-taken evil-url guid url] ((juxt :id :url :feed-guid :other-url) (ex-data e))))))
@@ -468,12 +476,39 @@
                             "the subscription keeps its URL")
                         (is (= [[evil-url nil]] @sent) "and the credentials of the private feed go by its URL only"))))))
 
+(deftest two-devices-agree-on-a-key
+  (let [plain    (dissoc other :podcast/guid)
+        fetching (fn [feed] (fn [u _] {:status 200 :url u :feed feed}))
+        key      (feed.guid/from-url other-url)
+        declared (:podcast/guid other)
+        phone    (library/subscribe (library/make "phone" {:config {:now-fn (constantly now)}}) other-url)]
+    (run #(async/then (library/refresh! phone {:at (at 60) :fetch (fetching plain)})
+                      (fn [phone']
+                        (is (= {key key} (update-vals (library/subscriptions phone') :guid))
+                            "settled on the guid of its URL, as the feed declares none")
+                        (let [laptop (update (library/make "laptop" {:config {:now-fn (constantly now)}})
+                                             :profile profile/merge (:profile phone'))]
+                          (async/then (library/refresh! laptop {:at (at 120) :fetch (fetching other)})
+                                      (fn [{{:keys [report]} :refresh :as laptop'}]
+                                        (is (= [key] (keys (library/subscriptions laptop')))
+                                            "the feed declares a guid by the time the laptop fetches it, and the key stays")
+                                        (is (= [[:fetch/guid-changed key key declared]] (map (juxt :id :feed-guid :old :new) report)))
+                                        (is (= declared (get-in laptop' [:profile :subscriptions key :guid])) "an alias")
+                                        (is (= [key] (keys (profile/subscriptions (profile/merge (:profile phone') (:profile laptop')))))
+                                            "so the devices agree")
+                                        (let [e (try (library/subscribe laptop' "https://elsewhere.example/copy.xml" other)
+                                                     nil
+                                                     (catch #?(:clj Exception :cljs :default) e e))]
+                                          (is (= [:fetch/guid-taken key] ((juxt :id :feed-guid) (ex-data e)))
+                                              "and another URL that declares the alias takes nothing over"))))))))))
+
 (deftest the-episodes-across-the-shows
   (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other})]
     (is (= 4 (count (library/episodes lib))))
     (is (= #{"Other" "Podcasting 2.0 Namespace Example"} (set (map (comp :rss/title first) (library/episodes lib)))))
-    (is (= ["0ther-guid" "o1"] (let [[feed item] (first (filter #(= "Other" (:rss/title (first %))) (library/episodes lib)))]
-                                 (library/episode-id lib feed item)))
+    (is (= ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o1"]
+           (let [[feed item] (first (filter #(= "Other" (:rss/title (first %))) (library/episodes lib)))]
+             (library/episode-id lib feed item)))
         "the identity of a pair, for the profile and the views")
     (is (= 2 (count (library/episodes lib {:limit 2}))))
     (let [id     [guid "https://example.com/ep0003"]
@@ -563,7 +598,7 @@
                          (is (= {} (:feeds gone)))))
                      (testing "a show that the listener subscribed to during a refresh stays"
                        (let [joined (library/subscribe indexed other-url {:status 200 :url other-url :feed other} {:at (at 86410)})]
-                         (is (= #{guid "0ther-guid"} (set (keys (:feeds (library/merge joined result)))))))))))
+                         (is (= #{guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"} (set (keys (:feeds (library/merge joined result)))))))))))
      (fn []
        (async/then (library/sync! library [backend] {:at (at 10)})
                    (fn [result]

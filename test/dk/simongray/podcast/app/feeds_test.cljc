@@ -21,7 +21,8 @@
 (def show
   (rss/parse (fixture "feeds/namespace-example.xml")))
 
-(def guid (:podcast/guid show))
+;; the example declares a guid that isn't a UUID, so its key is its URL's
+(def guid (feed.guid/feed-guid show url))
 
 (def now #inst "2026-09-30T12:00:00Z")
 
@@ -156,21 +157,21 @@
     (is (thrown? #?(:clj Throwable :cljs js/Error) (feeds/refresh feeds "nope" fresh now)))))
 
 (deftest podping
-  (let [other (feeds/add feeds "https://example.org/other.xml" (assoc fresh :feed (assoc show :podcast/guid "b1")) now)]
+  (let [other (feeds/add feeds "https://example.org/other.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)]
     (is (= ["b1"] (feeds/affected other [{:iris ["https://example.org/other.xml"]}])))
     (is (= [] (feeds/affected other [{:iris ["https://example.net/none.xml"]}])))))
 
 (deftest the-step
   (let [three  (-> feeds
-                   (feeds/add "https://example.org/b.xml" (assoc fresh :feed (assoc show :podcast/guid "b1")) now)
-                   (feeds/add "https://example.org/c.xml" (assoc fresh :feed (assoc show :podcast/guid "c1")) now))
+                   (feeds/add "https://example.org/b.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)
+                   (feeds/add "https://example.org/c.xml" (assoc fresh :feed (feed.guid/with-key show "c1")) now))
         later  (at 86400)
         asked  (atom [])
         fetch  (fn [url opts]
                  (swap! asked conj [url (select-keys opts [:etag :last-modified :credentials :allow-pred])])
                  (case url
                    "https://example.com/feed.xml" {:status 304 :url url}
-                   "https://example.org/b.xml"    (assoc fresh :url url :feed (assoc show :podcast/guid "b1" :rss/title "B2"))
+                   "https://example.org/b.xml"    (assoc fresh :url url :feed (feed.guid/with-key (assoc show :rss/title "B2") "b1"))
                    (throw (ex-info "refused" {:url url}))))]
     (run
      (fn []

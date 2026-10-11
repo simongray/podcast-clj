@@ -257,9 +257,12 @@ In a browser, give `fetch!` the `:send` of the proxy.
 
 Without `app.library`, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
-the profile uses the guid that `feed.guid/feed-guid` gives a feed. A feed
-can declare the guid of another subscription and take it over, so check a
-new feed with `profile/takeover` first.
+the profile uses the key of a feed: the guid that `feed.guid/feed-guid`
+gives it at its first fetch, which stays when the feed later gives itself
+another, e.g. after a move. `feeds/add` puts the key on the feed with
+`feed.guid/with-key`, so that `feed.guid/episode-id` gives ids by it. A
+feed can declare the guid of another subscription and take it over, so
+check a new feed with `profile/takeover` first.
 
 
 ## Keep the feeds current

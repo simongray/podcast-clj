@@ -214,6 +214,15 @@
                                        " answered " status)}))]
         (throw (ex-info (:message failed) failed))))))
 
+(defn- key-of
+  "The key that `library` keeps the feed that gives itself `feed-guid`
+  under: that of the feeds entry whose :guid it is, or else `feed-guid`."
+  [library feed-guid]
+  (or (some (fn [[k {:keys [guid]}]]
+              (when (= feed-guid guid) k))
+            (:feeds library))
+      feed-guid))
+
 (defn subscribe
   "The `library` subscribed to the feed at `url`, with what was `fetched`
   and the settings in `opts`.
@@ -221,7 +230,9 @@
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
   feed, and the `opts` are as profile/configure takes them, besides :at.
   Without `fetched`, or with nil, the feed is fetched at the next refresh,
-  and the subscription has the guid of the URL until then.
+  and the subscription has the guid of the URL until then. The key of a
+  subscription is the guid that its feed gives itself when it's first
+  fetched, on any device, and stays when the feed gives itself another.
 
   It throws when `fetched` has no feed, e.g. after a fetch that failed,
   and when the feed declares the guid of another subscription, at another
@@ -240,7 +251,8 @@
          feed      (when result
                      (feed-of url result "subscribe to"))
          feed-guid (guid/feed-guid feed url)
-         details   {:url url :title (resolve/title feed)}
+         details   (cond-> {:url url :title (resolve/title feed)}
+                     feed (assoc :guid feed-guid))
          cadence   (:cadence (:config library) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
@@ -284,7 +296,7 @@
    (let [at        (time-of library opts)
          result    (fetch-result fetched)
          feed      (feed-of url result "take the episode from")
-         feed-guid (guid/feed-guid feed url)
+         feed-guid (key-of library (guid/feed-guid feed url))
          cadence   (:cadence (:config library) {})
          new?      (not (contains? (:feeds library) feed-guid))]
      (when-not (some #(= item-guid (guid/item-guid %)) (:rss/items feed))
@@ -429,41 +441,69 @@
                   [feed-guid {:url url}])]
     (into {} (concat remote subs))))
 
+(defn- with-guid
+  "The accumulator `acc` of a refresh with the guid that the feed of the
+  subscription `feed-guid` gives itself now noted on the subscription, and
+  :fetch/guid-changed in the report when that isn't the guid it noted
+  before, or the key of one that noted none."
+  [acc feed-guid]
+  (let [library            (:library acc)
+        {:keys [guid url]} (get-in library [:feeds feed-guid])
+        before             (get-in library
+                                   [:profile :subscriptions feed-guid :guid]
+                                   feed-guid)
+        changed            (diagnostics/describe {:id        :fetch/guid-changed
+                                                  :feed-guid feed-guid
+                                                  :url       url
+                                                  :old       before
+                                                  :new       guid})]
+    (cond-> acc
+      guid
+      (update-in [:library :profile] profile/settle feed-guid guid)
+
+      (and guid (not= before guid))
+      (update :report conj changed))))
+
 (defn- first-fetched
   "The accumulator `acc` of a refresh with the feed of the new subscription
-  `feed-guid`, fetched at `at` and cut down by `keep-fn`, under the guid
-  that the feed declares.
+  `feed-guid`, fetched at `at` and cut down by `keep-fn`.
 
-  The subscription moves to that guid, with its settings and tags, and
-  gets the title of the feed when it has none. A feed that would take
-  another subscription over is left out with a report, and fetched next
-  time."
+  A subscription that no device settled yet, one without a :guid, moves to
+  the guid that its feed gives itself, with its settings and tags, and one
+  that a device settled keeps its key, so that the devices agree. The
+  subscription notes the guid of its feed, and gets the title of the feed
+  when it has none. A feed that would take another subscription over is
+  left out with a report, and fetched next time."
   [acc feed-guid at keep-fn]
-  (let [library  (:library acc)
-        sub      (get (profile/subscriptions (:profile library)) feed-guid)
-        entry    (get-in library [:feeds feed-guid])
-        url      (:url sub)
-        declared (guid/feed-guid (:feed entry) url)
-        details  {:url url :title (resolve/title (:feed entry))}
-        moved    #(-> % (dissoc feed-guid) (assoc declared entry))]
-    (if-let [taken (profile/takeover (:profile library) declared url)]
+  (let [library (:library acc)
+        sub     (get (profile/subscriptions (:profile library)) feed-guid)
+        entry   (get-in library [:feeds feed-guid])
+        target  (if (:guid sub) feed-guid (or (:guid entry) feed-guid))
+        details {:url (:url sub) :title (resolve/title (:feed entry))}
+        keyed   (update entry :feed guid/with-key target)
+        moved   #(-> % (dissoc feed-guid) (assoc target keyed))
+        taken   (when (not= target feed-guid)
+                  (profile/takeover (:profile library) target (:url sub)))]
+    (if taken
       (-> acc
           (update-in [:library :feeds] dissoc feed-guid)
           (update :report conj taken))
       (-> acc
           (update-in [:library :feeds] moved)
-          (update-in [:library :profile] profile/rekey feed-guid declared at)
+          (update-in [:library :profile] profile/rekey feed-guid target at)
+          (with-guid target)
           (cond-> (not (:title sub))
-            (update-in [:library :profile] profile/relocate declared details))
-          (update :library reindexed declared)
-          (update :library kept declared keep-fn)
-          (assoc-in [:guids feed-guid] declared)))))
+            (update-in [:library :profile] profile/relocate target details))
+          (update :library reindexed target)
+          (update :library kept target keep-fn)
+          (assoc-in [:guids feed-guid] target)))))
 
 (defn- applied
   "The `library` with the `result` of a refresh of its feeds applied to the
   profile at `at`, and the fresh feeds cut down by `keep-fn`, as a map of
   the :library, what was :added and :moved, and the :report of the feeds
-  that would take another subscription over.
+  that would take another subscription over or give themselves another
+  guid.
 
   A feed fetched for the first time is that of a new subscription, so its
   episodes aren't new ones, and neither are those of a feed of remote
@@ -491,6 +531,7 @@
                                                     old-feed feed at)]
                          (-> acc
                              (assoc-in [:library :profile] profile)
+                             (with-guid feed-guid)
                              (noted feed-guid)
                              (update :added into added)))
 
@@ -1099,6 +1140,7 @@
 (defn- with-feeds
   "The `library` and its `report`, a pair, with the feed of each feeds
   entry that names a document read from `store`, in a future or a promise.
+  Each feed has its key, as guid/with-key gives it.
 
   An entry whose document is missing or doesn't read keeps only its URL,
   so that the next refresh fetches it again, with
@@ -1127,9 +1169,17 @@
                                     {:id        :library/unreadable-document
                                      :name      document
                                      :feed-guid feed-guid
-                                     :reason    (:reason read)}))]))]
+                                     :reason    (:reason read)}))]))
+        keyed    (fn [[feed-guid entry]]
+                   [feed-guid (cond-> entry
+                                (:feed entry)
+                                (update :feed guid/with-key feed-guid))])]
     (async/then (async/all fetch! outlined)
-                #(reduce applied [library report] %))))
+                (fn [loaded]
+                  (let [[library report] (reduce applied [library report]
+                                                 loaded)]
+                    [(update library :feeds #(into {} (map keyed) %))
+                     report])))))
 
 (defn- with-index
   "The `library` and its `report`, a pair, with the search index read from

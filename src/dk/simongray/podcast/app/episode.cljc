@@ -92,7 +92,7 @@
    {:pre [(map? opts)]}
    (let [wanted?   (complement except)
          url       (or url (resolve/self-url feed))
-         feed-guid (guid/feed-guid feed url)
+         feed-guid (guid/feed-key feed url)
          read?     (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
          page      (or (resolve/link item) (resolve/link feed))
          notes     (when read?

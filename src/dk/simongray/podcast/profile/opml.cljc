@@ -47,17 +47,32 @@
   [list]
   (filter :xml-url (:subscriptions list)))
 
+(defn- outline-guid
+  "The guid that the OPML `outline` names, if any."
+  [{:keys [guid] :as outline}]
+  (when (string? guid)
+    (not-empty (str/trim guid))))
+
 (defn ^:no-doc named
   "The feed guid of the OPML `outline`, given the `names`, the feed guids
   of the subscriptions by normalized URL.
 
   It's the guid of the subscription at the outline's URL, or else the
   outline's own guid, or else the guid of its URL."
-  [names {:keys [xml-url guid] :as outline}]
+  [names {:keys [xml-url] :as outline}]
   ;; a known show doesn't come in again under another guid
   (or (get names (guid/normal-url xml-url))
-      (when (string? guid) (not-empty (str/trim guid)))
+      (outline-guid outline)
       (guid/from-url xml-url)))
+
+(defn- settled
+  "The `details` of a subscription to the OPML `outline` under the guid
+  `g`, with that guid as the settled one when the outline names it and
+  it's a UUID, as a podcast:guid is. A key of another form moves at the
+  first fetch."
+  [details outline g]
+  (cond-> details
+    (and (= g (outline-guid outline)) (guid/guid? g)) (assoc :guid g)))
 
 (defn- joining
   "The shows of the OPML `list` that join `profile`, as pairs of feed guid
@@ -95,8 +110,9 @@
           guids (fn [list] (map #(named names %) (outlines list)))
           is    (set (guids after))
           joins (joining profile names (set (guids before)) after)
-          join  (fn [profile [g {:keys [xml-url title text]}]]
-                  (let [show {:url xml-url :title (or title text)}]
+          join  (fn [profile [g {:keys [xml-url title text] :as outline}]]
+                  (let [show (settled {:url xml-url :title (or title text)}
+                                      outline g)]
                     (cond-> (profile/subscribe profile g show at)
                       folder (profile/configure g {:folder folder} at))))]
       {:profile (crdt/at-once profile at #(reduce join % joins))
@@ -165,9 +181,10 @@
   (let [g          (named names outline)
         known      (when (get names (guid/normal-url xml-url))
                      (get-in profile [:subscriptions g :url]))
-        details    {:url      (or known xml-url)
-                    :title    (or title text)
-                    :added-at (when (inst? created) created)}
+        details    (settled {:url      (or known xml-url)
+                             :title    (or title text)
+                             :added-at (when (inst? created) created)}
+                            outline g)
         categories (when (sequential? category) category)]
     {:names   (assoc names (guid/normal-url xml-url) g)
      :profile (as-> (profile/subscribe profile g details at) profile

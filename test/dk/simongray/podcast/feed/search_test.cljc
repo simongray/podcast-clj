@@ -5,18 +5,19 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.podcast.criteria-test :refer [show]]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
-            [dk.simongray.podcast.test-support :refer [fixture]]))
+            [dk.simongray.podcast.test-support :refer [example-guid fixture]]))
 
 (def example
-  (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
+  (delay (assoc (rss/parse (fixture "feeds/namespace-example.xml")) :podcast/guid example-guid)))
 
 (deftest documents-from-the-model
   (let [feed (deref example)
         item (first (:rss/items feed))
         doc  (feed.search/item-document feed item {:url "https://example.com/feed.xml"})]
-    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id doc)) "the identity the profile uses")
+    (is (= [example-guid "https://example.com/ep0003"] (:id doc)) "the identity the profile uses")
     (is (= "Episode 3 - The Future" (get-in doc [:fields :title])))
     (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :show])))
     (is (= "A look into the future of podcasting and how we get to Podcasting 2.0!" (get-in doc [:fields :description])))
@@ -32,14 +33,14 @@
                                      [:fields :transcript])))
     (let [idx (feed.search/index (map #(feed.search/item-document feed % {:url "https://example.com/feed.xml"}) (:rss/items feed)))]
       (is (= 3 (count (:docs idx))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (search/query idx "futu"))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (search/query idx "\"the present\""))))
+      (is (= [[example-guid "https://example.com/ep0003"]] (mapv :id (search/query idx "futu"))))
+      (is (= [[example-guid "https://example.com/ep0002"]] (mapv :id (search/query idx "\"the present\""))))
       (is (= "Episode 3 - The Future" (:title (:stored (first (search/query idx "future")))))))
     (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"needs :url"
                           (feed.search/item-document (dissoc feed :podcast/guid) item))
         "a feed without an identity would give its episodes the ids of other shows")
     (let [doc (feed.search/feed-document feed)]
-      (is (= "y0ur-gu1d-g035-h3r3" (:id doc)))
+      (is (= example-guid (:id doc)))
       (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :title])))
       (is (= {:title "Podcasting 2.0 Namespace Example" :author "John Doe"} (:stored doc))))))
 
@@ -52,7 +53,7 @@
 
 (deftest the-shows-of-an-index
   (let [url   "https://example.com/show.xml"
-        other (assoc show :podcast/guid "other-guid" :rss/title "Other Show")
+        other (guid/with-key (assoc show :rss/title "Other Show") "other-guid")
         idx   (-> (feed.search/index)
                   (feed.search/with-feed show url)
                   (feed.search/with-feed other "https://example.com/other.xml"))

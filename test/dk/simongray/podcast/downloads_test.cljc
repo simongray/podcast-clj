@@ -29,19 +29,23 @@
    :itunes/duration 1800
    :rss/enclosure   {:url (str "https://example.org/" guid ".mp3") :type "audio/mpeg" :length length}})
 
+;; as a library keeps them, under keys of their own, since their guids
+;; aren't UUIDs
 (def show
-  {:podcast/guid "feed-a"
-   :rss/title    "A show"
-   :rss/items    [(item "a4" "Episode 4" 22 400)
-                  (item "a3" "Episode 3 (rerun)" 15 300)
-                  (item "a2" "Episode 2" 8 200)
-                  (item "a1" "Episode 1" 1 100)]})
+  (guid/with-key {:podcast/guid "feed-a"
+                  :rss/title    "A show"
+                  :rss/items    [(item "a4" "Episode 4" 22 400)
+                                 (item "a3" "Episode 3 (rerun)" 15 300)
+                                 (item "a2" "Episode 2" 8 200)
+                                 (item "a1" "Episode 1" 1 100)]}
+                 "feed-a"))
 
 (def other
-  {:podcast/guid "feed-b"
-   :rss/title    "Another show"
-   :rss/items    [(item "b2" "Second" 20 2000)
-                  (item "b1" "First" 10 1000)]})
+  (guid/with-key {:podcast/guid "feed-b"
+                  :rss/title    "Another show"
+                  :rss/items    [(item "b2" "Second" 20 2000)
+                                 (item "b1" "First" 10 1000)]}
+                 "feed-b"))
 
 (def now (at 28))
 
@@ -282,8 +286,9 @@
              (parts {:rules (rules {:max-episodes 4 :default {:download? true :played 0}})}))))))
 
 (deftest room-after-many-downloads
-  (let [many  {:podcast/guid "feed-a"
-               :rss/items    (mapv #(item (str "m" %) (str "Episode " %) 1 100) (range 30000))}
+  (let [many  (guid/with-key {:podcast/guid "feed-a"
+                              :rss/items    (mapv #(item (str "m" %) (str "Episode " %) 1 100) (range 30000))}
+                             "feed-a")
         state (-> (with-rules subscribed {:default {:download? true} :max-bytes 2000100 :make-room? true} {})
                   (profile/mark-played ["feed-a" "old"] (at 5)))
         files {["feed-a" "old"] {:bytes 100 :at (at 2)}}
@@ -333,7 +338,7 @@
         "the app's choice, e.g. on a mobile network")))
 
 (deftest a-feed-without-a-guid
-  (let [bare  (dissoc show :podcast/guid)
+  (let [bare  (with-meta (dissoc show :podcast/guid) nil)
         url   "https://example.org/a.xml"
         guid  (first (guid/episode-id bare url (first (:rss/items bare))))
         rules {:shows {guid {:download? true :episodes {:limit 1}}}}]

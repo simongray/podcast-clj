@@ -75,7 +75,8 @@
         (is (str/includes? body "item :rss/title") "the resolved properties with their sources")))
     (testing "a feed whose enclosures go through OP3 links to its downloads there"
       (is (str/includes? (:body (get* "/feed" "url" "https://example.com/op3.xml"))
-                         "href=\"https://op3.dev/show/y0ur-gu1d-g035-h3r3\""))
+                         (str "href=\"https://op3.dev/show/" (guid/from-url "https://example.com/op3.xml") "\""))
+          "by the guid of its URL, since the one it declares isn't a UUID")
       (is (not (str/includes? (:body (get* "/feed" "url" "https://example.com/one.xml")) "downloads at OP3"))))
     (testing "no URL goes home; a feed that cannot be fetched is an error page"
       (is (= 302 (:status (get* "/feed"))))
@@ -341,7 +342,7 @@
             episode (read-string body)]
         (is (= 200 status))
         (is (str/starts-with? (get headers "Content-Type") "application/edn"))
-        (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id episode)))
+        (is (= [(guid/from-url "https://example.com/one.xml") "https://example.com/ep0003"] (:id episode)))
         (is (string? (:enclosure episode)))
         (is (false? (:video? episode)))
         (is (string? (:title episode))))

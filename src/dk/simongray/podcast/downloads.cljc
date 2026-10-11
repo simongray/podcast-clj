@@ -229,7 +229,7 @@
 
 (defn- guid-of
   [{:keys [url]} feed]
-  (guid/feed-guid feed (if (ifn? url) (url feed) url)))
+  (guid/feed-key feed (if (ifn? url) (url feed) url)))
 
 (defn- selections
   "The ids of the episodes that the rule in `ctx` of each show of `feeds`

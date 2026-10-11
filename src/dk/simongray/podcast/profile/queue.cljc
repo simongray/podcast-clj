@@ -285,7 +285,7 @@
   settings of a live subscription, or else the inbox with :inbox?. An
   episode that's already in the profile stays as the listener left it."
   [profile url before after at]
-  (let [feed-guid (guid/feed-guid after url)
+  (let [feed-guid (guid/feed-key after url)
         added     (feed/new-episodes url before after)
         {:keys [auto-queue? inbox?]}
         (when (profile/subscribed? profile feed-guid)

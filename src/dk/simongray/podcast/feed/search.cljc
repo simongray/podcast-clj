@@ -81,7 +81,7 @@
    (let [title      (resolve/title feed)
          author     (resolve/author feed)
          categories (map #(str/join " " %) (resolve/categories feed))]
-     {:id     (guid/feed-guid feed url)
+     {:id     (guid/feed-key feed url)
       :fields (present {:title       title
                         :description (notes feed)
                         :author      author
@@ -137,7 +137,7 @@
   and of its episodes, in place of those it held of the show before."
   [index feed url]
   (apply search/add
-         (without-feed index (guid/feed-guid feed url))
+         (without-feed index (guid/feed-key feed url))
          (feed-documents feed url)))
 
 (defn feed-guids

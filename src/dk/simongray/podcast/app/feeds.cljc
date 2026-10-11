@@ -1,14 +1,16 @@
 (ns dk.simongray.podcast.app.feeds
   "The fetched feeds of an app, and keeping them current.
 
-  The feeds are a map by guid. Each entry has the parsed feed, its URL,
-  the ETag and Last-Modified of the last fetch, when the feed last
-  changed, and the time of the next check:
+  The feeds are a map by key, the guid that the feed was first fetched
+  under. Each entry has the parsed feed, its URL, the ETag and
+  Last-Modified of the last fetch, the guid that the feed gives itself
+  now, when the feed last changed, and the time of the next check:
 
       {\"917393e3-…\" {:url          \"https://feeds.podcastindex.org/pc20.xml\"
                      :feed         {…}
                      :etag         \"…\"
                      :last-modified \"…\"
+                     :guid         \"917393e3-…\"  ; what the feed says now
                      :changed-at   #inst \"…\"
                      :fetched-at   #inst \"…\"
                      :next-check   #inst \"…\"
@@ -59,19 +61,23 @@
                  not-before)))
 
 (defn- fetched
-  "The entry `old` after a fetch from `url` gave the fresh feed of `result`
-  at `at`, with the next check by `cadence`.
+  "The entry `old` of the feed `feed-guid` after a fetch from `url` gave
+  the fresh feed of `result` at `at`, with the next check by `cadence`.
 
-  The entry has the feed, its ETag and Last-Modified, and the new URL of a
-  feed that moved. Its :changed-at is `at` unless the feed is the one it
-  had, since a server without validators answers 200 for a feed that
-  didn't change."
-  [old url result at cadence]
-  (let [{:keys [feed status etag last-modified not-before websub
+  The entry has the feed, with `feed-guid` as its key, its ETag and
+  Last-Modified, the new URL of a feed that moved, and the :guid that the
+  feed gives itself there. Its :changed-at is `at` unless the feed is the
+  one it had, since a server without validators answers 200 for a feed
+  that didn't change."
+  [old feed-guid url result at cadence]
+  (let [{:keys [status etag last-modified not-before websub
                 permanent-url new-feed-url]} result
+        feed  (guid/with-key (:feed result) feed-guid)
+        url   (or permanent-url new-feed-url url)
         same? (= feed (:feed old))]
     (-> (dissoc old :etag :last-modified :websub :status)
-        (assoc :url (or permanent-url new-feed-url url)
+        (assoc :url url
+               :guid (guid/feed-guid feed url)
                :feed feed
                :changed-at (if same? (:changed-at old at) at)
                :fetched-at at
@@ -125,9 +131,9 @@
      (throw (ex-info "A result without a :feed can't be added"
                      {:url url :status (:status result)})))
    (let [cadence   (merge default-cadence cadence)
-         feed-guid (guid/feed-guid (:feed result) url)
+         feed-guid (guid/feed-key (:feed result) url)
          old       (get feeds feed-guid {})]
-     (assoc feeds feed-guid (fetched old url result at cadence)))))
+     (assoc feeds feed-guid (fetched old feed-guid url result at cadence)))))
 
 (defn- slim-item
   "The part of `item` that a slim feed keeps: its guid, date and media."
@@ -145,7 +151,8 @@
   A device that only syncs and refreshes, such as a server, can keep this
   in place of the whole feed. It gives the same next check, the same new
   episodes and the same names for the gpodder API, but no titles,
-  descriptions or the rest."
+  descriptions or the rest. It keeps the key of the feed's metadata, as
+  guid/with-key gives it."
   [feed]
   (let [kept [:podcast/guid :itunes/complete :podcast/update-frequency
               :rss/ttl :sy/update-period :sy/update-frequency]]
@@ -210,7 +217,7 @@
        {:feeds (assoc feeds feed-guid (unchanged old result at cadence))}
 
        (:feed result)
-       (let [entry (fetched old url result at cadence)]
+       (let [entry (fetched old feed-guid url result at cadence)]
          (cond-> {:feeds (assoc feeds feed-guid entry) :changed [feed-guid]}
            (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})))
 

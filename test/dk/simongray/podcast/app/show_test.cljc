@@ -7,13 +7,13 @@
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.test-support :refer [example-guid fixture run]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]))
 
 (def feed
-  (rss/parse (fixture "feeds/namespace-example.xml")))
+  (assoc (rss/parse (fixture "feeds/namespace-example.xml")) :podcast/guid example-guid))
 
 (def credentials
   {:key "K" :secret (secret/hide "S")})

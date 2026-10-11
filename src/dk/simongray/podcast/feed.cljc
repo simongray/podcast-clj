@@ -491,7 +491,7 @@
   [url before after]
   (if (nil? before)
     []
-    (let [feed-guid     (guid/feed-guid after url)
+    (let [feed-guid     (guid/feed-key after url)
           date-ms       (fn [item]
                           (let [d (:rss/pub-date item)]
                             (when (inst? d) (inst-ms d))))

@@ -6,7 +6,7 @@
 
       {:device         \"8f1c9e2a-…\"   ; this device's id
        :clock          #inst \"…\"      ; the latest stamp written or merged
-       :subscriptions  {feed-guid {:url :title :added-at :removed?}}
+       :subscriptions  {feed-guid {:url :title :added-at :guid :removed?}}
        :remote-items   {id {:feed-url :removed?}}  ; episodes of other shows
        :settings       {feed-guid {:skip-intro {:value 20} ...}}
        :tags           {feed-guid {\"Tech\" {:removed? false}}}
@@ -30,8 +30,8 @@
 
   A profile is a CRDT of dk.simongray.mind-meld: each write takes the time
   it happens at, and stamps what it changed with that time and the :device
-  of the profile. A feed is identified by its podcast:guid, and an episode
-  by its id, [feed-guid item-guid].
+  of the profile. A feed is identified by its key, the guid that its first
+  fetch settled on, and an episode by its id, [feed-guid item-guid].
 
   This namespace has the subscriptions, their settings, the preferences
   and the progress of the episodes. The other parts have namespaces of
@@ -124,35 +124,43 @@
   if not.
 
   A feed can declare any guid, so check a new feed before subscribing to
-  it. Two forms of one URL, e.g. with http and https, count as the same
-  feed."
+  it. The guid can be the key of a subscription, or the :guid that the
+  feed of one gives itself now. Two forms of one URL, e.g. with http and
+  https, count as the same feed."
   [profile feed-guid url]
-  (when (subscribed? profile feed-guid)
-    (let [other (get-in profile [:subscriptions feed-guid :url])]
-      (when (not= (guid/normal-url other) (guid/normal-url url))
-        (diagnostics/describe {:id        :fetch/guid-taken
-                               :url       url
-                               :feed-guid feed-guid
-                               :other-url other})))))
+  (let [[k sub] (or (when (subscribed? profile feed-guid)
+                      [feed-guid (get-in profile [:subscriptions feed-guid])])
+                    (first (filter (fn [[_ s]]
+                                     (and (crdt/live? s)
+                                          (= feed-guid (:guid s))))
+                                   (:subscriptions profile))))
+        other   (:url sub)]
+    (when (and sub (not= (guid/normal-url other) (guid/normal-url url)))
+      (diagnostics/describe {:id        :fetch/guid-taken
+                             :url       url
+                             :feed-guid k
+                             :other-url other}))))
 
 (defn subscribe
   "Subscribe `profile` to the feed `feed-guid` at `at`, with the :url and
-  :title of the feed in `details`.
+  :title of the feed in `details`, and its :guid when the feed was fetched
+  or a list named it, which settles the key.
 
   The settings of an earlier subscription to the feed still hold. For a new
   subscription, :added-at can give an earlier time of subscribing, e.g.
   from the OPML of another app."
-  [profile feed-guid {:keys [url title added-at] :as details} at]
+  [profile feed-guid {:keys [url title added-at guid] :as details} at]
   (let [known? (subscribed? profile feed-guid)]
     (crdt/write profile [:subscriptions feed-guid]
                 (fn [sub]
-                  (assoc sub
-                         :url      url
-                         :title    title
-                         :removed? false
-                         :added-at (if known?
-                                     (:added-at sub)
-                                     (time/date (or added-at at)))))
+                  (cond-> (assoc sub
+                                 :url      url
+                                 :title    title
+                                 :removed? false
+                                 :added-at (if known?
+                                             (:added-at sub)
+                                             (time/date (or added-at at))))
+                    guid (assoc :guid guid)))
                 at)))
 
 (defn unsubscribe
@@ -168,23 +176,41 @@
   [feed-guid]
   (str "feed:" feed-guid))
 
+(defn- as-the-feed
+  "The `profile` with the live subscription `feed-guid` changed by `f`, as
+  a write of the feed itself."
+  [profile feed-guid f]
+  (let [sub   (get-in profile [:subscriptions feed-guid])
+        ;; stamped just after the last write to the subscription, so that it
+        ;; never undoes what the listener did on another device meanwhile,
+        ;; e.g. an unsubscription, and two devices write the same
+        write (fn [p]
+                (let [after (time/->inst (inc (crdt/stamp-ms sub)))]
+                  (crdt/write p [:subscriptions feed-guid]
+                              (constantly (f sub))
+                              after)))]
+    (cond-> profile
+      (crdt/live? sub) (crdt/as-device (feed-author feed-guid) write))))
+
 (defn relocate
   "Note in `profile` that the feed `feed-guid` moved to the :url of
   `details`, with the :title it has there, e.g. after a permanent
   redirect. Nothing changes without a live subscription."
   [profile feed-guid {:keys [url title] :as details}]
-  (let [sub  (get-in profile [:subscriptions feed-guid])
-        ;; the feed is the author of the move, stamped just after the last
-        ;; write to the subscription, so that it never undoes what the
-        ;; listener did on another device meanwhile, e.g. an unsubscription
-        move (fn [p]
-               (let [moved (assoc sub :url url :title title)
-                     after (time/->inst (inc (crdt/stamp-ms sub)))]
-                 (crdt/write p [:subscriptions feed-guid]
-                             (constantly moved)
-                             after)))]
-    (cond-> profile
-      (crdt/live? sub) (crdt/as-device (feed-author feed-guid) move))))
+  (as-the-feed profile feed-guid #(assoc % :url url :title title)))
+
+(defn settle
+  "Note in `profile` that the feed of the subscription `feed-guid` gives
+  itself `guid`, which settles its key. Nothing changes without a live
+  subscription, or when it notes that guid already.
+
+  A first fetch moves a subscription without a :guid to the guid that its
+  feed gives itself, and one with a :guid keeps its key. A later guid is
+  an alias that takeover reads."
+  [profile feed-guid guid]
+  (if (= guid (get-in profile [:subscriptions feed-guid :guid]))
+    profile
+    (as-the-feed profile feed-guid #(assoc % :guid guid))))
 
 (defn- values
   [entries]

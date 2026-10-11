@@ -62,17 +62,40 @@
   (or (not-empty (:content (:rss/guid item)))
       (:url (:rss/enclosure item))))
 
+;; podcast namespace, podcast:guid: a UUIDv5, or else derived from the URL,
+;; as the Podcast Index does
 (defn feed-guid
-  "The identity of `feed`: its podcast:guid, or else the one that the
-  podcast namespace derives from `url`."
+  "The identity that `feed` gives itself at `url`: its podcast:guid when
+  that's a UUID, or else the one that the podcast namespace derives from
+  `url`."
   [feed url]
-  (or (not-empty (:podcast/guid feed))
-      (when url (from-url url))))
+  (let [declared (:podcast/guid feed)]
+    (if (guid? declared)
+      declared
+      (when url (from-url url)))))
+
+(defn with-key
+  "The `feed` with `k` in its metadata as the key that a library keeps it
+  under, which episode-id takes over what the feed says now."
+  [feed k]
+  (vary-meta feed assoc ::key k))
+
+(defn feed-key
+  "The key that a library keeps `feed` under, as with-key gives it, or
+  else its feed-guid at `url`.
+
+  The key is settled at the first fetch and stays, while the feed-guid
+  changes with a new podcast:guid, or with the URL of a feed that has
+  none."
+  [feed url]
+  (or (::key (meta feed))
+      (feed-guid feed url)))
 
 (defn episode-id
-  "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
+  "The id of `item` in the `feed` at `url`: [key item-guid], with the key
+  of feed-key."
   [feed url item]
-  [(feed-guid feed url) (item-guid item)])
+  [(feed-key feed url) (item-guid item)])
 
 (comment
   (from-url "https://mp3s.nashownotes.com/pc20rss.xml")

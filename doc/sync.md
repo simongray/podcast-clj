@@ -268,8 +268,8 @@ dynamic ad insertion gives a new media URL for every request. The profile
 names them by guid, so the backend maps between the two.
 
 A show is found by its URL among the subscriptions, whatever the scheme,
-case and trailing slashes, then by the guid that its feed declares, and then
-by the guid derived from the URL. An episode is found by the guid of its
+case and trailing slashes, then by the key that the library keeps its feed
+under, and then by the guid derived from the URL. An episode is found by the guid of its
 item, which AntennaPod, Kasts and the Nextcloud app send with each action,
 and otherwise by its media URL in your parsed feeds, through `identities`.
 An action for a feed that isn't fetched yet waits in the cursor until the

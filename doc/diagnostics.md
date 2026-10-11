@@ -41,6 +41,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
+| `:fetch/guid-changed` | info | The feed gives itself another guid than before, from :old to :new, e.g. a new podcast:guid, or a new URL of a feed that declares none. Its subscription keeps its key, the :feed-guid, and notes the new guid. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
 | `:discovery/not-found` | warning | No feed was found: the page names none that could be read, and none of the other places that were tried has one. |
 | `:directory/source-failed` | warning | A directory gave no answer to a search or a chart, so its shows are missing from the results. The :source names it, and the :reason says why. |
@@ -157,7 +158,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/invalid-enum` | warning | A value isn't one of those that the spec lists. |
 | `:validate/invalid-url` | warning | A URL isn't absolute. |
 | `:validate/http-url` | info | A URL uses http where the podcast namespace requires https. |
-| `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID. |
+| `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID, so the library, like the Podcast Index, identifies the feed by the guid derived from its URL. |
 | `:validate/unknown-role` | info | The role of a person isn't in the Podcast Taxonomy. |
 | `:validate/unknown-element` | info | The registry doesn't know the element, so it's kept under :xml/unknown. |
 | `:validate/unknown-key` | warning | The registry doesn't define the key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there. |

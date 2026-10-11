@@ -216,6 +216,11 @@
   machine, which the functions that fetch refuse by default."
   (constantly true))
 
+(def example-guid
+  "A podcast:guid for the example feed of the podcast namespace, whose own
+  isn't a UUID, for a test of a feed that names itself."
+  "6c2a4f5e-8b1d-5e3a-9c7f-0d1e2f3a4b5c")
+
 #?(:clj
    (defn with-server
      "Call `f` with the URL of a server on localhost that serves `files`, a

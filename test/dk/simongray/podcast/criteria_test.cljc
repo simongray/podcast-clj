@@ -4,13 +4,14 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.criteria :as criteria]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]))
 
 (def t0 #inst "2026-03-01T00:00:00Z")
 (def t1 #inst "2026-03-02T00:00:00Z")
 
-(def show
+(def hand-built
   "A serial show with a trailer, two seasons and a bonus, hand-built."
   {:rss/title       "Test Show"
    :podcast/guid    "feed-guid"
@@ -34,6 +35,11 @@
      :podcast/chapters {:url "https://x/c.json" :type "application/json+chapters"}}
     {:rss/title "Bonus" :rss/guid {:content "b"} :rss/pub-date #inst "2026-02-05T00:00:00Z"
      :itunes/season 2 :itunes/episode-type "bonus"}]})
+
+(def show
+  "The show as a library keeps it, under the key feed-guid, since its own
+  guid isn't a UUID."
+  (guid/with-key hand-built "feed-guid"))
 
 (def listened
   "A profile with one episode started and another finished."
@@ -208,8 +214,9 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (titles {:where {:mood "calm"}})))))
 
 (deftest across-feeds
-  (let [other {:rss/title "Other" :podcast/guid "other"
-               :rss/items [{:rss/title "Elsewhere" :rss/guid {:content "e"} :rss/pub-date #inst "2026-01-20T00:00:00Z"}]}
+  (let [other (guid/with-key {:rss/title "Other" :podcast/guid "other"
+                              :rss/items [{:rss/title "Elsewhere" :rss/guid {:content "e"} :rss/pub-date #inst "2026-01-20T00:00:00Z"}]}
+                             "other")
         pairs (criteria/episodes [show other] {:where {:type "full"} :order :newest})]
     (is (= ["Season two, episode one" "Elsewhere" "Season one, episode two" "Season one, episode one: Café"]
            (mapv (comp :rss/title second) pairs)))

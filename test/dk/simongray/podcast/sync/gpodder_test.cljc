@@ -30,22 +30,23 @@
 
 (deftest names-over-parsed-feeds
   (let [{:keys [feed-guid-fn feed-url-fn episode-id-fn episode-url-fn]} (gpodder/identities [{:url "https://example.com/feed.xml" :feed @example}])]
-    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid-fn "https://example.com/feed.xml")) "the feed's declared guid")
-    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid-fn "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
+    (is (= "d84ced82-1926-54c0-88c2-bb01dd35d7e3" (feed-guid-fn "https://example.com/feed.xml"))
+        "the guid of the feed's URL, since the one it declares isn't a UUID")
+    (is (= "d84ced82-1926-54c0-88c2-bb01dd35d7e3" (feed-guid-fn "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
     (is (nil? (feed-guid-fn "https://elsewhere.example/feed.xml")))
-    (is (= "https://example.com/feed.xml" (feed-url-fn "y0ur-gu1d-g035-h3r3")))
-    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]
+    (is (= "https://example.com/feed.xml" (feed-url-fn "d84ced82-1926-54c0-88c2-bb01dd35d7e3")))
+    (is (= ["d84ced82-1926-54c0-88c2-bb01dd35d7e3" "https://example.com/ep0002"]
            (episode-id-fn "https://example.com/feed.xml" "https://example.com/file-02.mp3" nil))
         "by the URL of its media")
-    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0001"]
+    (is (= ["d84ced82-1926-54c0-88c2-bb01dd35d7e3" "https://example.com/ep0001"]
            (episode-id-fn "https://example.com/feed.xml" "https://cdn.example/other.mp3" "https://example.com/ep0001"))
         "by its guid")
-    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/gone.mp3"]
+    (is (= ["d84ced82-1926-54c0-88c2-bb01dd35d7e3" "https://example.com/gone.mp3"]
            (episode-id-fn "https://example.com/feed.xml" "https://example.com/gone.mp3" nil))
         "an episode the feed leaves out, as podcast-clj names it")
     (is (nil? (episode-id-fn "https://elsewhere.example/feed.xml" "https://elsewhere.example/1.mp3" nil)))
-    (is (= "https://example.com/file-03.mp3" (episode-url-fn ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"])))
-    (is (nil? (episode-url-fn ["y0ur-gu1d-g035-h3r3" "no-such-item"])))))
+    (is (= "https://example.com/file-03.mp3" (episode-url-fn ["d84ced82-1926-54c0-88c2-bb01dd35d7e3" "https://example.com/ep0003"])))
+    (is (nil? (episode-url-fn ["d84ced82-1926-54c0-88c2-bb01dd35d7e3" "no-such-item"])))))
 
 (defn- ring-send
   "A send, as `http/send!` takes a request map, to the Ring `handler`: the

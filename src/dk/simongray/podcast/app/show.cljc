@@ -27,8 +27,10 @@
   "The show of `feed` as a page shows it, with the `opts` below: the feed
   with the properties of resolve/properties merged in, and these keys:
 
-  - :guid, the id of the feed, when the feed has one or `opts` give the
-    :url of the feed
+  - :guid, the id that the feed gives itself now, for links and remote
+    items, when the feed has one or `opts` give the :url of the feed
+  - :id, the key that a library keeps the feed under, as guid/feed-key
+    gives it, which can differ from the :guid once the feed moved
   - :notes, the description as Hiccup, and :text, as plain text
   - :episodes, the items in listening order, in place of :rss/items
   - :seasons, the items by season, as maps of :season, :name and :items
@@ -50,6 +52,7 @@
    (let [wanted? (complement except)
          url     (or url (resolve/self-url feed))
          guid    (guid/feed-guid feed url)
+         k       (guid/feed-key feed url)
          page    (resolve/link feed)
          notes   (when (or (wanted? :notes) (wanted? :text))
                    (some-> (resolve/description feed)
@@ -57,6 +60,9 @@
      (cond-> (merge feed (resolve/properties feed))
        guid
        (assoc :guid guid)
+
+       k
+       (assoc :id k)
 
        (and notes (wanted? :notes))
        (assoc :notes notes)

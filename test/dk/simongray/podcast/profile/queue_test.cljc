@@ -85,13 +85,15 @@
 
 (deftest refreshing-a-feed
   (let [item   (fn [id] {:rss/guid {:content id} :rss/title id})
-        before {:podcast/guid "feed-a" :rss/items [(item "a2") (item "a1")]}
-        after  {:podcast/guid "feed-a" :rss/items [(item "a4") (item "a3") (item "a2") (item "a1")]}
+        ;; as a library keeps it, under its key, since its guid isn't a UUID
+        feed-a (fn [items] (guid/with-key {:podcast/guid "feed-a" :rss/items items} "feed-a"))
+        before (feed-a [(item "a2") (item "a1")])
+        after  (feed-a [(item "a4") (item "a3") (item "a2") (item "a1")])
         s      (-> (profile/make "phone") (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))]
     (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)) "oldest first")
     (testing "oldest first by date also for a feed that lists them so, and none on a first parse"
       (let [dated (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
-            after {:podcast/guid "feed-a" :rss/items [(dated "a1" 1) (dated "a2" 2) (dated "a3" 3) (dated "a4" 4)]}]
+            after (feed-a [(dated "a1" 1) (dated "a2" 2) (dated "a3" 3) (dated "a4" 4)])]
         (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)))
         (is (= [] (feed/new-episodes "https://a/rss" nil after)))))
     (testing "without auto-queue the new episodes are reported, not queued"
@@ -104,7 +106,7 @@
         (is (= [] (profile.queue/inbox profile)))
         (is (= profile (:profile (profile.queue/refresh profile "https://a/rss" after after t2))) "a parse with no new episode changes nothing")))
     (testing "many new episodes join the queue with short ranks"
-      (let [grown {:podcast/guid "feed-a" :rss/items (into (mapv #(item (str "n" %)) (range 3000 0 -1)) (:rss/items before))}
+      (let [grown (feed-a (into (mapv #(item (str "n" %)) (range 3000 0 -1)) (:rss/items before)))
             s     (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile.queue/enqueue ["feed-b" "b1"] t0))
             {:keys [profile added]} (profile.queue/refresh s "https://a/rss" before grown t1)]
         (is (= 3000 (count added)))
@@ -134,7 +136,7 @@
           (is (= [["feed-a" "a3"]] (profile.queue/inbox laptop)) "nor the one dismissed from the inbox"))))
     (testing "nor when a device finds the episode before it learns what the listener did"
       (let [dated  (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
-            after  {:podcast/guid "feed-a" :rss/items [(dated "a4" 4) (dated "a3" 3) (item "a2") (item "a1")]}
+            after  (feed-a [(dated "a4" 4) (dated "a3" 3) (item "a2") (item "a1")])
             s      (profile/configure s "feed-a" {:auto-queue? true} t0)
             phone  (-> (:profile (profile.queue/refresh s "https://a/rss" before after t1))
                        (profile.queue/dequeue ["feed-a" "a3"] t2))

@@ -7,6 +7,7 @@
             [clojure.test.check.properties :as prop]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
@@ -63,15 +64,17 @@
   (gen/one-of
    [(gen/tuple (gen/return :subscribe-with) feed-guids (gen/elements [:auto-queue? :inbox?]) instants)
     (gen/tuple (gen/return :refresh) feed-guids instants instants)
-    (gen/tuple (gen/return :relocate) feed-guids (gen/elements ["rss" "moved"]))]))
+    (gen/tuple (gen/return :relocate) feed-guids (gen/elements ["rss" "moved"]))
+    (gen/tuple (gen/return :settle) feed-guids (gen/elements ["a0000000-0000-5000-8000-000000000001"
+                                                              "b0000000-0000-5000-8000-000000000002"]))]))
 
 (defn- refreshed
   "The `state` after a refresh at `at` that finds the one episode of the
   feed `feed-guid`, published at `published`."
   [state feed-guid published at]
-  (let [item  {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
-        after {:podcast/guid feed-guid :rss/items [item]}]
-    (:profile (profile.queue/refresh state (str "https://" feed-guid "/rss") {:podcast/guid feed-guid :rss/items []} after at))))
+  (let [item   {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
+        keyed  #(guid/with-key {:podcast/guid feed-guid :rss/items %} feed-guid)]
+    (:profile (profile.queue/refresh state (str "https://" feed-guid "/rss") (keyed []) (keyed [item]) at))))
 
 (defn- apply-operation
   [state [kind x y z]]
@@ -106,7 +109,8 @@
     :subscribe-with       (-> (profile/subscribe state x {:url (str "https://" x "/rss") :title x} z)
                               (profile/configure x {y true} z))
     :refresh              (refreshed state x y z)
-    :relocate             (profile/relocate state x {:url (str "https://" x "/" y) :title x})))
+    :relocate             (profile/relocate state x {:url (str "https://" x "/" y) :title x})
+    :settle               (profile/settle state x y)))
 
 (def schedule
   "What happens next: a device syncs, or applies an operation."

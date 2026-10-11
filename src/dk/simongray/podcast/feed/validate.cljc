@@ -177,7 +177,9 @@
    (fn [v path]
      (when-not (guid/guid? v)
        [(diagnostic :validate/invalid-guid :warning path
-                    (str "podcast:guid " (pr-str v) " is not a UUID"))]))})
+                    (str "podcast:guid " (pr-str v) " is not a UUID, so "
+                         "apps and the Podcast Index use the one derived "
+                         "from the URL"))]))})
 
 (declare children-diagnostics)
 

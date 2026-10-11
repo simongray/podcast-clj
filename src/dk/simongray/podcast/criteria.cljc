@@ -52,7 +52,7 @@
   [ctx]
   (cond-> ctx
     (not (::feed-guid ctx))
-    (assoc ::feed-guid (memoized #(guid/feed-guid % (url-of ctx %))))))
+    (assoc ::feed-guid (memoized #(guid/feed-key % (url-of ctx %))))))
 
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."

@@ -62,6 +62,11 @@
            another URL, and would take that subscription over, so it isn't
            added. To replace the other subscription, unsubscribe from it
            first."}
+    {:id :fetch/guid-changed :level :info
+     :doc "The feed gives itself another guid than before, from :old to
+           :new, e.g. a new podcast:guid, or a new URL of a feed that
+           declares none. Its subscription keeps its key, the :feed-guid,
+           and notes the new guid."}
 
     ;; finding the feeds of a show
     {:id :discovery/unreadable :level :warning
@@ -438,7 +443,8 @@
     {:id :validate/http-url :level :info
      :doc "A URL uses http where the podcast namespace requires https."}
     {:id :validate/invalid-guid :level :warning
-     :doc "A podcast:guid isn't a UUID."}
+     :doc "A podcast:guid isn't a UUID, so the library, like the Podcast
+           Index, identifies the feed by the guid derived from its URL."}
     {:id :validate/unknown-role :level :info
      :doc "The role of a person isn't in the Podcast Taxonomy."}
     {:id :validate/unknown-element :level :info

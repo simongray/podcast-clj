@@ -117,10 +117,19 @@ where the model has a vector. `feed/normalize` expands it, and `emit` and
 
 Identity is a function, not a field, and has a namespace of its own,
 `feed.guid`, so that comparing feeds needs no parser. Its `feed-guid`
-gives the `podcast:guid`, or the UUIDv5 of the feed URL, and `item-guid`
-gives the `<guid>`, or the enclosure URL. The id of an episode is the
-pair of the two, from `episode-id`, and `feed/diff` compares two parses
-of a feed by this identity.
+gives the `podcast:guid` when it's a UUID, or else the UUIDv5 of the feed
+URL, as the Podcast Index does, and `item-guid` gives the `<guid>`, or
+the enclosure URL. The id of an episode is the pair of the two, from
+`episode-id`, and `feed/diff` compares two parses of a feed by this
+identity.
+
+A library keeps a feed under the guid of its first fetch, its key, and
+keeps the key when the feed later gives itself another guid, after a
+move or with a new `podcast:guid`. The namespace assigns a guid once in a
+podcast's life, and a new key would be a write to every part of the show
+on every device. A subscription notes the guid its feed gives itself,
+and the first device to fetch it settles the key for the others. The key
+travels in the feed's metadata, so `episode-id` gives ids by it.
 
 
 ## Resolving the vocabularies

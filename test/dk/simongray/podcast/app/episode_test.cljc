@@ -6,13 +6,13 @@
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.test-support :refer [example-guid fixture run]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def show
-  (rss/parse (fixture "feeds/namespace-example.xml")))
+  (assoc (rss/parse (fixture "feeds/namespace-example.xml")) :podcast/guid example-guid))
 
 (def item
   "Episode 3, which has a chapters file, two transcripts and five

@@ -181,7 +181,13 @@
   (is (= "https://example.com/ep0003"
          (guid/item-guid (first (:rss/items (rss/parse @example))))))
   (is (= "https://a/1.mp3" (guid/item-guid {:rss/enclosure {:url "https://a/1.mp3"}})))
-  (is (= "y0ur-gu1d-g035-h3r3" (guid/feed-guid (rss/parse @example) "https://x")))
+  (is (= (guid/from-url "https://x") (guid/feed-guid (rss/parse @example) "https://x"))
+      "a declared guid that isn't a UUID gives way to that of the URL")
+  (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810"
+         (guid/feed-guid {:podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"} "https://x")))
+  (is (= ["k" "i"] (guid/episode-id (guid/with-key {:podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"} "k")
+                                    "https://x" {:rss/guid {:content "i"}}))
+      "the key that a library keeps the feed under, over what the feed says")
   (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (guid/feed-guid {} "https://podnews.net/rss"))))
 
 (deftest diffing
