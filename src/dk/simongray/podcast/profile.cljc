@@ -422,17 +422,6 @@
   by default."
   30)
 
-(defn ^:no-doc played-mark
-  "The played mark of the episode `id` in `profile`: its entry under :played,
-  or the mark that an older version kept in the episode's entry, whichever
-  is later."
-  [profile id]
-  (let [m (get-in profile [:played id])
-        e (get-in profile [:episodes id])]
-    (if (and (contains? e :played?) (> (crdt/stamp-ms e) (crdt/stamp-ms m)))
-      (select-keys e [:played? :played-at :updated-at :device])
-      m)))
-
 (defn episode-entry
   "The entry of the episode `id` in `profile` with its played mark, or nil.
   It has the stamp and the device of the later of the two."
@@ -440,9 +429,9 @@
   ;; the position and the mark are entries of their own, so that a report
   ;; of the position from another device never undoes a mark
   (let [e (get-in profile [:episodes id])
-        m (played-mark profile id)]
+        m (get-in profile [:played id])]
     (when (or e m)
-      (clojure.core/merge (dissoc e :played? :played-at)
+      (clojure.core/merge e
                           (select-keys m [:played? :played-at])
                           (select-keys (max-key crdt/stamp-ms m e)
                                        [:updated-at :device])))))
@@ -458,7 +447,7 @@
 (defn played?
   "Whether the episode `id` counts as played in `profile`."
   [profile id]
-  (boolean (:played? (played-mark profile id))))
+  (boolean (:played? (get-in profile [:played id]))))
 
 (defn- heard-to-the-end?
   [position duration threshold]
@@ -472,18 +461,6 @@
   (let [e (get-in profile [:inbox id])]
     (when (crdt/live? e)
       [[[:inbox id] #(assoc % :removed? true)]])))
-
-(defn ^:no-doc migrated
-  "The writes that move a played mark that an older version kept in the
-  entry of the episode `id` in `profile` to an entry of its own, if it's
-  the later mark."
-  [profile id]
-  (let [e    (get-in profile [:episodes id])
-        mark (select-keys e [:played? :played-at])]
-    (when (contains? e :played?)
-      (cond-> [[[:episodes id] #(dissoc % :played? :played-at)]]
-        (> (crdt/stamp-ms e) (crdt/stamp-ms (get-in profile [:played id])))
-        (conj [[:played id] (constantly mark)])))))
 
 (defn ^:no-doc marked-as
   "The writes that mark the episode `id` of `profile` as `played?` at `at`.
@@ -515,8 +492,7 @@
                                      :reported-at (time/date at))
                       duration (assoc :duration duration))]
      (crdt/write-each profile
-                      (concat (migrated profile id)
-                              [[[:episodes id] reported]]
+                      (concat [[[:episodes id] reported]]
                               (when done? (marked-as profile id true at)))
                       at))))
 
@@ -524,9 +500,7 @@
   "Mark the episode `id` in `profile` as played at `at`, which takes it out
   of the inbox."
   [profile id at]
-  (crdt/write-each profile
-                   (concat (migrated profile id) (marked-as profile id true at))
-                   at))
+  (crdt/write-each profile (marked-as profile id true at) at))
 
 (defn mark-unplayed
   "Mark the episode `id` in `profile` as not played at `at`, with its
@@ -534,8 +508,7 @@
   [profile id at]
   (let [restarted #(assoc % :position 0 :reported-at (time/date at))]
     (crdt/write-each profile
-                     (concat (migrated profile id)
-                             [[[:episodes id] restarted]]
+                     (concat [[[:episodes id] restarted]]
                              (marked-as profile id false at))
                      at)))
 

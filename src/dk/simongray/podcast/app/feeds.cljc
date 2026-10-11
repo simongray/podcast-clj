@@ -2,13 +2,14 @@
   "The fetched feeds of an app, and keeping them current.
 
   The feeds are a map by guid. Each entry has the parsed feed, its URL,
-  the ETag and Last-Modified of the last fetch, and the time of the next
-  check:
+  the ETag and Last-Modified of the last fetch, when the feed last
+  changed, and the time of the next check:
 
       {\"917393e3-…\" {:url          \"https://feeds.podcastindex.org/pc20.xml\"
                      :feed         {…}
                      :etag         \"…\"
                      :last-modified \"…\"
+                     :changed-at   #inst \"…\"
                      :fetched-at   #inst \"…\"
                      :next-check   #inst \"…\"
                      :failures     0
@@ -62,13 +63,17 @@
   at `at`, with the next check by `cadence`.
 
   The entry has the feed, its ETag and Last-Modified, and the new URL of a
-  feed that moved."
+  feed that moved. Its :changed-at is `at` unless the feed is the one it
+  had, since a server without validators answers 200 for a feed that
+  didn't change."
   [old url result at cadence]
   (let [{:keys [feed status etag last-modified not-before websub
-                permanent-url new-feed-url]} result]
+                permanent-url new-feed-url]} result
+        same? (= feed (:feed old))]
     (-> (dissoc old :etag :last-modified :websub :status)
         (assoc :url (or permanent-url new-feed-url url)
                :feed feed
+               :changed-at (if same? (:changed-at old at) at)
                :fetched-at at
                :next-check (check-at feed at not-before cadence)
                :failures 0)

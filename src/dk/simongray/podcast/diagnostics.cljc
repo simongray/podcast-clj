@@ -479,8 +479,17 @@
      :doc "The library or its search index couldn't be written to the store
            in full. The :reason says why."}
     {:id :library/unreadable-document :level :warning
-     :doc "The saved library didn't read, so none of its parts were
-           restored. The :reason says why."}
+     :doc "A document of the saved library didn't read: library.edn, so none
+           of its parts were restored, or the document of a feed, which is
+           fetched again. The :name says which, and the :reason why."}
+    {:id :library/newer-format :level :error
+     :doc "The saved library is of a newer version than this one reads, so
+           none of it was restored, and a save won't write over it. The
+           :version says which."}
+    {:id :library/malformed-profile :level :warning
+     :doc "The saved profile breaks the rules of a profile, so the library
+           kept the profile it had, and the next sync brings back what the
+           other devices hold. The :reason says what's wrong."}
     {:id :library/index-rebuilt :level :info
      :doc "The search index was built again from the feeds, since some of its
            documents were missing or didn't read. The :reason says why."}

@@ -664,6 +664,64 @@
                             (is (some (fn [name] (re-find #"\.ciff$" name)) delete)
                                 "the next save deletes it")))))))
 
+(deftest a-library-saved-in-parts
+  (let [documents (atom {})
+        s         (store/memory documents)
+        made      #(library/make "phone" {:config {:now-fn (constantly now)}})
+        doc-name  (library/document-name guid (get-in library [:feeds guid :changed-at]))
+        saved     #(binding [*print-namespace-maps* false] (pr-str %))
+        later     #inst "2026-10-01T12:00:00Z"
+        changed   (-> library
+                      (assoc-in [:feeds guid :changed-at] later)
+                      (update-in [:feeds guid :feed] assoc :rss/title "Renamed"))]
+    (is (inst? (get-in library [:feeds guid :changed-at])) "a fetched feed says when it changed")
+    (is (re-matches #"feed-[0-9a-f-]{36}-\d+\.edn" doc-name) "a plain file name for a guid that isn't a UUID")
+    (run #(async/then (library/save! library s)
+                      (fn [{:keys [put]}]
+                        (is (= doc-name (first put)) "each feed in a document of its own")
+                        (let [edn (edn/read-string (:body (get @documents "library.edn")))]
+                          (is (= 2 (:version edn)))
+                          (is (= doc-name (get-in edn [:feeds guid :document])))
+                          (is (not (contains? (get-in edn [:feeds guid]) :feed)) "and not in library.edn"))))
+         #(async/then (library/save! changed s)
+                      (fn [{:keys [put delete]}]
+                        (is (= (library/document-name guid later) (first put)) "a feed that changed, again")
+                        (is (= [doc-name] delete) "and its old document gone")))
+         #(async/then (library/restore! (made) s)
+                      (fn [lib]
+                        (is (= [] (:report (:restore lib))))
+                        (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title])))))
+         #(do (swap! documents dissoc (library/document-name guid later))
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [[:library/unreadable-document (library/document-name guid later)]]
+                                   (map (juxt :id :name) (:report (:restore lib)))))
+                            (is (= {:url url} (get-in lib [:feeds guid]))
+                                "a feed whose document is gone, to fetch again"))))
+         #(do (reset! documents {"library.edn" {:body (saved (select-keys library library/saved-keys)) :version "1"}})
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [] (:report (:restore lib))))
+                            (is (= (:feeds library) (:feeds lib)) "a library of version 1, with the feeds inline")
+                            (library/save! lib s))))
+         #(is (contains? @documents doc-name) "and written out at the next save")
+         #(do (swap! documents assoc "library.edn" {:body (saved {:version 3 :profile {:from :the-future}}) :version "2"})
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [[:library/newer-format 3]] (map (juxt :id :version) (:report (:restore lib)))))
+                            (is (= (:profile (made)) (:profile lib)) "nothing of a newer version")
+                            (async/then (library/save! lib s)
+                                        (fn [{:keys [error]}]
+                                          (is (= :library/newer-format (:id error))))))))
+         #(is (= "{:version 3, :profile {:from :the-future}}" (:body (get @documents "library.edn")))
+              "which a save doesn't write over")
+         #(do (swap! documents assoc "library.edn"
+                     {:body (saved {:version 2 :profile (assoc (:profile library) :subscriptions "nope")}) :version "3"})
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [:library/malformed-profile] (map :id (:report (:restore lib)))))
+                            (is (= (:profile (made)) (:profile lib)) "the profile it had")))))))
+
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
         written             (document/decode body sync/defaults)]

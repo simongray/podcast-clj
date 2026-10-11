@@ -373,20 +373,29 @@ read it back into a new library when the app starts:
 (def data (folder/store "data"))
 
 (library/save! @lib data)
-;; => {:put ["segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
+;; => {:put ["feed-917393e3-1b1e-5cef-ace4-edaa54e1f810-1759233600000.edn"
+;;           "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
 ;;     :delete []}
 
 (reset! lib (library/restore! (library/make device-id) data))
 ```
 
-This writes the profile, the feeds, the followed lists and the last sync
-to `library.edn`. The search index has documents of its own, and only
-those that changed since the last save are written again, so saving
+This writes the profile, the followed lists and the last sync to
+`library.edn`, and each feed to a document of its own. The search index
+has documents of its own too. Only the documents of the feeds and of the
+index that changed since the last save are written again, so saving
 after each refresh is cheap. The `:config` can hold functions, so it
 isn't saved: give it to `make` again. When the index is missing or
-doesn't read, `restore!` builds it again from the feeds, and a document
+doesn't read, `restore!` builds it again from the feeds, and a feed whose
+document is missing is fetched again at the next refresh. A document
 that didn't read is in the `:report` under `:restore`. In ClojureScript,
 both functions return promises.
+
+`library.edn` says the version of its shape. A library saved by an older
+version of podcast-clj is brought up to this one, and one saved by a
+newer version isn't read: `restore!` gives the library as `make` made it,
+with `:library/newer-format` in the report, and `save!` won't write over
+it, so an older app can't destroy what a newer one saved.
 
 Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:

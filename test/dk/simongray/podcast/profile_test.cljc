@@ -113,14 +113,6 @@
         (is (profile/played? both a))
         (is (= 700 (:position (profile/episode-entry both a))))
         (is (= {a (profile/episode-entry both a)} (profile/episode-entries both)))))
-    (testing "a mark that an older version kept in the entry of the episode"
-      (let [old   (assoc-in s [:episodes a] {:position 3590 :played? true :played-at t1 :updated-at t1 :device "old"})
-            moved (profile/progress old a 100 3600 t2)]
-        (is (profile/played? old a))
-        (is (= t1 (:played-at (profile/episode-entry old a))))
-        (is (profile/played? moved a) "moves to an entry of its own at the next write")
-        (is (not (contains? (get-in moved [:episodes a]) :played?)))
-        (is (= {:played? true :played-at t1} (select-keys (get-in moved [:played a]) [:played? :played-at])))))
     (is (= [b a] (profile/history (-> s (profile/progress b 10 t2)))))
     (is (= [a b] (profile/history (-> s (profile/mark-played a t1) (profile/mark-played b t2) (profile/progress a 5 t3))))
         "an episode heard again comes first again")))

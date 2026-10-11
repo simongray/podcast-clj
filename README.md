@@ -193,7 +193,8 @@ and syncing also record what they did in it:
 
 ;; keep the library until the next start, and read it back with restore!
 (library/save! @lib (folder/store "data"))
-;; => {:put ["segment-37b1….ciff" "index.edn" "library.edn"] :delete []}
+;; => {:put ["feed-917393e3-….edn" "segment-37b1….ciff" "index.edn" "library.edn"]
+;;     :delete []}
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)

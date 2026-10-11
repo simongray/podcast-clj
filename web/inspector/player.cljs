@@ -588,23 +588,10 @@
                         (sync!)))
   (js/window.setInterval sync-when-due! 30000))
 
-(defn- migrate-episodes!
-  "Make a remote item of each episode that an older version of the player
-  wrote into the profile under :inspector/episodes, with its data among
-  the titles."
-  []
-  (let [profile (get-in @app [:library :profile])
-        known   (profile/remote-items profile)]
-    (doseq [[id {episode :value}] (:inspector/episodes profile)
-            :when (and (:url episode) (not (contains? known id)))]
-      (swap! app update :titles #(merge {id episode} %))
-      (operate! profile/add-remote-item id {:feed-url (:url episode)}))))
-
 (defn ^:export init
   "Mount the player:
 
   - load the state, and name this browser for the other devices
-  - take in the episodes of an older player
   - watch the state, and handle the view's events
   - take over navigation and the other tabs' saves
   - take up the sync folder of the last visit
@@ -615,7 +602,6 @@
   (let [{:keys [device profile]} (:library @app)]
     (when (not= (browser-name) (get-in profile [:devices device :name]))
       (operate! crdt/identify {:name (browser-name)})))
-  (migrate-episodes!)
   (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event]
                              (handle! event dom-event)))

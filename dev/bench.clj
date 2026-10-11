@@ -180,6 +180,10 @@
                                  (fn [url _] {:status 200
                                               :feed   (by-url url)}))})]
    [:save           #(library/save! (:library @many) (store/memory))]
+   ;; the save after a refresh, to a store that holds the library already
+   [:save-again     (let [store (delay (doto (store/memory)
+                                         (->> (library/save! (:library @many)))))]
+                      #(library/save! (:library @many) @store))]
    [:restore        (let [store (delay (doto (store/memory)
                                          (->> (library/save! (:library @many)))))]
                       #(library/restore! (library/make "bench") @store))]

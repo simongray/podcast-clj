@@ -92,9 +92,9 @@ next sync, while an old copy can bring back what the devices have since
 forgotten.
 
 Of each feed, the server keeps only what tells when to check it again and
-the guids, dates and media of its episodes. It saves them in
-`library.edn` in the volume, so that after a restart it only asks each
-feed whether it changed.
+the guids, dates and media of its episodes. It saves them in the volume,
+in `library.edn` and a document per feed, so that after a restart it
+only asks each feed whether it changed.
 
 
 AntennaPod and other gpodder apps

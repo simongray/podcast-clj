@@ -35,6 +35,7 @@
   clock."
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.like-minded :as like-minded]
@@ -855,43 +856,151 @@
   profile."
   [:profile :feeds :fetched-lists :sync])
 
+(def version
+  "The version of the shape of a saved library: 2 since each feed went to
+  a document of its own. A saved library without one is version 1."
+  2)
+
+(def migrations
+  "The migration of a saved library from each version to the next, by the
+  version it takes, each a function of the saved map.
+
+  Version 1 holds the feeds inline, and they stay so until the next save
+  writes them out as documents."
+  {1 (fn [saved]
+       (cond-> saved
+         (map? (:feeds saved))
+         (update :feeds update-vals
+                 #(cond-> %
+                    (and (:feed %) (:fetched-at %) (not (:changed-at %)))
+                    (assoc :changed-at (:fetched-at %))))))})
+
+(defn ^:no-doc document-name
+  "The name of the document of the feed `feed-guid` that changed at the
+  instant `changed-at`: feed-<id>-<milliseconds>.edn. The id is the guid
+  when it's a UUID, and else its UUIDv5, since a guid can be any text and
+  a document's name must be a plain file name in every store."
+  [feed-guid changed-at]
+  (let [id (if (guid/guid? feed-guid)
+             (str/lower-case feed-guid)
+             (guid/uuid-v5 guid/podcast-namespace (str feed-guid)))]
+    (str "feed-" id "-" (inst-ms changed-at) ".edn")))
+
+(defn- feed-document?
+  "Whether `name` is that of the document of a feed."
+  [name]
+  (boolean (re-matches #"feed-[0-9a-f-]{36}-\d+\.edn" (str name))))
+
+(defn- entry-document
+  "The name of the document of the feeds entry `entry` of `feed-guid`, by
+  when its feed changed, or was fetched for an entry that doesn't say."
+  [feed-guid entry]
+  (document-name feed-guid (or (:changed-at entry)
+                               (:fetched-at entry)
+                               (time/->inst 0))))
+
+(defn- printed
+  "The EDN of `x`, whole."
+  [x]
+  (binding [*print-length*         nil
+            *print-level*          nil
+            *print-namespace-maps* false]
+    (pr-str x)))
+
+(defn- saved-map
+  "The parts of `library` that `keys` names, as library.edn holds them:
+  with the :version, and each feeds entry with the name of the document
+  of its feed in place of the feed."
+  [library keys]
+  (let [outlined (fn [[feed-guid entry]]
+                   [feed-guid
+                    (if (:feed entry)
+                      (-> (dissoc entry :feed)
+                          (assoc :document (entry-document feed-guid entry)))
+                      entry)])]
+    (cond-> (assoc (select-keys library keys) :version version)
+      (some #{:feeds} keys) (update :feeds #(into {} (map outlined) %)))))
+
+(defn- feeds-plan
+  "The documents of the `feeds` of a library to put into a store that
+  holds the documents of the `names`, and the names to delete from it, as
+  a map of :put and :delete.
+
+  A feed's document is put when the store doesn't hold its name, and a
+  feed document that no feed names is deleted. Without `names`, as of a
+  store that can't list, it's every document and no deletes."
+  [feeds names]
+  (let [held   (set names)
+        wanted (into {}
+                     (for [[feed-guid entry] feeds
+                           :when (:feed entry)]
+                       [(entry-document feed-guid entry) entry]))]
+    {:put    (for [[name entry] wanted
+                   :when (not (contains? held name))]
+               {:name name :body (printed {:feed (:feed entry)})})
+     :delete (->> held
+                  (filter #(and (feed-document? %) (not (contains? wanted %))))
+                  sort
+                  vec)}))
+
+(defn- newer-format
+  "The :library/newer-format diagnostic of the last restore of `library`,
+  if any."
+  [library]
+  (some #(when (= :library/newer-format (:id %)) %)
+        (get-in library [:restore :report])))
+
 (defn save!
   "Write `library` to `store` with the `opts` below, and give the names of
   the documents it put and deleted, as a map of :put and :delete, or a
-  map of :error with :library/save-failed, in ClojureScript as a promise.
+  map of :error, in ClojureScript as a promise.
 
   It writes library.edn, with the parts of `library` that :keys in `opts`
-  names, saved-keys by default. When the library keeps a search index, it
-  writes the documents of the index that changed since the last save, and
-  deletes those that the index no longer needs. One that it couldn't
-  delete is left out of :delete for the next save to delete, and a store
-  without :delete keeps them all. Give it a store of its own, e.g. over a
-  folder, IndexedDB or the origin private file system, since it deletes
-  the documents of any other index there."
+  names, saved-keys by default, and the version of their shape. Each feed
+  goes to a document of its own, which is put when the feed changed since
+  the last save, and the documents of the feeds that changed or went are
+  deleted. When the library keeps a search index, it writes the documents
+  of the index that changed since the last save, and deletes those that
+  the index no longer needs. One that it couldn't delete is left out of
+  :delete for the next save to delete, and a store without :delete keeps
+  them all. Give it a store of its own, e.g. over a folder, IndexedDB or
+  the origin private file system, since it deletes the documents of any
+  other library there.
+
+  The :error is :library/save-failed when the store failed, and
+  :library/newer-format when `library` was restored from a library of a
+  newer version, which it doesn't write over."
   ([library store]
    (save! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
    {:pre [(map? opts)]}
-   (let [body    (binding [*print-length*         nil
-                           *print-level*          nil
-                           *print-namespace-maps* false]
-                   (pr-str (select-keys library keys)))
+   (let [refused (newer-format library)
+         body    (printed (saved-map library keys))
+         none    {:put [] :delete []}
          ;; only the documents that changed, so that a save after each
          ;; refresh takes little
          planned (fn [listed]
-                   (if-let [index (:index library)]
-                     (ciff/plan index (map :name listed))
-                     {:put [] :delete []}))
+                   (let [names (map :name listed)
+                         index (if-let [index (:index library)]
+                                 (ciff/plan index names)
+                                 none)
+                         feeds (if (some #{:feeds} keys)
+                                 (feeds-plan (:feeds library) names)
+                                 none)]
+                     {:put    (concat (:put feeds) (:put index))
+                      :delete (into (:delete index) (:delete feeds))}))
          delete! (fn [name]
                    (async/attempt #((:delete store) name)))
          deleted (fn [names attempts]
                    (vec (for [[name {:keys [error]}] (map vector names attempts)
                               :when (nil? error)]
                           name)))
+         ;; library.edn last, so that a save that stops half way leaves the
+         ;; old one naming documents that are still there
          saved   (fn [{:keys [put delete]}]
                    (async/then
-                    (store/put-all! store (conj put {:name saved-name
-                                                     :body body}))
+                    (store/put-all! store (concat put [{:name saved-name
+                                                        :body body}]))
                     (fn [names]
                       (let [delete (if (:delete store) delete [])]
                         (async/then (async/all (map delete! delete))
@@ -899,16 +1008,20 @@
                                       {:put    names
                                        :delete (deleted delete attempts)}))))))]
      (async/then (async/attempt
-                  #(if (:put store)
-                     (async/then (if-let [list (:list store)] (list) [])
-                                 (comp saved planned))
-                     (throw (ex-info "The store is read only" {}))))
+                  #(cond
+                     refused     nil
+                     (:put store) (async/then (if-let [list (:list store)]
+                                                (list)
+                                                [])
+                                              (comp saved planned))
+                     :else       (throw (ex-info "The store is read only" {}))))
                  (fn [{:keys [value error]}]
-                   (if error
-                     {:error (diagnostics/describe
-                              {:id     :library/save-failed
-                               :reason (async/explain error)})}
-                     value))))))
+                   (cond
+                     refused {:error refused}
+                     error   {:error (diagnostics/describe
+                                      {:id     :library/save-failed
+                                       :reason (async/explain error)})}
+                     :else   value))))))
 
 (defn- reconciled
   "The `library` with the documents of its index of the feeds it doesn't
@@ -923,23 +1036,100 @@
               (remove feeds indexed))
       (reduce reindexed library (remove indexed feeds)))))
 
+(defn- read-map
+  "The map that the EDN of the :body of `document` holds, or nil when it
+  doesn't read as one."
+  [document]
+  (let [x (try
+            (edn/read-string (bytes/as (:body document) :text))
+            (catch #?(:clj Throwable :cljs :default) _
+              nil))]
+    (when (map? x)
+      x)))
+
+(defn- migrated
+  "The saved library `saved`, of its :version or else of version 1,
+  brought up to this version by the migrations."
+  [saved]
+  (loop [s saved]
+    (let [v (:version s 1)]
+      (if (< v version)
+        (recur (assoc ((migrations v) s) :version (inc v)))
+        s))))
+
 (defn- with-saved
   "The `library` with the parts that `keys` names of the saved library, the
-  :value of the `attempt` to fetch its document, and the report of what
-  didn't read, as a pair."
+  :value of the `attempt` to fetch its document, brought up to this
+  version, and the report of what didn't read, as a pair.
+
+  A saved library of a newer version leaves the library as it is, and a
+  saved profile that breaks the rules of profile/problem leaves its
+  profile, with :library/newer-format or :library/malformed-profile in the
+  report."
   [library keys {:keys [value error] :as attempt}]
   (let [unreadable #(diagnostics/describe
-                     {:id :library/unreadable-document :reason %})
-        saved      (when (and value (not error))
-                     (try
-                       (edn/read-string (bytes/as (:body value) :text))
-                       (catch #?(:clj Throwable :cljs :default) _
-                         nil)))]
+                     {:id :library/unreadable-document :name saved-name
+                      :reason %})
+        saved      (when-not error (read-map value))
+        v          (:version saved 1)
+        problem    (when (some #{:profile} keys)
+                     (some-> (:profile saved) profile/problem))]
     (cond
-      error        [library [(unreadable (async/explain error))]]
-      (nil? value) [library []]
-      (map? saved) [(clojure.core/merge library (select-keys saved keys)) []]
-      :else        [library [(unreadable "It isn't a map in EDN")]])))
+      error              [library [(unreadable (async/explain error))]]
+      (nil? value)       [library []]
+      (nil? saved)       [library [(unreadable "It isn't a map in EDN")]]
+      (not (pos-int? v)) [library [(unreadable "Its version is no number")]]
+
+      (< version v)
+      [library [(diagnostics/describe
+                 {:id      :library/newer-format
+                  :version v
+                  :reason  (str "It's of version " v ", and this version "
+                                "of podcast-clj reads up to " version)})]]
+
+      problem
+      [(clojure.core/merge library (dissoc (select-keys (migrated saved) keys)
+                                           :profile))
+       [(diagnostics/describe {:id     :library/malformed-profile
+                               :reason (str problem)})]]
+
+      :else
+      [(clojure.core/merge library (select-keys (migrated saved) keys)) []])))
+
+(defn- with-feeds
+  "The `library` and its `report`, a pair, with the feed of each feeds
+  entry that names a document read from `store`, in a future or a promise.
+
+  An entry whose document is missing or doesn't read keeps only its URL,
+  so that the next refresh fetches it again, with
+  :library/unreadable-document in the report."
+  [[library report] store]
+  (let [outlined (for [[feed-guid {:keys [document feed]}] (:feeds library)
+                       :when (and document (not feed))]
+                   [feed-guid document])
+        loaded   (fn [{:keys [value error]}]
+                   (let [feed (:feed (when-not error (read-map value)))]
+                     (cond
+                       (map? feed)  {:feed feed}
+                       error        {:reason (async/explain error)}
+                       (nil? value) {:reason "It isn't in the store"}
+                       :else        {:reason "It isn't a feed in EDN"})))
+        fetch!   (fn [[feed-guid document]]
+                   (async/then (async/attempt #((:fetch store) document {}))
+                               #(vector feed-guid document (loaded %))))
+        applied  (fn [[library report] [feed-guid document read]]
+                   (if-let [feed (:feed read)]
+                     [(update-in library [:feeds feed-guid]
+                                 #(-> % (assoc :feed feed) (dissoc :document)))
+                      report]
+                     [(update-in library [:feeds feed-guid] select-keys [:url])
+                      (conj report (diagnostics/describe
+                                    {:id        :library/unreadable-document
+                                     :name      document
+                                     :feed-guid feed-guid
+                                     :reason    (:reason read)}))]))]
+    (async/then (async/all fetch! outlined)
+                #(reduce applied [library report] %))))
 
 (defn- with-index
   "The `library` and its `report`, a pair, with the search index read from
@@ -973,32 +1163,40 @@
   promise.
 
   The parts of library.edn that :keys in `opts` names, saved-keys by
-  default, replace those of `library`, so give it a new library. When the
-  library keeps a search index, it's read back, or built again from the
-  feeds when its documents are missing or don't read. The result is a map
-  of the :report of what didn't read:
+  default, replace those of `library`, so give it a new library, and each
+  feed is read from its document. A library saved by an older version is
+  brought up to this one. When the library keeps a search index, it's read
+  back, or built again from the feeds when its documents are missing or
+  don't read. The result is a map of the :report of what didn't read:
 
-      {:report [...]}  ; :library/unreadable-document, :library/index-rebuilt
+      {:report [...]}  ; :library/unreadable-document, :library/index-rebuilt,
+                       ; :library/malformed-profile, :library/newer-format
 
-  A store without the documents gives the library as it is."
+  A store without the documents gives the library as it is, and so does a
+  library saved by a newer version, which save! then won't write over."
   ([library store]
    (restore! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
    {:pre [(map? opts)]}
-   (let [indexed (fn [[library :as step]]
-                   (if (:index library)
-                     (async/then (async/attempt
-                                  #(store/fetch-all! store
-                                                     {:as     :bytes
-                                                      :except #{saved-name}}))
-                                 (partial with-index step))
-                     step))
-         done    (fn [[library report]]
-                   (assoc library :restore {:report report}))]
+   (let [not-index? #(or (= saved-name %) (feed-document? %))
+         fetched    #(store/fetch-all! store {:as :bytes :except not-index?})
+         indexed    (fn [[library :as step]]
+                      (if (:index library)
+                        (async/then (async/attempt fetched)
+                                    (partial with-index step))
+                        step))
+         done       (fn [[library report]]
+                      (assoc library :restore {:report report}))
+         newer?     (fn [[_ report]]
+                      (some (comp #{:library/newer-format} :id) report))]
      (async/then (async/attempt #((:fetch store) saved-name {}))
-                 #(-> (with-saved library keys %)
-                      indexed
-                      (async/then done))))))
+                 (fn [attempt]
+                   (let [step (with-saved library keys attempt)]
+                     (if (newer? step)
+                       (done step)
+                       (-> (with-feeds step store)
+                           (async/then indexed)
+                           (async/then done)))))))))
 
 (defn plan
   "The episodes to download and the files to delete on this device with

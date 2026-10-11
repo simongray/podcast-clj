@@ -170,7 +170,9 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:gpodder/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
 | `:gpodder/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
 | `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why. |
-| `:library/unreadable-document` | warning | The saved library didn't read, so none of its parts were restored. The :reason says why. |
+| `:library/unreadable-document` | warning | A document of the saved library didn't read: library.edn, so none of its parts were restored, or the document of a feed, which is fetched again. The :name says which, and the :reason why. |
+| `:library/newer-format` | error | The saved library is of a newer version than this one reads, so none of it was restored, and a save won't write over it. The :version says which. |
+| `:library/malformed-profile` | warning | The saved profile breaks the rules of a profile, so the library kept the profile it had, and the next sync brings back what the other devices hold. The :reason says what's wrong. |
 | `:library/index-rebuilt` | info | The search index was built again from the feeds, since some of its documents were missing or didn't read. The :reason says why. |
 | `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that were read before that call. |
 | `:comments/unsupported` | info | Comments over the protocol of the thread can't be read. |
