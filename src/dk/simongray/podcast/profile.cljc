@@ -8,7 +8,7 @@
        :clock          #inst \"…\"      ; the latest stamp written or merged
        :subscriptions  {feed-guid {:url :title :added-at :guid :removed?}}
        :remote-items   {id {:feed-url :removed?}}  ; episodes of other shows
-       :settings       {feed-guid {:skip-intro {:value 20} ...}}
+       :settings       {feed-guid {:skip-intro 20 ... :stamps {…}}}
        :tags           {feed-guid {\"Tech\" {:removed? false}}}
        :lists          {url {:title :folder :removed?}}  ; followed OPML lists
        :episodes       {id {:position :duration :reported-at}}
@@ -63,7 +63,7 @@
   ordered."
   {:subscriptions  {:depth 1 :compact? true}
    :remote-items   {:depth 1 :compact? true}
-   :settings       {:depth 2}
+   :settings       {:depth 1}
    :tags           {:depth 2 :compact? true}
    :lists          {:depth 1 :compact? true}
    :episodes       {:depth 1}
@@ -232,12 +232,16 @@
           kept       (select-keys sub [:url :title :added-at :removed?])
           moved      [[[:subscriptions new-guid] (constantly kept)]
                       [[:subscriptions feed-guid] #(assoc % :removed? true)]]
-          old        (values (get-in profile [:settings feed-guid]))
-          configured (for [[k v] old]
-                       [[:settings new-guid k] (constantly {:value v})])
+          old        (crdt/fields (get-in profile [:settings feed-guid]))
           retagged   (for [t (tags profile feed-guid)]
                        [[:tags new-guid t] (constantly {:removed? false})])]
-      (crdt/write-each profile (concat moved configured retagged) at))))
+      (crdt/at-once profile at
+                    (fn [p]
+                      (cond-> (crdt/write-each p (concat moved retagged) at)
+                        (seq old)
+                        (crdt/write-fields [:settings new-guid]
+                                           #(clojure.core/merge % old)
+                                           at)))))))
 
 (defn rename-episode
   "The `profile` with the state of the episode `old-id` under `new-id` at
@@ -303,7 +307,38 @@
   defaults."
   [profile feed-guid]
   (clojure.core/merge default-settings
-                      (values (get-in profile [:settings feed-guid]))))
+                      (crdt/fields (get-in profile [:settings feed-guid]))))
+
+(defn- one-entry
+  "The settings `old` of a subscription, an entry for each setting with its
+  :value, as one field-wise entry, in which each setting keeps the stamp of
+  its entry."
+  [old]
+  (let [entries (filter (comp :updated-at val) old)
+        latest  (reduce crdt/later nil (vals entries))]
+    (when latest
+      (into {:updated-at (:updated-at latest)
+             :device     (:device latest)
+             :stamps     (update-vals (into {} entries)
+                                      #(select-keys % [:updated-at :device]))}
+            (keep (fn [[k e]] (when-not (:removed? e) [k (:value e)])))
+            entries))))
+
+;; before mind-meld 0.2.0, each setting was an entry of its own
+(defn ^:no-doc upgrade
+  "The `profile` of an earlier version in the shape of this one: the
+  settings of each subscription as one field-wise entry."
+  [profile]
+  (let [old? #(and (map? %) (not (contains? % :updated-at)))]
+    (cond-> profile
+      (map? (:settings profile))
+      (update :settings
+              #(into {}
+                     (keep (fn [[feed-guid s]]
+                             (if (old? s)
+                               (some->> (one-entry s) (vector feed-guid))
+                               [feed-guid s])))
+                     %)))))
 
 (defn configure
   "Change the `settings` of the subscription `feed-guid` in `profile` at
@@ -317,12 +352,12 @@
   - :downloads, its rule for dk.simongray.podcast.downloads"
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
-    ;; each setting is an entry of its own, so two devices that change
-    ;; different settings both keep their change
-    (crdt/write-each profile
-                     (for [[k v] settings]
-                       [[:settings feed-guid k] (constantly {:value v})])
-                     at)
+    ;; field by field, so two devices that change different settings both
+    ;; keep their change
+    (crdt/write-fields profile
+                       [:settings feed-guid]
+                       #(clojure.core/merge % settings)
+                       at)
     profile))
 
 (def default-preferences
@@ -376,10 +411,14 @@
   `at`, or out of all folders when `to` is nil."
   [profile from to at]
   (if-let [feed-guids (get (folders profile) from)]
-    (crdt/write-each profile
-                     (for [g feed-guids]
-                       [[:settings g :folder] (constantly {:value to})])
-                     at)
+    (crdt/at-once profile at
+                  (fn [p]
+                    (reduce (fn [p g]
+                              (crdt/write-fields p [:settings g]
+                                                 #(assoc % :folder to)
+                                                 at))
+                            p
+                            feed-guids)))
     profile))
 
 (defn tags

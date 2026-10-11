@@ -345,6 +345,20 @@
   (testing "criteria of a later version are no problem of the state"
     (is (nil? (profile/problem {:filters {"F" {:criteria {:where {:mood "calm"}} :updated-at t0 :device "x"}}})))))
 
+(deftest settings-of-an-earlier-version
+  (let [old {:device        "p"
+             :subscriptions {"feed-a" {:url "https://a/rss" :updated-at t0 :device "p"}}
+             :settings      {"feed-a" {:skip-intro {:value 20 :updated-at t0 :device "p"}
+                                       :folder     {:value "News" :updated-at t1 :device "q"}
+                                       :inbox?     {:value true :removed? true :updated-at t1 :device "p"}}}}
+        up  (profile/upgrade old)]
+    (is (nil? (profile/problem up)))
+    (is (= (assoc profile/default-settings :skip-intro 20 :folder "News") (profile/settings up "feed-a"))
+        "an entry for each setting, as one entry of the subscription")
+    (is (= [t0 t1] (map #(get-in up [:settings "feed-a" :stamps % :updated-at]) [:skip-intro :folder]))
+        "in which each setting keeps its stamp")
+    (is (= up (profile/upgrade up)) "and a profile of this version stays as it is")))
+
 (deftest merging-entries-with-keys-of-any-kind
   (let [s (crdt/identify (profile/make "phone") {:name "Phone" "custom" 1} t0)]
     (is (= s (profile/merge s s)) "an entry ties with itself, and its keys still sort")))

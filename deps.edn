@@ -20,7 +20,7 @@
          dk.simongray/html-pieces    {:mvn/version "0.4.0"}
          dk.simongray/drop-in-search {:mvn/version "0.1.1"}
          dk.simongray/websub-clj     {:mvn/version "0.2.0"}
-         dk.simongray/mind-meld      {:mvn/version "0.1.0"}
+         dk.simongray/mind-meld      {:mvn/version "0.2.0"}
          dk.simongray/like-minded    {:mvn/version "0.1.0"}}
 
  :aliases

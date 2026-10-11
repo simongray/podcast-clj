@@ -1009,23 +1009,28 @@
   [:profile :feeds :fetched-lists :sync])
 
 (def version
-  "The version of the shape of a saved library: 2 since each feed went to
-  a document of its own. A saved library without one is version 1."
-  2)
+  "The version of the shape of a saved library: 3 since the settings of a
+  subscription are one entry, 2 since each feed went to a document of its
+  own. A saved library without one is version 1."
+  3)
 
 (def migrations
   "The migration of a saved library from each version to the next, by the
   version it takes, each a function of the saved map.
 
   Version 1 holds the feeds inline, and they stay so until the next save
-  writes them out as documents."
+  writes them out as documents. Version 2 holds an entry for each setting
+  of a subscription."
   {1 (fn [saved]
        (cond-> saved
          (map? (:feeds saved))
          (update :feeds update-vals
                  #(cond-> %
                     (and (:feed %) (:fetched-at %) (not (:changed-at %)))
-                    (assoc :changed-at (:fetched-at %))))))})
+                    (assoc :changed-at (:fetched-at %))))))
+   2 (fn [saved]
+       (cond-> saved
+         (map? (:profile saved)) (update :profile profile/upgrade)))})
 
 (defn ^:no-doc document-name
   "The name of the document of the feed `feed-guid` that changed at the

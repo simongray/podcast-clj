@@ -749,7 +749,7 @@
                       (fn [{:keys [put]}]
                         (is (= doc-name (first put)) "each feed in a document of its own")
                         (let [edn (edn/read-string (:body (get @documents "library.edn")))]
-                          (is (= 2 (:version edn)))
+                          (is (= 3 (:version edn)))
                           (is (= doc-name (get-in edn [:feeds guid :document])))
                           (is (not (contains? (get-in edn [:feeds guid]) :feed)) "and not in library.edn"))))
          #(async/then (library/save! changed s)
@@ -774,15 +774,15 @@
                             (is (= (:feeds library) (:feeds lib)) "a library of version 1, with the feeds inline")
                             (library/save! lib s))))
          #(is (contains? @documents doc-name) "and written out at the next save")
-         #(do (swap! documents assoc "library.edn" {:body (saved {:version 3 :profile {:from :the-future}}) :version "2"})
+         #(do (swap! documents assoc "library.edn" {:body (saved {:version 4 :profile {:from :the-future}}) :version "2"})
               (async/then (library/restore! (made) s)
                           (fn [lib]
-                            (is (= [[:library/newer-format 3]] (map (juxt :id :version) (:report (:restore lib)))))
+                            (is (= [[:library/newer-format 4]] (map (juxt :id :version) (:report (:restore lib)))))
                             (is (= (:profile (made)) (:profile lib)) "nothing of a newer version")
                             (async/then (library/save! lib s)
                                         (fn [{:keys [error]}]
                                           (is (= :library/newer-format (:id error))))))))
-         #(is (= "{:version 3, :profile {:from :the-future}}" (:body (get @documents "library.edn")))
+         #(is (= "{:version 4, :profile {:from :the-future}}" (:body (get @documents "library.edn")))
               "which a save doesn't write over")
          #(do (swap! documents assoc "library.edn"
                      {:body (saved {:version 2 :profile (assoc (:profile library) :subscriptions "nope")}) :version "3"})
