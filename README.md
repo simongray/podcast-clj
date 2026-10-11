@@ -249,6 +249,9 @@ Background:
   each scored by difficulty and gain.
 - [What real feeds look like, October 2026](doc/corpus-study-2026.md): the
   Podcast Index and a sample of 5,000 feeds, measured with the library.
+- [A threat model of the server and the handlers, October 2026](doc/threat-model-2026.md):
+  who can attack a podcast server built on the library, through what, and
+  what holds.
 
 
 Development
