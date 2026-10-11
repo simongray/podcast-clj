@@ -13,7 +13,6 @@
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]
-            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def default-limits
@@ -84,19 +83,10 @@
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
   and give the item with it, in a future or a promise. Without an answer,
   it's the item as it is."
-  [item {:keys [index send now-fn] :as opts}]
-  (let [requests (podcastindex/remote-item-requests
-                  index item {:auth-date (time/unix-seconds (now-fn))})
-        show     (fn [{:keys [value]}]
-                   (when (string? (:body value))
-                     (:feed (try
-                              (podcastindex/response (:body value))
-                              (catch #?(:clj Exception :cljs :default) _
-                                nil)))))]
-    (async/then (async/all (map #(http/try-send! send % opts) requests))
-                (fn [answers]
-                  (let [found (some show answers)]
-                    (cond-> item found (assoc :show found)))))))
+  [item {:keys [index] :as opts}]
+  (async/then (podcastindex/fetch-remote-item! index item opts)
+              (fn [{:keys [feed]}]
+                (cond-> item feed (assoc :show feed)))))
 
 (defn- fetch-feed!
   "Fetch the feed at `url` with `opts`, and give a map of the :feed, or of

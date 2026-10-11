@@ -317,48 +317,14 @@
                             (remove (comp nil? val))
                             details)))
 
-(defn- index-answer
-  "What the `attempt` of the request to `url` for the value block of the
-  `remote` item says: a map of the :value, nil when the Podcast Index has
-  no block, or a map of an :error."
-  [remote url {:keys [value error]}]
-  (let [{:keys [status body]} value
-        ok?    (and (not error) (<= 200 status 299))
-        answer (when ok?
-                 (try (podcastindex/response (str body))
-                      (catch #?(:clj Exception :cljs :default) _ nil)))
-        block  (:value answer)
-        failed #(unresolved remote (assoc % :url url))]
-    (cond
-      error
-      (failed {:reason (async/explain error)})
-
-      ;; the index doesn't take or know the guid
-      (#{400 404} status)
-      nil
-
-      (not ok?)
-      (failed {:status status})
-
-      (nil? answer)
-      (failed {:status status :reason "The answer isn't JSON."})
-
-      :else
-      (when (and (:status answer) (seq (:recipients block)))
-        {:value block}))))
-
 (defn- fetch-index-value!
   "Ask the Podcast Index with `opts` for the value block of the `remote`
   item of a time split, the item's own first and then the feed's, in a
-  future or a promise. The result is a map of the :value, nil when the
-  index has none, or of an :error."
-  [remote {:keys [index send now-fn] :as opts}]
-  (let [requests (podcastindex/remote-value-requests
-                  index remote {:auth-date (time/unix-seconds (now-fn))})
-        answer!  (fn [request]
-                   (async/then (http/try-send! send request opts)
-                               (partial index-answer remote (:url request))))]
-    (async/then (async/some answer! requests) #(or % {:value nil}))))
+  future or a promise. The result is a map of the :value, which is nil
+  when the index has none, or of an :error."
+  [remote {:keys [index] :as opts}]
+  (async/then (podcastindex/fetch-remote-value! index remote opts)
+              #(if (:error %) % {:value %})))
 
 (defn- feed-answer
   "What the `attempt` of the fetch of the feed of the `remote` item says: a

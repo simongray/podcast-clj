@@ -1066,7 +1066,8 @@ only the fees of its split are paid.
 
 Without `app.library`, `episode/fetch-remote-values!` takes the view
 from `episode/view`. To fetch a block yourself, e.g. with
-`podcastindex/fetch-remote-value!`, fold it in with `value/with-remote`.
+`podcastindex/fetch-remote-value!`, which gives the block, nil or an
+`:error`, fold it in with `value/with-remote`.
 
 What goes with a payment is one map, however it's sent. Inside a remote
 split, `(:remote-item (:remote paid))` is the remote item, so add its

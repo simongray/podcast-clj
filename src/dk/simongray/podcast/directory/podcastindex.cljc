@@ -11,10 +11,12 @@
   The key and the secret never leave your process. Nothing here reads a
   clock but the functions that send."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]))
@@ -128,11 +130,11 @@
      (not-empty (str/join "," (map named parts))))))
 
 (defn- dated
-  "The `opts` with the time of the clock as their :auth-date, unless they
-  give one."
-  [opts]
+  "The `opts` with the time of their :now-fn, or else of the clock, as
+  their :auth-date, unless they give one."
+  [{:keys [auth-date now-fn] :or {now-fn time/now} :as opts}]
   (cond-> opts
-    (not (:auth-date opts)) (assoc :auth-date (time/unix-seconds (time/now)))))
+    (not auth-date) (assoc :auth-date (time/unix-seconds (now-fn)))))
 
 (defn ^:no-doc auth-headers
   "The headers that authenticate a request with `credentials` at the Unix
@@ -428,21 +430,46 @@
     feed-guid
     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts))))
 
-(defn- response-of
-  "The data in the response `body`, or nil when it doesn't read."
+(defn try-response
+  "The data in the JSON `body` of an API response, as response reads it,
+  or nil when it doesn't read."
   [body]
   (try
     (response body)
     (catch #?(:clj Exception :cljs :default) _
       nil)))
 
-(defn- block-in
-  "The value block in the response `body`, when it answers with one."
-  [body]
-  (when (string? body)
-    (let [{:keys [status value]} (response-of body)]
-      (when (and status (seq (:recipients value)))
-        value))))
+(defn- value-answer
+  "What the `attempt` to send the `request` for the value block of
+  `remote-item` says: a map of the :value, nil when the index has no
+  block, or a map of an :error."
+  [remote-item request {:keys [value error] :as attempt}]
+  (let [{:keys [status body]} value
+        ok?    (and (not error) (<= 200 status 299))
+        answer (when ok?
+                 (try-response (str body)))
+        block  (:value answer)
+        failed #(diagnostics/failed
+                 (into {:id          :value/remote-unresolved
+                        :remote-item remote-item
+                        :url         (:url request)}
+                       %))]
+    (cond
+      error
+      (failed {:reason (async/explain error)})
+
+      ;; the index doesn't take or know the guid
+      (#{400 404} status)
+      nil
+
+      (not ok?)
+      (failed {:status status})
+
+      (nil? answer)
+      (failed {:status status :reason "The answer isn't JSON."})
+
+      (and (:status answer) (seq (:recipients block)))
+      {:value block})))
 
 (defn remote-item-requests
   "The requests to try in order for `remote-item`, with `credentials` and
@@ -466,7 +493,7 @@
   [responses]
   (let [answers (for [{:keys [body]} responses
                       :when (string? body)]
-                  (response-of body))]
+                  (try-response body))]
     (not-empty
      (into {} (for [{:keys [status feed episode]} answers
                     :when status
@@ -479,7 +506,8 @@
   read the answer, in ClojureScript in a promise. The `opts` are these:
 
   - :base-url, as request takes it
-  - :auth-date, as request takes it, the time of the clock by default
+  - :auth-date, as request takes it, the time of :now-fn by default
+  - :now-fn, the clock, time/now by default
   - :send, the function that sends the request, client/send! by default
 
   In a browser, the call works only where the CORS policy of the API
@@ -494,29 +522,45 @@
 
 (defn fetch-remote-value!
   "Fetch the value block that `remote-item` of a time split points at for
-  `credentials`, with the `opts` of call!. It gives the block or nil, in
+  `credentials`, with the `opts` below. It gives the block, nil when the
+  index has none, or a map with a diagnostic under :error, in
   ClojureScript in a promise.
 
   The requests go one by one, for the block of the item first, until one
-  answers with a block."
+  answers with a block or fails. An answer of 400 or 404 says that the
+  index doesn't know the guid. Nothing that the network or the server
+  does throws. The `opts` are those of call!, and the :allow-pred,
+  :timeout-seconds, :max-bytes and :user-agent that http/try-send! takes."
   ([credentials remote-item]
    (fetch-remote-value! credentials remote-item {}))
   ([credentials remote-item {:keys [send] :or {send client/send!} :as opts}]
-   (async/some #(async/then (send %) (comp block-in :body))
-               (remote-value-requests credentials remote-item (dated opts)))))
+   (let [requests (remote-value-requests credentials remote-item (dated opts))
+         answer!  (fn [request]
+                    (async/then (http/try-send! send request opts)
+                                (partial value-answer remote-item request)))]
+     (async/then (async/some answer! requests)
+                 #(if (:error %) % (:value %))))))
 
 (defn fetch-remote-item!
   "Fetch what the remote `item` points at for `credentials`, with the
-  `opts` of call!, in ClojureScript in a promise.
+  `opts` of fetch-remote-value!, in ClojureScript in a promise.
 
   It's a map of the :feed and the :episode in the shape of the model, or
   nil when the index knows neither. The requests for the episode and the
-  feed go at once."
+  feed go at once. When neither gets an answer, it's a map with a
+  :directory/source-failed diagnostic under :error."
   ([credentials item]
    (fetch-remote-item! credentials item {}))
   ([credentials item {:keys [send] :or {send client/send!} :as opts}]
    (let [requests (remote-item-requests credentials item (dated opts))]
-     (async/then (async/all send requests) item-in))))
+     (async/then (async/all #(http/try-send! send % opts) requests)
+                 (fn [attempts]
+                   (if (and (seq attempts) (every? :error attempts))
+                     (diagnostics/failed
+                      {:id     :directory/source-failed
+                       :source :podcastindex
+                       :reason (async/explain (:error (first attempts)))})
+                     (item-in (keep :value attempts))))))))
 
 (comment
   (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5}

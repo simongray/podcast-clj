@@ -197,11 +197,21 @@
                             (is (= 2 (count @sent)))
                             (is (str/includes? (second @sent) "bypodcastguid")))))
          #(async/then (async/all [(resolved remote (constantly {:status 200 :body false-body}))
-                                  (resolved remote (constantly {:status 401 :body "<html>Unauthorized</html>"}))
-                                  (resolved remote (constantly {:status 500}))
+                                  (resolved remote (constantly {:status 404}))
                                   (resolved {} (constantly {:status 200 :body value-body}))])
                       (fn [blocks]
-                        (is (= [nil nil nil nil] blocks) "nothing resolvable gives nil, whatever comes back"))))))
+                        (is (= [nil nil nil] blocks) "no block where the index has none or doesn't know the guid")))
+         #(async/then (async/all [(resolved remote (constantly {:status 401 :body "<html>Unauthorized</html>"}))
+                                  (resolved remote (constantly {:status 500}))
+                                  (resolved remote (constantly {:status 200 :body "<html>"}))
+                                  (resolved remote (fn [_] (throw (ex-info "No route to host" {}))))])
+                      (fn [failed]
+                        (is (= [[:value/remote-unresolved 401 nil]
+                                [:value/remote-unresolved 500 nil]
+                                [:value/remote-unresolved 200 "The answer isn't JSON."]
+                                [:value/remote-unresolved nil "No route to host"]]
+                               (map (comp (juxt :id :status :reason) :error) failed))
+                            "a failure says why, and nothing throws"))))))
 
 (deftest resolving-remote-items-to-feeds-and-episodes
   (let [remote {:feed-guid "9b024349-ccf0-5f69-a609-6b82873eab3c" :item-guid "PC2084"}
@@ -218,7 +228,13 @@
          #(async/then (async/all [(index/fetch-remote-item! credentials remote {:send (constantly {:status 200 :body false-body}) :auth-date 1})
                                   (index/fetch-remote-item! credentials {} {:send (constantly {:status 200 :body podcast-body}) :auth-date 1})])
                       (fn [items]
-                        (is (= [nil nil] items) "nothing that the index knows"))))))
+                        (is (= [nil nil] items) "nothing that the index knows")))
+         #(async/then (index/fetch-remote-item! credentials remote {:send (fn [_] (throw (ex-info "No route to host" {})))
+                                                                    :auth-date 1})
+                      (fn [{:keys [error]}]
+                        (is (= [:directory/source-failed :podcastindex "No route to host"]
+                               ((juxt :id :source :reason) error))
+                            "no answer at all, and nothing throws"))))))
 
 (deftest calling-through-a-send
   (let [sent (atom nil)
@@ -234,6 +250,10 @@
          #(async/then (index/call! credentials :podcasts/by-guid {:guid "9b024349"} {:send send :auth-date 1})
                       (fn [_]
                         (is (= "1" (get-in @sent [:headers "X-Auth-Date"])) "or at the :auth-date of the options")))
+         #(async/then (index/call! credentials :podcasts/by-guid {:guid "9b024349"}
+                                   {:send send :now-fn (constantly #inst "2026-10-11T00:00:00Z")})
+                      (fn [_]
+                        (is (= "1791676800" (get-in @sent [:headers "X-Auth-Date"])) "or at the time of the :now-fn")))
          #(async/then (index/fetch-remote-value! credentials {:feed-guid "a94f"} {:send send})
                       (fn [block]
                         (is (= ["Artist" "Label"] (map :name (:recipients block))))))

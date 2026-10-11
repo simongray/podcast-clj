@@ -103,9 +103,9 @@
 
     ;; the directories
     {:id :directory/source-failed :level :warning
-     :doc "A directory gave no answer to a search or a chart, so its shows are
-           missing from the results. The :source names it, and the :reason says
-           why."}
+     :doc "A directory gave no answer to a search, a chart or a lookup, so what
+           it knows is missing from the results. The :source names it, and the
+           :reason says why."}
 
     ;; repairs of the XML text, applied only when the strict parse failed
     {:id :repair/leading-junk :level :warning
