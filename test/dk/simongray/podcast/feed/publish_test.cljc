@@ -1,11 +1,14 @@
 (ns dk.simongray.podcast.feed.publish-test
   "What a host does to a feed before serving it: the pages of a long feed,
-  the URLs of its media files, and the private feed of a subscriber."
+  the URLs of its files, and the private feed of a subscriber."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.feed.publish :as publish]))
+            [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.publish :as publish]
+            [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def long-feed
   "A feed of seven items, the newest first, with links of its own."
@@ -128,6 +131,21 @@
                      [:rss/items 0 :rss/enclosure :url]))
         "a URL that is no text stays as it is")))
 
+(deftest the-urls-of-every-file
+  (let [feed  (rss/parse (fixture "feeds/namespace-example.xml"))
+        files (check/files feed {:max-items :all})
+        up    (publish/update-file-urls feed #(str % "#copy"))]
+    (is (= #{:media :image :transcript :chapters} (set (map :kind files))))
+    (is (= (set (map #(str (:url %) "#copy") files))
+           (set (map :url (check/files up {:max-items :all}))))
+        "each file that a check fetches")
+    (is (= (:atom/links feed) (:atom/links up)) "the links of the feed stay")
+    (is (= (:podcast/value feed) (:podcast/value up)))
+    (is (= {:rss/title "No items"} (publish/update-file-urls {:rss/title "No items"} str)))
+    (is (= {:url 5} (get-in (publish/update-file-urls {:rss/items [{:podcast/chapters {:url 5}}]} str)
+                            [:rss/items 0 :podcast/chapters]))
+        "a URL that is no text stays as it is")))
+
 (deftest the-feed-of-one-subscriber
   (let [feed    (assoc-in long-feed [:rss/items 0 :podcast/alternate-enclosures]
                           [{:type "audio/opus" :sources [{:uri "https://media.example/7.opus"} {:uri "ipfs://x"}]}])
@@ -139,6 +157,19 @@
           "a URL that is no http URL gets none")
       (is (= [["self" "https://a.example/feed.xml?token=s3cr3t"] ["Next" "https://old.example/2?token=s3cr3t"]]
              (map (juxt :rel :href) (:atom/links private)))))
+    (testing "the token on the other files"
+      (let [feed    (-> feed
+                        (assoc :itunes/image {:href "https://a.example/cover.jpg"})
+                        (update-in [:rss/items 0] assoc
+                                   :podcast/transcripts [{:url "https://a.example/7.vtt" :type "text/vtt"}]
+                                   :podcast/chapters {:url "https://a.example/7.json"}))
+            private (publish/for-subscriber feed "s3cr3t")]
+        (is (= ["https://a.example/cover.jpg?token=s3cr3t"
+                "https://a.example/7.vtt?token=s3cr3t"
+                "https://a.example/7.json?token=s3cr3t"]
+               [(get-in private [:itunes/image :href])
+                (get-in private [:rss/items 0 :podcast/transcripts 0 :url])
+                (get-in private [:rss/items 0 :podcast/chapters :url])]))))
     (testing "a feed that is closed to the public"
       (is (= {:podcast/blocks [{:content true}] :itunes/block true :googleplay/block true}
              (select-keys private [:podcast/blocks :itunes/block :googleplay/block])))

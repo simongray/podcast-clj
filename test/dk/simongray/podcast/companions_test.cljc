@@ -44,6 +44,17 @@
     (testing "round trip"
       (is (= doc (chapters/parse-json (chapters/emit-json doc)))))))
 
+(deftest chapter-images-as-files
+  (let [doc {:version  "1.2.0"
+             :chapters [{:start-time 0 :img "data:image/png;base64,iVBORw=="}
+                        {:start-time 5}
+                        {:start-time 9 :img "https://a.example/9.png"}
+                        {:start-time 12 :img 5}]}
+        up  (chapters/update-image-urls doc #(if (str/starts-with? % "data:") "https://b.example/0.png" (str % "#copy")))]
+    (is (= ["https://b.example/0.png" nil "https://a.example/9.png#copy" 5] (map :img (:chapters up))))
+    (is (= (map #(dissoc % :img) (:chapters doc)) (map #(dissoc % :img) (:chapters up))))
+    (is (= {:version "1.2.0"} (chapters/update-image-urls {:version "1.2.0"} str)))))
+
 (deftest chapters-in-the-wild
   (let [doc (chapters/parse-json "{\"version\":\"1.1.0\",\"chapters\":[
                                     {\"startTime\":\"120\",\"title\":\"Later\",\"number\":2},

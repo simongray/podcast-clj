@@ -230,6 +230,48 @@
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
      :cljs (.encode (js/TextEncoder.) s)))
 
+;; RFC 3986, section 2.1
+(defn- percent-decoded
+  "The bytes of the text `s` in UTF-8, with each byte that it
+  percent-encodes decoded."
+  [s]
+  (join (for [piece (re-seq #"%[0-9A-Fa-f]{2}|[^%]+|%" s)]
+          (if (and (= 3 (count piece))
+                   (str/starts-with? piece "%"))
+            (from-hex (subs piece 1))
+            (encode piece)))))
+
+;; WHATWG Infra, section 7, as of 5 October 2026
+(defn- from-forgiving-base64
+  "The bytes that the base64 in the bytes `b` names, or nil. It may have
+  spaces and lack its padding, as a data URL may."
+  [b]
+  (let [s (-> (decode b 0 (length b) :latin1)
+              (str/replace #"[\t\n\f\r ]" "")
+              (str/replace #"={1,2}$" ""))]
+    (from-base64 (str s (subs "===" 0 (mod (- (count s)) 4))))))
+
+;; RFC 2397, section 3
+(defn from-data-url
+  "The MIME type and the bytes of the data URL `s` as a map of :type and
+  :data, or nil for a text that isn't a data URL. A data URL without a
+  type is text/plain;charset=US-ASCII."
+  [s]
+  (let [comma            (when (string? s)
+                           (str/index-of s ","))
+        [_ type base64?] (when comma
+                           (re-matches #"(?i)^data:(.*?)(;base64)?$"
+                                       (subs s 0 comma)))
+        data             (when type
+                           (cond-> (percent-decoded (subs s (inc comma)))
+                             base64? from-forgiving-base64))]
+    (when data
+      {:type (cond
+               (str/blank? type)           "text/plain;charset=US-ASCII"
+               (str/starts-with? type ";") (str "text/plain" type)
+               :else                       type)
+       :data data})))
+
 (defn as
   "The text or bytes `x` as `kind` asks for it: bytes for :bytes, and else
   text, with bytes decoded as UTF-8, e.g. for the :as of a request."

@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.feed.publish
   "What a host does to a feed before serving it: the pages of a long feed,
-  the private feed of a subscriber, and the URLs of its media files."
+  the private feed of a subscriber, and the URLs of its files."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.wary-fetch.secret :as secret]
@@ -163,6 +163,43 @@
     (cond-> feed
       (:rss/items feed) (update :rss/items (partial mapv item)))))
 
+(defn- update-images
+  "The channel or the item `x` with the URL of each of its images, those
+  of resolve/images, replaced by what `f` gives for it."
+  [x f]
+  (let [href #(cond-> % (:href %) (update :href f))
+        url  #(cond-> % (:url %) (update :url f))]
+    (cond-> x
+      (:podcast/images x)                  (update :podcast/images
+                                                   (partial mapv href))
+      (get-in x [:itunes/image :href])     (update :itunes/image href)
+      (get-in x [:googleplay/image :href]) (update :googleplay/image href)
+      (get-in x [:rss/image :url])         (update :rss/image url)
+      (:media/thumbnails x)                (update :media/thumbnails
+                                                   (partial mapv url)))))
+
+(defn update-file-urls
+  "The `feed` with the URL of each file that it links to replaced by what
+  `f` gives for it: those of update-media-urls, and the trailers, the
+  transcripts, the chapters files and the images of the channel and of
+  each item, the files that check/files lists.
+
+  A value that isn't a string stays as it is. A host uses this, e.g., to
+  point a show that it imports at the copies of all its files."
+  [feed f]
+  (let [rewritten #(if (string? %) (f %) %)
+        url       #(cond-> % (:url %) (update :url rewritten))
+        item      (fn [item]
+                    (cond-> (update-images item rewritten)
+                      (:podcast/transcripts item)
+                      (update :podcast/transcripts (partial mapv url))
+
+                      (:podcast/chapters item)
+                      (update :podcast/chapters url)))]
+    (cond-> (update-images (update-media-urls feed f) rewritten)
+      (:podcast/trailers feed) (update :podcast/trailers (partial mapv url))
+      (:rss/items feed)        (update :rss/items (partial mapv item)))))
+
 (def token-param
   "The name of the query parameter that holds the token of a subscriber,
   unless the options give another :token-param."
@@ -175,9 +212,12 @@
   The host makes and keeps the tokens, and serves this feed at a URL with
   the token. The token can be a hidden text of
   dk.simongray.wary-fetch.secret, and the feed has it in its URLs as
-  plain text. It goes into the query of each URL of a media file, and of
-  each link of the feed to its own documents. Each request then tells who
-  the subscriber is. A URL that isn't an http or https URL gets no token.
+  plain text. It goes into the query of the URL of each file that the
+  feed links to, as update-file-urls finds them, so that the transcripts,
+  the chapters and the images reach a subscriber from a server that checks
+  the token, and into each link of the feed to its own documents. Each
+  request then tells who the subscriber is. A URL that isn't an http or
+  https URL gets no token.
 
   The feed is closed to the public, and podcast:block, itunes:block and
   googleplay:block keep it out of the directories. It names no WebSub hub,
@@ -214,7 +254,7 @@
                             (comp (remove #(and block? (hub? %)))
                                   (map link))
                             links))]
-     (cond-> (update-media-urls feed personal)
+     (cond-> (update-file-urls feed personal)
        (:atom/links feed) (update :atom/links links)
        block?             (assoc :podcast/blocks [{:content true}]
                                  :itunes/block true

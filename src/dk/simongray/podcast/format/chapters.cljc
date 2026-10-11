@@ -208,6 +208,26 @@
                                (update :chapters #(mapv write-chapter %))))
                    {:pretty? pretty?})))
 
+(defn update-image-urls
+  "The chapters map `doc` with the URL of each chapter's image replaced by
+  what `f` gives for it.
+
+  The images of an MP3 file's chapters come as data URLs, but JSON
+  Chapters says that an image is a URL for a player to fetch. A host
+  writes each one as a file before it serves the chapters file, e.g. with
+  a function of its own, write-image!, that gives the URL of the file:
+
+      (update-image-urls doc #(if-let [{:keys [type data]}
+                                       (bytes/from-data-url %)]
+                                (write-image! type data)
+                                %))"
+  [doc f]
+  (let [image (fn [chapter]
+                (cond-> chapter
+                  (string? (:img chapter)) (update :img f)))]
+    (cond-> doc
+      (:chapters doc) (update :chapters (partial mapv image)))))
+
 (defn from-psc
   "The chapters map of the Podlove chapters `psc`, the :psc/chapters map of
   a feed item. A chapter whose start isn't a timestamp is dropped, and the

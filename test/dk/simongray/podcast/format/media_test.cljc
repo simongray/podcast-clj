@@ -239,7 +239,11 @@
            (map #(dissoc % :img) chs))
         "in the order of the table of contents; what it leaves out comes last, out of it")
     (is (str/starts-with? (:img (first chs)) "data:image/jpeg;base64,"))
-    (is (= [] (id3/report chs)))))
+    (is (= [] (id3/report chs)))
+    (testing "the image that a host writes as a file"
+      (let [{:keys [type data]} (bytes/from-data-url (:img (first chs)))]
+        (is (= "image/jpeg" type))
+        (is (= (bytes/hex (bytes/of jpeg)) (bytes/hex data)))))))
 
 (deftest id3-quirks
   (testing "a 2.4 frame whose size is a plain number, as some writers put it"

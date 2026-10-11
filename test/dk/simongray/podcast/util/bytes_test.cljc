@@ -85,6 +85,27 @@
     (let [b (bytes/of (repeat 300000 7))]
       (is (true? (bytes/same? b (bytes/from-base64 (bytes/base64 b))))))))
 
+(deftest data-urls
+  (let [read (fn [url]
+               (some-> (bytes/from-data-url url) (update :data bytes/hex)))]
+    (is (= {:type "image/png" :data "89504e47"}
+           (read (bytes/data-url "image/png" (bytes/from-hex "89504e47")))))
+    (testing "the forms of RFC 2397"
+      (is (= {:type "text/plain;charset=US-ASCII" :data "41206e6f7465"} (read "data:,A%20note")))
+      (is (= {:type "text/plain;charset=utf-8" :data "c3a6"} (read "data:;charset=utf-8,%C3%A6")))
+      (is (= {:type "image/svg+xml" :data "3c7376673ec3a6"} (read "data:image/svg+xml,%3Csvg%3Eæ")))
+      (is (= {:type "text/plain" :data "31303025"} (read "data:text/plain,100%")) "a percent sign that encodes nothing"))
+    (testing "base64 as browsers read it"
+      (is (= "616263" (:data (read "DATA:;BASE64,YW Jj\n"))) "in any case, with spaces")
+      (is (= "41" (:data (read "data:;base64,QQ"))) "without its padding")
+      (is (= "41" (:data (read "data:;base64,QQ%3D%3D"))) "with its padding percent-encoded"))
+    (doseq [url [nil 5 "" "https://a.example/a.png" "data:image/png" "data:;base64,Q"
+                 "data:;base64,QQ=QQ" "data:;base64,Q!=="]]
+      (is (nil? (bytes/from-data-url url)) (pr-str url)))
+    (testing "a large image reads in a short time"
+      (let [b (bytes/of (repeat 300000 7))]
+        (is (true? (bytes/same? b (:data (bytes/from-data-url (bytes/data-url "image/png" b))))))))))
+
 (deftest bytes-that-nobody-can-guess
   (is (= 32 (bytes/length (bytes/generate! 32))))
   (is (= 0 (bytes/length (bytes/generate! 0))))

@@ -1385,6 +1385,43 @@ of the feed. The result is also closed to the directories:
 Apply `op3/with-prefix` after `for-subscriber`, since the prefix goes in
 front of the whole URL.
 
+To import a show from another host, copy each file that `check/files`
+lists, and point the feed at the copies with `publish/update-file-urls`:
+
+```clojure
+(def copies
+  (into {}
+        (for [{:keys [url]} (check/files feed {:max-items :all})]
+          [url (copy-file! url)])))
+
+(publish/update-file-urls feed #(get copies % %))
+```
+
+Here `copy-file!` is your own function, which copies a file to your server
+and returns its new URL.
+
+An MP3 file can hold its chapters with an image for each, and
+`media/read!` gives the images as data URLs. JSON Chapters says that an
+image is a URL, so write the images as files before you serve the
+chapters file:
+
+```clojure
+(defn image-url
+  "The URL of the file that the image at `url` is written to, if it's a
+  data URL, or else `url`."
+  [url]
+  (if-let [{:keys [type data]} (bytes/from-data-url url)]
+    (write-image! type data)
+    url))
+
+(def file (media/read! "https://media.example.org/54.mp3"))
+
+(chapters/emit-json (chapters/update-image-urls (:chapters file) image-url))
+```
+
+Here `write-image!` is your own function too, which writes an image of a
+MIME type and returns the URL of the file.
+
 
 ## Use another service
 
@@ -1460,6 +1497,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
@@ -1468,6 +1506,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]

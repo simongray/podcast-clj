@@ -80,7 +80,9 @@
 
   - :format is :mp3 or :mp4
   - :duration is in seconds
-  - :chapters is a chapters document of dk.simongray.podcast.format.chapters
+  - :chapters is a chapters document of dk.simongray.podcast.format.chapters,
+    and the images of an MP3 file's chapters are data URLs, which a host
+    serves as files with update-image-urls of that namespace
   - :artwork is a map of :type and :data
 
   When the view lacks bytes, the result has the ranges that the reading
