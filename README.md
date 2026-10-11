@@ -261,6 +261,8 @@ Background:
 - [The needs of the sibling libraries, October 2026](doc/siblings-2026.md):
   what the seven libraries podcast-clj is built on still need for their
   own audiences, and what a 1.0 of each takes.
+- [What to do next, October 2026](doc/next-steps-2026.md): the reports
+  above as one plan, ranked by harm and then by cost.
 
 
 Development
