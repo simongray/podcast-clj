@@ -498,6 +498,8 @@ and [What to apply first](subtractive-review-2026.md#what-to-apply-first).
 
 ## Later
 
+[What to do later](later-steps-2026.md) turns this list into a plan.
+
 - **Feeds on demand**, batch 5 of the identity design, once a library of
   hundreds of feeds exists to measure it on.
 - **The documented gaps** of the needs report, the record of downloaded

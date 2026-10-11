@@ -264,6 +264,8 @@ Background:
   own audiences, and what a 1.0 of each takes.
 - [What to do next, October 2026](doc/next-steps-2026.md): the reports
   above as one plan, ranked by harm and then by cost.
+- [What to do later, October 2026](doc/later-steps-2026.md): what that plan
+  left for later, checked against the code again and ranked the same way.
 
 
 Development
