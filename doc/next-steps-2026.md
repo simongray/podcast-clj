@@ -94,7 +94,8 @@ The reports leave these open. Each blocks the step it names.
   webmention-clj put it in microformats-clj, and those of indieauth-clj in
   html-pieces, with options for the tags and whether the body counts,
   since the rels of microformats include links in the body, where a
-  commenter can plant a decoy (indieauth.rocks, C112).
+  commenter can plant a decoy (indieauth.rocks, C112). (Decided:
+  html-pieces.)
 - **Step 12.** The field-wise entry itself, or first a README section on
   the per-field schema and a `live?` that reads it?
   ([mind-meld](siblings-2026.md#mind-meld))
