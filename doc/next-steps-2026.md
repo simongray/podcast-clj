@@ -101,7 +101,9 @@ The reports leave these open. Each blocks the step it names.
   ([mind-meld](siblings-2026.md#mind-meld))
 - **Step 13.** Should `feed/normalize` read a producer's strings, or
   should the model stay typed and only the message change? Is the WebVTT
-  speaker carry-over a chosen leniency?
+  speaker carry-over a chosen leniency? (Decided: `normalize` reads them
+  and reports each; a voice span carries over only in a file that marks
+  just the changes of speaker.)
   ([Questions](hosts-and-servers-2026.md#questions))
 - **Step 15.** Keep or drop the two option forms that nothing calls or
   tests (`:requirements` as a map, `:block? false`); let
@@ -431,12 +433,11 @@ few days, so it follows the needs of an hour.
 
 ### 13. The host's path
 
-- A producer's strings either read by `feed/normalize` or named in the
-  message, and the version warning only when the version is present and
-  wrong.
+- A producer's strings read by `feed/normalize`, and the version warning
+  only when the version is present and wrong.
 - A `to-psc` that gives the model map, so it round-trips with `from-psc`.
-- The WebVTT speaker carried over for "Name:" prefixes only, and
-  reported.
+- The WebVTT speaker carried over for "Name:" prefixes, and for voice
+  spans in a file that marks only the changes of speaker, and reported.
 - A private copy and an import that cover every file URL of a feed, not
   only the enclosures.
 - An `op3/target` that strips the prefix, so OP3's rows and the host's

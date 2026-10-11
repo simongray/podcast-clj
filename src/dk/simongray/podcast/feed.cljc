@@ -17,6 +17,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.qname-hiccup :as xml]))
@@ -272,39 +273,109 @@
 
 (declare normalize-children)
 
+;; A producer's strings, e.g. from a web form, read as parse reads the text
+;; of XML, so that a feed from data is the same model as one from XML
+(defn- respelled
+  "The string `s` of `entry` as the quirks of a parse spell it, e.g. false
+  for the no of itunes:explicit, or else `s` as it is."
+  [entry s]
+  (let [table (cond
+                (= :itunes/explicit (:tag entry))     quirks/explicit-values
+                (= :yes-no (spec/content-type entry)) quirks/yes-no-values)]
+    (or (when table
+          (get table (str/lower-case (xml/trim s))))
+        s)))
+
+;; A path is a list of keys, the last first, since only a note needs it as
+;; a vector, and conj on a list costs nothing
+(defn- read-string-of
+  "The string `v` at `path` read as `type` when that's a type with a
+  reading, after the respelling of the quirks of `entry`, if given, with a
+  note in `ctx` of the reading, or else `v` as it is. A string that doesn't
+  read stays, for the validator."
+  [ctx entry type v path]
+  (if (and (string? v)
+           (contains? coerce/coerced-types type)
+           (not= :presence type))
+    (let [read (coerce/parse type (cond->> v entry (respelled entry)))]
+      (if (coerce/invalid? read)
+        v
+        (do (note! ctx {:id    :feed/string-value
+                        :level :info
+                        :path  (vec (reverse path))
+                        :type  type
+                        :value v})
+            read)))
+    v))
+
+(defn- read-attributes
+  "The model map `m` of `entry` at `path`, with the strings of its typed
+  attributes read by `ctx`."
+  [ctx entry m path]
+  (reduce-kv (fn [m k {:keys [type]}]
+               (let [k' (names/attr-key k)]
+                 (if (string? (get m k'))
+                   (update m k' #(read-string-of ctx nil type % (conj path k')))
+                   m)))
+             m
+             (:attrs entry)))
+
 (defn- normalize-value
-  "The model value `v` of `entry` in `registry`, in the shape of the model.
+  "The model value `v` of `entry` at `path`, by `ctx`, in the shape of the
+  model.
 
   A bare value where the element has content and attributes becomes a map
-  with `v` as its :content, and the children of a map are normalized in
-  turn."
-  [registry entry v]
-  (if-not (spec/map-shaped? registry entry)
-    v
-    (let [bare? (and (some? v)
-                     (not (coll? v))
-                     (not= :none (spec/content-type entry)))
-          m     (if bare? {:content v} v)]
-      (if (map? m)
-        (normalize-children registry (spec/children-context entry) m)
-        m))))
+  with `v` as its :content, a string of a typed value is read as its type,
+  and the children of a map are normalized in turn."
+  [ctx entry v path]
+  (let [registry (:registry ctx)
+        type     (spec/content-type entry)]
+    (if-not (spec/map-shaped? registry entry)
+      (read-string-of ctx entry type v path)
+      (let [bare? (and (some? v)
+                       (not (coll? v))
+                       (not= :none type))
+            m     (if bare? {:content v} v)]
+        (if (map? m)
+          (let [children (normalize-children ctx (spec/children-context entry)
+                                             m path)
+                m'       (read-attributes ctx entry children path)]
+            (cond-> m'
+              (string? (:content m'))
+              (update :content
+                      #(read-string-of ctx entry type % (conj path :content)))))
+          m)))))
 
 (defn- normalize-children
-  "The model map `m` of an element in the `parent` context of `registry`,
-  with every child value normalized. A single value where the model has a
-  vector is wrapped in one."
-  [registry parent m]
+  "The model map `m` at `path` of an element in the `parent` context, by
+  `ctx`, with every child value normalized. A single value where the model
+  has a vector is wrapped in one."
+  [ctx parent m path]
   (reduce (fn [m entry]
-            (let [k (spec/key-for entry parent)
-                  v (get m k)]
-              (if (nil? v)
+            (let [k     (spec/key-for entry parent)
+                  v     (get m k)
+                  path' (conj path k)]
+              (cond
+                (nil? v)
                 m
-                (assoc m k (if (= :many (spec/count-for entry parent))
-                             (mapv #(normalize-value registry entry %)
-                                   (if (sequential? v) v [v]))
-                             (normalize-value registry entry v))))))
+
+                (= :many (spec/count-for entry parent))
+                (assoc m k (into []
+                                 (map-indexed
+                                  #(normalize-value ctx entry %2 (conj path' %1)))
+                                 (if (sequential? v) v [v])))
+
+                :else
+                (assoc m k (normalize-value ctx entry v path')))))
           m
-          (spec/entries-for registry parent)))
+          (spec/entries-for (:registry ctx) parent)))
+
+(defn ^:no-doc normalized
+  "The `feed` in the shape of the model by the :registry of `opts`, and the
+  notes of the strings that were read as their types, as a pair."
+  [feed {:keys [registry] :or {registry spec/default}}]
+  (let [ctx {:registry (spec/registry registry) :report (volatile! [])}]
+    [(normalize-children ctx :channel feed ()) @(:report ctx)]))
 
 (defn normalize
   "The `feed` in the shape of the model, by the :registry of `opts`,
@@ -315,12 +386,18 @@
       {:rss/guid \"x\"}            ; for {:rss/guid {:content \"x\"}}
       {:podcast/transcripts {…}}  ; for {:podcast/transcripts [{…}]}
 
-  A parsed feed comes back unchanged."
+  A string where the model takes another type is read as parse reads the
+  text of XML, e.g. a date, a duration such as \"30:00\" or \"no\" for false,
+  and its report has :feed/string-value for each. A string that doesn't
+  read stays, so that the validator reports it. A parsed feed comes back
+  unchanged."
   ([feed]
    (normalize feed {}))
-  ([feed {:keys [registry] :or {registry spec/default} :as opts}]
+  ([feed opts]
    {:pre [(map? opts)]}
-   (normalize-children (spec/registry registry) :channel feed)))
+   (let [[feed notes] (normalized feed opts)]
+     (cond-> feed
+       (seq notes) (vary-meta update :podcast/report (fnil into []) notes)))))
 
 (declare emit-children)
 

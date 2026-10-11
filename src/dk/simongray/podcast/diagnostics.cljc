@@ -194,6 +194,11 @@
            required one that's blank is kept for the validator."}
     {:id :feed/invalid-value :level :warning
      :doc "A value didn't read as its type, and stays a string."}
+    {:id :feed/string-value :level :info
+     :doc "A feed built from data held a string where the model takes another
+           type, e.g. a date, and it was read as that type, as parse reads
+           the text of XML. The :value is the string, and the :type the
+           type."}
     {:id :feed/markup-in-text :level :info
      :doc "Markup appeared where the registry expects text. It's kept as markup
            in HTML content, and flattened to text elsewhere."}
@@ -208,6 +213,10 @@
     {:id :transcript/speaker-prefixes :level :info
      :doc "Speakers were taken from Name: prefixes in the cues, and carried over
            to the cues that follow."}
+    {:id :transcript/voices-carried :level :info
+     :doc "A WebVTT file gives a voice span only where the speaker changes,
+           so the cues without one took the speaker before them. The :count
+           is the number of such cues."}
     {:id :transcript/string-times :level :warning
      :doc "Segment times were given as strings rather than numbers, and were
            read as numbers."}

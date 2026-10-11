@@ -186,9 +186,12 @@
                    "shorthand, a bare value for an element")
               (str "with only text, such as `{:rss/guid \"x\"}`, and a single "
                    "value for a vector, which")
-              (str "`feed/normalize` expands. The identity of a feed and of an "
-                   "item comes from `guid/feed-guid`")
-              "and `guid/item-guid`."
+              (str "`feed/normalize` expands. It also reads a string where "
+                   "the model takes another type,")
+              (str "e.g. a date or a duration, as `parse` reads the text of "
+                   "XML, and reports each. The")
+              (str "identity of a feed and of an item comes from "
+                   "`guid/feed-guid` and `guid/item-guid`.")
               ""
               "## Value types"
               ""

@@ -89,10 +89,12 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:feed/empty-element` | info | An element with a single value had no text, and was left out. |
 | `:feed/empty-attribute` | info | An optional attribute was blank, and is left out of the model. A required one that's blank is kept for the validator. |
 | `:feed/invalid-value` | warning | A value didn't read as its type, and stays a string. |
+| `:feed/string-value` | info | A feed built from data held a string where the model takes another type, e.g. a date, and it was read as that type, as parse reads the text of XML. The :value is the string, and the :type the type. |
 | `:feed/markup-in-text` | info | Markup appeared where the registry expects text. It's kept as markup in HTML content, and flattened to text elsewhere. |
 | `:feed/unexpected-text` | info | Text inside an element that the spec leaves empty was dropped. |
 | `:feed/dropped-attributes` | info | Attributes that the model has no place for were dropped: those of an element read as a single value, those of rss other than its version, and those of channel. |
 | `:transcript/speaker-prefixes` | info | Speakers were taken from Name: prefixes in the cues, and carried over to the cues that follow. |
+| `:transcript/voices-carried` | info | A WebVTT file gives a voice span only where the speaker changes, so the cues without one took the speaker before them. The :count is the number of such cues. |
 | `:transcript/string-times` | warning | Segment times were given as strings rather than numbers, and were read as numbers. |
 | `:transcript/wrapped-srt` | warning | An HTML transcript was an SRT file with every line wrapped in an element, and was read as SRT. |
 | `:transcript/unknown-type` | warning | The declared type isn't one that the spec names, so the format was detected from the file instead. |

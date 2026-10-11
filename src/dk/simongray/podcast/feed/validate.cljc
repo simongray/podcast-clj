@@ -18,6 +18,7 @@
   :message. Validation never throws on a value, since a shape that the
   element doesn't take is a diagnostic like any other."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -666,12 +667,13 @@
      (throw (ex-info (str "Unknown requirements " chosen)
                      {:requirements chosen
                       :known        (set (keys requirements))})))
-   (let [registry (spec/registry registry)
-         feed     (feed/normalize feed {:registry registry})
-         levels   (:levels (if (map? chosen) chosen (get requirements chosen)))
-         raised   #(assoc % :level (get levels (:id %) (:level %)))
-         checked  (mapv raised
-                        (concat (rss-diagnostics feed)
+   (let [registry     (spec/registry registry)
+         [feed notes] (feed/normalized feed {:registry registry})
+         levels       (:levels (if (map? chosen) chosen (get requirements chosen)))
+         raised       #(assoc % :level (get levels (:id %) (:level %)))
+         checked      (mapv raised
+                        (concat (map diagnostics/describe notes)
+                                (rss-diagnostics feed)
                                 (item-diagnostics feed)
                                 (category-diagnostics feed categories
                                                       renamed-categories)

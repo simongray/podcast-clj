@@ -13,7 +13,9 @@
   had them. Speakers are read from
   these:
 
-  - the voice spans of WebVTT
+  - the voice spans of WebVTT, which name the speaker of their cue, or of
+    the cues that follow too in a file that marks only the changes of
+    speaker
   - the cite elements of HTML
   - the fields of JSON
   - the \"Name:\" or \"[Name]:\" prefixes of caption files, which mark a
@@ -101,16 +103,25 @@
 
 (defn- carry-speakers
   "The `segments`, each that names no speaker with the last one named
-  before it, the way caption files mark only the changes of speaker."
-  [segments]
-  (second (reduce (fn [[speaker acc] segment]
-                    (let [speaker (or (:speaker segment) speaker)
-                          carried (if (and speaker (not (:speaker segment)))
-                                    (assoc segment :speaker speaker)
-                                    segment)]
-                      [speaker (conj acc carried)]))
-                  [nil []]
-                  segments)))
+  before it, the way caption files mark only the changes of speaker. Only
+  the speaker of a segment that `carries?` carries over, and another ends
+  the one before, by default every segment."
+  ([segments]
+   (carry-speakers segments (constantly true)))
+  ([segments carries?]
+   (second (reduce (fn [[speaker acc] segment]
+                     (cond
+                       (:speaker segment)
+                       [(when (carries? segment) (:speaker segment))
+                        (conj acc segment)]
+
+                       speaker
+                       [speaker (conj acc (assoc segment :speaker speaker))]
+
+                       :else
+                       [nil (conj acc segment)]))
+                   [nil []]
+                   segments))))
 
 (defn- cue
   "The segment of a cue whose timing line is `timing` and text lines
@@ -187,20 +198,56 @@
         (cond-> {:start-time (time/parse-clock from)
                  :end-time   (time/parse-clock to)
                  :body       body}
-          speaker (assoc :speaker speaker))))))
+          speaker (assoc :speaker speaker)
+          voice   (assoc ::voice? true))))))
+
+;; WebVTT, section 4.2.2, scopes a voice span to its cue, but some hosts,
+;; e.g. Transistor, write one only where the speaker changes. A file that
+;; marks every cue repeats a voice on cues in a row, and one that marks the
+;; changes never does.
+(defn- turn-marked?
+  "Whether the WebVTT `cues` give a voice span only where the speaker
+  changes: some have one, and no two in a row have the same speaker's."
+  [cues]
+  (and (some ::voice? cues)
+       (not-any? (fn [[a b]]
+                   (and (::voice? a) (::voice? b) (= (:speaker a) (:speaker b))))
+                 (partition 2 1 cues))))
+
+(defn- voices-diagnostics
+  "The diagnostic for `n` cues that took the speaker of a voice span before
+  them."
+  [n]
+  (when (pos? n)
+    [(diagnostic :transcript/voices-carried :info
+                 (str n " cues have no voice span of their own; the file "
+                      "marks only where the speaker changes, so each takes "
+                      "the speaker before it")
+                 :count n)]))
 
 (defn parse-vtt
   "The transcript map of the WebVTT text `s`, without its NOTE, STYLE and
-  REGION blocks."
+  REGION blocks.
+
+  A voice span names the speaker of its cue alone, unless the file marks
+  only where the speaker changes, when the speaker carries over the cues
+  that follow, and the report says so. A \"Name:\" prefix always carries
+  over."
   [s]
   (let [stats    (volatile! {})
         cue?     #(not (re-find #"^(?:WEBVTT|NOTE|STYLE|REGION)" (first %)))
-        segments (->> (blocks s)
-                      (filter cue?)
-                      (keep #(vtt-cue stats %))
-                      carry-speakers)]
+        cues     (->> (blocks s) (filter cue?) (keep #(vtt-cue stats %)) vec)
+        turns?   (turn-marked? cues)
+        carried  (carry-speakers cues (if turns? (constantly true)
+                                          (complement ::voice?)))
+        voiced   (when turns?
+                   (count (filter true? (map #(and (nil? (:speaker %1))
+                                                   (some? (:speaker %2)))
+                                             cues carried))))
+        segments (mapv #(dissoc % ::voice?) carried)]
     (with-report {:format :vtt :segments segments}
-      (prefix-diagnostics (:prefixes @stats 0)))))
+      (concat (prefix-diagnostics (:prefixes @stats 0))
+              (voices-diagnostics (or voiced 0))))))
 
 ;; WebVTT, section 4.2.2: cue text has no & or <, and the annotation of a
 ;; voice span no & or >, so those go as the character references of HTML

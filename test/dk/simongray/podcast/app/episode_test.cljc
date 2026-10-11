@@ -110,7 +110,9 @@
                        (is (= "https://example.com/file-03.mp3" (:url (:media v))))
                        (is (= [:file/unknown-format] (map :id (:report (:media v)))) "64 zero bytes are no media file")
                        (is (= 43200000 (:length (:enclosure v))) "the enclosure is as the feed has it")
-                       (is (= [[:media :file/unknown-format]] (map (juxt :part :id) (episode/report v))))
+                       (is (= [[:transcript :transcript/voices-carried] [:media :file/unknown-format]]
+                              (map (juxt :part :id) (episode/report v)))
+                           "the transcript names Ann on her first cue alone")
                        (is (= 3 (count (distinct @log))) "one request for each file")))))
      (fn []
        (async/then (page (episode/view show item {:transcript-types ["text/plain"]}) {:send (answering answers log) :except #{:media}})

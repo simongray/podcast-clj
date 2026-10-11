@@ -329,11 +329,36 @@
 
 (deftest invalid-values-are-written-back-as-they-came
   (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
-                           <podcast:locked>false</podcast:locked></channel></rss>"
+                           <podcast:locked>maybe</podcast:locked></channel></rss>"
                          {:quirks? false})]
-    (is (= {:content "false"} (:podcast/locked f)))
-    (is (re-find #"<podcast:locked>false</podcast:locked>" (rss/emit f)))
+    (is (= {:content "maybe"} (:podcast/locked f)))
+    (is (re-find #"<podcast:locked>maybe</podcast:locked>" (rss/emit f)))
     (is (= f (rss/parse (rss/emit f) {:quirks? false})))))
+
+(deftest a-producers-strings
+  (let [f {:rss/title "T" :rss/link "https://t" :rss/description "d" :itunes/explicit "no" :podcast/locked "true"
+           :rss/items [{:rss/title "E" :rss/guid "g" :rss/pub-date "Thu, 01 Oct 2026 06:00:00 GMT" :itunes/duration "30:00"
+                        :rss/enclosure {:url "https://t/1.mp3" :length "123" :type "audio/mpeg"}}
+                       {:rss/title "F" :rss/guid "h" :rss/pub-date "the first of October"
+                        :rss/enclosure {:url "https://t/2.mp3" :length 5 :type "audio/mpeg"}}]}
+        n (feed/normalize f)
+        [one two] (:rss/items n)]
+    (is (= [#inst "2026-10-01T06:00:00Z" 1800 123 false {:content true}]
+           [(:rss/pub-date one) (:itunes/duration one) (get-in one [:rss/enclosure :length])
+            (:itunes/explicit n) (:podcast/locked n)])
+        "a date, a duration, a length and the words of itunes:explicit and podcast:locked, read as parse reads them")
+    (is (= "the first of October" (:rss/pub-date two)) "but a string that doesn't read stays, for the validator")
+    (let [notes (filter (comp #{:feed/string-value} :id) (rss/report n))]
+      (is (= #{[:itunes/explicit] [:podcast/locked :content] [:rss/items 0 :rss/pub-date]
+               [:rss/items 0 :itunes/duration] [:rss/items 0 :rss/enclosure :length]}
+             (set (map :path notes)))
+          "each reading in the report")
+      (is (= "no" (:value (first (filter (comp #{[:itunes/explicit]} :path) notes))))
+          "with the string as the producer wrote it"))
+    (is (= [[:validate/invalid-value [:rss/items 1 :rss/pub-date]]]
+           (->> (validate/validate f) (filter (comp #{:error} :level)) (map (juxt :id :path))))
+        "so the validator reports only what doesn't read")
+    (is (re-find #"<itunes:duration>1800</itunes:duration>" (rss/emit f)) "and emit writes what it reads")))
 
 (deftest media-rss-nesting
   (let [f    (rss/parse "<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>T</title>

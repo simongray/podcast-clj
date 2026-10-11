@@ -210,6 +210,21 @@
       (is (= 2 (:count (first (transcript/report vtt)))))
       (is (= ["Mark" "Mark"] (map :speaker (:segments srt))))
       (is (= "Design is everywhere,\nbut do we get it wrong?" (:body (first (:segments srt)))))))
+  (testing "voice spans of WebVTT"
+    (let [cue    (fn [i text] (str "00:00:0" i ".000 --> 00:00:0" (inc i) ".000\n" text))
+          parsed (fn [& texts]
+                   (transcript/parse (str "WEBVTT\n\n" (str/join "\n\n" (map-indexed cue texts)))))
+          turns  (parsed "<v Justin>Hi." "What is going on?" "<v Michael>Geese." "<v Justin>Right." "Anyway.")
+          each   (parsed "<v Ann>Hi." "<v Ann>Welcome." "La la la, the closing song." "<v Bo>Bye.")]
+      (is (= ["Justin" "Justin" "Michael" "Justin" "Justin"] (map :speaker (:segments turns)))
+          "carry over in a file that marks only where the speaker changes")
+      (is (= [[:transcript/voices-carried 2]] (map (juxt :id :count) (transcript/report turns))))
+      (is (= ["Ann" "Ann" nil "Bo"] (map :speaker (:segments each)))
+          "but name only their own cue in a file that marks every cue, as WebVTT has it")
+      (is (= [] (transcript/report each)))
+      (is (= ["Ann" "Ann" nil "Bo"]
+             (map :speaker (:segments (transcript/parse (transcript/emit-vtt each)))))
+          "so a cue without a speaker comes back without one")))
   (testing "odd JSON"
     (is (= [{:body "hi" :start-time 0 :speaker "1"}]
            (:segments (transcript/parse "{\"segments\": [{\"speaker\": 1, \"startTime\": 0, \"body\": \"hi\"}]}" "application/json")))
