@@ -48,14 +48,18 @@
   It's the session of the request when that still lasts, so that a client
   that logs in at each step keeps one session, or else a new one. The
   sessions that ended leave the book."
-  [{:keys [book who session at] :as ctx}]
+  [{:keys [book who session at https?] :as ctx}]
   (let [lasting (live (:sessions book) at)
         id      (if (= who (:user (get lasting session))) session (new-session))
         until   (+ (inst-ms at) (* 1000 session-seconds))
-        entry   {:user who :until until}]
+        entry   {:user who :until until}
+        ;; sent by no page of another site, nor over plain HTTP after a
+        ;; login over https
+        cookie  (str "sessionid=" id "; Path=/; HttpOnly; SameSite=Strict"
+                     (when https? "; Secure"))]
     {:status  200
      :body    ""
-     :headers {"Set-Cookie" (str "sessionid=" id "; Path=/; HttpOnly")}
+     :headers {"Set-Cookie" cookie}
      :book    (assoc book :sessions (assoc lasting id entry))}))
 
 (defn- logout
@@ -327,7 +331,11 @@
         {:keys [parts methods]} (route (or (:path-info request) (:uri request)))
         answer                  (get methods (:request-method request))
         at                      (now-fn)
-        {:keys [who] :as from}  (asker env headers at)]
+        {:keys [who] :as from}  (asker env headers at)
+        ;; or by the X-Forwarded-Proto of a proxy in front, e.g. Caddy
+        https?                  (or (= :https (:scheme request))
+                                    (= "https"
+                                       (get headers "x-forwarded-proto")))]
     (cond
       (nil? methods)
       (ring 404 "Not Found")
@@ -344,7 +352,7 @@
       (ring 405 "Method Not Allowed")
 
       :else
-      (answer! env request answer (merge parts from) at))))
+      (answer! env request answer (merge parts from {:https? https?}) at))))
 
 (defn- arrived
   "The `index` of when each entry of the subscriptions and episodes of
@@ -382,8 +390,11 @@
   - :max-bytes, the most that a request can send, 10 MB by default
 
   A request has Basic credentials or the session of a login, and the user
-  in the path must be the one who logged in. A session lasts a day. The
-  calls run one at a time, as sync steps must, so :sync can be:
+  in the path must be the one who logged in. A session lasts a day, and
+  ends when the handler is made again, e.g. at a restart with a new
+  password. Its cookie is Secure when the login came over https, by the
+  scheme of the request or the X-Forwarded-Proto of a proxy. The calls run
+  one at a time, as sync steps must, so :sync can be:
 
       (let [cursors (atom nil)]
         (fn [state]
@@ -404,8 +415,9 @@
     (throw (ex-info (str "A handler needs the :state and the function "
                          ":authorized-pred")
                     {})))
-  ;; TODO: keep the arrival times, the sessions and the devices in the store,
-  ;; so that they outlive a restart
+  ;; TODO: keep the arrival times and the devices in the store, so that they
+  ;; outlive a restart. Not the sessions: a restart with a new password must
+  ;; end them.
   (let [book    (atom {:index {} :sessions {} :devices {} :urls {}})
         settle! (fn [at]
                   (when sync!

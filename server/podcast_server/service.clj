@@ -13,7 +13,8 @@
 
   The server is one of the listener's devices too, so that it keeps the
   listener's feeds current. Without a password, it checks no credentials,
-  so reach it only through a private network."
+  so it then starts only on localhost or on a private network, e.g. a
+  tailnet."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dk.simongray.like-minded.store.folder :as folder]
@@ -42,27 +43,32 @@
   - :host, the address that it listens on. Only this machine reaches
     localhost, e.g. through tailscale serve.
   - :names, the names that a request can address it by besides
-    localhost, e.g. its name on the tailnet
+    localhost, e.g. its name on the tailnet, with or without a port
   - :password, the password that every request must give, with any user
     name, or nil for none
+  - :private-network?, whether only a private network reaches the server,
+    e.g. through tailscale serve, so that it can do without a password
+    while it listens beyond localhost, e.g. in Docker
   - :data-dir, the folder of its data, with the sync folder in it
   - :client-dir, the folder of the client's files, or nil for none"
-  {:port       8400
-   :host       "localhost"
-   :names      #{}
-   :password   nil
-   :data-dir   "data"
-   :client-dir nil})
+  {:port             8400
+   :host             "localhost"
+   :names            #{}
+   :password         nil
+   :private-network? false
+   :data-dir         "data"
+   :client-dir       nil})
 
 (def environment
   "The environment variable of each setting. The names are separated by
-  commas."
-  {:port       "PODCAST_SERVER_PORT"
-   :host       "PODCAST_SERVER_HOST"
-   :names      "PODCAST_SERVER_NAMES"
-   :password   "PODCAST_SERVER_PASSWORD"
-   :data-dir   "PODCAST_SERVER_DATA"
-   :client-dir "PODCAST_SERVER_CLIENT"})
+  commas, and whether the network is private is true or false."
+  {:port             "PODCAST_SERVER_PORT"
+   :host             "PODCAST_SERVER_HOST"
+   :names            "PODCAST_SERVER_NAMES"
+   :password         "PODCAST_SERVER_PASSWORD"
+   :private-network? "PODCAST_SERVER_PRIVATE_NETWORK"
+   :data-dir         "PODCAST_SERVER_DATA"
+   :client-dir       "PODCAST_SERVER_CLIENT"})
 
 (defn- setting
   "The setting `k` from the value `v` of its environment variable `var`. A
@@ -70,16 +76,24 @@
   [k var v]
   ;; nothing slows down the guesses of an attacker
   (case k
-    :port     (or (parse-long v)
-                  (throw (ex-info (str var " is not a port number: " v)
-                                  {var v})))
-    :names    (->> (str/split v #",")
-                   (map (comp str/lower-case str/trim))
-                   (remove str/blank?)
-                   set)
-    :password (if (< (count v) 16)
-                (throw (ex-info (str var " has fewer than 16 characters") {}))
-                (secret/hide v))
+    :port             (or (parse-long v)
+                          (throw (ex-info (str var " is not a port number: " v)
+                                          {var v})))
+    :names            (->> (str/split v #",")
+                           (map (comp str/lower-case str/trim))
+                           (remove str/blank?)
+                           set)
+    :password         (if (< (count v) 16)
+                        (throw (ex-info (str var " has fewer than 16 "
+                                             "characters")
+                                        {}))
+                        (secret/hide v))
+    :private-network? (case (str/lower-case v)
+                        "true"  true
+                        "false" false
+                        (throw (ex-info (str var " is neither true nor "
+                                             "false: " v)
+                                        {var v})))
     v))
 
 (defn settings
@@ -99,21 +113,40 @@
    :headers {"Content-Type" "text/plain; charset=utf-8"}
    :body    message})
 
+(def hidden-credentials
+  "An interceptor that hides the Authorization header of a request, so that
+  no log shows the password, e.g. Pedestal's log of an uncaught exception,
+  which holds the whole request."
+  (interceptor/interceptor
+   {:name  ::hidden-credentials
+    :enter (fn [context]
+             (if (get-in context [:request :headers "authorization"])
+               (update-in context [:request :headers "authorization"]
+                          secret/hide)
+               context))}))
+
+(defn- without-port
+  "The `host` of a Host header or of a server name, without its port."
+  [host]
+  (str/replace host #":\d+$" ""))
+
 (defn known-names
   "An interceptor that answers only requests to localhost or one of the
-  `names`.
+  `names`, with or without a port.
 
   A web page that points a name of its own at this server's address gets
   a 403, since without a password the server checks no credentials (DNS
   rebinding)."
   [names]
-  (let [known (into #{"localhost" "127.0.0.1" "[::1]"} names)]
+  (let [known (into #{"localhost" "127.0.0.1" "[::1]"}
+                    (map without-port)
+                    names)]
     (interceptor/interceptor
      {:name  ::known-names
       :enter (fn [{:keys [request] :as context}]
                (let [host (some-> (get-in request [:headers "host"])
                                   str/lower-case
-                                  (str/replace #":\d+$" ""))]
+                                  without-port)]
                  (if (and host (not (known host)))
                    (let [message (str "The server doesn't answer to the name "
                                       host ".")]
@@ -132,6 +165,22 @@
                (let [message "The server doesn't answer the public internet."]
                  (assoc context :response (refused message)))
                context))}))
+
+;; Fetch Metadata Request Headers, W3C Working Draft of 2021-03-29
+(def same-origin-writes
+  "An interceptor that refuses a write from a page of another origin, e.g.
+  a form of another site that posts to the gpodder API with the
+  credentials that the browser keeps. Apps that aren't browsers send no
+  Sec-Fetch-Site, so they write as before."
+  (interceptor/interceptor
+   {:name  ::same-origin-writes
+    :enter (fn [{{:keys [headers request-method]} :request :as context}]
+             (let [site (get headers "sec-fetch-site")]
+               (if (and (#{"cross-site" "same-site"} site)
+                        (not (#{:get :head :options} request-method)))
+                 (let [message "The server takes no writes from other sites."]
+                   (assoc context :response (refused message)))
+                 context)))}))
 
 (defn password?
   "Whether `given` is the `password`, compared by their SHA-256 in constant
@@ -208,15 +257,30 @@
       ["/dav/*path" :any dav :route-name ::dav]
       ["/api/2/*path" :any gpodder :route-name ::gpodder]}))
 
+(def no-dotfiles
+  "An interceptor that answers 404 for a file or folder whose name starts
+  with a dot, e.g. a .env or a .git that a build left in the client's
+  folder."
+  (interceptor/interceptor
+   {:name  ::no-dotfiles
+    :enter (fn [{:keys [request] :as context}]
+             (if (re-find #"(?i)/(\.|%2e)" (:uri request))
+               (assoc context :response {:status  404
+                                         :headers {}
+                                         :body    "Not Found"})
+               context))}))
+
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
-  file has the type of its name, and a 304 when the browser has it."
+  file has the type of its name, and a 304 when the browser has it. A
+  dotfile isn't served."
   [client-dir]
   (if client-dir
     ;; read again on each request, since a build tool rewrites them
     (resources/file-routes {:file-root    (.getPath (io/file client-dir))
                             :cache?       false
-                            :interceptors [(ring-middlewares/content-type)
+                            :interceptors [no-dotfiles
+                                           (ring-middlewares/content-type)
                                            (ring-middlewares/not-modified)]})
     #{}))
 
@@ -227,13 +291,15 @@
   (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}]
     (-> (conn/default-connector-map host port)
         (conn/with-interceptors
-          [interceptors/log-request
+          [hidden-credentials
+           interceptors/log-request
            interceptors/not-found
            ;; scripts from this server only, with eval for the development
            ;; builds of shadow-cljs; art, media and the rest from any host
            (secure-headers/secure-headers
             {:content-security-policy-settings policy})
            (known-names names)
+           same-origin-writes
            (if password (login password) no-funnel)
            folders])
         (conn/with-routes (routes sync-store lib password)
@@ -245,24 +311,41 @@
   server
   (atom nil))
 
+(defn open?
+  "Whether a server with `settings` would let in anyone who reaches it: it
+  has no password and listens beyond localhost, e.g. behind Caddy, and not
+  on a private network."
+  [{:keys [host password private-network?] :as settings}]
+  (not (or password
+           private-network?
+           (#{"localhost" "127.0.0.1" "::1"} host))))
+
 (defn start!
-  "Start the server with `settings` over the defaults, unless it runs."
+  "Start the server with `settings` over the defaults, unless it runs. A
+  server without a password starts only on localhost or on a private
+  network."
   ([]
    (start! {}))
   ([settings]
-   (when-not @server
-     (let [{:keys [host port data-dir] :as settings} (merge defaults settings)
-           sync-store (sync-store settings)
-           ;; for the saved library, which can't go in the sync folder,
-           ;; where every file is a sync document
-           data-store (folder/store data-dir)
-           lib        (atom (device/restore! (device/make) data-store))
-           running    (conn/start! (connector settings sync-store lib))]
-       (reset! server {:connector running
-                       :library   lib
-                       :steps     (device/start! lib sync-store data-store)})
-       (println (str "Podcast server on http://" host ":" port "/"))))
-   @server))
+   (let [{:keys [host port data-dir] :as settings} (merge defaults settings)]
+     (when (open? settings)
+       (throw (ex-info (str "The server needs a password to listen on " host
+                            ", e.g. from PODCAST_SERVER_PASSWORD, unless "
+                            "only a private network reaches it, as "
+                            "PODCAST_SERVER_PRIVATE_NETWORK=true says")
+                       {:host host})))
+     (when-not @server
+       (let [sync-store (sync-store settings)
+             ;; for the saved library, which can't go in the sync folder,
+             ;; where every file is a sync document
+             data-store (folder/store data-dir)
+             lib        (atom (device/restore! (device/make) data-store))
+             running    (conn/start! (connector settings sync-store lib))]
+         (reset! server {:connector running
+                         :library   lib
+                         :steps     (device/start! lib sync-store data-store)})
+         (println (str "Podcast server on http://" host ":" port "/"))))
+     @server)))
 
 (defn stop!
   "Stop the server."

@@ -11,8 +11,9 @@ The server is one of the listener's devices too. It syncs every minute and
 keeps the listener's feeds current, and it serves the gpodder API over
 them, so that AntennaPod and other apps of that API sync with the rest.
 
-The server is for one listener. Without a password it has no login, so
-reach it only through a private network, e.g. your tailnet.
+The server is for one listener. Without a password it has no login, so it
+then starts only on localhost, or where you say that only a private
+network reaches it, e.g. your tailnet.
 
 
 While you build a client
@@ -61,10 +62,13 @@ On a machine where Tailscale runs, e.g. a Raspberry Pi with a 64-bit OS
 and Docker:
 
 1. Clone the repository, and write the name of the machine on the tailnet
-   and the folder of your client's release build in `server/.env`:
+   and the folder of your client's release build in `server/.env`, with
+   the setting that only the tailnet reaches the server, so that it needs
+   no password:
 
    ```bash
    PODCAST_SERVER_NAMES=pi.example.ts.net
+   PODCAST_SERVER_PRIVATE_NETWORK=true
    PODCAST_CLIENT_DIR=/home/simon/podcast-client
    ```
 
@@ -123,7 +127,9 @@ Every request must then give the password with HTTP Basic
 authentication, with any user name. The browser asks for it when you
 open the client, and a gpodder app takes it as the password of its
 account. Nothing slows down the guesses of an attacker, which is why the
-password must be long.
+password must be long. To change it, edit `server/.env` and run the
+`docker compose` command again, which also ends the sessions of the
+gpodder apps.
 
 The server speaks plain HTTP, so put a server for HTTPS in front of it,
 e.g. Caddy with this `Caddyfile`, and give the domain in
@@ -136,7 +142,7 @@ podcasts.example.org {
 ```
 
 With Tailscale, `tailscale funnel` can do the same, since the server
-answers Funnel once it has a password.
+answers Funnel when it has a password.
 
 
 Settings
@@ -148,11 +154,14 @@ Each setting is an environment variable.
 |---|---|---|
 | `PODCAST_SERVER_PORT` | 8400 | The port that the server listens on |
 | `PODCAST_SERVER_HOST` | localhost, or 0.0.0.0 in the image | The address that it listens on |
-| `PODCAST_SERVER_NAMES` | none | The names of the server besides localhost, separated by commas, e.g. its name on the tailnet |
+| `PODCAST_SERVER_NAMES` | none | The names of the server besides localhost, separated by commas, e.g. its name on the tailnet, with or without the port |
 | `PODCAST_SERVER_PASSWORD` | none | The password that every request must give, of at least 16 characters |
+| `PODCAST_SERVER_PRIVATE_NETWORK` | false | Whether only a private network reaches the server, e.g. through tailscale serve, so that it can start without a password on another address than localhost |
 | `PODCAST_SERVER_DATA` | `data`, or `/data` in the image | The folder of its data, with the documents in `sync/` |
-| `PODCAST_SERVER_CLIENT` | none | The folder of the client's files |
+| `PODCAST_SERVER_CLIENT` | none | The folder of the client's files. A file or folder whose name starts with a dot isn't served. |
 
 The server refuses a request that names it by any other name, as a page
-that points a domain of its own at the server would. Without a password,
-it also refuses whatever Tailscale Funnel brings from the public internet.
+that points a domain of its own at the server would. It refuses a write
+from a page of another site, e.g. a form that posts to the gpodder API.
+Without a password, it also refuses whatever Tailscale Funnel brings from
+the public internet.

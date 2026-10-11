@@ -177,6 +177,11 @@
         [_ cookie] (login basic)]
     (is (= [200 cookie] (login {"Cookie" cookie})) "a login that carries its session keeps it")
     (is (not= cookie (second (login basic))) "and one without it gets another")
+    (let [set-cookie #(first (get-in (send {:method :post :url (str root "/api/2/auth/simon/login.json") :headers %})
+                                     [:headers "set-cookie"]))]
+      (is (str/ends-with? (set-cookie basic) "; HttpOnly; SameSite=Strict") "a cookie that no page of another site sends")
+      (is (str/ends-with? (set-cookie (assoc basic "X-Forwarded-Proto" "https")) "; SameSite=Strict; Secure")
+          "nor plain HTTP, after a login over https"))
     (reset! clock (time/->inst (+ (inst-ms t1) (* 1000 server/session-seconds))))
     (is (= 401 (first (login {"Cookie" cookie}))) "a session ends after a day")))
 

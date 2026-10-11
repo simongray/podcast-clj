@@ -60,6 +60,18 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_PORT is not a port number"
                         (service/settings {"PODCAST_SERVER_PORT" "eighty"}))))
 
+(deftest an-open-server
+  (is (not (service/open? service/defaults)) "no password, on localhost")
+  (is (service/open? (assoc service/defaults :host "0.0.0.0")) "no password, e.g. behind Caddy")
+  (is (not (service/open? (assoc service/defaults :host "0.0.0.0" :password (secret/hide password)))))
+  (is (not (service/open? (service/settings {"PODCAST_SERVER_HOST"            "0.0.0.0"
+                                             "PODCAST_SERVER_PRIVATE_NETWORK" "true"})))
+      "no password, in Docker behind tailscale serve")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_PRIVATE_NETWORK is neither true nor false: yes"
+                        (service/settings {"PODCAST_SERVER_PRIVATE_NETWORK" "yes"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"The server needs a password to listen on 0.0.0.0"
+                        (service/start! {:host "0.0.0.0"}))))
+
 (deftest the-names-it-answers
   (with-temp-dir
     (fn [dir]
@@ -71,7 +83,10 @@
           (is (= "The server doesn't answer to the name attacker.example." body)))
         (is (= 403 (:status (response-for c :get "/" :headers {"host"                     "pi.example.ts.net"
                                                                 "tailscale-funnel-request" "?1"})))
-            "a request from the public internet")))))
+            "a request from the public internet"))
+      (is (= 200 (:status (response-for (connector dir true {:names #{"pi.example.ts.net:8443"}})
+                                        :get "/" :headers {"host" "pi.example.ts.net:8443"})))
+          "a name given with its port"))))
 
 (deftest the-client-files
   (with-temp-dir
@@ -88,6 +103,9 @@
           (is (= 304 (:status (response-for c :get "/app.js" :headers {"if-modified-since" (get headers "Last-Modified")})))))
         (is (= 404 (:status (response-for c :get "/missing.js"))))
         (is (= 404 (:status (response-for c :get "/sub/"))))
+        (spit (io/file dir "client" ".env") "SECRET=1")
+        (is (= 404 (:status (response-for c :get "/.env"))) "no dotfile")
+        (is (= 404 (:status (response-for c :get "/%2Eenv"))) "nor one with an escaped dot")
         (is (= 404 (:status (response-for (connector dir false) :get "/"))) "no client")))))
 
 (deftest the-proxy
@@ -99,6 +117,20 @@
         (is (= 405 (:status (response-for c :post url))))
         (is (= 403 (:status (response-for c :get url :headers {"sec-fetch-site" "cross-site"})))
             "a page of another site")))))
+
+(deftest writes-of-other-sites
+  (with-temp-dir
+    (fn [dir]
+      (let [c (connector dir true)]
+        (is (= 403 (:status (response-for c :put "/dav/a.edn" :body "{}" :headers {"sec-fetch-site" "cross-site"}))))
+        (is (= 403 (:status (response-for c :post "/api/2/subscriptions/simon/phone.json" :body "{\"add\": []}"
+                                          :headers {"sec-fetch-site" "same-site" "content-type" "text/plain"})))
+            "a form of another site that posts to the gpodder API")
+        (is (= 201 (:status (response-for c :put "/dav/a.edn" :body "{}" :headers {"sec-fetch-site" "same-origin"})))
+            "the server's own page")
+        (is (= 204 (:status (response-for c :put "/dav/a.edn" :body "{}"))) "an app that isn't a browser")
+        (is (= 200 (:status (response-for c :get "/" :headers {"sec-fetch-site" "cross-site"})))
+            "a link of another site")))))
 
 (defn- through
   "The library's HTTP client stood in by the connector `c`: a request map
@@ -146,4 +178,20 @@
         (testing "the library's own WebDAV client"
           (with-redefs [http/send! (through c)]
             (is (:ok? (store/check! (webdav/store "http://localhost:8400/dav/" {:credentials {:username "simon" :password password}}))))
-            (is (not (:ok? (store/check! (webdav/store "http://localhost:8400/dav/")))) "without the credentials")))))))
+            (is (not (:ok? (store/check! (webdav/store "http://localhost:8400/dav/")))) "without the credentials")))
+        (is (= 400 (:status (response-for c :put (str "/dav/" (apply str (repeat 300 "a")) ".edn") :headers mine :body "{}")))
+            "a name too long for the folder, not an exception whose log holds the request")))))
+
+(deftest no-password-in-a-log
+  (let [{:keys [request]} ((:enter service/hidden-credentials) {:request {:headers (basic "simon" password)}})]
+    (is (= "{:headers {\"authorization\" #<secret>}}" (pr-str request)))))
+
+(deftest a-new-password
+  (with-temp-dir
+    (fn [dir]
+      (let [login  (response-for (connector dir false {:password (secret/hide password)})
+                                 :post "/api/2/auth/simon/login.json" :headers (basic "simon" password))
+            cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))
+            after  (connector dir false {:password (secret/hide "a new password, as long")})]
+        (is (= 401 (:status (response-for after :get "/api/2/devices/simon.json" :headers {"cookie" cookie})))
+            "ends the sessions, at the restart that sets it")))))
