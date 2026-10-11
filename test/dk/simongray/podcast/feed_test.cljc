@@ -7,6 +7,7 @@
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]))
 
 (def example
@@ -206,7 +207,7 @@
     (is (= 1 (:unchanged d)))
     (testing "live items are compared on their own"
       (is (= [{:before (live "pending") :after (live "live")}] (:changed (:live-items d))))
-      (is (= {:added [] :removed [] :changed [] :unchanged 0} (:live-items (feed/diff {} {})))))
+      (is (= {:added [] :removed [] :renamed [] :changed [] :unchanged 0} (:live-items (feed/diff {} {})))))
     (testing "timestamps and live items alone do not count as a channel change"
       (is (false? (:channel-changed? d)))
       (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))
@@ -215,6 +216,26 @@
         (is (= {:added [] :removed [] :changed [] :unchanged 2}
                (select-keys (feed/diff twice twice) [:added :removed :changed :unchanged])))
         (is (= [(item "1" "One") (item "2" "Two")] (:added (feed/diff {} twice))))))))
+
+(deftest renamed-items
+  (let [item   (fn [id url title day]
+                 {:rss/guid {:content id} :rss/enclosure {:url url} :rss/title title :rss/pub-date (time/->inst (* day 86400000))})
+        guids  (fn [items] (mapv (comp :content :rss/guid) items))
+        pairs  (fn [d] (mapv (fn [{:keys [before after]}] (guids [before after])) (:renamed d)))
+        before {:rss/items [(item "a3" "https://e.com/3.mp3" "Three" 3)
+                            (item "a2" "https://e.com/2.mp3" "Two" 2)
+                            (item "a1" "https://e.com/1.mp3" "One" 1)]}
+        after  {:rss/items [(item "b3" "https://e.com/3.mp3" "Three, revised" 3)
+                            (item "b2" "https://op3.dev/e/e.com/2.mp3" " Two " 2.5)
+                            (item "b1" "https://op3.dev/e/e.com/1.mp3" "One" 3.5)]}
+        d      (feed/diff before after)]
+    (is (= [["a3" "b3"] ["a2" "b2"]] (pairs d)) "by the enclosure URL, or else the title and a date a day apart at most")
+    (is (= [["b1"] ["a1"]] [(guids (:added d)) (guids (:removed d))]) "and the rest added and removed")
+    (testing "one item to one, since some feeds give two items one enclosure URL"
+      (let [twice (assoc-in before [:rss/items 1 :rss/enclosure :url] "https://e.com/3.mp3")]
+        (is (= [["a2" "b2"]] (pairs (feed/diff twice after))))
+        (is (= [["a2" "b2"]] (pairs (feed/diff before (update after :rss/items conj (item "b4" "https://e.com/3.mp3" "Four" 4)))))
+            "on either side")))))
 
 (deftest joining-pages
   (let [item  (fn [id] {:rss/guid {:content id} :rss/title id})

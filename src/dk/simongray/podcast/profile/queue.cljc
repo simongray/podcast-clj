@@ -278,46 +278,59 @@
 
 (defn refresh
   "Note in `profile` at `at` a new parse `after` of the feed at `url`, which
-  was `before`. The result is a map of the new :profile and the episode ids
-  it :added.
+  was `before`, with the `opts` of feed/new-episodes. The result is a map
+  of the new :profile and the episode ids that feed/new-episodes gives:
+  those :added, :backfilled and :renamed.
 
   The new episodes join the end of the queue with :auto-queue? in the
   settings of a live subscription, or else the inbox with :inbox?. An
-  episode that's already in the profile stays as the listener left it."
-  [profile url before after at]
-  (let [feed-guid (guid/feed-key after url)
-        added     (feed/new-episodes url before after)
-        {:keys [auto-queue? inbox?]}
-        (when (profile/subscribed? profile feed-guid)
-          (profile/settings profile feed-guid))
+  episode that's already in the profile stays as the listener left it. A
+  renamed episode takes its state along, as profile/rename-episode moves
+  it, written by this device for the listener."
+  ([profile url before after at]
+   (refresh profile url before after at {}))
+  ([profile url before after at opts]
+   {:pre [(map? opts)]}
+   (let [feed-guid (guid/feed-key after url)
+         {:keys [added backfilled renamed]}
+         (feed/new-episodes url before after opts)
 
-        ;; another device can find an episode first
-        known?    #(or (profile/played? profile %)
-                       (contains? (:queue profile) %)
-                       (contains? (:inbox profile) %))
-        unknown   (remove known? added)
-        writes    (cond
-                    auto-queue?
-                    (crdt.list/appended profile
-                                        [:queue]
-                                        (queue-entries profile)
-                                        unknown)
+         {:keys [auto-queue? inbox?]}
+         (when (profile/subscribed? profile feed-guid)
+           (profile/settings profile feed-guid))
 
-                    inbox?
-                    (for [id unknown]
-                      [[:inbox id] (constantly {:removed? false})])
+         ;; another device can find an episode first
+         known?    #(or (profile/played? profile %)
+                        (contains? (:queue profile) %)
+                        (contains? (:inbox profile) %))
+         unknown   (remove known? added)
+         writes    (cond
+                     auto-queue?
+                     (crdt.list/appended profile
+                                         [:queue]
+                                         (queue-entries profile)
+                                         unknown)
 
-                    :else
-                    [])
-        ;; the feed is the author of what joins, at the episode's date of
-        ;; publication but never after at, so that a device that finds an
-        ;; episode late never undoes what the listener did with it
-        stamps    (joined-at after unknown at)
-        write     (fn [s [[_ id :as path] f]]
-                    (crdt/write s path f (stamps id)))
-        author    (profile/feed-author feed-guid)]
-    {:profile (crdt/as-device profile author #(reduce write % writes))
-     :added   added}))
+                     inbox?
+                     (for [id unknown]
+                       [[:inbox id] (constantly {:removed? false})])
+
+                     :else
+                     [])
+         ;; the feed is the author of what joins, at the episode's date of
+         ;; publication but never after at, so that a device that finds an
+         ;; episode late never undoes what the listener did with it
+         stamps    (joined-at after unknown at)
+         write     (fn [s [[_ id :as path] f]]
+                     (crdt/write s path f (stamps id)))
+         author    (profile/feed-author feed-guid)
+         joined    (crdt/as-device profile author #(reduce write % writes))
+         rename    (fn [p [old-id new-id]]
+                     (profile/rename-episode p old-id new-id at))]
+     {:profile    (reduce rename joined renamed)
+      :added      added
+      :backfilled backfilled
+      :renamed    renamed})))
 
 (comment
   (def sample

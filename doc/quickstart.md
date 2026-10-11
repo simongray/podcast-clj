@@ -128,7 +128,7 @@ result into the atom with `library/merge`, which keeps those changes:
 
 ```clojure
 (:refresh (swap! lib library/merge (library/refresh! @lib)))
-;; => {:at #inst "…" :added [] :moved {} :report []}
+;; => {:at #inst "…" :added [] :backfilled [] :renamed [] :moved {} :report []}
 ```
 
 Nothing is due right after subscribing, so in an app, call `refresh!` from

@@ -82,7 +82,12 @@
                       ["no items" (assoc show :rss/items [])]]]
       (testing what
         (is (same-for-slim? f before url now))
-        (is (same-for-slim? f before url (at (* 365 86400))) "a year later")))))
+        (is (same-for-slim? f before url (at (* 365 86400))) "a year later")))
+    (let [moved (update show :rss/items (partial mapv #(-> %
+                                                           (update-in [:rss/guid :content] str "-moved")
+                                                           (update-in [:rss/enclosure :url] str "?moved"))))]
+      (is (= 3 (count (:renamed (feed/new-episodes url show moved)))) "renamed by title and date")
+      (is (same-for-slim? moved show url now) "which the slim form keeps"))))
 
 (deftest a-complete-feed
   (let [complete (assoc show :itunes/complete true)
@@ -190,6 +195,11 @@
       (is (= [(at 3600) (at 7200) (at 7200)] (map :changed-at [e1 e2 e3]))))
     (testing "the slim form keeps them too"
       (is (= (item-guids (:feed e2)) (item-guids (feeds/slim (:feed e2))))))
+    (testing "but not an item that came back under a new guid"
+      (let [renamed (assoc ep2 :rss/guid {:content "ep2, renamed"})
+            e       (get-in (refresh stored [ep3 renamed ep1] (at 3600)) [:feeds guid])]
+        (is (= [(:rss/guid ep3) {:content "ep2, renamed"} (:rss/guid ep1) {:content "undated"}]
+               (map :rss/guid (:rss/items (:feed e)))))))
     (testing "a feed without items, where it had some"
       (let [r (refresh stored [] (at 3600))]
         (is (nil? (:changed r)))

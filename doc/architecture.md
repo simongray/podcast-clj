@@ -142,6 +142,19 @@ stay on the device and out of the profile, as the downloads do, since
 they're a copy of what the host once served, not something the listener
 did.
 
+An episode's guid should never change, but a host migration can rewrite
+them all, e.g. in a feed whose guids are URLs. So `diff` pairs a removed
+item with an added one by the enclosure URL, Apple's identity for an item
+without a guid, and else by the title and a date a day apart at most,
+which catches a host that also moves the media. It pairs one item with
+one, since some feeds give two items one enclosure URL. The pairs are a
+function of the two parses, so every device that saw the rewrite finds
+the same ones and moves the state itself, as the listener's write. A
+device that first fetches the feed afterwards has nothing to move and
+takes the moved state from the sync. For the same reason, an episode that
+appears with a date older than the newest one known isn't new, so a
+rewrite that the pairs miss can't queue a whole back catalogue.
+
 
 ## Resolving the vocabularies
 

@@ -6,11 +6,14 @@
   the tests pass vacuously."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.feeds-test :refer [same-for-slim?]]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as feed.guid]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -59,6 +62,26 @@
       (is (= (guids (:feed entry)) (guids (feeds/slim (:feed entry)))) "in the slim form too")
       (when (seq (:rss/items feed))
         (is (= feed (get-in (refresh []) [:feeds k :feed])) "and an empty answer changes nothing")))))
+
+(deftest every-corpus-feed-rewritten
+  (doseq [{:keys [name feed]} @corpus-feeds
+          :let [url     "https://example.com/feed.xml"
+                guided  (filter #(get-in % [:rss/guid :content]) (:rss/items feed))
+                own     (fn [f] (let [n (frequencies (map f guided))] #(and (f %) (= 1 (n (f %))))))
+                media   #(:url (:rss/enclosure %))
+                title   #(some-> (resolve/title %) str/trim not-empty)
+                rewrite (fn [f] (update feed :rss/items (partial mapv #(cond-> % (get-in % [:rss/guid :content]) f))))
+                renamed (fn [after] (set (map (comp second first) (:renamed (feed/new-episodes url feed after)))))
+                new-id  #(update-in % [:rss/guid :content] str "-moved")
+                op3     #(update-in (new-id %) [:rss/enclosure :url] (partial str "https://op3.dev/e/"))]]
+    (testing name
+      (is (every? (renamed (rewrite new-id))
+                  (map feed.guid/item-guid (filter (every-pred (own feed.guid/item-guid) (own media)) guided)))
+          "every item with a guid and an enclosure URL of its own, by the URL")
+      (is (every? (renamed (rewrite op3))
+                  (map feed.guid/item-guid (filter (every-pred (own feed.guid/item-guid) (own title) resolve/published)
+                                                   guided)))
+          "and with a new URL too, every dated item with a title of its own"))))
 
 (def companions-dir
   (io/file "dev-resources/corpus/companions"))

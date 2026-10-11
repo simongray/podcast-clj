@@ -66,7 +66,8 @@
     (gen/tuple (gen/return :refresh) feed-guids instants instants)
     (gen/tuple (gen/return :relocate) feed-guids (gen/elements ["rss" "moved"]))
     (gen/tuple (gen/return :settle) feed-guids (gen/elements ["a0000000-0000-5000-8000-000000000001"
-                                                              "b0000000-0000-5000-8000-000000000002"]))]))
+                                                              "b0000000-0000-5000-8000-000000000002"]))
+    (gen/tuple (gen/return :rename) episode-ids instants)]))
 
 (defn- refreshed
   "The `state` after a refresh at `at` that finds the one episode of the
@@ -110,7 +111,8 @@
                               (profile/configure x {y true} z))
     :refresh              (refreshed state x y z)
     :relocate             (profile/relocate state x {:url (str "https://" x "/" y) :title x})
-    :settle               (profile/settle state x y)))
+    :settle               (profile/settle state x y)
+    :rename               (profile/rename-episode state x [(first x) (str (second x) "-moved")] y)))
 
 (def schedule
   "What happens next: a device syncs, or applies an operation."

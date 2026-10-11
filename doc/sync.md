@@ -156,7 +156,10 @@ listener can use different scales.
 Every device refreshes its own feeds, so two devices can find the same new
 episode. That's why `refresh` only adds an episode to the queue or the
 inbox when the state doesn't know it yet. Followed lists work the same way
-for shows, which they recognise by feed URL.
+for shows, which they recognise by feed URL. Likewise, two devices can
+find that a host gave an episode a new guid. Each moves the episode's
+state to the new id, except where the new id has an entry already, so a
+device that moves it late never undoes what the listener did since.
 
 A device that refreshes before it syncs doesn't know yet what the listener
 did on the others. So the feed is the author of what `refresh` adds, at

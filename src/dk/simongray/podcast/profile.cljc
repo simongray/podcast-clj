@@ -239,6 +239,41 @@
                        [[:tags new-guid t] (constantly {:removed? false})])]
       (crdt/write-each profile (concat moved configured retagged) at))))
 
+(defn rename-episode
+  "The `profile` with the state of the episode `old-id` under `new-id` at
+  `at`, e.g. after a host rewrote the guids of its feed.
+
+  The places in the queue and the playlists, the inbox, the marks and a
+  remote item move, leaving tombstones, while the progress and the played
+  mark are copied, since they're never dropped. Nothing is written where
+  `new-id` has an entry already, e.g. from a device that renamed it
+  first."
+  [profile old-id new-id at]
+  (let [moves  (concat
+                (for [c [:queue :queue-moves :inbox :stars :ratings
+                         :remote-items]]
+                  [[c old-id] [c new-id]])
+                (for [c [:bookmarks :clips]
+                      k (keys (get-in profile [c old-id]))]
+                  [[c old-id k] [c new-id k]])
+                (for [c    [:playlists :playlist-moves]
+                      name (keys (get profile c))]
+                  [[c name old-id] [c name new-id]]))
+        copies (for [c [:episodes :played]]
+                 [[c old-id] [c new-id]])
+        copied (fn [[from to]]
+                 (let [e (get-in profile from)]
+                   (when (and e (nil? (get-in profile to)))
+                     [[to (constantly e)]])))
+        moved  (fn [[from :as paths]]
+                 (when (crdt/live? (get-in profile from))
+                   (conj (vec (copied paths))
+                         [from #(assoc % :removed? true)])))
+        writes (concat (mapcat moved moves) (mapcat copied copies))]
+    (if (or (= old-id new-id) (empty? writes))
+      profile
+      (crdt/write-each profile writes at))))
+
 ;; podcast:remoteItem names an episode of another feed by its feedGuid,
 ;; itemGuid and feedUrl
 (defn add-remote-item

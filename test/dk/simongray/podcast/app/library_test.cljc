@@ -808,6 +808,22 @@
                   (fn [_]
                     (is (= 3 @pages) "the pages of a paged feed at the first fetch of a subscription"))))))
 
+(deftest a-host-that-rewrites-guids
+  (let [[ep3 _ ep1] (:rss/items show)
+        moved       #(update-in % [:rss/guid :content] str "?moved")
+        rewritten   (update show :rss/items (partial mapv moved))
+        id          (fn [item] [guid (feed.guid/item-guid item)])
+        lib         (library/update-profile library profile.queue/enqueue (id ep1))]
+    (run #(async/then (library/refresh! lib {:at         (at 86400)
+                                             :feed-guids [guid]
+                                             :fetch      (fn [u _] {:status 200 :url u :feed rewritten})})
+                      (fn [{{:keys [added backfilled renamed]} :refresh :as lib'}]
+                        (is (= [[] []] [added backfilled]) "appends nothing to the queue")
+                        (is (= (set (map (juxt id (comp id moved)) (:rss/items show))) (set renamed)))
+                        (is (= [(id (moved ep1))] (profile.queue/queue (:profile lib'))) "the episode keeps its place")
+                        (is (= (:rss/title ep3) (:rss/title (library/episode lib' (id (moved ep3))))))
+                        (is (nil? (get-in lib' [:feeds guid :retained])) "and the old items aren't kept"))))))
+
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
         written             (document/decode body sync/defaults)]

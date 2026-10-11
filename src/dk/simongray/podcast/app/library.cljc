@@ -33,6 +33,7 @@
        :concurrency    8              ; how many feeds are fetched at once
        :max-pages      5              ; of a paged feed, at its first fetch
        :max-items      500            ; the most items of a feed, all by default
+       :only-newer?    false          ; older episodes that appear are new too
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
@@ -576,9 +577,9 @@
 (defn- applied
   "The `library` with the `result` of a refresh of its feeds applied to the
   profile at `at`, and the fresh feeds cut down as the `opts` say, as a map
-  of the :library, what was :added and :moved, and the :report of the
-  feeds that would take another subscription over or give themselves
-  another guid.
+  of the :library, what was :added, :backfilled, :renamed and :moved, and
+  the :report of the feeds that would take another subscription over or
+  give themselves another guid.
 
   A feed fetched for the first time is that of a new subscription, so its
   episodes aren't new ones, and neither are those of a feed of remote
@@ -601,14 +602,16 @@
                        (noted acc feed-guid)
 
                        old-feed
-                       (let [{:keys [profile added]}
-                             (profile.queue/refresh current url
-                                                    old-feed feed at)]
+                       (let [{:keys [profile added backfilled renamed]}
+                             (profile.queue/refresh current url old-feed feed
+                                                    at opts)]
                          (-> acc
                              (assoc-in [:library :profile] profile)
                              (with-guid feed-guid)
                              (noted feed-guid)
-                             (update :added into added)))
+                             (update :added into added)
+                             (update :backfilled into backfilled)
+                             (update :renamed into renamed)))
 
                        :else
                        (first-fetched acc feed-guid at opts))))
@@ -623,7 +626,12 @@
                            (assoc-in [:moved now-guid] new-url))
                        acc)))
         result   (reduce fresh
-                         {:library library :added [] :moved {} :report []}
+                         {:library    library
+                          :added      []
+                          :backfilled []
+                          :renamed    []
+                          :moved      {}
+                          :report     []}
                          changed)]
     (dissoc (reduce relocate result moved) :guids)))
 
@@ -635,15 +643,19 @@
   feeds whose next check has come. It returns the library with the result
   under :refresh, in ClojureScript as a promise:
 
-      {:at     #inst \"…\"
-       :added  [[feed-guid item-guid] …]   ; the new episodes
-       :moved  {feed-guid \"https://…\"}    ; the feeds that moved, and so
-                                          ; their subscriptions
-       :report [...]}                     ; the fetches that failed, and why
+      {:at         #inst \"…\"
+       :added      [[feed-guid item-guid] …]  ; the new episodes
+       :backfilled [[feed-guid item-guid] …]  ; older ones that appeared
+       :renamed    [[old-id new-id] …]        ; episodes under a new guid,
+                                              ; which took their state along
+       :moved      {feed-guid \"https://…\"}   ; the feeds that moved, and so
+                                              ; their subscriptions
+       :report     [...]}                     ; the fetches that failed, and why
 
-  Nothing is thrown for what the network or a server does. The `opts` are
-  the config for this call, and :feed-guids, the feeds to fetch instead of
-  those that are due, e.g. those that a Podping names."
+  Only the new episodes join the queue or the inbox. Nothing is thrown for
+  what the network or a server does. The `opts` are the config for this
+  call, and :feed-guids, the feeds to fetch instead of those that are due,
+  e.g. those that a Podping names."
   ([library]
    (refresh! library {}))
   ([library opts]
@@ -669,17 +681,16 @@
            (feeds/refresh! (clojure.core/merge unfetched (:feeds library))
                            feeds-opts)
            (fn [step]
-             (let [{:keys [library added moved] :as done}
-                   (applied library step at opts)
-
+             (let [{:keys [library] :as done} (applied library step at opts)
                    reports (-> []
                                (into report)
                                (into (:report step))
                                (into (:report done)))]
-               (assoc library :refresh {:at     at
-                                        :added  added
-                                        :moved  moved
-                                        :report reports}))))))))))
+               (assoc library :refresh (-> {:at at}
+                                           (into (select-keys
+                                                  done [:added :backfilled
+                                                        :renamed :moved]))
+                                           (assoc :report reports))))))))))))
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid

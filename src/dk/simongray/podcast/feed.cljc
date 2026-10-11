@@ -13,7 +13,8 @@
 
   Nothing throws on a bad value, which stays a string, and the report says
   so. The report is in the metadata of the result under :podcast/report."
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
@@ -443,16 +444,78 @@
                    (vswap! seen conj id))))
              items)))
 
+(defn- date-ms
+  "The date of `item` in milliseconds, or nil."
+  [item]
+  (let [d (:rss/pub-date item)]
+    (when (inst? d)
+      (inst-ms d))))
+
+(defn- media-url
+  "The enclosure URL of `item`, or nil."
+  [item]
+  (not-empty (:url (:rss/enclosure item))))
+
+(defn- title-of
+  "The title of `item`, trimmed, or nil."
+  [item]
+  (some-> (or (:rss/title item) (:itunes/title item)) str/trim not-empty))
+
+(defn- within-a-day?
+  "Whether the items `a` and `b` are both dated, a day apart at most."
+  [a b]
+  (let [x (date-ms a)
+        y (date-ms b)]
+    (boolean (and x y (<= -86400000 (- x y) 86400000)))))
+
+(defn- matched
+  "The pairs of an item of `removed` and an item of `added` that `key-fn`
+  gives the same key, and that `match?` takes, as {:before :after} maps. A
+  key that more than one item on either side has makes no pair."
+  [key-fn match? removed added]
+  (let [olds (group-by key-fn removed)
+        news (group-by key-fn added)]
+    (vec (for [item  added
+               :let  [k           (key-fn item)
+                      [old other] (get olds k)]
+               :when (and (some? k)
+                          old
+                          (nil? other)
+                          (= 1 (count (get news k)))
+                          (match? old item))]
+           {:before old :after item}))))
+
+;; Apple's A Podcaster's Guide to RSS identifies an item without a guid by
+;; its enclosure URL; one item to one, since some feeds reuse a URL
+(defn- renames
+  "The pairs of the `removed` and the `added` items that are one episode
+  under a new guid, as {:before :after} maps: those with the same enclosure
+  URL, and then those with the same title, dated a day apart at most."
+  [removed added]
+  (let [by-media (matched media-url (constantly true) removed added)
+        paired   (fn [k] (into #{} (map (comp guid/item-guid k)) by-media))
+        unpaired (fn [items k]
+                   (remove (comp (paired k) guid/item-guid) items))
+        by-title (matched title-of within-a-day?
+                          (unpaired removed :before)
+                          (unpaired added :after))]
+    (into by-media by-title)))
+
 (defn- item-changes
   "What changed between the item sequences `before` and `after`, by item
   identity."
   [before after]
-  (let [before (identified before)
-        after  (identified after)
-        old    (into {} (map (juxt guid/item-guid identity)) before)
-        new    (into {} (map (juxt guid/item-guid identity)) after)]
-    {:added     (filterv #(not (contains? old (guid/item-guid %))) after)
-     :removed   (filterv #(not (contains? new (guid/item-guid %))) before)
+  (let [before  (identified before)
+        after   (identified after)
+        old     (into {} (map (juxt guid/item-guid identity)) before)
+        new     (into {} (map (juxt guid/item-guid identity)) after)
+        added   (filterv #(not (contains? old (guid/item-guid %))) after)
+        removed (filterv #(not (contains? new (guid/item-guid %))) before)
+        renamed (renames removed added)
+        ids     (fn [k] (into #{} (map (comp guid/item-guid k)) renamed))]
+    {:added     (filterv (comp not (ids :after) guid/item-guid) added)
+     :removed   (filterv (comp not (ids :before) guid/item-guid) removed)
+     :renamed   renamed
      :changed   (vec (for [item after
                            :let [previous (get old (guid/item-guid item))]
                            :when (and previous (not= previous item))]
@@ -463,12 +526,16 @@
   "What changed from the feed `before` to the feed `after`, by item identity:
 
       {:added [item ...] :removed [item ...] :changed [{:before :after} ...]
+       :renamed [{:before :after} ...]
        :unchanged 42
        :live-items {:added [...] :removed [...] :changed [...] :unchanged 1}
        :channel-changed? false}
 
   Items without an identity, with neither a guid nor an enclosure, aren't
-  compared, and neither are the later of the items that share one. The
+  compared, and neither are the later of the items that share one. An
+  item that's a removed one under a new guid is :renamed rather than added
+  and removed: one with the same enclosure URL, or else the same title and
+  a date a day apart at most, when only one item on each side matches. The
   channel counts as changed when anything but its items, live items and
   timestamps differs."
   [before after]
@@ -483,23 +550,42 @@
                                    (apply dissoc after churn)))))
 
 (defn new-episodes
-  "The ids of the items that the parse `after` of the feed at `url` has and
-  the parse `before` hadn't, oldest first.
+  "The ids of the episodes that the parse `after` of the feed at `url` has
+  and the parse `before` hadn't, by the `opts` below, as a map:
 
+      {:added      [[feed-guid item-guid] …]  ; the new ones, oldest first
+       :backfilled [[feed-guid item-guid] …]  ; older ones that appeared
+       :renamed    [[old-id new-id] …]}       ; those under a new guid
+
+  An episode is new unless it's older than the newest one of `before`, so
+  that a host that publishes its back catalogue again, or rewrites guids
+  that diff can't pair, adds no old episodes. One without a date is new.
   Without `before`, there are none, since a first parse finds the back
-  catalogue, not new episodes."
-  [url before after]
-  (if (nil? before)
-    []
-    (let [feed-guid     (guid/feed-key after url)
-          date-ms       (fn [item]
-                          (let [d (:rss/pub-date item)]
-                            (when (inst? d) (inst-ms d))))
-          dates         (keep date-ms (:rss/items after))
-          oldest-first? (< (or (first dates) 0) (or (last dates) 0))
-          added         (:added (diff before after))]
-      (mapv #(vector feed-guid (guid/item-guid %))
-            (if oldest-first? added (reverse added))))))
+  catalogue. The `opts` are:
+
+  - :only-newer?, false to count every episode that appeared as new"
+  ([url before after]
+   (new-episodes url before after {}))
+  ([url before after {:keys [only-newer?] :or {only-newer? true} :as opts}]
+   {:pre [(map? opts)]}
+   (if (nil? before)
+     {:added [] :backfilled [] :renamed []}
+     (let [feed-guid (guid/feed-key after url)
+           id        #(vector feed-guid (guid/item-guid %))
+           ;; the first two dates say the order, since the items that a
+           ;; library keeps of a feed follow those it serves
+           [a b]     (keep date-ms (:rss/items after))
+           newest    (some->> (seq (keep date-ms (:rss/items before)))
+                              (apply max))
+           older?    (fn [item]
+                       (let [d (date-ms item)]
+                         (boolean (and only-newer? newest d (< d newest)))))
+           {:keys [added renamed]} (diff before after)
+           ordered   (if (and a b (< a b)) added (reverse added))]
+       {:added      (mapv id (remove older? ordered))
+        :backfilled (mapv id (filter older? ordered))
+        :renamed    (mapv (juxt (comp id :before) (comp id :after))
+                          renamed)}))))
 
 (defn- page-report
   "The diagnostics of `page` for a feed joined of pages, by the `places` of

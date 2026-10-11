@@ -274,14 +274,25 @@ check a new feed with `profile/takeover` first.
 (swap! lib library/merge (library/refresh! @lib))
 
 (:refresh @lib)
-;; => {:at #inst "…" :added [[feed-guid item-guid] …] :moved {} :report []}
+;; => {:at #inst "…" :added [[feed-guid item-guid] …] :backfilled []
+;;     :renamed [] :moved {} :report []}
 ```
 
 This fetches whatever is due: the lists that the listener follows, the
 feeds of new subscriptions, and the feeds whose next check has come. The
 new episodes go to the queue of a show with `:auto-queue?`, or to the
 inbox with `:inbox?`. An episode that the listener already played or
-removed on another device doesn't come back. A feed that moved for good
+removed on another device doesn't come back. An episode older than the
+newest one the library knew isn't new either: it's `:backfilled` rather
+than `:added`, so that a host that publishes its back catalogue again
+doesn't fill the queue. The setting `:only-newer? false` counts those as
+new too.
+
+When a show moves to another host, the new host often gives every episode
+a new guid. The library recognises such an episode by its enclosure URL,
+or else by its title and a date a day apart at most, and moves its place
+in the queue, its marks and its progress to the new id, as `:renamed`
+says. A feed that moved for good
 moves its subscription too, and a feed that failed stays as it was and
 waits longer before the next try. So does a feed that comes back without
 episodes, as some hosts serve one during an outage, with

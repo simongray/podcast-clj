@@ -90,12 +90,15 @@
         before (feed-a [(item "a2") (item "a1")])
         after  (feed-a [(item "a4") (item "a3") (item "a2") (item "a1")])
         s      (-> (profile/make "phone") (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))]
-    (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)) "oldest first")
+    (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (:added (feed/new-episodes "https://a/rss" before after))) "oldest first")
     (testing "oldest first by date also for a feed that lists them so, and none on a first parse"
       (let [dated (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
             after (feed-a [(dated "a1" 1) (dated "a2" 2) (dated "a3" 3) (dated "a4" 4)])]
-        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)))
-        (is (= [] (feed/new-episodes "https://a/rss" nil after)))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (:added (feed/new-episodes "https://a/rss" before after))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]]
+               (:added (feed/new-episodes "https://a/rss" before (feed-a [(dated "a2" 2) (dated "a3" 3) (dated "a4" 4) (dated "a1" 1)]))))
+            "by the first two dates, since the items that a library keeps of a feed follow those it serves")
+        (is (= {:added [] :backfilled [] :renamed []} (feed/new-episodes "https://a/rss" nil after)))))
     (testing "without auto-queue the new episodes are reported, not queued"
       (let [{:keys [profile added]} (profile.queue/refresh s "https://a/rss" before after t1)]
         (is (= 2 (count added)))
@@ -147,6 +150,57 @@
     (testing "nothing joins for a show that the listener left"
       (let [left (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile/unsubscribe "feed-a" t1))]
         (is (= [] (profile.queue/queue (:profile (profile.queue/refresh left "https://a/rss" before after t2)))))))))
+
+(deftest the-bound-on-new-episodes
+  (let [dated  (fn [id day] {:rss/guid {:content id} :rss/title id :rss/pub-date (time/->inst (* day 86400000))})
+        feed-a (fn [items] (guid/with-key {:podcast/guid "feed-a" :rss/items items} "feed-a"))
+        before (feed-a [(dated "a2" 2) (dated "a1" 1)])
+        after  (feed-a [{:rss/guid {:content "undated"}} (dated "a3" 3) (dated "a0" 0) (dated "a2" 2) (dated "a1" 1)])
+        s      (-> (profile/make "phone")
+                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                   (profile/configure "feed-a" {:auto-queue? true} t0))
+        r      (profile.queue/refresh s "https://a/rss" before after t1)]
+    (is (= {:added      [["feed-a" "a3"] ["feed-a" "undated"]]
+            :backfilled [["feed-a" "a0"]]
+            :renamed    []}
+           (dissoc r :profile))
+        "an episode older than the newest one known isn't new, and one without a date is")
+    (is (= [["feed-a" "a3"] ["feed-a" "undated"]] (profile.queue/queue (:profile r))) "so only the new ones join the queue")
+    (is (= [["feed-a" "a0"] ["feed-a" "a3"] ["feed-a" "undated"]]
+           (:added (feed/new-episodes "https://a/rss" before after {:only-newer? false})))
+        "unless every episode that appears should count as new")))
+
+(deftest a-renamed-episode
+  (let [item   (fn [id url title day]
+                 {:rss/guid {:content id} :rss/enclosure {:url url} :rss/title title :rss/pub-date (time/->inst (* day 86400000))})
+        feed-a (fn [items] (guid/with-key {:podcast/guid "feed-a" :rss/items items} "feed-a"))
+        before (feed-a [(item "a2" "https://a/2.mp3" "Two" 2) (item "a1" "https://a/1.mp3" "One" 1)])
+        ;; a new host: new guids, and the media of one behind a prefix
+        after  (feed-a [(item "b2" "https://a/2.mp3" "Two" 2) (item "b1" "https://op3.dev/e/a/1.mp3" "One" 1)])
+        [a1 a2 b1 b2] (map #(vector "feed-a" %) ["a1" "a2" "b1" "b2"])
+        s      (-> (profile/make "phone")
+                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                   (profile.queue/enqueue a2 t0)
+                   (profile/progress a1 754 3600 t0)
+                   (profile/mark-played a1 t0))
+        r      (profile.queue/refresh s "https://a/rss" before after t1)]
+    (is (= {:added [] :backfilled [] :renamed [[a2 b2] [a1 b1]]} (dissoc r :profile))
+        "by the enclosure URL, or else by the title and the date")
+    (testing "takes the state of the episode along"
+      (let [p (:profile r)]
+        (is (= [b2] (profile.queue/queue p)))
+        (is (= [754 true] ((juxt :position :played?) (profile/episode-entry p b1))))
+        (is (= [754 true] ((juxt :position :played?) (profile/episode-entry p a1))) "and leaves what's never dropped")
+        (is (= #{"phone"} (set (map :device [(get-in p [:queue b2]) (get-in p [:episodes b1])]))) "written by this device")))
+    (testing "two devices that find the same rename agree, and the later progress wins"
+      (let [phone  (-> (:profile r) (profile/progress b1 1200 3600 t2))
+            laptop (-> (profile/merge (profile/make "laptop") s)
+                       (profile/merge phone)
+                       (profile.queue/refresh "https://a/rss" before after t3)
+                       :profile)]
+        (is (= 1200 (:position (profile/episode-entry laptop b1))) "a device that renames later doesn't undo it")
+        (is (= (dissoc (profile/merge laptop phone) :device) (dissoc (profile/merge phone laptop) :device)))
+        (is (= [b2] (profile.queue/queue (profile/merge laptop phone))))))))
 
 (deftest the-inbox
   (let [c2 ["feed-b" "b2"]

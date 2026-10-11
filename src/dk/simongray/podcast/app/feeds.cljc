@@ -29,6 +29,7 @@
   of a new subscription, and it's due at once."
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.schedule :as schedule]
@@ -88,22 +89,20 @@
 ;; RSS 2.0 sets no limit on the items of a channel, and RFC 5005, sections 3
 ;; and 4, serves the older ones on other pages or nowhere
 (defn- with-retained
-  "The fresh `feed` with the items of the `old` entry that it lacks after
+  "The `fresh` feed with the items of the `old` entry that it lacks after
   its own, and the facts of those items at `at`, as a pair.
 
-  An item without a guid or an enclosure URL can't be told from another,
-  so it isn't kept."
-  [old feed at]
-  (let [present (into #{} (map guid/item-guid) (:rss/items feed))
-        missing (filterv #(let [g (guid/item-guid %)]
-                            (and g (not (contains? present g))))
-                         (get-in old [:feed :rss/items]))
-        since   (oldest feed)
+  The items that it lacks are those that feed/diff gives as removed, so an
+  item that's back under a new guid isn't kept, and neither is one without
+  a guid or an enclosure URL, which can't be told from another."
+  [old fresh at]
+  (let [missing (:removed (feed/diff (:feed old) fresh))
+        since   (oldest fresh)
         fact    (fn [item]
                   (let [g (guid/item-guid item)]
                     [g (cond-> (get-in old [:retained g] {:missed-at at})
                          (gone? since item) (assoc :gone? true))]))]
-    [(cond-> feed
+    [(cond-> fresh
        (seq missing) (update :rss/items #(into (vec %) missing)))
      (into {} (map fact) missing)]))
 
@@ -186,9 +185,10 @@
      (assoc feeds feed-guid (fetched old feed-guid url result at cadence)))))
 
 (defn- slim-item
-  "The part of `item` that a slim feed keeps: its guid, date and media."
+  "The part of `item` that a slim feed keeps: its guid, date, title and
+  media."
   [item]
-  (let [kept [:rss/guid :rss/pub-date :rss/enclosure
+  (let [kept [:rss/guid :rss/pub-date :rss/title :itunes/title :rss/enclosure
               :podcast/alternate-enclosures :media/contents]]
     (cond-> (select-keys item kept)
       (:media/group item)
@@ -196,11 +196,11 @@
 
 (defn slim
   "The part of `feed` that keeping it current needs: what says when to
-  check it again, and the guid, date and media of each item.
+  check it again, and the guid, date, title and media of each item.
 
   A device that only syncs and refreshes, such as a server, can keep this
   in place of the whole feed. It gives the same next check, the same new
-  episodes and the same names for the gpodder API, but no titles,
+  and renamed episodes and the same names for the gpodder API, but no
   descriptions or the rest. It keeps the key of the feed's metadata, as
   guid/with-key gives it."
   [feed]
