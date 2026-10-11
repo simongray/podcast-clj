@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -91,13 +92,14 @@
         doc (chapters/from-psc psc)]
     (is (= [{:start-time 0 :title "Intro"} {:start-time 750.5 :title "Main" :url "https://x" :img "https://i"}]
            (:chapters doc)))
-    (is (= [:psc/chapters {:version "1.2"}
-            [:psc/chapter {:start "00:00:00.000" :title "Intro"}]
-            [:psc/chapter {:start "00:12:30.500" :title "Main" :href "https://x" :image "https://i"}]]
-           (chapters/to-psc doc)))
-    (is (= [:psc/chapters {:version "1.2"} [:psc/chapter {:start "00:00:05.000" :title "A"}]]
+    (is (= psc (chapters/to-psc doc)) "the model map of the feed item, which from-psc reads")
+    (is (= doc (chapters/from-psc (chapters/to-psc doc))) "and back")
+    (is (= {:version "1.2" :chapters [{:start "00:00:05.000" :title "A"}]}
            (chapters/to-psc {:chapters [{:title "No start"} {:start-time 5 :title "A"}]}))
-        "a chapter without a start is left out, as Podlove requires one")))
+        "a chapter without a start is left out, as Podlove requires one")
+    (let [item {:rss/title "E" :psc/chapters (chapters/to-psc doc)}
+          back (-> (rss/parse (rss/emit {:rss/title "T" :rss/items [item]})) :rss/items first)]
+      (is (= doc (chapters/from-psc (:psc/chapters back))) "through a feed too"))))
 
 (deftest jumps-between-chapters
   (let [doc {:chapters [{:start-time 600 :title "Talk"}

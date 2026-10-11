@@ -1331,9 +1331,11 @@ Its API needs the token of an API key from <https://op3.dev/api/keys>:
 ```
 
 A download from OP3 has the same keys as one from `analytics/downloads`,
-so the same code counts both. If a page fails, `fetch-downloads!` returns
-the pages before it with an `:error`, and a `:continuation-token` to read
-on from.
+and its `:url` is that of the file, without OP3's prefix, as `op3/target`
+gives it, so the same code counts both. To try the API first, see the
+sample token in [Services](services.md#op3). If a page fails,
+`fetch-downloads!` returns the pages before it with an `:error`, and a
+`:continuation-token` to read on from.
 
 
 ## Serve the feed of a show

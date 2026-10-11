@@ -261,6 +261,15 @@
            (is (contains? (:facts (first (:files result))) :media)
                "is read, as one of Apple's video/x-m4v is"))))))
 
+#?(:clj
+   (deftest a-type-that-no-reader-knows
+     (with-file-server (byte-array 100) {}
+       (fn [url]
+         (let [feed   {:rss/items [{:rss/title "E" :rss/enclosure {:url url :type "audio/x-wav" :length 100}}]}
+               result (check/check-files! feed {:read? true :allow-pred local?})]
+           (is (some (comp #{:check/no-reader} :id) (:report result))
+               "says that it wasn't read, rather than nothing"))))))
+
 #?(:cljs
    (deftest checking-a-feed-with-fetch
      (async done

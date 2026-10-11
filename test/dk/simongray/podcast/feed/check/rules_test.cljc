@@ -65,6 +65,9 @@
   (is (= [[:check/no-type "audio/mpeg"]]
          (map (juxt :id :served) (rules/verdicts (update media :declared dissoc :type) served)))
       "a type the feed doesn't declare, which the server names")
+  (is (= [[:check/no-reader "audio/x-wav"]]
+         (map (juxt :id :type) (rules/verdicts media (assoc served :unread-type "audio/x-wav"))))
+      "a reading asked for a type that no reader knows")
   (testing "the length"
     (is (= #{:check/length} (ids media (assoc-in served [:get :range :total] 2000))))
     (is (= #{} (ids (assoc-in media [:declared :length] 0) (assoc-in served [:get :range :total] 2000)))

@@ -227,7 +227,11 @@
       "in front of the other prefixes")
   (doseq [url ["https://op3.dev/e/cdn.example.com/e.mp3" "https://dts.podtrac.com/redirect.mp3/op3.dev/e/cdn.example.com/e.mp3"
                "https://op3.dev/e,pg=917393e3-1b1e-5cef-ace4-edaa54e1f810/cdn.example.com/e.mp3"]]
-    (is (= url (op3/prefix url)) "a URL that goes through OP3 already"))
+    (is (= url (op3/prefix url)) "a URL that goes through OP3 already")
+    (is (= "https://cdn.example.com/e.mp3" (op3/target url)) "and the file behind the prefix, behind others too"))
+  (doseq [url ["https://cdn.example.com/e.mp3?x=1" "http://cdn.example.com/e.mp3"]]
+    (is (= url (op3/target (op3/prefix url))) "the URL of the file, with its query and its scheme of http"))
+  (is (= "https://cdn.example.com/e.mp3" (op3/target "https://cdn.example.com/e.mp3")) "a URL without a prefix stays")
   (is (every? nil? (map op3/prefix ["https://user:pw@cdn.example.com/e.mp3" "https://[2001:db8::1]/e.mp3"
                                     "https://cdn_example.com/e.mp3" "https://localhost/e.mp3" "https://media/e.mp3"
                                     "https://media.example/e.mp3" "https://cdn.example.com" "https://cdn.example.com/"
@@ -313,7 +317,7 @@
              (is (nil? continuation-token) "the second page is the last")
              (is (= 2 (count @log)))
              (is (= {:time "2026-09-26T00:00:25.792Z" :agent-name "Overcast" :device-name "Apple iPhone"
-                     :url "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3"}
+                     :url "https://mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3"}
                     (-> (first downloads)
                         (select-keys [:time :agent-name :device-name :url])
                         (update :time time/format-iso8601))))
@@ -367,7 +371,7 @@
     (run #(async/then
            (op3/fetch-downloads! "test-token" {:show "abc"} {:send send})
            (fn [{:keys [downloads continuation-token error]}]
-             (is (= ["https://op3.dev/e/1" "https://op3.dev/e/2"] (map :url downloads)) "the pages before the page that failed")
+             (is (= ["https://1" "https://2"] (map :url downloads)) "the pages before the page that failed")
              (is (= "t2" continuation-token) "the token of the page that failed, to read on from")
              (is (= {:id :analytics/unreachable :level :warning :status 429} (select-keys error [:id :level :status])))
              (is (= 3 @calls))))

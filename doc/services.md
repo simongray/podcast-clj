@@ -147,6 +147,10 @@ its domain can't be:
 Another instance of OP3 may accept other URLs, so give its `:origin`, and
 its rules as `:accepts-pred`.
 
+To try the API before you have a key of your own, OP3's [API
+docs](https://op3.dev/api/docs) give the sample bearer token
+`preview07ce`, as of October 2026. They don't say what it's limited to.
+
 
 ## The links of the apps
 

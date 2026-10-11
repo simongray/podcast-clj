@@ -73,13 +73,40 @@
               (not (contains? reserved tld))
               (or (nil? port) (<= 1 (parse-long port) 65535))))))))
 
-(defn- target
+(defn- scheme-and-rest
   "The scheme of the http or https URL `url` and the rest of the URL, as a
   pair, e.g. https and cdn.example.com/episode.mp3. It's nil for another
   URL."
   [url]
   (when-let [[_ scheme tail] (re-matches #"(?i)(https?)://(.+)" (str url))]
     [(str/lower-case scheme) tail]))
+
+(defn target
+  "The URL `url` without the prefix of OP3 at the :origin of `opts`, which
+  is the URL of the file that OP3 redirects to, e.g.
+  https://cdn.example.com/episode.mp3 for
+  https://op3.dev/e/cdn.example.com/episode.mp3, so that OP3's downloads
+  and a host's own count together. A prefix in front of OP3's goes too.
+  A URL that doesn't go through OP3 stays as it is."
+  ([url]
+   (target url {}))
+  ([url opts]
+   (let [s     (str url)
+         site  (str/lower-case (str/replace (instance opts) #"(?i)^https?://"
+                                            ""))
+         lower (str/lower-case s)
+         at    (if (str/starts-with? lower (str site "/e"))
+                 0
+                 (some-> (str/index-of lower (str "/" site "/e")) inc))
+         ;; past the /e and its arguments, e.g. /e,pg=…/
+         from  (when at
+                 (some-> (str/index-of s "/" (+ at (count site) 2)) inc))]
+     (if (and (prefixed? url opts) from)
+       (let [tail (subs s from)]
+         (if (re-find #"(?i)^https?://" tail)
+           tail
+           (str "https://" tail)))
+       url))))
 
 (defn prefix
   "The URL `url` with the prefix of OP3 in front, by `opts`, so that OP3
@@ -98,7 +125,7 @@
    (let [takes? (:accepts-pred opts accepts?)]
      (if (prefixed? url opts)
        url
-       (when-let [[scheme tail] (when (takes? url) (target url))]
+       (when-let [[scheme tail] (when (takes? url) (scheme-and-rest url))]
          (let [show (when (guid/guid? podcast-guid)
                       (str ",pg=" (str/lower-case podcast-guid)))]
            (str (instance opts) "/e" show
@@ -217,10 +244,12 @@
 
 (defn- download
   "The row `row` of the downloads of OP3 as a download, with the keys of
-  an IAB download where it tells the same fact."
-  [row]
+  an IAB download where it tells the same fact, and the URL of the file
+  behind the prefix of OP3 at the :origin of `opts`."
+  [row opts]
   (let [renames {:hashed-ip-address :ip :audience-id :listener}]
-    (set/rename-keys (record row) renames)))
+    (-> (set/rename-keys (record row) renames)
+        (update :url #(some-> % (target opts))))))
 
 (defn response
   "The data in the JSON `body` of the answer to the call `call`. The
@@ -234,35 +263,39 @@
       :top-apps-for-show       {:show-uuid :app-downloads {app downloads}}
 
   A download has the keys of an IAB download where OP3 tells the same
-  fact. So hashedIpAddress is :ip, and audienceId is the :listener. The
-  keys of a map by show or by app stay text.
+  fact. So hashedIpAddress is :ip, and audienceId is the :listener, and
+  the :url is that of the file behind the prefix, by the :origin of
+  `opts`, as target gives it. The keys of a map by show or by app stay
+  text.
 
   It throws ::failed for a body that holds no JSON object."
-  [call body]
-  (let [raw    (json/object body)
-        fields #(record (dissoc raw "queryTime"))
-        {:strs [episodes rows continuationToken showDownloadCounts]} raw]
-    (when-not raw
-      (throw (ex-info "OP3 answered with no JSON object"
-                      {:type ::failed :call call})))
-    (case call
-      :show
-      (cond-> (record raw)
-        episodes (assoc :episodes (mapv record episodes)))
+  ([call body]
+   (response call body {}))
+  ([call body opts]
+   (let [raw    (json/object body)
+         fields #(record (dissoc raw "queryTime"))
+         {:strs [episodes rows continuationToken showDownloadCounts]} raw]
+     (when-not raw
+       (throw (ex-info "OP3 answered with no JSON object"
+                       {:type ::failed :call call})))
+     (case call
+       :show
+       (cond-> (record raw)
+         episodes (assoc :episodes (mapv record episodes)))
 
-      :downloads
-      (cond-> {:downloads (mapv download rows)}
-        continuationToken (assoc :continuation-token continuationToken))
+       :downloads
+       (cond-> {:downloads (mapv #(download % opts) rows)}
+         continuationToken (assoc :continuation-token continuationToken))
 
-      :show-download-counts
-      (assoc (fields)
-             :show-download-counts (update-vals showDownloadCounts record))
+       :show-download-counts
+       (assoc (fields)
+              :show-download-counts (update-vals showDownloadCounts record))
 
-      :episode-download-counts
-      (assoc (fields) :episodes (mapv record episodes))
+       :episode-download-counts
+       (assoc (fields) :episodes (mapv record episodes))
 
-      :top-apps-for-show
-      (fields))))
+       :top-apps-for-show
+       (fields)))))
 
 (defn- message
   "What the answer `body` of OP3 says went wrong: the error or the message
@@ -309,7 +342,7 @@
           (throw (failed status (message body)))
 
           (json/object body)
-          (response call body)
+          (response call body opts)
 
           :else
           (throw (failed status "no JSON object"))))))))

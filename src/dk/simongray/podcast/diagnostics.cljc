@@ -370,6 +370,10 @@
     {:id :check/type :level :warning
      :doc "The server gives the file a different media type than the feed
            declares."}
+    {:id :check/no-reader :level :info
+     :doc "A reading of the file was asked for, but the media reader knows no
+           format of the :type that the feed declares, e.g. audio/x-wav, so
+           its duration and codecs weren't checked."}
     {:id :check/no-type :level :warning
      :doc "The feed declares no media type for the file, which RSS 2.0 and
            the podcast namespace require. The :served type is the one that

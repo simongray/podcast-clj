@@ -142,6 +142,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/moved` | warning | The file moved for good, with a 301 or 308 redirect, so the feed can name its new URL. |
 | `:check/head` | error | The server doesn't answer a HEAD request for the file. RFC 9110 requires HEAD of every general-purpose server, and directories use it to check files. |
 | `:check/type` | warning | The server gives the file a different media type than the feed declares. |
+| `:check/no-reader` | info | A reading of the file was asked for, but the media reader knows no format of the :type that the feed declares, e.g. audio/x-wav, so its duration and codecs weren't checked. |
 | `:check/no-type` | warning | The feed declares no media type for the file, which RSS 2.0 and the podcast namespace require. The :served type is the one that the server gives it. |
 | `:check/length` | info | The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of a different size to each request, so the length can't be exact. |
 | `:check/ranges` | warning | The server doesn't answer a request for a byte range with that range. RFC 9110 makes ranges optional but recommends them, players need them to seek and resume, and Apple Podcasts requires them. |

@@ -232,17 +232,21 @@
                          [])})))
 
 (defn to-psc
-  "The psc:chapters Hiccup element of the chapters map `doc`, for a feed
-  that embeds chapters as well as linking to them. Podlove requires a start
-  time, so the chapters without one are left out."
+  "The Podlove chapters of the chapters map `doc`, as the :psc/chapters map
+  of a feed item, which from-psc reads back, e.g. for a feed that embeds
+  chapters as well as linking to them. Podlove requires a start time, so
+  the chapters without one are left out.
+
+      (assoc item :psc/chapters (to-psc doc))"
   [doc]
-  (into [:psc/chapters {:version "1.2"}]
-        (for [{:keys [start-time title url img]} (:chapters doc)
-              :when (time/format-timestamp start-time)]
-          [:psc/chapter (cond-> {:start (time/format-timestamp start-time)}
-                          title (assoc :title title)
-                          url   (assoc :href url)
-                          img   (assoc :image img))])))
+  {:version  "1.2"
+   :chapters (vec (for [{:keys [start-time title url img]} (:chapters doc)
+                        :let  [start (time/format-timestamp start-time)]
+                        :when start]
+                    (cond-> {:start start}
+                      title (assoc :title title)
+                      url   (assoc :href url)
+                      img   (assoc :image img))))})
 
 (def ^:no-doc timestamp-first
   "A line of show notes that starts with a timestamp, e.g. \"1. (12:34) -

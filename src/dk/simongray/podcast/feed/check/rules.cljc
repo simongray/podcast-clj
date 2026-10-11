@@ -276,7 +276,7 @@
 (defn- media-verdicts
   "The diagnostics of the media `file` from its `facts`, by
   the `chosen` requirements."
-  [file chosen {:keys [head get media integrity] :as facts}]
+  [file chosen {:keys [head get media integrity unread-type] :as facts}]
   (if-not (ok? get)
     (reaching file chosen get)
     (let [head' (when (ok? head) head)]
@@ -287,6 +287,8 @@
        (length-verdict file chosen get head')
        (ranges-verdict file chosen get)
        (media-reading-verdicts file chosen media)
+       (when unread-type
+         [(diagnostic file chosen :check/no-reader :type unread-type)])
        (integrity-verdict file chosen integrity)))))
 
 (defn- ratio

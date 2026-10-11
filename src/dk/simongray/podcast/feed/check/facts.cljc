@@ -123,6 +123,10 @@
                                             :height :movie-first? :report
                                             :error])))
 
+            ;; a reading was asked, but none knows the type
+            (and read? came? (not readable?))
+            (assoc :unread-type stated)
+
             verified
             (assoc :integrity (attempted verified)))))))))
 
