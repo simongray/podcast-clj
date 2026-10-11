@@ -15,17 +15,13 @@
  ;; well-formed even after repair are parsed leniently instead of rejected.
  :deps  {org.clojure/clojure      {:mvn/version "1.11.4"}
          org.clojure/data.json    {:mvn/version "2.5.2"}
-         dk.simongray/wary-fetch     {:mvn/version "0.2.0"}
-         dk.simongray/qname-hiccup   {:mvn/version "0.1.0"}
-         dk.simongray/html-pieces    {:mvn/version "0.2.0"}
-         dk.simongray/drop-in-search {:mvn/version "0.1.0"}
-         dk.simongray/websub-clj     {:mvn/version "0.1.0"}
-         dk.simongray/mind-meld
-         {:git/url "https://github.com/simongray/mind-meld"
-          :git/sha "b72137662bf70261835daae4fe3083868cd85da9"}
-         dk.simongray/like-minded
-         {:git/url "https://github.com/simongray/like-minded"
-          :git/sha "a0213924b53a3f3195081b81cea53985ee19a798"}}
+         dk.simongray/wary-fetch     {:mvn/version "0.3.0"}
+         dk.simongray/qname-hiccup   {:mvn/version "0.2.0"}
+         dk.simongray/html-pieces    {:mvn/version "0.4.0"}
+         dk.simongray/drop-in-search {:mvn/version "0.1.1"}
+         dk.simongray/websub-clj     {:mvn/version "0.2.0"}
+         dk.simongray/mind-meld      {:mvn/version "0.1.0"}
+         dk.simongray/like-minded    {:mvn/version "0.1.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
