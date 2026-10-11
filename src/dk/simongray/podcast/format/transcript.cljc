@@ -126,13 +126,34 @@
                    [nil []]
                    segments))))
 
+(defn- strip-tags
+  [s]
+  ;; [^<>] rather than [^>], so that a < with no > after it is given up at
+  ;; the next <, not at the end of the text, once for every < there is
+  (str/replace s #"<[^<>]*>" ""))
+
+(def ^:no-doc srt-tag-pattern
+  "A tag in the text of an SRT cue, e.g. <i> or <font color=\"red\">. It
+  starts with a letter, so that x < y > z stays as it is."
+  #"</?[A-Za-z][^<>]*>")
+
 (defn- cue
-  "The segment of a cue whose timing line is `timing` and text lines
-  `lines`, with a prefix counted in `stats`, or nil when the timing
-  doesn't parse."
+  "The segment of an SRT cue whose timing line is `timing` and text lines
+  `lines`, with a prefix and formatting tags counted in `stats`, or nil
+  when the timing doesn't parse.
+
+  SRT has no markup, but captioning tools write the tags of HTML, so the
+  text is read without them, and with its character references decoded,
+  as a WebVTT cue is."
   [stats timing lines]
   (when-let [[_ from to] (re-find timing-pattern timing)]
-    (let [[speaker body] (speaker-prefix stats (str/join "\n" lines))]
+    (let [text           (str/join "\n" lines)
+          tagged?        (re-find srt-tag-pattern text)
+          plain          (-> (str/replace text srt-tag-pattern "")
+                             entities/decode-entities)
+          [speaker body] (speaker-prefix stats plain)]
+      (when tagged?
+        (vswap! stats update :tags (fnil inc 0)))
       (cond-> {:start-time (time/parse-clock from)
                :end-time   (time/parse-clock to)
                :body       body}
@@ -149,7 +170,13 @@
                                 (cue stats (or (first more) "") (rest more)))))
                       carry-speakers)]
     (with-report {:format :srt :segments segments}
-      (prefix-diagnostics (:prefixes @stats 0)))))
+      (concat (prefix-diagnostics (:prefixes @stats 0))
+              (when-let [n (:tags @stats)]
+                [(diagnostic :transcript/srt-tags :info
+                             (str n " cues hold formatting tags, which SRT"
+                                  " doesn't define, so their text is read"
+                                  " without them")
+                             :count n)])))))
 
 (defn- timed-segments
   "The segments of `transcript` that have a start time, which are what the
@@ -175,12 +202,6 @@
                        (when speaker (str speaker ": "))
                        (cue-body body)))]
     (str/join "\n\n" (map-indexed srt-cue (timed-segments transcript)))))
-
-(defn- strip-tags
-  [s]
-  ;; [^<>] rather than [^>], so that a < with no > after it is given up at
-  ;; the next <, not at the end of the text, once for every < there is
-  (str/replace s #"<[^<>]*>" ""))
 
 (defn- vtt-cue
   "The segment of the WebVTT cue block `lines`, with its speaker from a

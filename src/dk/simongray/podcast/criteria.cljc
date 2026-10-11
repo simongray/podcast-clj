@@ -318,7 +318,8 @@
                      (fn [[i f item]] [i (key f item)])
                      (fn [[_ f item]] (key f item)))
          meets?    (fn [[_ f item]] (pred f item))
-         all       (for [[i f] (map-indexed vector feeds), item (:rss/items f)]
+         all       (for [[i f] (map-indexed vector feeds)
+                         item  (resolve/distinct-items (:rss/items f))]
                      [i f item])
          ;; a key of the app can need what the criteria select, so the
          ;; order comes first with the keys of the library only

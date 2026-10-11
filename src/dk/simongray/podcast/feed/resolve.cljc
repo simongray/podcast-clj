@@ -9,6 +9,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (defn title
@@ -422,10 +423,11 @@
                              (inc (count languages))))))
 
 (defn- type-rank
-  "The position of `type` among the preferred `types`, ignoring case, or
-  after them all when it isn't among them."
+  "The position of `type` among the preferred `types`, ignoring case and
+  parameters such as a charset, or after them all when it isn't among
+  them."
   [types type]
-  (let [type (str/lower-case (str type))]
+  (let [type (headers/media-type (str type))]
     (or (first (keep-indexed (fn [i wanted]
                                (when (= type (str/lower-case wanted)) i))
                              types))
@@ -502,7 +504,7 @@
   type that has them as a rule."
   [{:keys [type rel] :as ref}]
   (or (= "captions" (some-> rel str/lower-case))
-      (contains? timed-transcript-types (str/lower-case (str type)))))
+      (contains? timed-transcript-types (headers/media-type (str type)))))
 
 ;; Media RSS 1.5.1, sections 5 and 5.22: deeper subtitles come first
 (defn transcripts
@@ -932,8 +934,23 @@
   ((if (serial? feed) serial-key episodic-key) item))
 
 ;; Apple, A Podcaster's Guide to RSS: itunes:type and itunes:episodeType
+(defn distinct-items
+  "The `items` without those that an item before them has the identity of,
+  as guid/item-guid gives it, e.g. an episode that a feed lists twice.
+  Items without an identity all stay."
+  [items]
+  (let [seen (volatile! #{})]
+    (filterv (fn [item]
+               (let [id (guid/item-guid item)]
+                 (or (nil? id)
+                     (when-not (contains? @seen id)
+                       (vswap! seen conj id)
+                       true))))
+             items)))
+
 (defn episodes
-  "The items of `feed` in listening order, as Apple Podcasts presents them.
+  "The items of `feed` in listening order, as Apple Podcasts presents them,
+  each once, as distinct-items keeps them.
 
   An episodic show, the default, has the newest first, with the trailers
   ahead. A serial show, as itunes:type says, goes season by season and
@@ -942,7 +959,7 @@
   end of its season. A trailer of the show comes before everything, and a
   bonus of the show after."
   [feed]
-  (sort-by (partial listening-key feed) (:rss/items feed)))
+  (sort-by (partial listening-key feed) (distinct-items (:rss/items feed))))
 
 (defn seasons
   "The items of `feed` grouped by season, in listening order:

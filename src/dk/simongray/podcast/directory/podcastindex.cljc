@@ -29,7 +29,8 @@
 
 (def paths
   "The path of each call of the API by a keyword, as its OpenAPI
-  description lists them. Each takes its parameters as a query."
+  description lists them. Each takes its parameters as a query, but those
+  of batch-calls."
   {:search/all                  "search"
    :search/by-term              "search/byterm"
    :search/by-title             "search/bytitle"
@@ -69,6 +70,14 @@
    :add/by-feed-url             "add/byfeedurl"
    :add/by-itunes-id            "add/byitunesid"
    :lookup                      "lookup"})
+
+;; the OpenAPI description of the API: paths/podcasts/batch/byguid.yaml and
+;; paths/value/batch/byepisodeguid.yaml
+(def batch-calls
+  "The calls of paths that take a JSON body in a POST rather than a query:
+  :podcasts/batch-by-guid takes a vector of feed guids, and
+  :value/batch-by-episode-guid a map of a feed guid to its episode guids."
+  #{:podcasts/batch-by-guid :value/batch-by-episode-guid})
 
 (def categories
   "The categories of the Podcast Index by id, from categories.json of the
@@ -157,12 +166,14 @@
                        secret/hide)})
 
 (defn request
-  "The request map for `call`, a key of paths, with the query
-  `params`, signed with `credentials` at the :auth-date of `opts`.
+  "The request map for `call`, a key of paths, with `params`, signed with
+  `credentials` at the :auth-date of `opts`.
 
-  The credentials are a :key and a :secret, and they can give a
-  :user-agent. The :auth-date is in Unix seconds. The API takes a date
-  within a few minutes of its own clock, so read the clock for it.
+  The params are the query of the call, or the JSON body of one of
+  batch-calls, which is a POST. The credentials are a :key and a :secret,
+  and they can give a :user-agent. The :auth-date is in Unix seconds. The
+  API takes a date within a few minutes of its own clock, so read the
+  clock for it.
 
   The request goes to base-url, or to the :base-url of `opts`."
   [credentials call params {:keys [auth-date] :as opts}]
@@ -170,13 +181,18 @@
   (when-not auth-date
     (throw (ex-info "A request is signed at an :auth-date, Unix seconds"
                     {:call call})))
-  (let [path (or (paths call)
-                 (throw (ex-info "Unknown Podcast Index call" {:call call})))
-        root (url/without-trailing-slashes (:base-url opts base-url))
-        qs   (url/query-string params)]
-    {:method  :get
-     :url     (str root "/" path (when (seq qs) (str "?" qs)))
-     :headers (auth-headers credentials auth-date)}))
+  (let [path   (or (paths call)
+                   (throw (ex-info "Unknown Podcast Index call" {:call call})))
+        root   (url/without-trailing-slashes (:base-url opts base-url))
+        batch? (contains? batch-calls call)
+        qs     (when-not batch?
+                 (url/query-string params))]
+    (cond-> {:method  :get
+             :url     (str root "/" path (when (seq qs) (str "?" qs)))
+             :headers (auth-headers credentials auth-date)}
+      batch? (-> (assoc :method :post
+                        :body   (json/write-str params))
+                 (assoc-in [:headers "Content-Type"] "application/json")))))
 
 (defn- ->number
   [x]
@@ -390,6 +406,20 @@
                                   (mapv soundbite->model soundbites))
       block                (assoc :podcast/values [block]))))
 
+;; the OpenAPI description has podcastGUID, and the model and destinations
+;; beside it, but the API answered with podcastGuid, and with them under
+;; value, on 11 October 2026
+(defn- batch-values
+  "The value blocks of the answer `values` of a batch, by the id of each
+  episode, its feed guid and its guid."
+  [values]
+  (into {}
+        (for [v     values
+              :when (map? v)
+              :let  [feed-guid (or (get v "podcastGuid") (get v "podcastGUID"))
+                     block     (if (map? (get v "value")) (get v "value") v)]]
+          [[feed-guid (get v "guid")] (value->block block)])))
+
 (defn response
   "The data in the JSON `body` of an API response:
 
@@ -397,7 +427,8 @@
   - :description, :count and :query, as given
   - feeds as :feed or :feeds, and episodes as :episode, :items or
     :live-items, in the shape of the model
-  - a value block as :value
+  - a value block as :value, and the blocks of a batch as :values, a map
+    of the id of each episode, its feed guid and its guid, to its block
   - the whole parsed body as :raw"
   [body]
   (let [raw (json/read-str body)
@@ -412,7 +443,8 @@
       (sequential? items)           (assoc :items (mapv episode->model items))
       (sequential? liveItems)       (assoc :live-items
                                            (mapv episode->model liveItems))
-      (map? value)                  (assoc :value (value->block value)))))
+      (map? value)                  (assoc :value (value->block value))
+      (sequential? value)           (assoc :values (batch-values value)))))
 
 (defn remote-value-requests
   "The requests to try in order for the value block that `remote-item` of

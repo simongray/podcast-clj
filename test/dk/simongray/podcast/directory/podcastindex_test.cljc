@@ -173,6 +173,22 @@
     (is (= [["Artist" 90] ["Label" 10]]
            (map (juxt (comp :name :recipient) :amount) (value/payments (:recipients value) 100))))))
 
+(deftest the-batch-calls
+  (let [{:keys [method url body headers]}
+        (index/request credentials :value/batch-by-episode-guid {"917393e3" ["PC20-273" "PC20-272"]} {:auth-date 1})]
+    (is (= [:post "https://api.podcastindex.org/api/1.0/value/batch/byepisodeguid" "{\"917393e3\":[\"PC20-273\",\"PC20-272\"]}"]
+           [method url body]))
+    (is (= "application/json" (get headers "Content-Type")))
+    (is (some? (get headers "Authorization")) "signed as any call"))
+  (is (= "[\"917393e3\"]" (:body (index/request credentials :podcasts/batch-by-guid ["917393e3"] {:auth-date 1}))))
+  (let [block    "{\"model\":{\"type\":\"lightning\",\"method\":\"keysend\"},\"destinations\":[{\"name\":\"Host\",\"type\":\"node\",\"address\":\"02aa\",\"split\":100}]}"
+        answered (str "{\"status\":\"true\",\"value\":[{\"podcastGuid\":\"917393e3\",\"guid\":\"PC20-273\",\"value\":" block "}]}")
+        written  (str "{\"status\":\"true\",\"value\":[" (str/replace block #"^\{" "{\"podcastGUID\":\"917393e3\",\"guid\":\"PC20-273\",") "]}")]
+    (is (= {["917393e3" "PC20-273"] ["Host"]}
+           (update-vals (:values (index/response answered)) #(map :name (:recipients %)))
+           (update-vals (:values (index/response written)) #(map :name (:recipients %))))
+        "by episode id, as the API answered on 11 October 2026 and as its OpenAPI description has it")))
+
 (deftest resolving-remote-items
   (let [remote    {:feed-guid "a94f5cc9-8c58-55fc-91fe-a324087a655b" :item-guid "https://podcastindex.org/podcast/4148683#1"}
         sent      (atom [])

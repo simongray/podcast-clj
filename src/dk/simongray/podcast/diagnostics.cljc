@@ -82,6 +82,15 @@
      :doc "The feed came back without items, though it had some before, as
            some hosts answer during an outage. The feed stays as it was, and
            the next fetch waits as after a failure."}
+    {:id :fetch/gone :level :warning
+     :doc "The feed is gone: its server answered 410, or it failed many
+           times in a row, as the :failures say. It isn't checked any more,
+           unless a Podping or a refresh of that feed asks for it, and a fetch
+           that succeeds brings it back."}
+    {:id :fetch/move-unverified :level :warning
+     :doc "The feed declares that it moved to the :new-url, but no feed of the
+           show answered there, as the :reason says, so the feed stays at its
+           old URL and the move is tried again at the next fetch."}
     {:id :fetch/guid-taken :level :warning
      :doc "The feed declares the podcast:guid of another subscription, at
            another URL, and would take that subscription over, so it isn't
@@ -156,8 +165,9 @@
     {:id :quirk/yes-no-value :level :info
      :doc "A yes/no element said true or false, which was read as yes or no."}
     {:id :quirk/transcript-type :level :info
-     :doc "A transcript type was written loosely, as srt, vtt, json or text, and
-           was corrected to its MIME type."}
+     :doc "A transcript type was written loosely, as srt, vtt, json or text,
+           or with a parameter such as a charset, and was corrected to its
+           MIME type."}
     {:id :quirk/attribute-name :level :info
      :doc "An href attribute was used where the spec asks for url, and was
            renamed."}
@@ -217,6 +227,10 @@
      :doc "A WebVTT file gives a voice span only where the speaker changes,
            so the cues without one took the speaker before them. The :count
            is the number of such cues."}
+    {:id :transcript/srt-tags :level :info
+     :doc "SRT cues held the formatting tags of HTML, e.g. for italics or a
+           font, which SRT doesn't define, and the text was read without them.
+           The :count is the number of such cues."}
     {:id :transcript/string-times :level :warning
      :doc "Segment times were given as strings rather than numbers, and were
            read as numbers."}
@@ -529,6 +543,16 @@
      :doc "A URL isn't absolute. The :value is the URL."}
     {:id :validate/http-url :level :info
      :doc "A URL uses http where the podcast namespace requires https."}
+    {:id :validate/invalid-language :level :warning
+     :doc "A language isn't a language tag such as en or en-US, e.g. en_US.
+           The :value is the value."}
+    {:id :validate/invalid-email :level :info
+     :doc "An email address isn't one, alone or followed by a name in
+           parentheses, e.g. an author given by name alone. The :value is the
+           value."}
+    {:id :validate/invalid-media-type :level :warning
+     :doc "A media type isn't a type and a subtype such as audio/mpeg. The
+           :value is the value."}
     {:id :validate/invalid-guid :level :warning
      :doc "A podcast:guid isn't a UUID, so the library, like the Podcast
            Index, identifies the feed by the guid derived from its URL. The

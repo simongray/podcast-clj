@@ -15,7 +15,7 @@
   - :count, :one or :many, or a map from parent to either
   - :attrs, the specified attributes by XML name, each with an optional
     :type from dk.simongray.podcast.feed.coerce/types, :required, and
-    :values for an :enum
+    :values for an :enum, or the media types that a :mime takes
   - :content, the type of the node text, :none when the element has none,
     or :presence for an empty element that's true when it's there
   - :values, the allowed values of the node text of an enumeration
@@ -776,7 +776,7 @@
    {:tag :podcast/transcript :key :podcast/transcripts
     :parent #{:item} :count :many :content :none
     :attrs {:url      req-url
-            :type     {:required true :type :enum :values transcript-types}
+            :type     {:required true :type :mime :values transcript-types}
             :language {:type :language}
             :rel      {:type :enum :values #{"captions"}}}
     :doc "A transcript or closed-captions file."}

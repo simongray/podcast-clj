@@ -112,11 +112,11 @@
 
 (defn feed-documents
   "The search documents of the show `feed`, fetched from `url`, and of each
-  of its episodes."
+  of its episodes, once each."
   [feed url]
   (into [(feed-document feed {:url url})]
         (map #(item-document feed % {:url url}))
-        (:rss/items feed)))
+        (resolve/distinct-items (:rss/items feed))))
 
 (defn- feed-guid-of
   "The guid of the show of the document `id`: the id of a show's document,
@@ -157,7 +157,8 @@
                (fn [feed-guid]
                  (into {}
                        (map (juxt guid/item-guid identity))
-                       (:rss/items (get feeds feed-guid)))))]
+                       (resolve/distinct-items
+                        (:rss/items (get feeds feed-guid))))))]
     (fn [{:keys [id] :as result}]
       (if (vector? id)
         (let [[feed-guid item-guid] id]

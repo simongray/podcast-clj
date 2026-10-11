@@ -38,6 +38,33 @@
     (is (not-any? #(and (contains? % :replaced-by) (nil? (:replaced-by %))) v)
         "a deprecation names its replacement or says nothing")))
 
+(deftest the-shapes-of-languages-emails-and-media-types
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
+                        <channel><title>T</title><link>https://t</link><description>d</description>
+                          <language>en_US</language>
+                          <managingEditor>geo@herald.example (George Matesky)</managingEditor>
+                          <webMaster>Karly Nimmo</webMaster>
+                          <item><title>E</title><author>ann@example.org</author>
+                            <enclosure url=\"https://a/1.mp3\" length=\"1\" type=\"audio/mpeg; codecs=mp3\"/>
+                            <podcast:transcript url=\"https://a/t.vtt\" type=\"text/vtt\" language=\"en-US\"/>
+                            <podcast:chapters url=\"https://a/c.json\" type=\"json\"/></item>
+                        </channel></rss>")
+        v (validate/validate f)]
+    (is (= {:validate/invalid-language 1 :validate/invalid-email 1 :validate/invalid-media-type 1} (ids v)))
+    (is (= [[[:rss/web-master] "Karly Nimmo" :info]
+            [[:rss/language] "en_US" :warning]
+            [[:rss/items 0 :podcast/chapters :type] "json" :warning]]
+           (map (juxt :path :value :level) (sort-by :id v)))
+        "an address with a name in parentheses, as RSS 2.0 writes it, and a media type with parameters pass"))
+  (let [typed #(-> {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                    :rss/items [{:rss/title     "E"
+                                 :rss/enclosure {:url "https://a/1.mp3" :length 1 :type "audio/mpeg"}
+                                 :podcast/transcripts [{:url "https://a/t" :type %}]}]}
+                   validate/validate
+                   ids)]
+    (is (= {} (typed "text/vtt; charset=utf-8")) "a transcript type of the list, with a charset")
+    (is (= {:validate/invalid-enum 1} (typed "text/markdown")) "but not one off the list")))
+
 (deftest a-publisher-needs-its-remote-item
   (let [feed (fn [publisher]
                {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"

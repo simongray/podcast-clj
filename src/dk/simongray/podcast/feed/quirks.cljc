@@ -11,6 +11,7 @@
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]))
 
 (defn ^:no-doc uri-key
@@ -275,10 +276,17 @@
       element)))
 
 (defn- canonical-transcript-type
-  "The podcast:transcript `element` with its type in standard spelling."
+  "The podcast:transcript `element` with its type in standard spelling,
+  and without parameters such as a charset, which the types of the podcast
+  namespace don't have."
   [[tag attrs :as element]]
-  (let [type (some-> (:type attrs) xml/trim str/lower-case)]
-    (if-let [t (transcript-type-values type)]
+  (let [type (some-> (:type attrs) xml/trim str/lower-case)
+        bare (headers/media-type type)
+        t    (or (transcript-type-values bare)
+                 (when (and (not= bare type)
+                            (contains? spec/transcript-types bare))
+                   bare))]
+    (if t
       [tag (assoc attrs :type t)]
       element)))
 

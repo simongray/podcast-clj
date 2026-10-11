@@ -147,7 +147,10 @@
       (is (= "https://example.com/ep3/transcript.txt" (:url (resolve/transcript nil item {:types ["text/plain"]}))))
       (is (= "text/plain" (:type (resolve/transcript nil item {:types ["application/json"]}))))
       (is (nil? (resolve/transcript {})))
-      (is (nil? (resolve/transcript {} {}))))
+      (is (nil? (resolve/transcript {} {})))
+      (is (= "vtt" (:url (resolve/transcript {:podcast/transcripts [{:url "txt" :type "text/plain"}
+                                                                    {:url "vtt" :type "text/vtt; charset=utf-8"}]})))
+          "whatever the parameters of a type, e.g. a charset"))
     (testing "transcripts by language, with the feed's language for unlabelled ones"
       (let [multilingual {:podcast/transcripts [{:url "en" :type "text/vtt" :language "en-US"}
                                                 {:url "da" :type "text/vtt" :language "da"}
@@ -471,6 +474,12 @@
     (testing "episodic: newest first, the trailer ahead"
       (is (= ["Trailer" "E3" "E2" "E1"] (map :rss/title (resolve/episodes show))))
       (is (= [{:items (resolve/episodes show)}] (resolve/seasons show))))
+    (testing "an episode that the feed lists twice, once, as it first comes"
+      (let [twice (-> show
+                      (update :rss/items (partial mapv #(assoc % :rss/guid {:content (:rss/title %)})))
+                      (update :rss/items conj (assoc (ep "E2 again" #inst "2026-02-01T00:00:00Z")
+                                                     :rss/guid {:content "E2"})))]
+        (is (= ["Trailer" "E3" "E2" "E1"] (map :rss/title (resolve/episodes twice))))))
     (testing "serial: by season and number, trailers and bonuses where Apple puts them"
       (let [serial {:itunes/type "serial"
                     :rss/items [(ep "S2E1" #inst "2026-03-01T00:00:00Z" :season 2 :episode 1)

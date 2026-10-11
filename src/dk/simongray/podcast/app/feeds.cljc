@@ -26,8 +26,10 @@
   later than the oldest fresh item, or has no date.
 
   An entry with only its :url is a feed to fetch for the first time, e.g.
-  of a new subscription, and it's due at once."
-  (:require [dk.simongray.podcast :as podcast]
+  of a new subscription, and it's due at once. An entry that's :gone? is
+  never due, as default-cadence says."
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -47,11 +49,16 @@
   twelve hours by default, as in AntennaPod. The wait is :silent for a feed
   that gives no time itself, :complete for a feed that says it's complete,
   which :max-wait doesn't cap, and :after-failure for each failure in a
-  row, repeating the last wait."
-  {:max-wait      43200
-   :silent        43200
-   :complete      604800
-   :after-failure [900 3600 14400 86400]})
+  row, repeating the last wait.
+
+  A feed is gone after its server answers 410 (RFC 9110, section
+  15.5.11), or after :gone-after-failures failures in a row, about a month
+  at the last wait. It's then fetched only when asked for by name."
+  {:max-wait            43200
+   :silent              43200
+   :complete            604800
+   :after-failure       [900 3600 14400 86400]
+   :gone-after-failures 30})
 
 (def default-concurrency
   "How many feeds are fetched at once, by default."
@@ -110,7 +117,8 @@
 
 (defn- fetched
   "The entry `old` of the feed `feed-guid` after a fetch from `url` gave
-  the fresh feed of `result` at `at`, with the next check by `cadence`.
+  the fresh feed of `result` at `at`, with the next check by `cadence`, and
+  whether its feed is the one it had, as a pair.
 
   The entry has the feed, with `feed-guid` as its key and the items it
   retains, its ETag and Last-Modified, the new URL of a feed that moved,
@@ -125,30 +133,31 @@
         url             (or permanent-url new-feed-url url)
         same?           (and (= feed (:feed old))
                              (= retained (:retained old {})))]
-    (-> (dissoc old :etag :last-modified :websub :status :retained)
-        (assoc :url url
-               :guid (guid/feed-guid fresh url)
-               :feed feed
-               :changed-at (if same? (:changed-at old at) at)
-               :fetched-at at
-               :next-check (check-at fresh at not-before cadence)
-               :failures 0)
-        (cond->
-          (seq retained) (assoc :retained retained)
-          status         (assoc :status status)
-          etag           (assoc :etag etag)
-          last-modified  (assoc :last-modified last-modified)
-          websub         (assoc :websub websub)))))
+    [(-> (dissoc old :etag :last-modified :websub :status :retained :gone?)
+         (assoc :url url
+                :guid (guid/feed-guid fresh url)
+                :feed feed
+                :changed-at (if same? (:changed-at old at) at)
+                :fetched-at at
+                :next-check (check-at fresh at not-before cadence)
+                :failures 0)
+         (cond->
+           (seq retained) (assoc :retained retained)
+           status         (assoc :status status)
+           etag           (assoc :etag etag)
+           last-modified  (assoc :last-modified last-modified)
+           websub         (assoc :websub websub)))
+     same?]))
 
 (defn- unchanged
   "The entry `old` after the server answered 304 at `at` with `result`,
   and its next check by `cadence`."
   [old {:keys [not-before] :as result} at cadence]
-  (assoc old
-         :fetched-at at
-         :next-check (check-at (:feed old) at not-before cadence)
-         :failures 0
-         :status 304))
+  (-> (dissoc old :gone?)
+      (assoc :fetched-at at
+             :next-check (check-at (:feed old) at not-before cadence)
+             :failures 0
+             :status 304)))
 
 (defn- failed
   "The entry `old` after a fetch failed at `at` with `result`, with one
@@ -156,16 +165,20 @@
 
   The entry keeps the :status of any answer. The next check waits as
   `cadence` says for that many failures, or until the server's
-  :not-before, if that's later."
+  :not-before, if that's later. The entry is :gone? after a 410, or after
+  as many failures as `cadence` says."
   [old {:keys [status not-before] :as result} at cadence]
   (let [failures (inc (:failures old 0))
         waits    (:after-failure cadence)
-        wait     (nth waits (min (dec failures) (dec (count waits))))]
-    (assoc old
-           :fetched-at at
-           :next-check (time/latest (time/later at wait) not-before)
-           :failures failures
-           :status status)))
+        wait     (nth waits (min (dec failures) (dec (count waits))))
+        gone?    (or (= 410 status)
+                     (<= (:gone-after-failures cadence ##Inf) failures))]
+    (cond-> (assoc old
+                   :fetched-at at
+                   :next-check (time/latest (time/later at wait) not-before)
+                   :failures failures
+                   :status status)
+      gone? (assoc :gone? true))))
 
 (defn add
   "The `feeds` with the feed in the `result` of fetching `url` at `at`,
@@ -184,7 +197,8 @@
    (let [cadence   (merge default-cadence cadence)
          feed-guid (guid/feed-key (:feed result) url)
          old       (get feeds feed-guid {})]
-     (assoc feeds feed-guid (fetched old feed-guid url result at cadence)))))
+     (assoc feeds feed-guid
+            (first (fetched old feed-guid url result at cadence))))))
 
 (defn- slim-item
   "The part of `item` that a slim feed keeps: its guid, date, title and
@@ -213,11 +227,12 @@
 
 (defn due
   "The guids of the feeds of `feeds` that are due at `at`, the earliest
-  first."
+  first. A feed that's gone is never due."
   [feeds at]
-  (let [due?  (fn [[_ {:keys [next-check]}]]
-                (or (nil? next-check)
-                    (<= (inst-ms next-check) (inst-ms at))))
+  (let [due?  (fn [[_ {:keys [next-check gone?]}]]
+                (and (not gone?)
+                     (or (nil? next-check)
+                         (<= (inst-ms next-check) (inst-ms at)))))
         order (fn [[_ {:keys [next-check]}]]
                 (if next-check (inst-ms next-check) 0))]
     (->> feeds
@@ -244,12 +259,16 @@
        :report  [diagnostic]}            ; when the fetch failed
 
   A fresh feed replaces the old one, but for the items that it lacks,
-  which stay after its own, and a 304 keeps it. After a failure, the feed
-  stays and the next check waits longer for each failure in a row. A fresh
-  feed without items, where the old one had some, counts as a failure, with
-  :fetch/empty-feed, since hosts serve such a feed during an outage. A feed
-  that moved keeps its guid, and its subscription should move to the URL
-  under :moved. The `cadence` goes over the defaults."
+  which stay after its own, and a 304 keeps it. A fresh feed that's the
+  one the entry had, from a server without ETag or Last-Modified, changed
+  nothing. After a failure, the feed stays and the next check waits longer
+  for each failure in a row, and the report has :fetch/gone once the feed
+  is gone, as default-cadence says. A fresh feed without items, where the
+  old one had some, counts as a failure, with :fetch/empty-feed, since
+  hosts serve such a feed during an outage. A feed that moved keeps its
+  guid, and its subscription should move to the URL under :moved. The
+  :move-report of `result`, e.g. a move that refresh! couldn't verify,
+  goes into the report. The `cadence` goes over the defaults."
   ([feeds feed-guid result at]
    (refresh feeds feed-guid result at {}))
   ([feeds feed-guid result at cadence]
@@ -260,10 +279,17 @@
                    (throw (ex-info (str "No feed of the guid " feed-guid)
                                    {:feed-guid feed-guid})))
          url     (:url old)
+         noted   #(assoc % :feed-guid feed-guid)
          failure (fn [error]
-                   (let [entry (failed old result at cadence)]
+                   (let [entry (failed old result at cadence)
+                         gone  (when (and (:gone? entry) (not (:gone? old)))
+                                 (diagnostics/describe
+                                  {:id       :fetch/gone
+                                   :url      url
+                                   :status   (:status entry)
+                                   :failures (:failures entry)}))]
                      {:feeds  (assoc feeds feed-guid entry)
-                      :report [(assoc error :feed-guid feed-guid)]}))]
+                      :report (mapv noted (cond-> [error] gone (conj gone)))}))]
      (cond
        (:error result)
        (failure (:error result))
@@ -277,9 +303,12 @@
        (failure (diagnostics/describe {:id :fetch/empty-feed :url url}))
 
        (:feed result)
-       (let [entry (fetched old feed-guid url result at cadence)]
-         (cond-> {:feeds (assoc feeds feed-guid entry) :changed [feed-guid]}
-           (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})))
+       (let [[entry same?] (fetched old feed-guid url result at cadence)
+             report        (:move-report result)]
+         (cond-> {:feeds (assoc feeds feed-guid entry)}
+           (not same?)             (assoc :changed [feed-guid])
+           (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})
+           report                  (assoc :report [(noted report)])))
 
        :else
        (failure (diagnostics/fetch-failure {:url    url
@@ -291,6 +320,42 @@
   [url error]
   {:url   url
    :error (diagnostics/fetch-failure (assoc (http/failure error) :url url))})
+
+(defn- verified-move
+  "The `result` of the fetch of the feed at `url`, with the move that it
+  declares kept when `attempt`, the fetch of the new URL, gave a feed of
+  the same show, and else without it but with a :move-report.
+
+  A feed of the same show answers at the new URL, with the podcast:guid of
+  the feed if the feed has one."
+  [url result {:keys [value error] :as attempt}]
+  (let [new-url  (:new-feed-url result)
+        declared (:podcast/guid (:feed result))
+        moved    (:feed value)
+        reason   (cond
+                   error
+                   (async/explain error)
+
+                   (:error value)
+                   (or (get-in value [:error :reason])
+                       (str "the new URL answered "
+                            (get-in value [:error :status])))
+
+                   (nil? moved)
+                   "the new URL gave no feed"
+
+                   (and (guid/guid? declared)
+                        (not= (str/lower-case declared)
+                              (some-> (:podcast/guid moved) str/lower-case)))
+                   "the feed there gives another podcast:guid")]
+    (if reason
+      (-> (dissoc result :new-feed-url)
+          (assoc :move-report
+                 (diagnostics/describe {:id      :fetch/move-unverified
+                                        :url     url
+                                        :new-url new-url
+                                        :reason  reason})))
+      result)))
 
 (defn connection-failed?
   "Whether the fetch `result` failed before any server answered: the name
@@ -354,7 +419,11 @@
   A round in which every fetch failed before a server answered, at more
   than one host, counts as offline too. Offline, every feed stays as it
   was, so that none counts it as a failure and each is due at the next
-  refresh, and the report has :refresh/offline."
+  refresh, and the report has :refresh/offline.
+
+  A move that a feed declares, e.g. by itunes:new-feed-url, is followed
+  only when a feed of the same show answers at the new URL. Otherwise the
+  feed stays where it is, and the report has :fetch/move-unverified."
   ([feeds]
    (refresh! feeds {}))
   ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence
@@ -368,24 +437,36 @@
          guids  (vec (or feed-guids (due feeds at)))
          common (select-keys opts [:send :timeout-seconds :max-bytes
                                    :user-agent :allow-pred])
+         private (fn [url]
+                   (let [credentials (when credentials-of (credentials-of url))]
+                     (cond-> common
+                       credentials (assoc :credentials credentials))))
          fetch1 (fn [feed-guid]
                   (let [{:keys [url etag last-modified feed]}
                         (get feeds feed-guid)
 
-                        credentials (when credentials-of (credentials-of url))
-                        fetch-opts  (cond-> common
-                                      etag          (assoc :etag etag)
-                                      last-modified (assoc :last-modified
-                                                           last-modified)
-                                      credentials   (assoc :credentials
-                                                           credentials)
-                                      (and max-pages (not feed))
-                                      (assoc :max-pages max-pages))]
-                    (async/then (async/attempt #(fetch url fetch-opts))
-                                (fn [{:keys [value error]}]
-                                  [feed-guid (if error
-                                               (unreachable url error)
-                                               value)]))))
+                        fetch-opts (cond-> (private url)
+                                     etag          (assoc :etag etag)
+                                     last-modified (assoc :last-modified
+                                                          last-modified)
+                                     (and max-pages (not feed))
+                                     (assoc :max-pages max-pages))]
+                    (async/then
+                     (async/attempt #(fetch url fetch-opts))
+                     (fn [{:keys [value error]}]
+                       (let [new-url (:new-feed-url value)]
+                         (cond
+                           error
+                           [feed-guid (unreachable url error)]
+
+                           ;; a declared move goes where a feed answers
+                           (and new-url (not= new-url url))
+                           (async/then
+                            (async/attempt #(fetch new-url (private new-url)))
+                            #(vector feed-guid (verified-move url value %)))
+
+                           :else
+                           [feed-guid value]))))))
          step   (fn [acc [feed-guid result]]
                   (->> (refresh (:feeds acc) feed-guid result at cadence)
                        (merged acc)))

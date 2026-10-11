@@ -292,11 +292,13 @@ When a show moves to another host, the new host often gives every episode
 a new guid. The library recognises such an episode by its enclosure URL,
 or else by its title and a date a day apart at most, and moves its place
 in the queue, its marks and its progress to the new id, as `:renamed`
-says. A feed that moved for good
-moves its subscription too, and a feed that failed stays as it was and
-waits longer before the next try. So does a feed that comes back without
-episodes, as some hosts serve one during an outage, with
-`:fetch/empty-feed` in the report.
+says. A feed that moved for good moves its subscription too, once a feed
+of the show answers at the new URL. A feed that failed stays as it was
+and waits longer before the next try. So does a feed that comes back
+without episodes, as some hosts serve one during an outage, with
+`:fetch/empty-feed` in the report. A feed that answers 410, or fails for
+about a month, is gone, with `:fetch/gone` in the report, and isn't
+checked again until a Podping or a refresh of that feed asks for it.
 
 Many hosts serve only the newest hundred or so episodes, so the library
 keeps the ones that a fetch no longer brings back, and `library/episode`,

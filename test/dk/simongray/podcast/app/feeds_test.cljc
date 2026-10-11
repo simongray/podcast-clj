@@ -151,6 +151,27 @@
   (testing "a fresh feed after failures starts the count again"
     (let [failed (:feeds (feeds/refresh feeds guid {:status 500 :url url} now))]
       (is (= 0 (:failures (get-in (feeds/refresh failed guid fresh (at 60)) [:feeds guid]))))))
+  (testing "the same feed again, from a server without ETag or Last-Modified, changed nothing"
+    (let [r (feeds/refresh feeds guid (dissoc fresh :etag :last-modified) (at 3600))]
+      (is (nil? (:changed r)))
+      (is (= [(at 3600) now] ((juxt :fetched-at :changed-at) (get-in r [:feeds guid]))))))
+  (testing "a feed that's gone"
+    (let [r     (feeds/refresh feeds guid {:status 410 :url url} (at 3600))
+          again (feeds/refresh (:feeds r) guid {:status 410 :url url} (at 7200))]
+      (is (= [[:fetch/status guid] [:fetch/gone guid]] (map (juxt :id :feed-guid) (:report r)))
+          "after a 410, reported once")
+      (is (= [:fetch/status] (map :id (:report again))))
+      (is (true? (get-in r [:feeds guid :gone?])))
+      (is (= [] (feeds/due (:feeds r) (at (* 365 86400)))) "and never due")
+      (is (nil? (get-in (feeds/refresh (:feeds r) guid fresh (at 7200)) [:feeds guid :gone?]))
+          "until a fetch brings it back"))
+    (let [failing (fn [fs t] (feeds/refresh fs guid {:status 503 :url url} t {:gone-after-failures 3}))
+          runs    (reductions (fn [[fs] t] (let [r (failing fs t)] [(:feeds r) (:report r)]))
+                              [feeds nil]
+                              [(at 1) (at 2) (at 3)])]
+      (is (= [[:fetch/status] [:fetch/status] [:fetch/status :fetch/gone]]
+             (map #(map :id (second %)) (rest runs)))
+          "or after as many failures in a row as the cadence says")))
   (testing "a feed that moved"
     (let [r (feeds/refresh feeds guid (assoc fresh :permanent-url "https://example.com/moved.xml") now)]
       (is (= {guid "https://example.com/moved.xml"} (:moved r)))
@@ -207,8 +228,10 @@
         (is (= [[:fetch/empty-feed guid]] (map (juxt :id :feed-guid) (:report r))))
         (is (= [(get-in stored [guid :feed]) 1 (at (+ 3600 900))] ((juxt :feed :failures :next-check) (get-in r [:feeds guid])))
             "keeps the feed, and waits as after a failure")))
-    (let [none (feeds/add {} url (assoc fresh :feed (assoc show :rss/items [])) now)]
-      (is (= [guid] (:changed (refresh none [] (at 3600)))) "but a show that has none yet can stay so"))))
+    (let [none (feeds/add {} url (assoc fresh :feed (assoc show :rss/items [])) now)
+          r    (refresh none [] (at 3600))]
+      (is (nil? (:report r)) "but a show that has none yet can stay so")
+      (is (nil? (:changed r)) "and then it changed nothing"))))
 
 (deftest an-offline-device
   (let [three  (-> feeds
@@ -297,6 +320,38 @@
        (async/then (feeds/refresh! three {:at later :fetch fetch :concurrency 1})
                    (fn [_]
                      (is (= 3 (count @asked)) "one at a time reaches them all")))))))
+
+(deftest a-declared-move
+  (let [new-url "https://example.org/new.xml"
+        moving  (assoc fresh
+                       :feed         (assoc show :podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810")
+                       :new-feed-url new-url)
+        step    (fn [answer]
+                  (let [asked (atom [])
+                        fetch (fn [u _]
+                                (swap! asked conj u)
+                                (if (= u url) moving (answer u)))]
+                    (async/then (feeds/refresh! feeds {:at (at 86400) :fetch fetch})
+                                (fn [r] (assoc r :asked @asked)))))]
+    (run
+     #(async/then (step (fn [u] (assoc moving :url u :new-feed-url nil)))
+                  (fn [{:keys [moved report asked]}]
+                    (is (= [url new-url] asked) "the new URL is fetched before the feed moves")
+                    (is (= {guid new-url} moved) "and a feed there moves it")
+                    (is (empty? report))))
+     #(async/then (step (fn [u] {:status 404 :url u :error {:id :fetch/status :status 404 :url u}}))
+                  (fn [{:keys [feeds moved report]}]
+                    (is (= {} moved) "no feed there, no move")
+                    (is (= url (get-in feeds [guid :url])))
+                    (is (= [[:fetch/move-unverified new-url guid]] (map (juxt :id :new-url :feed-guid) report)))))
+     #(async/then (step (fn [u] (assoc fresh :url u :feed (assoc show :podcast/guid "c73b1a23-1c28-5edb-94c3-10d1745d0877"))))
+                  (fn [{:keys [moved report]}]
+                    (is (= {} moved) "a feed of another show there, no move")
+                    (is (= ["the feed there gives another podcast:guid"] (map :reason report)))))
+     #(async/then (step (fn [u] (throw (ex-info "No route to host" {:url u}))))
+                  (fn [{:keys [moved report]}]
+                    (is (= {} moved))
+                    (is (= ["No route to host"] (map :reason report))))))))
 
 (deftest the-default-fetch
   (let [asked (atom [])

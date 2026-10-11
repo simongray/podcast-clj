@@ -924,7 +924,7 @@ A transcript or closed-captions file.
 |---|---|---|---|
 | `language` | `:language` | language |  |
 | `rel` | `:rel` | enum: `captions` |  |
-| `type` | `:type` | enum: `application/json`, `application/srt`, `application/x-subrip`, `text/html`, `text/plain`, `text/srt`, `text/vtt` | required |
+| `type` | `:type` | mime: `application/json`, `application/srt`, `application/x-subrip`, `text/html`, `text/plain`, `text/srt`, `text/vtt` | required |
 | `url` | `:url` | url | required |
 
 ### `<podcast:chapters>`

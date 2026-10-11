@@ -235,6 +235,15 @@
       (is (= 2 (:count (first (transcript/report vtt)))))
       (is (= ["Mark" "Mark"] (map :speaker (:segments srt))))
       (is (= "Design is everywhere,\nbut do we get it wrong?" (:body (first (:segments srt)))))))
+  (testing "the formatting tags that captioning tools write in SRT, which it doesn't define"
+    (let [srt (transcript/parse (str "1\n00:00:01,000 --> 00:00:02,000\n<i>Hello</i> &amp; <font color=\"red\">welcome</font>\n\n"
+                                     "2\n00:00:03,000 --> 00:00:04,000\nx < y > z\n\n"
+                                     "3\n00:00:05,000 --> 00:00:06,000\nAnn: <b>Hi</b>\n")
+                                :srt)]
+      (is (= [["Hello & welcome" nil] ["x < y > z" nil] ["Hi" "Ann"]] (map (juxt :body :speaker) (:segments srt)))
+          "a < that starts no tag stays")
+      (is (= [[:transcript/speaker-prefixes 1] [:transcript/srt-tags 2]]
+             (map (juxt :id :count) (transcript/report srt))))))
   (testing "voice spans of WebVTT"
     (let [cue    (fn [i text] (str "00:00:0" i ".000 --> 00:00:0" (inc i) ".000\n" text))
           parsed (fn [& texts]

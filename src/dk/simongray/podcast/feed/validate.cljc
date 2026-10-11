@@ -24,7 +24,8 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.names :as names]
-            [dk.simongray.qname-hiccup :as xml]))
+            [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.wary-fetch.headers :as headers]))
 
 (defn- diagnostic
   [id level path message & {:as details}]
@@ -42,6 +43,43 @@
   (and (string? v)
        (boolean (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v))))
 
+;; RFC 5646, section 2.1, by its shape alone: a language of two or three
+;; letters, as ISO 639 has them and Apple asks for, and its subtags
+(defn- language-tag?
+  "Whether `v` is a language tag, e.g. en or en-US."
+  [v]
+  ;; a split, not a repeated group, which a long value would overflow
+  (let [[language & subtags] (str/split (str/trim v) #"-" -1)]
+    (boolean (and (re-matches #"(?i)[a-z]{2,3}" language)
+                  (every? #(re-matches #"(?i)[a-z0-9]{1,8}" %) subtags)))))
+
+;; RFC 5322, section 3.4.1, by its shape alone; RSS 2.0 follows an address
+;; with a name in parentheses, e.g. geo@herald.com (George Matesky)
+(defn- email?
+  "Whether `v` is an email address, alone or followed by a name in
+  parentheses."
+  [v]
+  ;; the dots of the domain are checked apart, since a repeated group in
+  ;; the pattern would overflow on a long value
+  (let [[_ domain] (re-matches #"(?s)[^\s@()<>]+@([^\s@()<>]+)(?:\s+\(.*\))?"
+                               (str/trim v))]
+    (boolean (and domain
+                  (str/includes? domain ".")
+                  (not (str/includes? domain ".."))
+                  (not (str/starts-with? domain "."))
+                  (not (str/ends-with? domain "."))))))
+
+;; RFC 6838, section 4.2, with the parameters of RFC 9110, section 8.3.1
+(def ^:no-doc media-type-pattern
+  "A media type, e.g. audio/mpeg or text/vtt; charset=utf-8."
+  (let [name "[a-z0-9][a-z0-9!#$&^_.+-]{0,126}"]
+    (re-pattern (str "(?is)" name "/" name "(?:\\s*;.*)?"))))
+
+(defn- media-type?
+  "Whether `v` is a media type, e.g. audio/mpeg or text/vtt; charset=utf-8."
+  [v]
+  (boolean (re-matches media-type-pattern (str/trim v))))
+
 (defn- typed-diagnostics
   "The diagnostics of the value `v` of `type` at `path`, by the enumeration
   `values` and whether `https?` is expected.
@@ -51,7 +89,8 @@
   - a value that isn't of its type
   - a negative number
   - a value outside the enumeration
-  - an http URL where https is expected"
+  - an http URL where https is expected
+  - a language, an email address or a media type of the wrong shape"
   [type values v path https?]
   (cond
     (and (contains? coerce/coerced-types type)
@@ -88,6 +127,37 @@
     [(diagnostic :validate/http-url :info path
                  (str "the podcast namespace requires https for hypertext"
                       " resources"))]
+
+    (and (= type :language)
+         (string? v)
+         (not (language-tag? v)))
+    [(diagnostic :validate/invalid-language :warning path
+                 "the value isn't a language tag such as en or en-US"
+                 :value v)]
+
+    (and (= type :email)
+         (string? v)
+         (not (email? v)))
+    [(diagnostic :validate/invalid-email :info path
+                 "the value isn't an email address"
+                 :value v)]
+
+    (and (= type :mime)
+         (string? v)
+         (not (media-type? v)))
+    [(diagnostic :validate/invalid-media-type :warning path
+                 "the value isn't a media type such as audio/mpeg"
+                 :value v)]
+
+    ;; a media type of the list, whatever its parameters, e.g. a charset
+    (and (= type :mime)
+         values
+         (string? v)
+         (not (enum-ok? values (headers/media-type v))))
+    [(diagnostic :validate/invalid-enum :warning path
+                 (str "the media type isn't one of "
+                      (str/join ", " (sort values)))
+                 :value v)]
 
     :else
     []))
@@ -126,7 +196,7 @@
   name for a stream."
   #{"application/vnd.apple.mpegurl" "application/x-mpegurl"})
 
-(defn- media-type?
+(defn- playable-type?
   "Whether the media type `s` is of audio, of video or of a playlist of
   either, whatever its case and parameters."
   [s]
@@ -207,7 +277,7 @@
      (concat
       (when (and (string? type)
                  (not (str/blank? type))
-                 (not (media-type? type)))
+                 (not (playable-type? type)))
         [(diagnostic :validate/unknown-media-type :warning (conj path :type)
                      "the enclosure is neither audio nor video"
                      :value type)])

@@ -85,7 +85,13 @@
       (is (= {:href "https://a/i.jpg"} (:itunes/image item)))
       (is (empty? (:xml/unknown item)))
       (is (= {:url "https://a/c.json" :type "application/json+chapters"} (:podcast/chapters item)))
-      (is (= "application/x-subrip" (get-in item [:podcast/transcripts 0 :type]))))))
+      (is (= "application/x-subrip" (get-in item [:podcast/transcripts 0 :type])))))
+  (let [type #(-> (str "<rss xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><item>"
+                       "<podcast:transcript url=\"https://a/t\" type=\"" % "\"/></item></channel></rss>")
+                  xml/parse quirks/normalize feed/parse :rss/items first :podcast/transcripts first :type)]
+    (is (= ["text/vtt" "application/x-subrip" "text/vtt" "text/markdown; charset=utf-8"]
+           (map type ["text/vtt; charset=utf-8" "srt;charset=UTF-8" "text/vtt" "text/markdown; charset=utf-8"]))
+        "a type of the podcast namespace without its parameters, and any other as it was")))
 
 (deftest the-quirky-fixture
   (let [f    (rss/parse @quirky)

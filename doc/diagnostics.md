@@ -56,6 +56,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/empty-feed` | warning | The feed came back without items, though it had some before, as some hosts answer during an outage. The feed stays as it was, and the next fetch waits as after a failure. |
+| `:fetch/gone` | warning | The feed is gone: its server answered 410, or it failed many times in a row, as the :failures say. It isn't checked any more, unless a Podping or a refresh of that feed asks for it, and a fetch that succeeds brings it back. |
+| `:fetch/move-unverified` | warning | The feed declares that it moved to the :new-url, but no feed of the show answered there, as the :reason says, so the feed stays at its old URL and the move is tried again at the next fetch. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
 | `:fetch/guid-changed` | info | The feed gives itself another guid than before, from :old to :new, e.g. a new podcast:guid, or a new URL of a feed that declares none. Its subscription keeps its key, the :feed-guid, and notes the new guid. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
@@ -76,7 +78,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:quirk/itunes-image-text` | info | An itunes:image gave its URL as text or in a url attribute instead of href. |
 | `:quirk/explicit-value` | info | An itunes:explicit said yes, no, explicit or clean, which was read as true or false. |
 | `:quirk/yes-no-value` | info | A yes/no element said true or false, which was read as yes or no. |
-| `:quirk/transcript-type` | info | A transcript type was written loosely, as srt, vtt, json or text, and was corrected to its MIME type. |
+| `:quirk/transcript-type` | info | A transcript type was written loosely, as srt, vtt, json or text, or with a parameter such as a charset, and was corrected to its MIME type. |
 | `:quirk/attribute-name` | info | An href attribute was used where the spec asks for url, and was renamed. |
 | `:quirk/enclosure-length` | info | An enclosure length that wasn't a number was dropped. |
 | `:quirk/empty-guid` | info | An empty guid was dropped, so the identity of the item is its enclosure URL. |
@@ -95,6 +97,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:feed/dropped-attributes` | info | Attributes that the model has no place for were dropped: those of an element read as a single value, those of rss other than its version, and those of channel. |
 | `:transcript/speaker-prefixes` | info | Speakers were taken from Name: prefixes in the cues, and carried over to the cues that follow. |
 | `:transcript/voices-carried` | info | A WebVTT file gives a voice span only where the speaker changes, so the cues without one took the speaker before them. The :count is the number of such cues. |
+| `:transcript/srt-tags` | info | SRT cues held the formatting tags of HTML, e.g. for italics or a font, which SRT doesn't define, and the text was read without them. The :count is the number of such cues. |
 | `:transcript/string-times` | warning | Segment times were given as strings rather than numbers, and were read as numbers. |
 | `:transcript/wrapped-srt` | warning | An HTML transcript was an SRT file with every line wrapped in an element, and was read as SRT. |
 | `:transcript/unknown-type` | warning | The declared type isn't one that the spec names, so the format was detected from the file instead. |
@@ -187,6 +190,9 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/invalid-enum` | warning | A value isn't one of those that the spec lists. The :value is the value. |
 | `:validate/invalid-url` | warning | A URL isn't absolute. The :value is the URL. |
 | `:validate/http-url` | info | A URL uses http where the podcast namespace requires https. |
+| `:validate/invalid-language` | warning | A language isn't a language tag such as en or en-US, e.g. en_US. The :value is the value. |
+| `:validate/invalid-email` | info | An email address isn't one, alone or followed by a name in parentheses, e.g. an author given by name alone. The :value is the value. |
+| `:validate/invalid-media-type` | warning | A media type isn't a type and a subtype such as audio/mpeg. The :value is the value. |
 | `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID, so the library, like the Podcast Index, identifies the feed by the guid derived from its URL. The :value is the guid. |
 | `:validate/unknown-role` | info | The role of a person isn't in the Podcast Taxonomy. The :value is the role. |
 | `:validate/unknown-element` | info | The registry doesn't know the element, so it's kept under :xml/unknown. |
