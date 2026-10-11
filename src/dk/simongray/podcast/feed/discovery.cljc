@@ -343,7 +343,7 @@
   [url link]
   (on-website? (site url) link))
 
-(defn podcast?
+(defn ^:no-doc podcast?
   "Whether `feed` is a podcast: an item has an enclosure, or the channel
   has an element of the iTunes or the podcast namespace."
   [feed]

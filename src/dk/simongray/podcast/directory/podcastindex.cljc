@@ -139,7 +139,7 @@
   [opts]
   (cond-> opts (not (:auth-date opts)) (assoc :auth-date (now-seconds))))
 
-(defn auth-headers
+(defn ^:no-doc auth-headers
   "The headers that authenticate a request with `credentials` at the Unix
   time `seconds`: the date, the key and the SHA-1 of the key, the secret
   and the date.
@@ -235,7 +235,7 @@
     customKey                (assoc :custom-key (str customKey))
     customValue              (assoc :custom-value (str customValue))))
 
-(defn value->block
+(defn ^:no-doc value->block
   "The value block of the index's value object `v`, which has a model and
   destinations, in the shape that podcast:value takes in the model. It's
   nil when `v` isn't one."
@@ -291,7 +291,7 @@
   (vec (for [[_ text] (sort-by (comp ->number key) categories)]
          {:text text})))
 
-(defn feed->model
+(defn ^:no-doc feed->model
   "The feed object `f` of the index as a feed map. It has the keys of a
   parsed feed where the index has the same information, keys in the index
   namespace for what only the index knows, and the original as :index/raw."

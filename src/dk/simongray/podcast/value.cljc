@@ -37,7 +37,7 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value.payment :as value.payment]))
 
-(defn fee?
+(defn ^:no-doc fee?
   "Whether `recipient` takes a fee off the top rather than a share."
   [recipient]
   (true? (:fee recipient)))
@@ -50,7 +50,7 @@
   (let [split (:split recipient)]
     (if (and (number? split) (pos? split)) split 0)))
 
-(defn time-split-at
+(defn ^:no-doc time-split-at
   "The valueTimeSplit of `block` in effect `seconds` into playback, if any."
   [block seconds]
   (some (fn [{:keys [start-time duration] :as split}]

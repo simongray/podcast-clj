@@ -342,7 +342,8 @@
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
-  - :concurrency, how many feeds to fetch at once, and :cadence
+  - :concurrency, how many feeds to fetch at once, default-concurrency by
+    default, and :cadence
   - :max-pages, the most pages of a paged feed to read at its first fetch,
     one by default, since the later fetches keep what it read
   - :online?, false when the device has no network, so that nothing is

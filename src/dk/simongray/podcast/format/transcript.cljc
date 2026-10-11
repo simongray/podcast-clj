@@ -3,6 +3,10 @@
   into one shape and written back: SRT, WebVTT, the JSON segments format
   and the constrained HTML form, plus plain text.
 
+  Each format has its reader, parse-srt, parse-vtt, parse-json, parse-html
+  and parse-text, and parse picks one by the type or by the file. The
+  first three have writers too, emit-srt, emit-vtt and emit-json.
+
   A transcript is a map:
 
       {:format   :vtt                     ; :srt :json :html :text
@@ -10,8 +14,7 @@
                    :body \"…\"}]}
 
   Times are seconds, and :end-time and :speaker are there when the source
-  had them. Speakers are read from
-  these:
+  had them. Speakers are read from these:
 
   - the voice spans of WebVTT, which name the speaker of their cue, or of
     the cues that follow too in a file that marks only the changes of

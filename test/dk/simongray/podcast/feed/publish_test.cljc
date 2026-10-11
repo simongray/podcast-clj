@@ -183,8 +183,8 @@
       (let [open (publish/for-subscriber feed "s3cr3t" {:token-param "key"
                                                         :own-pred    #(re-find #"^https://media\.example/" %)
                                                         :block?      false})
-            path (publish/for-subscriber feed "abc" {:with-token (fn [url token]
-                                                                   (str/replace-first url ".example/" (str ".example/" token "/")))})]
+            path (publish/for-subscriber feed "abc" {:with-token-fn (fn [url token]
+                                                                      (str/replace-first url ".example/" (str ".example/" token "/")))})]
         (is (= "https://media.example/7.mp3?key=s3cr3t" (get-in open [:rss/items 0 :rss/enclosure :url])))
         (is (= (:atom/links feed) (:atom/links open)) "the links that are not the host's, and the hub")
         (is (not (contains? open :itunes/block)))

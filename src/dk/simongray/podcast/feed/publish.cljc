@@ -226,20 +226,20 @@
   choice that the options can replace. The `opts` are:
 
   - :token-param, the name of the query parameter, token-param by default
-  - :with-token, a function of a URL and the token that gives the URL of
-    the subscriber, for a host that has the token in the path
+  - :with-token-fn, a function of a URL and the token that gives the URL
+    of the subscriber, for a host that has the token in the path
   - :own-pred, a predicate of a URL, where the URLs that it refuses get no
     token, e.g. the media files on the server of another company
   - :block?, false for a feed that stays as open as it was"
   ([feed token]
    (for-subscriber feed token {}))
-  ([feed token {:keys [with-token own-pred block?]
+  ([feed token {:keys [with-token-fn own-pred block?]
                 param :token-param
                 :or   {param token-param own-pred (constantly true) block? true}
                 :as   opts}]
    {:pre [(map? opts)]}
    (let [token      (secret/reveal token)
-         with-token (or with-token #(url/with-query %1 {param %2}))
+         with-token (or with-token-fn #(url/with-query %1 {param %2}))
          personal   (fn [url]
                       (if (and (url/web-url? url)
                                (own-pred url))

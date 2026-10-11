@@ -29,7 +29,7 @@
   "The start of the comment of a payment that names its metadata."
   "rss::payment::")
 
-(def header-name
+(def ^:no-doc header-name
   "The header of the answer that holds the metadata of a payment."
   "x-rss-payment")
 

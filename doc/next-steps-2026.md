@@ -109,6 +109,11 @@ The reports leave these open. Each blocks the step it names.
   tests (`:requirements` as a map, `:block? false`); let
   `comments/next-page` dispatch like its siblings or not; and pick one
   side of the public line for the byte readers of `format.image`.
+  (Decided: both option forms stay, since tests now cover them;
+  `next-page` stays as it is, since only ActivityPub has pages; the
+  little-endian readers move to `util.bytes.view` beside the big-endian
+  ones. The Podcast Index pair gains the app layer's options, and the
+  trailing-slash stripper goes to wary-fetch in a release of its own.)
   ([What the reading says](subtractive-review-2026.md#what-the-reading-says))
 
 

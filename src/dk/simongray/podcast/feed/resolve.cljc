@@ -493,7 +493,7 @@
   ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
    "application/json" "text/html" "text/plain"])
 
-(def timed-transcript-types
+(def ^:no-doc timed-transcript-types
   "The transcript types whose files have timings as a rule."
   #{"text/vtt" "application/x-subrip" "application/srt" "text/srt"
     "application/json"})

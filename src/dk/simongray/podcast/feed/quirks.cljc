@@ -23,7 +23,7 @@
       ;; tried again from every slash of a long run, quadratically
       (str/replace #"(^|[^/])/+$" "$1")))
 
-(def uri-variants
+(def ^:no-doc uri-variants
   "The namespace URIs in feeds that differ from the canonical ones by more
   than scheme, case or a trailing slash, with the alias that they mean."
   {"www.google.com/schemas/play-podcasts/1.0/play-podcasts.xsd" :googleplay
@@ -111,12 +111,12 @@
   [element s]
   [(xml/tag element) (xml/attrs element) s])
 
-(def explicit-values
+(def ^:no-doc explicit-values
   "What feeds write in itunes:explicit, and what they mean."
   {"true" "true" "yes" "true" "explicit" "true"
    "false" "false" "no" "false" "clean" "false"})
 
-(def yes-no-values
+(def ^:no-doc yes-no-values
   "What feeds write in yes-no elements such as podcast:locked, and what
   they mean."
   {"yes" "yes" "true" "yes" "no" "no" "false" "no"})
@@ -179,7 +179,7 @@
       (into [(xml/tag channel) (xml/attrs channel)]
             (map convert (xml/children channel))))))
 
-(def transcript-type-values
+(def ^:no-doc transcript-type-values
   "The nonstandard spellings of transcript types, and the standard ones."
   {"srt"              "application/x-subrip"
    "application/srt"  "application/x-subrip"
@@ -298,7 +298,7 @@
     nil
     element))
 
-(def normalizations
+(def ^:no-doc normalizations
   "The normalizations of the tree that hold whatever the registry, applied
   to every element in document order, children before parents."
   [(rewrite :quirk/itunes-image-text :itunes/image itunes-image-href)
@@ -318,7 +318,7 @@
    (check :quirk/date-format :pubDate non-canonical-date)
    (check :quirk/date-format :lastBuildDate non-canonical-date)])
 
-(defn registry-normalizations
+(defn ^:no-doc registry-normalizations
   "The normalizations that the tag `registry` implies: true and false
   rewritten as yes and no in every element that it types as yes-no."
   [registry]

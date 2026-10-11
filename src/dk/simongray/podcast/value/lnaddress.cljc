@@ -189,7 +189,7 @@
                 (<= min-msat msat max-msat))))
 
 ;; LUD-12
-(defn sent-comment
+(defn ^:no-doc sent-comment
   "The comment that goes out with a request to the callback of `terms`:
   `comment`, cut to the :comment-length of the terms. It's nil when the
   terms take no comment, and for a comment that's blank or isn't text."

@@ -131,6 +131,21 @@
   [view p]
   (+ (* 16777216 (u8 view p)) (u24 view (inc p))))
 
+(defn u16le
+  "The little-endian 16-bit number at `p` in `view`."
+  [view p]
+  (+ (u8 view p) (* 256 (u8 view (inc p)))))
+
+(defn u24le
+  "The little-endian 24-bit number at `p` in `view`."
+  [view p]
+  (+ (u16le view p) (* 65536 (u8 view (+ p 2)))))
+
+(defn u32le
+  "The little-endian 32-bit number at `p` in `view`."
+  [view p]
+  (+ (u16le view p) (* 65536 (u16le view (+ p 2)))))
+
 (defn u64
   "The big-endian 64-bit number at `p` in `view`, exact up to 2^53 in
   JavaScript, and up to 2^63 on the JVM. Above that, it's the nearest

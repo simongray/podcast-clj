@@ -135,7 +135,7 @@
         (str/starts-with? t "video/")
         (contains? playlist-types t))))
 
-(def structural-rules
+(def ^:no-doc structural-rules
   "Checks by tag of the model value of an element, each a function of the
   value and its path that returns diagnostics."
   {:podcast/alternateEnclosure

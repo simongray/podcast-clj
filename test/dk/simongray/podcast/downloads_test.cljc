@@ -314,7 +314,7 @@
                           {:enclosure {:types ["audio/opus"]}})))
         "at the bitrate of the file")
     (is (= 0 (:bytes (entry (update-in bare [:rss/items 0] dissoc :itunes/duration) {}))))
-    (is (= 7 (:bytes (entry bare {:estimate (constantly 7)}))))
+    (is (= 7 (:bytes (entry bare {:estimate-fn (constantly 7)}))))
     (is (nil? (entry (assoc-in show [:rss/items 0 :rss/enclosure] {:url "https://example.org/a4.m3u8" :type "application/x-mpegURL"}) {}))
         "a stream is no download")
     (is (= {:id ["feed-a" "a4"] :url "https://example.org/a4.opus" :type "audio/opus" :bytes 90 :reason :rule}

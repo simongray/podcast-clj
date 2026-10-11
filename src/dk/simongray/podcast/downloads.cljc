@@ -72,7 +72,7 @@
 (def bytes-per-second
   "The bytes of one second of an episode whose feed gives neither its
   length nor its bitrate, for :audio at 128 kbit/s and :video at 1 Mbit/s,
-  unless the :estimate of the options says otherwise."
+  unless the :estimate-fn of the options says otherwise."
   {:audio 16000 :video 125000})
 
 (defn rules
@@ -218,7 +218,7 @@
   with their :problems, and the :held episodes."
   [profile files at opts]
   (let [rules (:rules opts (rules profile))]
-    (merge (select-keys opts [:scale :enclosure :estimate])
+    (merge (select-keys opts [:scale :enclosure :estimate-fn])
            {:profile  profile
             :at       at
             :url      (:url opts resolve/self-url)
@@ -365,8 +365,8 @@
   The file is the enclosure that the :enclosure of `ctx` selects among
   those that can be downloaded, the audio or the video as the listener
   watches the show unless the :enclosure says. The bytes are the length in
-  the feed, or else what the :estimate of `ctx` gives for the item and the
-  enclosure."
+  the feed, or else what the :estimate-fn of `ctx` gives for the item and
+  the enclosure."
   [ctx id item reason]
   (let [video?    (profile/prefers-video? (:profile ctx) (first id))
         opts      (-> (merge {:video? video?} (:enclosure ctx))
@@ -374,7 +374,7 @@
                               #(every-pred resolve/downloadable?
                                            (or % any?))))
         enclosure (some-> item (resolve/enclosure opts))
-        estimator (:estimate ctx estimate)]
+        estimator (:estimate-fn ctx estimate)]
     (when-let [{:keys [url type length]} enclosure]
       (cond-> {:id     id
                :url    url
@@ -524,8 +524,8 @@
   - :enclosure, the options of resolve/enclosure, which selects the file
     of an episode among those that resolve/downloadable? takes. Its
     :video? is profile/prefers-video? for the show unless they give one.
-  - :estimate, a function of an item and its enclosure that gives the
-    bytes of a file whose feed gives no length
+  - :estimate-fn, a function of an item and its enclosure that gives the
+    bytes of a file whose feed gives no length, estimate by default
   - :scale, the scale of the criterion :rating
 
   When the rules have a problem, the result describes it under

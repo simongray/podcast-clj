@@ -25,7 +25,7 @@
    :max-events      500
    :max-bytes       (* 5 1024 1024)})
 
-(def max-name-length
+(def ^:no-doc max-name-length
   "The most characters of a name, the limit of NIP-19."
   5000)
 

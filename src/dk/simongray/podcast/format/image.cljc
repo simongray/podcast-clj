@@ -19,21 +19,6 @@
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch.async :as async]))
 
-(defn ^:no-doc u16le
-  "The little-endian 16-bit number at `p` in `view`."
-  [view p]
-  (+ (view/u8 view p) (* 256 (view/u8 view (inc p)))))
-
-(defn- u24le
-  "The little-endian 24-bit number at `p` in `view`."
-  [view p]
-  (+ (u16le view p) (* 65536 (view/u8 view (+ p 2)))))
-
-(defn ^:no-doc u32le
-  "The little-endian 32-bit number at `p` in `view`."
-  [view p]
-  (+ (u16le view p) (* 65536 (u16le view (+ p 2)))))
-
 (defn ^:no-doc unless-broken
   "What `f` gives when called, or nil when it fails. A failure because the
   view lacks bytes or the file ends too soon is thrown again, so that a
@@ -151,8 +136,8 @@
           (when (and (<= (+ t 8) end)
                      (= "Exif" (view/code view (+ p 4) 4)))
             (let [le?      (= "II" (view/code view t 2))
-                  u16*     (fn [q] (if le? (u16le view q) (view/u16 view q)))
-                  u32*     (fn [q] (if le? (u32le view q) (view/u32 view q)))
+                  u16*     (partial (if le? view/u16le view/u16) view)
+                  u32*     (partial (if le? view/u32le view/u32) view)
                   ifd      (+ t (u32* (+ t 4)))
                   n        (when (<= (+ ifd 2) end)
                              (min (u16* ifd) (quot (- end ifd 2) 12)))
@@ -235,8 +220,8 @@
   (view/need view 0 10)
   (when (contains? #{"87a" "89a"} (view/code view 3 3))
     {:type   "image/gif"
-     :width  (u16le view 6)
-     :height (u16le view 8)
+     :width  (view/u16le view 6)
+     :height (view/u16le view 8)
      :color  :indexed}))
 
 (defn- webp
@@ -249,12 +234,12 @@
   (view/need view 12 30)
   (case (view/code view 12 4)
     "VP8X" {:type   "image/webp"
-            :width  (inc (u24le view 24))
-            :height (inc (u24le view 27))
+            :width  (inc (view/u24le view 24))
+            :height (inc (view/u24le view 27))
             :color  :rgb
             :alpha? (bit-test (view/u8 view 20) 4)}
     "VP8L" (when (= 0x2F (view/u8 view 20))
-             (let [bits (u32le view 21)]
+             (let [bits (view/u32le view 21)]
                {:type   "image/webp"
                 :width  (inc (bit-and bits 0x3FFF))
                 :height (inc (bit-and (bit-shift-right bits 14) 0x3FFF))
@@ -264,8 +249,8 @@
                       (= 0x01 (view/u8 view 24))
                       (= 0x2A (view/u8 view 25)))
              {:type   "image/webp"
-              :width  (bit-and (u16le view 26) 0x3FFF)
-              :height (bit-and (u16le view 28) 0x3FFF)
+              :width  (bit-and (view/u16le view 26) 0x3FFF)
+              :height (bit-and (view/u16le view 28) 0x3FFF)
               :color  :rgb
               :alpha? false})
     nil))

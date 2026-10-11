@@ -55,34 +55,34 @@
   #{"podcast" "music" "video" "film" "audiobook" "newsletter" "blog"
     "publisher" "course"})
 
-(def list-mediums
+(def ^:no-doc list-mediums
   "The list variants of mediums, and the mixed list."
   (into #{"mixed"} (map #(str % "L")) mediums))
 
 ;; socialprotocols.txt of the podcast namespace, as of 2026-09-30
-(def social-protocols
+(def ^:no-doc social-protocols
   "The protocols that podcast:socialInteract can name."
   #{"disabled" "activitypub" "twitter" "lightning" "atproto" "hive" "matrix"
     "nostr"})
 
-(def chat-protocols
+(def ^:no-doc chat-protocols
   "The protocols that podcast:chat can name."
   #{"irc" "xmpp" "nostr" "matrix"})
 
-(def value-types
+(def ^:no-doc value-types
   "The payment networks that a podcast:value block can name."
   #{"lightning" "bitcoin"})
 
-(def value-methods
+(def ^:no-doc value-methods
   "The payment methods that a podcast:value block can name."
   #{"keysend" "amp" "lnaddress" "default"})
 
-(def recipient-types
+(def ^:no-doc recipient-types
   "The kinds of address that a podcast:valueRecipient can have."
   #{"node" "lnaddress" "wallet"})
 
 ;; serviceslugs.txt of the podcast namespace, as of 2026-09-30
-(def service-slugs
+(def ^:no-doc service-slugs
   "The platform slugs of podcast:block."
   #{"acast" "amazon" "anchor" "apple" "audible" "audioboom" "backtracks"
     "bitcoin" "blubrry" "buzzsprout" "captivate" "castos" "castopod" "facebook"
