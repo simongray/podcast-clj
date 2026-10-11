@@ -36,6 +36,7 @@
        :archive-after  31536000000    ; when played episodes are archived, in ms
        :only-newer?    false          ; older episodes that appear are new too
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
+       :local-file-fn  f              ; the downloaded file of an episode id
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
@@ -73,9 +74,11 @@
 
 (def default-config
   "The config of a library when none is given. The :list-seconds is how
-  long a fetched OPML list stays current."
-  {:search?      true
-   :list-seconds 86400})
+  long a fetched OPML list stays current, and the :offline-seconds how
+  long next-refresh waits after a refresh that found the device offline."
+  {:search?         true
+   :list-seconds    86400
+   :offline-seconds 300})
 
 (defn- options
   "The `opts` of a call over the config of `library` and the defaults."
@@ -655,6 +658,16 @@
                          changed)]
     (dissoc (reduce relocate result moved) :guids)))
 
+(defn- counted
+  "How many feeds the `step` of feeds/refresh! checked, and of those, how
+  many were unchanged, changed and failed."
+  [{:keys [checked changed failed] :as step}]
+  (let [n (count checked)]
+    {:checked   n
+     :unchanged (- n (count changed) (count failed))
+     :changed   (count changed)
+     :failed    (count failed)}))
+
 (defn refresh!
   "Fetch and apply whatever `library` is due to fetch, with the `opts`
   below.
@@ -670,6 +683,8 @@
                                               ; which took their state along
        :moved      {feed-guid \"https://…\"}   ; the feeds that moved, and so
                                               ; their subscriptions
+       :counts     {:checked 120 :unchanged 104 :changed 14 :failed 2}
+       :seconds    4.2                        ; how long it took
        :report     [...]}                     ; the fetches that failed, and why
 
   Only the new episodes join the queue or the inbox. Nothing is thrown for
@@ -692,6 +707,8 @@
    (let [at         (time-of library opts)
          defaults   {:send client/send! :fetch podcast/fetch!}
          opts       (clojure.core/merge defaults (options library opts))
+         clock      (:now-fn opts time/now)
+         started    (clock)
          feeds-opts (-> opts
                         (select-keys [:feed-guids :fetch :credentials-of
                                       :concurrency :cadence :max-pages :send
@@ -719,12 +736,42 @@
                    reports         (-> []
                                        (into report)
                                        (into (:report step))
-                                       (into (:report done)))]
+                                       (into (:report done)))
+                   took            (- (inst-ms (clock)) (inst-ms started))]
                (assoc library :refresh (-> {:at at}
                                            (into (select-keys
                                                   done [:added :backfilled
                                                         :renamed :moved]))
-                                           (assoc :report reports))))))))))))
+                                           (assoc :counts  (counted step)
+                                                  :seconds (/ took 1000.0)
+                                                  :report  reports))))))))))))
+
+(defn next-refresh
+  "When `library` should refresh again, with `opts`: when the first of its
+  feeds and followed lists is due, or nil when it has none to fetch. The
+  result is never before the time of the call.
+
+  The feed of a subscription that was never fetched is due at once, and a
+  feed that's gone is never due. After a refresh that found the device
+  offline, the next waits the :offline-seconds of the config."
+  ([library]
+   (next-refresh library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [at       (time-of library opts)
+         {:keys [offline-seconds]} (options library opts)
+         {:keys [report] last-at :at} (:refresh library)
+         check    #(or (:next-check %) at)
+         checks   (concat (map check (remove :gone? (vals (:feeds library))))
+                          (map check (vals (:fetched-lists library)))
+                          (when (seq (pending library))
+                            [at]))
+         offline? (some (comp #{:refresh/offline} :id) report)]
+     (when (seq checks)
+       (time/latest at
+                    (apply time/earliest checks)
+                    (when offline?
+                      (time/later last-at offline-seconds)))))))
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
@@ -740,6 +787,47 @@
     (when-let [item (some #(when (= item-guid (guid/item-guid %)) %)
                           (:rss/items feed))]
       [entry (with-fact entry item)])))
+
+(defn notifications
+  "The new episodes that the last refresh of `library` found in the shows
+  that announce theirs, by show, the show with the newest episode first:
+
+      [{:feed-guid \"…\" :title \"The Daily\" :artwork \"https://…\"
+        :episodes  [{:id [feed-guid item-guid] :title \"…\"
+                     :published #inst \"…\"}]}]
+
+  A show announces its new episodes when its :notify? setting says so,
+  or else the listener's preference, as profile/notifies? says. An
+  episode that the listener played already is left out."
+  [library]
+  (let [profile (:profile library)
+        wanted? (fn [[feed-guid :as id]]
+                  (and (profile/subscribed? profile feed-guid)
+                       (profile/notifies? profile feed-guid)
+                       (not (profile/played? profile id))))
+        small   (fn [id]
+                  (when-let [[_ item] (item-of library id)]
+                    (let [title     (resolve/title item)
+                          published (resolve/published item)]
+                      (cond-> {:id id}
+                        title     (assoc :title title)
+                        published (assoc :published published)))))
+        newest  #(- (or (some-> (:published %) inst-ms) 0))
+        of-show (fn [[feed-guid ids]]
+                  (let [feed     (get-in library [:feeds feed-guid :feed])
+                        episodes (sort-by newest (keep small ids))
+                        title    (resolve/title feed)
+                        artwork  (resolve/artwork feed)]
+                    (when (seq episodes)
+                      (cond-> {:feed-guid feed-guid :episodes (vec episodes)}
+                        title   (assoc :title title)
+                        artwork (assoc :artwork artwork)))))]
+    (->> (get-in library [:refresh :added])
+         (filter wanted?)
+         (group-by first)
+         (keep of-show)
+         (sort-by (comp newest first :episodes))
+         vec)))
 
 (defn show
   "The view of the show `feed-guid` of `library`, with the `opts` of
@@ -779,6 +867,66 @@
        (episode/view feed item (clojure.core/merge {:video? video?}
                                                    (options library opts)
                                                    {:url url}))))))
+
+(defn playback
+  "What a player needs for the episode `id` of `library`, with the `opts`
+  of episode over the config, or nil when the library has no such
+  episode:
+
+      {:id         [feed-guid item-guid]
+       :src        \"https://…/7.mp3\"   ; the file to play
+       :local?     false                ; whether it's a downloaded file
+       :enclosure  {:url \"…\" :type \"audio/mpeg\" …}
+       :position   754.0                ; where to start, in seconds
+       :duration   3612.0               ; when it's known
+       :rate       1.5
+       :played?    false
+       :title      \"…\" :show \"…\" :artwork \"https://…\"
+       :poster     \"https://…\"         ; of a video, before it plays
+       :chapters   {:source :embedded :document {…}}  ; in the feed itself
+       :chapters-url \"https://…\"                    ; a file of chapters
+       :transcript {:url \"…\" :type \"text/vtt\" …}   ; e.g. for captions
+       :metadata   {…}}                 ; for the Media Session
+
+  The file to play is the one that the :local-file-fn of the options
+  gives for the id, e.g. a path or an object URL, or else the enclosure.
+  With :files, what read-files! gave for the episode, its chapters and
+  measured duration go over those of the feed. The keys without a value
+  are left out, and app.episode/metadata gives the metadata."
+  ([library id]
+   (playback library id {}))
+  ([library id {:keys [files] :as opts}]
+   {:pre [(map? opts)]}
+   (when-let [view (episode library id (assoc opts :except #{:notes :text
+                                                             :links}))]
+     (let [[feed-guid] id
+           profile     (:profile library)
+           feed        (get-in library [:feeds feed-guid :feed])
+           view        (cond-> view
+                         (:chapters files) (assoc :chapters (:chapters files)))
+           local-file  (when-let [f (:local-file-fn (options library opts))]
+                         (f id))
+           src         (or local-file (:url (:enclosure view)))
+           duration    (or (:duration (profile/episode-entry profile id))
+                           (:duration files)
+                           (:duration view))]
+       (into {:id       id
+              :local?   (some? local-file)
+              :position (profile/resume-position profile feed-guid id)
+              :rate     (profile/playback-rate profile feed-guid)
+              :played?  (profile/played? profile id)
+              :metadata (episode/metadata feed view)}
+             (remove (comp nil? val))
+             {:src          src
+              :enclosure    (:enclosure view)
+              :duration     duration
+              :title        (:title view)
+              :show         (resolve/title feed)
+              :artwork      (:artwork view)
+              :poster       (:poster view)
+              :chapters     (:chapters view)
+              :chapters-url (:chapters-url view)
+              :transcript   (:transcript view)})))))
 
 (defn read-files!
   "Read the files of the episode `id` of `library`, with the `opts` of

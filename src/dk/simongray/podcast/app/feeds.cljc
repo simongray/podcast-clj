@@ -255,8 +255,9 @@
 
       {:feeds   {…}                      ; with the entry of the feed updated
        :changed [feed-guid]              ; when the fetch gave a fresh feed
+       :failed  [feed-guid]              ; when the fetch failed
        :moved   {feed-guid \"https://…\"}  ; when the feed moved for good
-       :report  [diagnostic]}            ; when the fetch failed
+       :report  [diagnostic]}            ; why it failed, and other news
 
   A fresh feed replaces the old one, but for the items that it lacks,
   which stay after its own, and a 304 keeps it. A fresh feed that's the
@@ -289,6 +290,7 @@
                                    :status   (:status entry)
                                    :failures (:failures entry)}))]
                      {:feeds  (assoc feeds feed-guid entry)
+                      :failed [feed-guid]
                       :report (mapv noted (cond-> [error] gone (conj gone)))}))]
      (cond
        (:error result)
@@ -378,7 +380,9 @@
   changes none of them, with the :reason of a failure that said so."
   [feeds reason]
   {:feeds   feeds
+   :checked []
    :changed []
+   :failed  []
    :moved   {}
    :report  [(diagnostics/describe (cond-> {:id :refresh/offline}
                                      reason (assoc :reason reason)))]})
@@ -386,9 +390,10 @@
 (defn- merged
   "The changes of the refreshes so far in `acc`, with those of the `result`
   of one more refresh added."
-  [acc {:keys [feeds changed moved report] :as result}]
+  [acc {:keys [feeds changed failed moved report] :as result}]
   (cond-> (assoc acc :feeds feeds)
     changed (update :changed into changed)
+    failed  (update :failed into failed)
     moved   (update :moved merge moved)
     report  (update :report into report)))
 
@@ -396,8 +401,9 @@
   "Fetch the feeds of `feeds` that are due with the `opts` below, and apply
   each result.
 
-  Returns a map of :feeds, :changed, :moved and :report for all the
-  fetches, in ClojureScript as a promise. Nothing is thrown for what the
+  Returns a map of :feeds, :changed, :failed, :moved and :report for all
+  the fetches, as refresh gives them, and :checked, the guids of the feeds
+  fetched, in ClojureScript as a promise. Nothing is thrown for what the
   network or a server does. The `opts` are:
 
   - :at, the instant of the refresh, the time of the clock by default
@@ -474,7 +480,12 @@
                   (if (offline? results)
                     (offline feeds (get-in (first results) [1 :error :reason]))
                     (reduce step
-                            {:feeds feeds :changed [] :moved {} :report []}
+                            {:feeds   feeds
+                             :checked (mapv first results)
+                             :changed []
+                             :failed  []
+                             :moved   {}
+                             :report  []}
                             results)))]
      (if (false? online?)
        (async/then nil (fn [_] (offline feeds nil)))

@@ -358,6 +358,7 @@
   - :rate, the playback rate of this show
   - :video?, whether to watch the video of its episodes that offer audio
     and video
+  - :notify?, whether its new episodes are announced
   - :downloads, its rule for dk.simongray.podcast.downloads"
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
@@ -370,10 +371,14 @@
     profile))
 
 (def default-preferences
-  "How the listener likes to listen until they change it: the seconds that
-  a skip jumps forward and back, the playback rate, and :video?, whether
-  to watch the video of an episode that offers audio and video."
-  {:skip-forward 30 :skip-back 15 :rate 1.0 :video? false})
+  "How the listener likes to listen until they change it:
+
+  - :skip-forward and :skip-back, the seconds that a skip jumps
+  - :rate, the playback rate
+  - :video?, whether to watch the video of an episode that offers audio
+    and video
+  - :notify?, whether the new episodes of a show are announced"
+  {:skip-forward 30 :skip-back 15 :rate 1.0 :video? false :notify? false})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
@@ -405,6 +410,15 @@
     (if (some? own)
       own
       (:video? (preferences profile)))))
+
+(defn notifies?
+  "Whether the new episodes of the feed `feed-guid` in `profile` are
+  announced: its own setting, or else the listener's preference."
+  [profile feed-guid]
+  (let [own (:notify? (settings profile feed-guid))]
+    (if (some? own)
+      own
+      (:notify? (preferences profile)))))
 
 (defn folders
   "The feed guids of the live subscriptions of `profile` by folder, in the

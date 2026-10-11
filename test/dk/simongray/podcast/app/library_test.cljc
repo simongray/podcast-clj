@@ -280,7 +280,10 @@
     (run
      (fn []
        (async/then (library/refresh! lib {:at later :fetch fetch :send send})
-                   (fn [{{:keys [added moved report]} :refresh :as lib'}]
+                   (fn [{{:keys [added moved report counts seconds]} :refresh :as lib'}]
+                     (testing "a summary of the feeds: the new subscription's and the due one"
+                       (is (= {:checked 2 :unchanged 0 :changed 2 :failed 0} counts))
+                       (is (= 0.0 seconds) "by the clock of the config, which stands still here"))
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
                        (is (= (at (* 2 86400)) (get-in lib' [:fetched-lists "https://example.org/picks.opml" :next-check]))))
@@ -308,9 +311,10 @@
        (async/then (library/refresh! lib {:at    later
                                           :fetch (fn [url _] (throw (ex-info "down" {:url url})))
                                           :send  (fn [_] (throw (ex-info "down" {})))})
-                   (fn [{{:keys [added report]} :refresh :as lib'}]
+                   (fn [{{:keys [added report counts]} :refresh :as lib'}]
                      (testing "nothing comes: the library stays, and the report says why"
                        (is (= [] added))
+                       (is (= {:checked 2 :unchanged 0 :changed 0 :failed 2} counts))
                        (is (= #{:fetch/unreachable} (set (map :id report))))
                        (is (= 3 (count report)) "the list, the new subscription and the due feed")
                        (is (= show (get-in lib' [:feeds guid :feed])))
@@ -361,13 +365,86 @@
                     (is (= 3 @sent) "the list, the show and the new one from the list, at two hosts")
                     (is (= [:refresh/offline] (map :id (:report (:refresh lib')))))
                     (is (= (:feeds lib) (:feeds lib')) "no feed counts it as a failure")
-                    (is (= (:fetched-lists lib) (:fetched-lists lib')) "nor the list, which stays due")))
+                    (is (= (:fetched-lists lib) (:fetched-lists lib')) "nor the list, which stays due")
+                    (is (= {:checked 0 :unchanged 0 :changed 0 :failed 0} (:counts (:refresh lib'))))
+                    (is (= (at (+ (* 2 86400) 300)) (library/next-refresh lib' {:at later}))
+                        "the next refresh waits a while rather than at once")
+                    (is (= (at (* 3 86400)) (library/next-refresh lib' {:at (at (* 3 86400))})))))
      (fn []
        (reset! sent 0)
        (async/then (library/refresh! lib (assoc opts :online? false))
                    (fn [lib']
                      (is (= [0 [:refresh/offline]] [@sent (map :id (:report (:refresh lib')))])
                          "and nothing is fetched when the device knows it's offline")))))))
+
+(deftest when-to-refresh-again
+  (let [next-check (get-in library [:feeds guid :next-check])]
+    (is (= next-check (library/next-refresh library)) "the next check of its one feed")
+    (is (= (at 999999) (library/next-refresh library {:at (at 999999)})) "never before the time of the call")
+    (is (nil? (library/next-refresh (library/make "tablet"))) "nothing to fetch")
+    (is (nil? (library/next-refresh (assoc-in library [:feeds guid :gone?] true))) "a feed that's gone is never due")
+    (is (= now (library/next-refresh (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks"})))
+        "the show of a list, never fetched, at once")))
+
+(deftest the-new-episodes-to-announce
+  (let [fetch   (fn [url _] {:status 200 :url url :feed newer})
+        opts    {:at (at 86400) :fetch fetch}
+        noisy   (library/update-profile library profile/prefer {:notify? true})
+        new-one {:id [guid "new"] :title "New one" :published #inst "2026-09-30T00:00:00Z"}]
+    (run #(async/then (library/refresh! noisy opts)
+                      (fn [lib]
+                        (let [[found :as all] (library/notifications lib)]
+                          (is (= 1 (count all)))
+                          (is (= [guid "Podcasting 2.0 Namespace Example" [new-one]]
+                                 ((juxt :feed-guid :title :episodes) found))))
+                        (is (= [] (library/notifications (library/update-profile lib profile/configure guid {:notify? false})))
+                            "the show's own setting over the listener's")
+                        (is (= [] (library/notifications (library/update-profile lib profile/mark-played [guid "new"])))
+                            "nor an episode played already")))
+         #(async/then (library/refresh! library opts)
+                      (fn [lib]
+                        (is (= [[guid "new"]] (:added (:refresh lib))))
+                        (is (= [] (library/notifications lib)) "silent unless the listener says"))))))
+
+(deftest what-a-player-needs
+  (let [id    [guid "https://example.com/ep0003"]
+        lib   (-> library
+                  (library/step [:progress id 754 3600] {:at (at 10)})
+                  (library/update-profile profile/configure guid {:rate 1.5}))
+        view  (library/playback lib id)
+        files {:chapters {:source   :file
+                          :document {:chapters [{:start-time 0 :title "Intro"}
+                                                {:start-time 60 :title "Ads" :toc false}
+                                                {:start-time 94 :title "Talk" :img "https://x/i.png"}]}}
+               :duration 3599.5}]
+    (is (= {:id       id
+            :src      "https://example.com/file-03.mp3"
+            :local?   false
+            :position 754
+            :duration 3600
+            :rate     1.5
+            :played?  false
+            :title    "Episode 3 - The Future"
+            :show     "Podcasting 2.0 Namespace Example"}
+           (select-keys view [:id :src :local? :position :duration :rate :played? :title :show])))
+    (is (= ["https://example.com/ep3_chapters.json" "text/vtt"] [(:chapters-url view) (:type (:transcript view))]))
+    (is (= {:title       "Episode 3 - The Future"
+            :artist      "John Doe"
+            :album       "Podcasting 2.0 Namespace Example"
+            :artwork     [{:src "https://example.com/images/ep3/pci_avatar-massive.png"}]
+            :chapterInfo []}
+           (:metadata view))
+        "the metadata of the Media Session")
+    (testing "a downloaded file"
+      (is (= ["file:///ep3.mp3" true] ((juxt :src :local?) (library/playback lib id {:local-file-fn {id "file:///ep3.mp3"}})))))
+    (testing "what the files that were read add"
+      (let [read (library/playback library id {:files files})]
+        (is (= [{:title "Intro" :startTime 0} {:title "Talk" :startTime 94 :artwork [{:src "https://x/i.png"}]}]
+               (:chapterInfo (:metadata read)))
+            "the chapters of the table of contents")
+        (is (= 3599.5 (:duration read)))
+        (is (= 3600 (:duration (library/playback lib id {:files files}))) "after the duration the player reported")))
+    (is (nil? (library/playback lib [guid "none"])))))
 
 (deftest a-new-subscription-through-the-send
   (let [xml  (fixture "feeds/namespace-example.xml")

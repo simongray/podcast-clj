@@ -128,12 +128,18 @@ result into the atom with `library/merge`, which keeps those changes:
 
 ```clojure
 (:refresh (swap! lib library/merge (library/refresh! @lib)))
-;; => {:at #inst "…" :added [] :backfilled [] :renamed [] :moved {} :report []}
+;; => {:at #inst "…" :added [] :backfilled [] :renamed [] :moved {}
+;;     :counts {:checked 0 :unchanged 0 :changed 0 :failed 0}
+;;     :seconds 0.001 :report []}
+
+(library/next-refresh @lib)
+;; => #inst "…"  ; twelve hours later
 ```
 
 Nothing is due right after subscribing, so in an app, call `refresh!` from
-a timer. The result under `:refresh` lists the new episodes, the feeds that
-moved, and the fetches that failed. Once the show has a new episode,
+a timer, at the time that `library/next-refresh` gives. The result under
+`:refresh` lists the new episodes, the feeds that moved, and the fetches
+that failed. Once the show has a new episode,
 `:added` holds its id, e.g. `[["917393e3-…" "PC20-274"]]`, and the episode
 is in the queue. A feed that failed stays as it was, and
 waits longer before the next try.

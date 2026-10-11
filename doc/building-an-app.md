@@ -275,7 +275,11 @@ check a new feed with `profile/takeover` first.
 
 (:refresh @lib)
 ;; => {:at #inst "…" :added [[feed-guid item-guid] …] :backfilled []
-;;     :renamed [] :moved {} :report []}
+;;     :renamed [] :moved {} :report []
+;;     :counts {:checked 12 :unchanged 10 :changed 2 :failed 0}
+;;     :seconds 1.4}
+
+(library/next-refresh @lib)  ; when to refresh again
 ```
 
 This fetches whatever is due: the lists that the listener follows, the
@@ -287,6 +291,28 @@ newest one the library knew isn't new either: it's `:backfilled` rather
 than `:added`, so that a host that publishes its back catalogue again
 doesn't fill the queue. The setting `:only-newer? false` counts those as
 new too.
+
+The `:counts` and `:seconds` say how many feeds were checked and how it
+went, e.g. for a status line or a log. Schedule the next refresh at
+`library/next-refresh`: when the first feed or list is due, or right away
+after a new subscription. After a refresh that found the device offline,
+it waits five minutes, the config's `:offline-seconds`.
+
+To announce new episodes, turn on the preference `:notify?`, or the
+setting of that name for a show, and ask `library/notifications` after
+each refresh. It gives the new episodes that the listener hasn't played,
+by show:
+
+```clojure
+(swap! lib library/update-profile profile/prefer {:notify? true})
+
+(library/notifications @lib)
+;; => [{:feed-guid "917393e3-…" :title "Podcasting 2.0"
+;;      :artwork "https://noagendaassets.com/enc/…_pcifeedimage.png"
+;;      :episodes [{:id ["917393e3-…" "PC20-274"]
+;;                  :title "Episode 274: \"Vibe Cloning\""
+;;                  :published #inst "2026-10-09T19:37:54Z"}]}]
+```
 
 When a show moves to another host, the new host often gives every episode
 a new guid. The library recognises such an episode by its enclosure URL,
@@ -611,10 +637,34 @@ The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
       :played nil)))
 ```
 
-To start an episode where the listener stopped, or after its intro, ask
-`profile/resume-position`. To pick the file to play, use
-`resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
-:max-bitrate 64000}`. To keep to audio when a show also offers video, add
+To start an episode, `library/playback` gives what the player needs: the
+file, where the listener left it or the end of its intro, the show's
+rate, the title and artwork, the chapters, a transcript for captions, and
+the metadata of the Media Session, which a browser shows on the lock
+screen:
+
+```clojure
+(defn play-episode!
+  "Start the episode `id` of the library in the media element `audio`."
+  [audio id]
+  (let [{:keys [src position rate metadata]} (library/playback @lib id)]
+    (set! (.-src audio) src)
+    (set! (.-playbackRate audio) rate)
+    (.addEventListener audio "loadedmetadata"
+                       #(set! (.-currentTime audio) position)
+                       #js {:once true})
+    (set! (.. js/navigator -mediaSession -metadata)
+          (js/MediaMetadata. (clj->js metadata)))
+    (.play audio)))
+```
+
+The file is the downloaded one when the config's `:local-file-fn` gives
+one for the episode's id, e.g. an object URL, and else the enclosure.
+Once `library/read-files!` has read the episode's chapters file, give its
+result to `playback` as `:files`, and the metadata has those chapters too.
+
+To pick the file to play yourself, use `resolve/enclosure`, e.g. with
+`{:types ["audio/opus" "audio/mpeg"] :max-bitrate 64000}`. To keep to audio when a show also offers video, add
 `:playable-pred resolve/audio?`, which leaves out a stream that doesn't
 say what it holds. The listener chooses between the audio and the video
 of an episode that offers both with the preference `:video?`, or the

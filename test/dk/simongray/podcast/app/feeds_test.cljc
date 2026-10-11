@@ -243,10 +243,10 @@
         on-b   (fn [u opts] (if (re-find #"/b.xml" u) {:status 304 :url u} ((failed ::http/unresolved) u opts)))]
     (run
      #(async/then (feeds/refresh! three {:at later :fetch (failed ::http/unresolved)})
-                  (fn [{:keys [feeds changed report]}]
+                  (fn [{:keys [feeds checked changed failed report]}]
                     (testing "every fetch failed before a server answered, at two hosts"
                       (is (= three feeds) "so no feed counts it as a failure, and each stays due")
-                      (is (= [] changed))
+                      (is (= [[] [] []] [checked changed failed]) "nor as checked")
                       (is (= [:refresh/offline] (map :id report)))
                       (is (re-find #"down: " (:reason (first report))) "with the reason of a failure"))))
      #(async/then (feeds/refresh! (dissoc three "b1" "c1") {:at later :fetch (failed ::http/unreachable)})
@@ -296,14 +296,16 @@
     (run
      (fn []
        (async/then (feeds/refresh! three {:at later :fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow-pred :any})
-                   (fn [{:keys [feeds changed moved report]}]
+                   (fn [{:keys [feeds checked changed failed moved report]}]
                      (testing "each due feed fetched with its validators, and the options of every fetch"
                        (is (= 3 (count @asked)))
                        (is (= #{[url {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :allow-pred :any}]
                                 ["https://example.org/c.xml" {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :credentials {:username "ann"} :allow-pred :any}]}
                               (set (remove #(str/includes? (first %) "/b.xml") @asked)))))
                      (testing "the changes of all the fetches"
+                       (is (= #{guid "b1" "c1"} (set checked)))
                        (is (= ["b1"] changed))
+                       (is (= ["c1"] failed))
                        (is (= {} moved))
                        (is (= [[:fetch/unreachable "c1"]] (map (juxt :id :feed-guid) report)))
                        (is (= "B2" (:rss/title (:feed (get feeds "b1")))))
