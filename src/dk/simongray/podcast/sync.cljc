@@ -76,12 +76,20 @@
 
 (defn sync!
   "Sync `state` through `backends` in one step with `opts`, as
-  like-minded/sync! does, and give the :state, the :cursors and the
-  :report, in ClojureScript as a promise."
+  like-minded/sync! does, and give the :state, the :cursors, the :at, the
+  :failures and the :report, in ClojureScript as a promise."
   ([state backends]
    (sync! state backends {}))
   ([state backends opts]
    (like-minded/sync! state backends (merge defaults opts))))
+
+(defn finish
+  "The `state` as it is by now with the `step` of sync! merged in and
+  compacted, as like-minded/finish does with `opts`."
+  ([state step]
+   (finish state step {}))
+  ([state step opts]
+   (like-minded/finish state step (merge defaults opts))))
 
 (defn reconcile
   "The `state` with the documents `fetched` merged in at `at` with `opts`,

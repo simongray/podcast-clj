@@ -577,6 +577,19 @@
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
 
+(deftest syncs-that-fail-in-a-row
+  (let [broken {:name "broken" :pull (fn [_ _ _] (throw (ex-info "down" {}))) :push (fn [_ _ _] {:cursor {}})}
+        good   (sync/backend (store/memory (atom {})) {:app "test"})]
+    (run #(async/then (library/sync! library [broken] {:at (at 10)})
+                      (fn [lib]
+                        (async/then (library/sync! lib [broken] {:at (at 20)})
+                                    (fn [lib]
+                                      (is (= [2 (at 20)] ((juxt :failures :at) (:sync lib))) "counted for the next sync")
+                                      (is (= (at (+ 20 60)) (library/next-sync lib {:at (at 21)})) "which waits longer")
+                                      (async/then (library/sync! lib [good] {:at (at 30)})
+                                                  (fn [lib]
+                                                    (is (= 0 (:failures (:sync lib))) "until one works"))))))))))
+
 (deftest a-show-left-on-another-device
   (let [backend (sync/backend (store/memory (atom {})) {:app "test"})
         laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})

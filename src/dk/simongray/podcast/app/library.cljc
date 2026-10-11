@@ -885,7 +885,7 @@
 
 (defn sync!
   "Sync `library` with the listener's other devices through `backends`,
-  with the `opts` of sync/sync! except :cursors.
+  with the `opts` of sync/sync! except :cursors and :failures.
 
   It keeps the cursors for the next sync, and compacts the tombstones. It
   returns the library with the result under :sync, in ClojureScript as a
@@ -900,25 +900,18 @@
    (sync! library backends {}))
   ([library backends opts]
    {:pre [(map? opts)]}
-   (let [at        (time-of library opts)
-         before    (:profile library)
-         last-step (:sync library)
-         sync-opts (assoc opts :at at :cursors (:cursors last-step))]
+   (let [before    (:profile library)
+         sync-opts (clojure.core/merge
+                    opts
+                    {:at (time-of library opts)}
+                    (select-keys (:sync library) [:cursors :failures]))]
      (async/then (sync/sync! before backends sync-opts)
-                 (fn [{:keys [state cursors report]}]
-                   (let [profile  (-> before
-                                      (profile/merge state)
-                                      (profile/compact at))
-                         failed?  (some #(= :sync/backend-failed (:id %))
-                                        report)
-                         failures (if failed? (inc (:failures last-step 0)) 0)]
+                 (fn [step]
+                   (let [profile (sync/finish before step opts)]
                      (assoc library
                             :profile profile
-                            :sync    {:cursors  cursors
-                                      :at       at
-                                      :clock    (:clock profile)
-                                      :failures failures
-                                      :report   report})))))))
+                            :sync    (-> (dissoc step :state)
+                                         (assoc :clock (:clock profile))))))))))
 
 (defn- newer
   "Of `a` and `b`, two maps with an instant under `k`, the newer one, or
