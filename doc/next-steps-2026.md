@@ -326,6 +326,11 @@ the unresolved name under [The host](hosts-and-servers-2026.md#the-host).
 
 ### 10. The siblings' small needs and releases
 
+- First, in html-pieces, leave out the `me` of a `rel` when sanitizing,
+  by default. Today `html/hiccup` and `html/sanitize` keep `rel="me"` on
+  a link, so a comment on a site owner's page that links to the
+  commenter's own account, which links back, lets the commenter sign in
+  as the owner by RelMeAuth.
 - In html-pieces, a body start tag closes an open head. Today a page
   without `</head>` gives nothing, and finding a feed from a show's
   website is one of the cases. Then tables in text and Markdown, and an
@@ -342,17 +347,23 @@ the unresolved name under [The host](hosts-and-servers-2026.md#the-host).
 - Releases of mind-meld and then like-minded, each with a build.clj; then
   html-pieces 0.3.0 in websub-clj and podcast-clj.
 - For the IndieWeb libraries, which copy the same code today, the needs
-  that webmention-clj and indieauth-clj sent later:
+  that webmention-clj, indieauth-clj and relmeauth-clj sent later:
   - In wary-fetch, a namespace with SHA-256, HMAC-SHA256, random bytes,
     base64url and a comparison in constant time; JSON responses; query
     parameters as pairs, so that a repeated one can be refused; the parts
-    of a URL as written; and perhaps Ring helpers for the server side.
-  - In html-pieces, the head of a page and its base URL, and plain text
-    as Hiccup, since `html/hiccup` reads "Use <b> for bold." as a tag.
+    of a URL as written; a form request with a hidden body and the OAuth
+    errors of its answer; and perhaps Ring helpers for the server side,
+    and a sender of Ring handlers in memory for tests.
+  - In html-pieces, the head of a page and its base URL, the links of
+    parsed nodes, and plain text as Hiccup, since `html/hiccup` reads
+    "Use <b> for bold." as a tag.
   - In microformats-clj, the representative h-card and the authorship
-    algorithm, and helpers for a property's value, its URLs and the items
-    of a type at any depth.
+    algorithm, helpers for a property's value, its URLs and the items of
+    a type at any depth, and the rels of a page without its
+    microformats.
   - One endpoint discovery for all of them, where you decide.
+  - A release of indieauth-clj, so that relmeauth-clj takes its canonical
+    URLs rather than a copy.
 
 **Why here.** Each need is an hour with gain 2 or 3 for its library's own
 audience, and the releases close a chain that podcast-clj can't be
@@ -360,13 +371,13 @@ released without, since it takes mind-meld and like-minded by Git SHA.
 It comes after step 9 because, except for the head fix and the step
 helper, nothing here changes what podcast-clj gets wrong. The IndieWeb
 needs aren't podcast-clj's, but each one ends a copy in two or more
-libraries.
+libraries. The rel=me fix lets a stranger in, so it goes first.
 
 **Read more.** [Summary](siblings-2026.md#summary), the needs of each
 library, [Release readiness across the seven](siblings-2026.md#release-readiness-across-the-seven)
 and items 1, 3 and 5 of [What to build first](siblings-2026.md#what-to-build-first);
-for the IndieWeb needs, doc/sibling-notes.md in webmention-clj and
-indieauth-clj.
+for the IndieWeb needs, doc/sibling-notes.md in webmention-clj,
+indieauth-clj and relmeauth-clj.
 
 ### 11. A complete validator
 
