@@ -157,6 +157,11 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/duplicate-enclosure` | warning | An item has the enclosure URL of an earlier item, e.g. a trailer and the episode it's cut from. Apple keeps only the first, so its requirements make it an error. The :first-path is that of the earlier item. |
 | `:validate/unknown-media-type` | warning | The type of an enclosure is neither audio, video nor a playlist of either, e.g. application/octet-stream, so apps may not play it. The :value is the type. |
 | `:validate/unknown-length` | info | The length of an enclosure is 0, which says that it isn't known, e.g. under dynamic ad insertion, so an app can't tell the size of the file before it downloads it. |
+| `:validate/unknown-category` | warning | Apple Podcasts doesn't list the category of a podcast, so the show isn't listed under it. The :value is its name, and the :replacement is the path of the one that Apple lists in another case, if any. The requirements of Apple and PSP-1 make it an error. |
+| `:validate/renamed-category` | warning | The category is one that Apple Podcasts renamed or dropped in 2019, which it still reads. The :replacement is the path of the category and perhaps the subcategory that stands for it now. |
+| `:validate/escaped-category` | warning | The ampersand of a category's name was escaped twice, e.g. Society &amp; Culture, so it names no category. The :replacement is the name meant. The requirements of Apple and PSP-1 make it an error. |
+| `:validate/wrong-subcategory` | warning | The subcategory belongs under another category, or stands alone where a category belongs. The :replacement is the path where Apple Podcasts lists it. The requirements of Apple and PSP-1 make it an error. |
+| `:validate/category-depth` | warning | A subcategory holds a third level, which Apple Podcasts doesn't take. The requirements of Apple and PSP-1 make it an error. |
 | `:validate/missing-attribute` | error | A required attribute is missing. |
 | `:validate/wrong-shape` | error | A value doesn't have the shape that its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does. |
 | `:validate/missing-child` | error | A container lacks a child that the spec requires. |

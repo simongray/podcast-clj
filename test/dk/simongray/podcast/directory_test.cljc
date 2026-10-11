@@ -6,6 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -114,6 +115,9 @@
           "or the id itself")
       (is (= "Apple Podcasts has no genre \"Knitting\"" (refused? :apple {:category "Knitting"})))
       (is (= 110 (count directory/apple-genres)))
+      (is (= (set (keys directory/apple-genres))
+             (into (set (keys spec/categories)) (mapcat val) spec/categories))
+          "a genre for each category that a feed can name")
       (is (= "https://charts.example/us/rss/toppodcasts/limit=25/genre=7/json"
              (url (assoc (:apple directory/sources) :genre-charts "https://charts.example" :genres {"Knitting" 7})
                   {:category "Knitting"}))

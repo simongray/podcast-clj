@@ -455,6 +455,29 @@
      :doc "The length of an enclosure is 0, which says that it isn't known,
            e.g. under dynamic ad insertion, so an app can't tell the size of
            the file before it downloads it."}
+    {:id :validate/unknown-category :level :warning
+     :doc "Apple Podcasts doesn't list the category of a podcast, so the show
+           isn't listed under it. The :value is its name, and the
+           :replacement is the path of the one that Apple lists in another
+           case, if any. The requirements of Apple and PSP-1 make it an
+           error."}
+    {:id :validate/renamed-category :level :warning
+     :doc "The category is one that Apple Podcasts renamed or dropped in
+           2019, which it still reads. The :replacement is the path of the
+           category and perhaps the subcategory that stands for it now."}
+    {:id :validate/escaped-category :level :warning
+     :doc "The ampersand of a category's name was escaped twice, e.g.
+           Society &amp; Culture, so it names no category. The :replacement
+           is the name meant. The requirements of Apple and PSP-1 make it an
+           error."}
+    {:id :validate/wrong-subcategory :level :warning
+     :doc "The subcategory belongs under another category, or stands alone
+           where a category belongs. The :replacement is the path where
+           Apple Podcasts lists it. The requirements of Apple and PSP-1 make
+           it an error."}
+    {:id :validate/category-depth :level :warning
+     :doc "A subcategory holds a third level, which Apple Podcasts doesn't
+           take. The requirements of Apple and PSP-1 make it an error."}
     {:id :validate/missing-attribute :level :error
      :doc "A required attribute is missing."}
     {:id :validate/wrong-shape :level :error

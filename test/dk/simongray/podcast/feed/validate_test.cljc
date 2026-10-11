@@ -143,6 +143,48 @@
            (found {:url "https://t/1.mp4" :length 1 :type "Video/MP4; codecs=\"avc1\""}))
         "an HLS playlist, and a type in any case with parameters")))
 
+(deftest apples-categories
+  (let [found (fn [categories & [opts]]
+                (->> (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                                         :itunes/categories categories}
+                                        (or opts {}))
+                     (map (juxt :id :path :replacement))))]
+    (is (= [] (found [{:text "Arts" :categories [{:text "Books"}]} {:text "True Crime"}])))
+    (is (= [[:validate/renamed-category [:itunes/categories 0 :text] ["Leisure"]]
+            [:validate/renamed-category [:itunes/categories 0 :categories 0 :text] ["Leisure" "Games"]]]
+           (found [{:text "Games & Hobbies" :categories [{:text "Other Games"} {:text "Video Games"}]}]))
+        "a name from before 2019, with the one that stands for it now, and once for a subcategory that kept its name")
+    (is (= [[:validate/escaped-category [:itunes/categories 0 :text] ["Society & Culture"]]]
+           (found [{:text "Society &amp; Culture" :categories [{:text "Philosophy"}]}])))
+    (is (= [[:validate/wrong-subcategory [:itunes/categories 0 :text] ["Religion & Spirituality" "Christianity"]]
+            [:validate/wrong-subcategory [:itunes/categories 1 :categories 0 :text] ["Comedy" "Improv"]]
+            [:validate/category-depth [:itunes/categories 1 :categories 1 :categories] nil]]
+           (found [{:text "Christianity"}
+                   {:text "Arts" :categories [{:text "Improv"} {:text "Books" :categories [{:text "Novels"}]}]}]))
+        "a subcategory alone, one under the wrong category, and a third level")
+    (is (= [[:validate/unknown-category [:itunes/categories 0 :text] nil]]
+           (found [{:text "Sermon" :categories [{:text "Weekly"}]}]))
+        "and once for a category that Apple doesn't list")
+    (is (= [[:validate/unknown-category [:itunes/categories 0 :text] ["Education" "How To"]]
+            [:validate/unknown-category [:itunes/categories 1 :categories 0 :text] ["Arts" "Food"]]]
+           (found [{:text "How to"} {:text "Arts" :categories [{:text "food"}]}]))
+        "with the name it has in another case")
+    (testing "under the requirements of Apple and PSP-1"
+      (let [levels (fn [requirements]
+                     (->> (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                                              :itunes/categories [{:text "Sermon"} {:text "Health"}]}
+                                             {:requirements requirements})
+                          (filter (comp #{:validate/unknown-category :validate/renamed-category} :id))
+                          (map (juxt :id :level))))]
+        (is (= [[:validate/unknown-category :error] [:validate/renamed-category :warning]]
+               (levels :apple) (levels :psp-1))
+            "an unknown category is an error, while an old name still works")))
+    (is (= [] (map :id (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                                           :podcast/medium "music" :itunes/categories [{:text "Rock"}]})))
+        "the list is for podcasts, not for a feed of music")
+    (is (= [] (found [{:text "Knitting"}] {:categories {"Knitting" #{}}}))
+        "by a table of an app's own")))
+
 (deftest unknown-elements-are-reported
   (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
         v (validate/validate f)]

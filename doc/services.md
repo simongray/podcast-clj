@@ -37,6 +37,7 @@ are relative to `dk.simongray.podcast`.
 | The limits of a gpodder server | `sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
+| The categories of Apple Podcasts, which `validate` checks those of a podcast by | `feed.spec/categories` and `feed.spec/renamed-categories` | `:categories` and `:renamed-categories` | the [categories below](#the-categories-of-apple-podcasts) |
 | The requirements of a directory for artwork and media files | `feed.check.rules/requirements` | `:requirements`, as a name or a map | none |
 | The folder that an app writes around a whole OPML list | `profile.opml/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
@@ -338,7 +339,8 @@ every feed as a wrapper.
 An entry of `feed.validate/requirements` holds the elements that a
 directory requires and recommends, for the channel and for each item. An
 entry of `feed.check.rules/requirements` holds what it requires of
-artwork, and the levels of the diagnostics that the directory changes:
+artwork. Both hold the levels of the diagnostics that the directory
+changes:
 
 | Key | Meaning |
 |---|---|
@@ -351,3 +353,20 @@ Both have the profiles `:psp-1` and `:apple`, which follow
 of the Podcast Standards Project and Apple's [A Podcaster's Guide to
 RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390), both as of
 30 September 2026.
+
+
+## The categories of Apple Podcasts
+
+The var `feed.spec/categories` holds the categories and subcategories of
+Apple's [list](https://podcasters.apple.com/support/1691-apple-podcasts-categories),
+as of 29 September 2026, which PSP-1 requires too. The validator checks
+the categories of a podcast by it, but not those of a feed of music or
+of another medium, which the list doesn't cover.
+
+In 2019, Apple renamed some categories and dropped some subcategories,
+and it still reads the old names. The var `feed.spec/renamed-categories`
+has each with the one that stands for it now, from Apple's email as
+[Blubrry](https://blubrry.com/podcast-insider/2019/07/17/how-the-2019-apple-podcast-category-changes-affect-for-your-podcast/)
+republished it on 17 July 2019, and the list of changes that
+[Podnews](https://podnews.net/article/apple-changed-podcast-categories-2019)
+updated on 27 November 2019.

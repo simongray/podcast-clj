@@ -136,6 +136,97 @@
   "Every role of the Podcast Taxonomy Project."
   (into #{} (mapcat val) taxonomy))
 
+;; Apple Podcasts' list of categories, and A Podcaster's Guide to RSS,
+;; itunes:category, as of 2026-09-29; PSP-1 requires the list too
+(def categories
+  "The categories of Apple Podcasts that itunes:category names, each with
+  its subcategories."
+  {"Arts"                    #{"Books" "Design" "Fashion & Beauty" "Food"
+                               "Performing Arts" "Visual Arts"}
+   "Business"                #{"Careers" "Entrepreneurship" "Investing"
+                               "Management" "Marketing" "Non-Profit"}
+   "Comedy"                  #{"Comedy Interviews" "Improv" "Stand-Up"}
+   "Education"               #{"Courses" "How To" "Language Learning"
+                               "Self-Improvement"}
+   "Fiction"                 #{"Comedy Fiction" "Drama" "Science Fiction"}
+   "Government"              #{}
+   "Health & Fitness"        #{"Alternative Health" "Fitness" "Medicine"
+                               "Mental Health" "Nutrition" "Sexuality"}
+   "History"                 #{}
+   "Kids & Family"           #{"Education for Kids" "Parenting"
+                               "Pets & Animals" "Stories for Kids"}
+   "Leisure"                 #{"Animation & Manga" "Automotive" "Aviation"
+                               "Crafts" "Games" "Hobbies" "Home & Garden"
+                               "Video Games"}
+   "Music"                   #{"Music Commentary" "Music History"
+                               "Music Interviews"}
+   "News"                    #{"Business News" "Daily News"
+                               "Entertainment News" "News Commentary"
+                               "Politics" "Sports News" "Tech News"}
+   "Religion & Spirituality" #{"Buddhism" "Christianity" "Hinduism" "Islam"
+                               "Judaism" "Religion" "Spirituality"}
+   "Science"                 #{"Astronomy" "Chemistry" "Earth Sciences"
+                               "Life Sciences" "Mathematics"
+                               "Natural Sciences" "Nature" "Physics"
+                               "Social Sciences"}
+   "Society & Culture"       #{"Documentary" "Personal Journals" "Philosophy"
+                               "Places & Travel" "Relationships"}
+   "Sports"                  #{"Baseball" "Basketball" "Cricket"
+                               "Fantasy Sports" "Football" "Golf" "Hockey"
+                               "Rugby" "Running" "Soccer" "Swimming" "Tennis"
+                               "Volleyball" "Wilderness" "Wrestling"}
+   "Technology"              #{}
+   "True Crime"              #{}
+   "TV & Film"               #{"After Shows" "Film History" "Film Interviews"
+                               "Film Reviews" "TV Reviews"}})
+
+;; Apple's email of July 2019 on the categories that it renamed and
+;; dropped, as Blubrry republished it on 2019-07-17, and Podnews's list of
+;; the changes, updated 2019-11-27. Apple mapped Outdoor to Wilderness, its
+;; own example, and keeps the old names working "until further notice".
+(def renamed-categories
+  "The categories of Apple Podcasts before August 2019 that it renamed or
+  dropped, each as a path of a category and perhaps a subcategory, with
+  the path that stands for it now.
+
+  A subcategory of a renamed category that has the same name under the new
+  one, e.g. Video Games of Games & Hobbies, needs no entry."
+  {["Games & Hobbies"]                              ["Leisure"]
+   ["Government & Organizations"]                   ["Government"]
+   ["Health"]                                       ["Health & Fitness"]
+   ["News & Politics"]                              ["News"]
+   ["Science & Medicine"]                           ["Science"]
+   ["Sports & Recreation"]                          ["Sports"]
+   ["Arts" "Literature"]                            ["Arts" "Books"]
+   ["Business" "Business News"]                     ["Business"]
+   ["Business" "Management & Marketing"]            ["Business" "Management"]
+   ["Business" "Shopping"]                          ["Business"]
+   ["Education" "Educational Technology"]           ["Education"]
+   ["Education" "Higher Education"]                 ["Education"]
+   ["Education" "K-12"]                             ["Education"]
+   ["Education" "Language Courses"]                 ["Education"
+                                                     "Language Learning"]
+   ["Education" "Training"]                         ["Education"]
+   ["Games & Hobbies" "Other Games"]                ["Leisure" "Games"]
+   ["Government & Organizations" "Local"]           ["Government"]
+   ["Government & Organizations" "National"]        ["Government"]
+   ["Government & Organizations" "Non-Profit"]      ["Government"]
+   ["Government & Organizations" "Regional"]        ["Government"]
+   ["Health" "Fitness & Nutrition"]                 ["Health & Fitness"
+                                                     "Fitness"]
+   ["Health" "Self-Help"]                           ["Health & Fitness"]
+   ["Religion & Spirituality" "Other"]              ["Religion & Spirituality"]
+   ["Science & Medicine" "Medicine"]                ["Science"]
+   ["Society & Culture" "History"]                  ["Society & Culture"]
+   ["Sports & Recreation" "Amateur"]                ["Sports"]
+   ["Sports & Recreation" "College & High School"]  ["Sports"]
+   ["Sports & Recreation" "Outdoor"]                ["Sports" "Wilderness"]
+   ["Sports & Recreation" "Professional"]           ["Sports"]
+   ["Technology" "Gadgets"]                         ["Technology"]
+   ["Technology" "Podcasting"]                      ["Technology"]
+   ["Technology" "Software How-To"]                 ["Technology"]
+   ["Technology" "Tech News"]                       ["Technology"]})
+
 (def ^:no-doc url
   "Attribute shorthand: a URL."
   {:type :url})

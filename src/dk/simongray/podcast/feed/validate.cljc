@@ -375,6 +375,133 @@
                       [:rss/enclosure :url] [:rss/enclosure :url]
                       "the item has the enclosure URL of an earlier item")))
 
+(defn- unescaped
+  "The category name `s` with an ampersand that was escaped twice, as
+  &amp;, written as one."
+  [s]
+  (str/replace s "&amp;" "&"))
+
+(defn- category-diagnostic
+  "The diagnostic `id` of the category at `path` whose name is `s`, with
+  the path of names that stands for it now as its `replacement`."
+  ([id path s]
+   (category-diagnostic id path s nil))
+  ([id path s replacement]
+   (let [message (case id
+                   :validate/renamed-category
+                   "Apple Podcasts renamed or dropped the category in 2019"
+
+                   :validate/escaped-category
+                   "the ampersand of the category is escaped twice"
+
+                   :validate/wrong-subcategory
+                   "the subcategory belongs under another category"
+
+                   :validate/unknown-category
+                   "Apple Podcasts doesn't list the category")]
+     (cond-> (diagnostic id :warning (conj path :text) message :value s)
+       replacement (assoc :replacement replacement)))))
+
+(defn- parent-of
+  "The category in `categories` that has the subcategory `s`, or nil."
+  [categories s]
+  (some (fn [[c subs]] (when (contains? subs s) c)) categories))
+
+(defn- in-other-case
+  "The path of names in `categories` of the category or subcategory that's
+  `s` in another case, looked for first among the `names`, or nil."
+  [categories names s]
+  (let [s (str/lower-case s)]
+    (when-let [n (some #(when (= s (str/lower-case %)) %)
+                       (concat names (keys categories) (mapcat val categories)))]
+      (if (contains? categories n)
+        [n]
+        [(parent-of categories n) n]))))
+
+(defn- top-category
+  "The diagnostic of the category `c` at `path`, by the tables `categories`
+  and `renamed` of spec, or nil when Apple lists it, with the name that
+  stands for `c` now, as a pair. The name is nil when nothing does."
+  [categories renamed c path]
+  (let [parent (partial parent-of categories)]
+    (cond
+      (contains? categories c)
+      [nil c]
+
+      (renamed [c])
+      [(category-diagnostic :validate/renamed-category path c (renamed [c]))
+       (first (renamed [c]))]
+
+      (contains? categories (unescaped c))
+      [(category-diagnostic :validate/escaped-category path c [(unescaped c)])
+       (unescaped c)]
+
+      (parent c)
+      [(category-diagnostic :validate/wrong-subcategory path c [(parent c) c])
+       nil]
+
+      :else
+      [(category-diagnostic :validate/unknown-category path c
+                            (in-other-case categories nil c))
+       nil])))
+
+(defn- subcategory
+  "The diagnostic of the subcategory `s` at `path` of the category `c`,
+  whose name is `now` today, by the tables `categories` and `renamed` of
+  spec, or nil when Apple lists it there."
+  [categories renamed c now s path]
+  (let [parent (partial parent-of categories)]
+    (cond
+      (contains? (categories now) s)
+      nil
+
+      (renamed [c s])
+      (category-diagnostic :validate/renamed-category path s (renamed [c s]))
+
+      (contains? (categories now) (unescaped s))
+      (category-diagnostic :validate/escaped-category path s
+                           [now (unescaped s)])
+
+      (parent s)
+      (category-diagnostic :validate/wrong-subcategory path s [(parent s) s])
+
+      :else
+      (category-diagnostic :validate/unknown-category path s
+                           (in-other-case categories (categories now) s)))))
+
+;; Apple's A Podcaster's Guide to RSS: a category and at most one
+;; subcategory, from Apple's list, which PSP-1 requires too. The list is
+;; for podcasts, so it doesn't judge a feed of music or another medium.
+(defn- category-diagnostics
+  "The diagnostics of the itunes:categories of `feed`, by the tables
+  `categories` and `renamed` of spec, when its medium is podcast."
+  [feed categories renamed]
+  (when (contains? #{nil "podcast"}
+                   (some-> (:podcast/medium feed) str/trim str/lower-case))
+    (for [[i {c :text subs :categories}] (map-indexed vector
+                                                      (:itunes/categories feed))
+          :when (string? c)
+          :let  [path      [:itunes/categories i]
+                 [top now] (top-category categories renamed c path)]
+          d     (cons top
+                      (for [[j {s :text deeper :categories}] (map-indexed vector
+                                                                         subs)
+                            :let [path' (conj path :categories j)]
+                            d     [(when (and now (string? s))
+                                     (subcategory categories renamed c now s
+                                                  path'))
+                                   (when (seq deeper)
+                                     (diagnostic :validate/category-depth
+                                                 :warning
+                                                 (conj path' :categories)
+                                                 (str "a subcategory holds"
+                                                      " another, which Apple"
+                                                      " Podcasts doesn't"
+                                                      " take")))]]
+                        d))
+          :when d]
+      d)))
+
 (def requirements
   "The required and recommended elements of the channel and of an item,
   for each standard or directory by name, and the levels that it raises
@@ -382,14 +509,20 @@
 
   A requirement is a model key, or a vector of a key, a predicate of its
   value, and a description. They're the requirements of PSP-1, and of
-  Apple's A Podcaster's Guide to RSS, as of September 2026. Apple keeps
-  only the first of the items that share an enclosure URL."
-  (let [self-link [:atom/links
-                   #(some (comp #{"self"} :rel) %)
-                   "atom:link rel=self"]
-        enclosure [:rss/enclosure
-                   (comp absolute-url? :url)
-                   "rss:enclosure with an absolute url"]]
+  Apple's A Podcaster's Guide to RSS, as of September 2026. Both require
+  a category from Apple's list, which a name from before 2019 still is,
+  and Apple keeps only the first of the items that share an enclosure
+  URL."
+  (let [self-link  [:atom/links
+                    #(some (comp #{"self"} :rel) %)
+                    "atom:link rel=self"]
+        enclosure  [:rss/enclosure
+                    (comp absolute-url? :url)
+                    "rss:enclosure with an absolute url"]
+        categories {:validate/unknown-category  :error
+                    :validate/escaped-category  :error
+                    :validate/wrong-subcategory :error
+                    :validate/category-depth    :error}]
     {:psp-1 {:name    "Podcast Standards Project PSP-1"
              :channel {:required    [self-link :rss/title :rss/description
                                      :rss/link :rss/language :itunes/categories
@@ -399,7 +532,8 @@
              :item    {:required    [:rss/title enclosure :rss/guid]
                        :recommended [:rss/link :rss/pub-date :rss/description
                                      :itunes/duration :itunes/image
-                                     :itunes/explicit :podcast/transcripts]}}
+                                     :itunes/explicit :podcast/transcripts]}
+             :levels  categories}
      :apple {:name    "Apple Podcasts"
              :channel {:required    [:rss/title :rss/description :itunes/image
                                      :rss/language :itunes/categories
@@ -409,7 +543,8 @@
                        :recommended [:rss/pub-date :rss/description
                                      :itunes/duration :rss/link :itunes/image
                                      :itunes/explicit]}
-             :levels  {:validate/duplicate-enclosure :error}}}))
+             :levels  (assoc categories
+                             :validate/duplicate-enclosure :error)}}))
 
 (defn- missing-diagnostics
   [level id m reqs path]
@@ -450,6 +585,8 @@
   - :registry, the tag registry to check against, spec/default by default
   - :requirements, a name in requirements, or a map of the shape of its
     entries
+  - :categories and :renamed-categories, the tables of spec that the
+    categories of a podcast are checked by
 
   The feed is normalized first, so the shorthand that a producer can write
   passes too. The chosen requirements can raise the level of a
@@ -459,8 +596,10 @@
   ([feed]
    (validate feed {}))
   ([feed {chosen :requirements
-          :keys  [registry]
-          :or    {registry spec/default}
+          :keys  [registry categories renamed-categories]
+          :or    {registry           spec/default
+                  categories         spec/categories
+                  renamed-categories spec/renamed-categories}
           :as    opts}]
    {:pre [(map? opts)]}
    (when (and chosen
@@ -476,6 +615,8 @@
          checked  (mapv raised
                         (concat (rss-diagnostics feed)
                                 (item-diagnostics feed)
+                                (category-diagnostics feed categories
+                                                      renamed-categories)
                                 (children-diagnostics registry :channel feed [])
                                 (unknown-key-diagnostics registry :channel nil
                                                          feed [])))
