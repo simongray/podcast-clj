@@ -533,11 +533,13 @@
     {:id :validate/deprecated :level :info
      :doc "The spec of the element has deprecated it."}
     {:id :validate/required :level :error
-     :doc "A required element of the chosen requirements is missing."}
+     :doc "A required element of the chosen requirements is missing. The :key
+           is its key in the model."}
     {:id :validate/recommended :level :warning
-     :doc "A recommended element of the chosen requirements is missing. When
-           every item lacks it, it's one diagnostic of all the items, whose
-           :count is the number of items."}
+     :doc "A recommended element of the chosen requirements is missing. The
+           :key is its key in the model. When every item lacks it, it's one
+           diagnostic of all the items, whose :count is the number of
+           items."}
 
     ;; gpodder: what a sync through the gpodder API found
     {:id :gpodder/unknown-episodes :level :info

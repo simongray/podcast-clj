@@ -586,7 +586,8 @@
                   level
                   (conj path k)
                   (str place " has no " label ", which " who
-                       (if (= :error level) " requires" " recommends"))))))
+                       (if (= :error level) " requires" " recommends"))
+                  :key k))))
 
 ;; one diagnostic for a recommendation that every item lacks, rather than
 ;; one for each item, which a feed of a thousand episodes would list a
@@ -602,6 +603,7 @@
                (not-any? #(and (map? %) (met? % k pred)) items))
       (diagnostic :validate/recommended :warning [:rss/items]
                   (str "no item has " label ", which " who " recommends")
+                  :key k
                   :count (count items)))))
 
 (defn- requirements-diagnostics

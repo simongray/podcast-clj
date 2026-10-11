@@ -189,8 +189,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/unknown-element` | info | The registry doesn't know the element, so it's kept under :xml/unknown. |
 | `:validate/unknown-key` | warning | The registry doesn't define the :key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there. |
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
-| `:validate/required` | error | A required element of the chosen requirements is missing. |
-| `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. When every item lacks it, it's one diagnostic of all the items, whose :count is the number of items. |
+| `:validate/required` | error | A required element of the chosen requirements is missing. The :key is its key in the model. |
+| `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. The :key is its key in the model. When every item lacks it, it's one diagnostic of all the items, whose :count is the number of items. |
 | `:gpodder/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
 | `:gpodder/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |
 | `:gpodder/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
