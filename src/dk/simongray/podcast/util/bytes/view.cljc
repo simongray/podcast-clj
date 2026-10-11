@@ -205,10 +205,11 @@
 
 (defn ^:no-doc unreachable
   "The diagnostic of a file that didn't come, by the `failure` of its
-  request, as http/failure gives it, with its :reason, :url and :status."
+  request, as http/failure gives it, with its :reason, :type, :url and
+  :status."
   [failure]
   (into {:id :file/unreachable :level :warning}
-        (select-keys failure [:reason :url :status])))
+        (select-keys failure [:reason :type :url :status])))
 
 (defn ^:no-doc part
   "What `f` gives when called, as a map of the :value, for the reading of

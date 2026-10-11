@@ -54,7 +54,7 @@
                       error
                       {:url   url
                        :error (diagnostics/fetch-failure
-                               {:url url :reason (async/explain error)})}
+                               (assoc (http/failure error) :url url))}
 
                       (= 304 (:status response))
                       answer

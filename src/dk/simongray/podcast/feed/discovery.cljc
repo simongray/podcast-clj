@@ -423,7 +423,7 @@
   [url {:keys [value error] :as attempt}]
   (cond
     error
-    (diagnostics/fetch-failure {:url url :reason (async/explain error)})
+    (diagnostics/fetch-failure (assoc (http/failure error) :url url))
 
     (not (<= 200 (long (:status value)) 299))
     (diagnostics/fetch-failure {:url url :status (:status value)})))

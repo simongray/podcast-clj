@@ -35,7 +35,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 
 | Id | Level | Meaning |
 |---|---|---|
-| `:fetch/unreachable` | warning | The feed or list couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
+| `:fetch/unreachable` | warning | The feed or list couldn't be fetched: the name of its host wasn't found, the host couldn't be reached, the secure connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. The :type of wary-fetch says which, when the platform tells. |
+| `:refresh/offline` | info | The device seems to be offline: :online? said so, or every fetch of the refresh failed before a server answered, at more than one host. No feed counts it as a failure, and each stays due, so the next refresh fetches it. |
 | `:fetch/malformed` | warning | The document isn't an RSS feed, or for a list, an OPML document: it isn't XML, or its root element isn't rss or opml. |
 | `:fetch/unsupported-format` | warning | The document is an Atom or RSS 1.0 feed rather than RSS 2.0, so it can't be read. The :format names which. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
@@ -118,7 +119,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:file/incomplete` | warning | The bytes that the reader needed didn't arrive, or a limit stopped the reading, so nothing was read. |
 | `:file/unreachable` | warning | The file couldn't be fetched: the request failed, or the server answered with a status that isn't a success. |
 | `:file/unverifiable` | info | This podcast:integrity can't be checked. A PGP signature needs the key of the publisher, and an sri value must name a sha256, sha384 or sha512 hash. |
-| `:check/unreachable` | error | The file couldn't be fetched: the connection or the TLS handshake failed, or the request took too long. |
+| `:check/unreachable` | error | The file couldn't be fetched: the name of its host wasn't found, the host couldn't be reached, the TLS handshake failed, or the request took too long. The :type of wary-fetch says which, when the platform tells. |
 | `:check/status` | error | The server answered with a status that isn't a success, so a listener doesn't get the file. |
 | `:check/downgrade` | error | A redirect leads from https to http, which clients refuse to follow. |
 | `:check/redirects` | warning | The file is more than five redirects away, more than the check and some clients follow. |

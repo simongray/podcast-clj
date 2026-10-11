@@ -497,9 +497,24 @@
                      :else
                      (->> (listed library url list at seconds fetched)
                           (assoc acc :library)))))]
-    (async/then (async/all fetch! (feeds/due (:fetched-lists library) at))
+    (async/then (async/all fetch! (if (false? (:online? opts))
+                                    []
+                                    (feeds/due (:fetched-lists library) at)))
                 (fn [results]
                   (reduce apply1 {:library library :report []} results)))))
+
+(defn- offline-lists
+  "The `library` with the followed lists of `before` whose fetch failed
+  before a server answered, by the `report` of a refresh while the device
+  was offline, and the report without those failures, as a pair."
+  [library before report]
+  (let [unconnected? #(and (:list %) (feeds/connection-failed? {:error %}))
+        urls         (map :list (filter unconnected? report))
+        restored     (fn [lib url]
+                       (assoc-in lib [:fetched-lists url]
+                                 (get-in before [:fetched-lists url])))]
+    [(reduce restored library urls)
+     (vec (remove unconnected? report))]))
 
 (defn- pending
   "The feeds of the live subscriptions and remote items of `library` that
@@ -654,8 +669,17 @@
 
   Only the new episodes join the queue or the inbox. Nothing is thrown for
   what the network or a server does. The `opts` are the config for this
-  call, and :feed-guids, the feeds to fetch instead of those that are due,
-  e.g. those that a Podping names."
+  call, and these:
+
+  - :feed-guids, the feeds to fetch instead of those that are due, e.g.
+    those that a Podping names
+  - :online?, false when the device has no network, so that nothing is
+    fetched
+
+  A refresh in which every fetch of a feed failed before a server
+  answered, at more than one host, counts as offline too. Offline, no feed
+  or list counts it as a failure, each stays due for the next refresh,
+  and the report has :refresh/offline."
   ([library]
    (refresh! library {}))
   ([library opts]
@@ -667,25 +691,30 @@
                         (select-keys [:feed-guids :fetch :credentials-of
                                       :concurrency :cadence :max-pages :send
                                       :timeout-seconds :max-bytes
-                                      :user-agent :allow-pred])
+                                      :user-agent :allow-pred :online?])
                         (assoc :at at))]
      (async/then
       (refresh-lists! library at opts)
-      (fn [{library :library report :report}]
-        (let [unfetched  (pending library)
+      (fn [{listed :library report :report}]
+        (let [unfetched  (pending listed)
               feeds-opts (cond-> feeds-opts
                            (:feed-guids opts)
                            (update :feed-guids
                                    #(distinct (concat (keys unfetched) %))))]
           (async/then
-           (feeds/refresh! (clojure.core/merge unfetched (:feeds library))
+           (feeds/refresh! (clojure.core/merge unfetched (:feeds listed))
                            feeds-opts)
            (fn [step]
-             (let [{:keys [library] :as done} (applied library step at opts)
-                   reports (-> []
-                               (into report)
-                               (into (:report step))
-                               (into (:report done)))]
+             (let [offline?        (some (comp #{:refresh/offline} :id)
+                                         (:report step))
+                   [listed report] (if offline?
+                                     (offline-lists listed library report)
+                                     [listed report])
+                   {:keys [library] :as done} (applied listed step at opts)
+                   reports         (-> []
+                                       (into report)
+                                       (into (:report step))
+                                       (into (:report done)))]
                (assoc library :refresh (-> {:at at}
                                            (into (select-keys
                                                   done [:added :backfilled

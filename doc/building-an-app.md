@@ -309,6 +309,16 @@ no longer brings back, but never one that the listener has progress, a
 mark or a place in the queue for. These episodes stay on the device, so
 another device only has what the host serves.
 
+A refresh while the device has no network changes nothing. Give
+`:online? false` when the platform says so, e.g. from
+`navigator.onLine`, and nothing is fetched. A refresh in which every fetch
+failed before a server answered, at more than one host, counts as offline
+too. Either way, no feed or list counts it as a failure, each stays due,
+and the report has `:refresh/offline`, so the first refresh after the
+network comes back fetches them all. A failed fetch says why in its
+`:type`, e.g. `:dk.simongray.wary-fetch/unresolved` for a host whose name
+wasn't found.
+
 When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `schedule/next-check` reads them,
 but it's never more than twelve hours away, so that an early or an extra

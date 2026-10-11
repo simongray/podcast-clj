@@ -35,7 +35,9 @@
             [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def default-cadence
   "How many seconds to wait before the next fetch of a feed.
@@ -284,11 +286,37 @@
                                             :status (:status result)}))))))
 
 (defn- unreachable
-  "The result of a fetch of `url` that threw `error`."
+  "The result of a fetch of `url` that threw `error`, with the :type of the
+  failure when wary-fetch gives one."
   [url error]
   {:url   url
-   :error (diagnostics/fetch-failure {:url    url
-                                      :reason (async/explain error)})})
+   :error (diagnostics/fetch-failure (assoc (http/failure error) :url url))})
+
+(defn connection-failed?
+  "Whether the fetch `result` failed before any server answered: the name
+  of its host wasn't found, the host couldn't be reached, or the secure
+  connection failed."
+  [result]
+  (contains? #{::http/unresolved ::http/unreachable ::http/tls}
+             (get-in result [:error :type])))
+
+(defn- offline?
+  "Whether the `results` of a round of fetches, pairs of a feed guid and a
+  result, say that the device is offline: each failed before any server
+  answered, at more than one host, since one host can be down by itself."
+  [results]
+  (and (every? (comp connection-failed? second) results)
+       (< 1 (count (into #{} (map (comp url/host :url second)) results)))))
+
+(defn- offline
+  "The result of a refresh of `feeds` while the device is offline, which
+  changes none of them, with the :reason of a failure that said so."
+  [feeds reason]
+  {:feeds   feeds
+   :changed []
+   :moved   {}
+   :report  [(diagnostics/describe (cond-> {:id :refresh/offline}
+                                     reason (assoc :reason reason)))]})
 
 (defn- merged
   "The changes of the refreshes so far in `acc`, with those of the `result`
@@ -317,12 +345,19 @@
   - :concurrency, how many feeds to fetch at once, and :cadence
   - :max-pages, the most pages of a paged feed to read at its first fetch,
     one by default, since the later fetches keep what it read
+  - :online?, false when the device has no network, so that nothing is
+    fetched
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
-    fetch! takes them"
+    fetch! takes them
+
+  A round in which every fetch failed before a server answered, at more
+  than one host, counts as offline too. Offline, every feed stays as it
+  was, so that none counts it as a failure and each is due at the next
+  refresh, and the report has :refresh/offline."
   ([feeds]
    (refresh! feeds {}))
   ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence
-                  max-pages]
+                  max-pages online?]
            :or   {fetch       podcast/fetch!
                   concurrency default-concurrency
                   cadence     {}}
@@ -352,12 +387,16 @@
                                                value)]))))
          step   (fn [acc [feed-guid result]]
                   (->> (refresh (:feeds acc) feed-guid result at cadence)
-                       (merged acc)))]
-     (async/then (async/in-groups fetch1 concurrency guids)
-                 (fn [results]
-                   (reduce step
-                           {:feeds feeds :changed [] :moved {} :report []}
-                           results))))))
+                       (merged acc)))
+         round  (fn [results]
+                  (if (offline? results)
+                    (offline feeds (get-in (first results) [1 :error :reason]))
+                    (reduce step
+                            {:feeds feeds :changed [] :moved {} :report []}
+                            results)))]
+     (if (false? online?)
+       (async/then nil (fn [_] (offline feeds nil)))
+       (async/then (async/in-groups fetch1 concurrency guids) round)))))
 
 #?(:clj
    (comment

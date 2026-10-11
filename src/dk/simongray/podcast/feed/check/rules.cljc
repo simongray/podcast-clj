@@ -87,7 +87,8 @@
                        (= 3 (quot status 100)))]
     (cond
       error
-      [(diagnostic file chosen :check/unreachable :reason (why answer))]
+      [(diagnostic file chosen :check/unreachable
+                   :reason (why answer) :type (:type error))]
 
       (and redirect?
            location
@@ -570,7 +571,8 @@
 
                   (:error facts)
                   [(diagnostic file chosen :check/unreachable
-                               :reason (why facts))]
+                               :reason (why facts)
+                               :type (get-in facts [:error :type]))]
 
                   :else
                   (judge file chosen facts))]

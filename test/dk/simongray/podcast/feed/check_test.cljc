@@ -10,7 +10,7 @@
             [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be local? with-file-server with-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
-            #?(:cljs [dk.simongray.wary-fetch :as http])
+            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async])
   #?(:clj (:import [java.security MessageDigest])))
 
@@ -88,6 +88,16 @@
                     (fn [result]
                       (is (= [[:max-seconds (get (left result) :max-seconds)]] (told result)))
                       (is (< 40 (get (left result) :max-seconds)) "no file starts after the time of the check")))))))
+
+(deftest a-file-whose-host-is-not-found
+  (let [feed {:rss/items [{:rss/enclosure {:url "https://a.example/e.mp3" :type "audio/mpeg"}}]}
+        send (fn [{:keys [url]}]
+               (throw (ex-info (str "The host of " url " was not found") {:type ::http/unresolved :url url})))]
+    (run #(async/then (check/check-files! feed {:send send :allow-pred (constantly true)})
+                      (fn [{:keys [report]}]
+                        (is (= [[:check/unreachable ::http/unresolved "The host of https://a.example/e.mp3 was not found"]]
+                               (map (juxt :id :type :reason) report))
+                            "says why, as the platform tells it"))))))
 
 (deftest the-integrity-through-the-sender-of-the-app
   (let [file (bytes/of (ascii "hello"))

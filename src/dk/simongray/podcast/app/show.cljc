@@ -161,7 +161,7 @@
 
                   error
                   {:error (diagnostics/fetch-failure
-                           (assoc (select-keys error [:status :reason])
+                           (assoc (select-keys error [:status :reason :type])
                                   :url url))}
 
                   :else

@@ -24,6 +24,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def now #inst "2026-09-30T12:00:00Z")
@@ -347,6 +348,26 @@
                      (is (= [[:fetch/status 503]] (map (juxt :id :status) report)))
                      (is (< (inst-ms (time/now)) (inst-ms (get-in lib' [:fetched-lists picks-url :next-check])))
                          "not before the Retry-After")))))))
+
+(deftest an-offline-refresh
+  (let [lib   (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks"})
+        later (at (* 2 86400))
+        sent  (atom 0)
+        down  (fn [u] (swap! sent inc) (throw (ex-info (str "down: " u) {:type ::http/unresolved :url u})))
+        opts  {:at later :fetch (fn [u _] (down u)) :send (fn [{:keys [url]}] (down url))}]
+    (run
+     #(async/then (library/refresh! lib opts)
+                  (fn [lib']
+                    (is (= 3 @sent) "the list, the show and the new one from the list, at two hosts")
+                    (is (= [:refresh/offline] (map :id (:report (:refresh lib')))))
+                    (is (= (:feeds lib) (:feeds lib')) "no feed counts it as a failure")
+                    (is (= (:fetched-lists lib) (:fetched-lists lib')) "nor the list, which stays due")))
+     (fn []
+       (reset! sent 0)
+       (async/then (library/refresh! lib (assoc opts :online? false))
+                   (fn [lib']
+                     (is (= [0 [:refresh/offline]] [@sent (map :id (:report (:refresh lib')))])
+                         "and nothing is fetched when the device knows it's offline")))))))
 
 (deftest a-new-subscription-through-the-send
   (let [xml  (fixture "feeds/namespace-example.xml")

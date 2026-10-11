@@ -240,6 +240,13 @@ and the `:user-agent` option names your app instead.
 Every function that fetches has limits of size, time and requests in the
 `default-limits` of its namespace, and its options change each one.
 
+A failed fetch counts against its feed, and the waits grow with each
+failure in a row, but a device without a network would then wait a day
+for every feed. So a refresh in which no server answered at all doesn't
+count. At one host, a dead network looks like a dead server, so it takes
+failures at more than one, and an app that knows from the platform says
+so with `:online?`.
+
 `feed.check` is split like the rest of podcast-clj: `files` lists what to
 fetch, `feed.check.facts` gathers what came back, and `feed.check.rules`
 turns the facts into diagnostics. Only the gathering sends, so `report`

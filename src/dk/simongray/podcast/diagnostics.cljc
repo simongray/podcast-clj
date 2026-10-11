@@ -41,9 +41,16 @@
    #(update % :doc unwrap)
    [;; fetching
     {:id :fetch/unreachable :level :warning
-     :doc "The feed or list couldn't be fetched: the connection failed, the
-           request took too long, the answer was too large, or the URL wasn't
-           allowed."}
+     :doc "The feed or list couldn't be fetched: the name of its host wasn't
+           found, the host couldn't be reached, the secure connection failed,
+           the request took too long, the answer was too large, or the URL
+           wasn't allowed. The :type of wary-fetch says which, when the
+           platform tells."}
+    {:id :refresh/offline :level :info
+     :doc "The device seems to be offline: :online? said so, or every fetch of
+           the refresh failed before a server answered, at more than one
+           host. No feed counts it as a failure, and each stays due, so the
+           next refresh fetches it."}
     {:id :fetch/malformed :level :warning
      :doc "The document isn't an RSS feed, or for a list, an OPML document:
            it isn't XML, or its root element isn't rss or opml."}
@@ -316,8 +323,10 @@
 
     ;; checks over the network of the files a feed links to
     {:id :check/unreachable :level :error
-     :doc "The file couldn't be fetched: the connection or the TLS handshake
-           failed, or the request took too long."}
+     :doc "The file couldn't be fetched: the name of its host wasn't found,
+           the host couldn't be reached, the TLS handshake failed, or the
+           request took too long. The :type of wary-fetch says which, when
+           the platform tells."}
     {:id :check/status :level :error
      :doc "The server answered with a status that isn't a success, so a listener
            doesn't get the file."}

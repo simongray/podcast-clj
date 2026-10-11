@@ -14,6 +14,7 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def url "https://example.com/feed.xml")
@@ -208,6 +209,40 @@
             "keeps the feed, and waits as after a failure")))
     (let [none (feeds/add {} url (assoc fresh :feed (assoc show :rss/items [])) now)]
       (is (= [guid] (:changed (refresh none [] (at 3600)))) "but a show that has none yet can stay so"))))
+
+(deftest an-offline-device
+  (let [three  (-> feeds
+                   (feeds/add "https://example.org/b.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)
+                   (feeds/add "https://example.org/c.xml" (assoc fresh :feed (feed.guid/with-key show "c1")) now))
+        later  (at 86400)
+        asked  (atom 0)
+        failed (fn [type] (fn [u _] (swap! asked inc) (throw (ex-info (str "down: " u) {:type type :url u}))))
+        on-b   (fn [u opts] (if (re-find #"/b.xml" u) {:status 304 :url u} ((failed ::http/unresolved) u opts)))]
+    (run
+     #(async/then (feeds/refresh! three {:at later :fetch (failed ::http/unresolved)})
+                  (fn [{:keys [feeds changed report]}]
+                    (testing "every fetch failed before a server answered, at two hosts"
+                      (is (= three feeds) "so no feed counts it as a failure, and each stays due")
+                      (is (= [] changed))
+                      (is (= [:refresh/offline] (map :id report)))
+                      (is (re-find #"down: " (:reason (first report))) "with the reason of a failure"))))
+     #(async/then (feeds/refresh! (dissoc three "b1" "c1") {:at later :fetch (failed ::http/unreachable)})
+                  (fn [{:keys [feeds report]}]
+                    (is (= [[:fetch/unreachable ::http/unreachable]] (map (juxt :id :type) report))
+                        "one host can be down by itself, and the report says why")
+                    (is (= 1 (:failures (get feeds guid))))))
+     #(async/then (feeds/refresh! three {:at later :fetch on-b})
+                  (fn [{:keys [report]}]
+                    (is (= #{:fetch/unreachable} (set (map :id report))) "nor is a device offline that reached one server")))
+     #(async/then (feeds/refresh! three {:at later :fetch (failed ::http/timeout)})
+                  (fn [{:keys [report]}]
+                    (is (= #{:fetch/unreachable} (set (map :id report))) "nor one whose servers took too long")))
+     (fn []
+       (reset! asked 0)
+       (async/then (feeds/refresh! three {:at later :fetch (failed ::http/unresolved) :online? false})
+                   (fn [{:keys [feeds report]}]
+                     (is (= [0 three [:refresh/offline]] [@asked feeds (map :id report)])
+                         "a device that knows it has no network fetches nothing")))))))
 
 (deftest the-pages-of-a-first-fetch
   (let [asked (atom {})
