@@ -16,7 +16,10 @@
       (is (= (str "a" slashes "b") (guid/guid-name (str "https://a" slashes "b/")))))))
 
 (deftest uuid-v5
-  (testing "RFC 4122 appendix example for the DNS namespace"
+  (testing "the example of RFC 9562, appendix A.4, in the DNS namespace"
+    (is (= "2ed6657d-e927-568b-95e1-2665a8aea6a2"
+           (guid/uuid-v5 "6ba7b810-9dad-11d1-80b4-00c04fd430c8" "www.example.com"))))
+  (testing "the example of Python's uuid module"
     (is (= "886313e1-3b8a-5372-9b90-0c9aee199e5d"
            (guid/uuid-v5 "6ba7b810-9dad-11d1-80b4-00c04fd430c8" "python.org")))))
 

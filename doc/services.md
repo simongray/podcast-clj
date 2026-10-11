@@ -47,7 +47,7 @@ There's no default for these, so you give them:
   September 2026, Bluesky's `https://public.api.bsky.app` and Blacksky's
   `https://api.blacksky.community` answer without an account.
 - the root of a gpodder server, some of which [Sync
-  reference](sync-reference.md#gpodder-servers-as-of-september-2026)
+  reference](sync-reference.md#gpodder-servers-as-of-october-2026)
   lists, and the URL of a WebDAV collection, some of which the [providers
   page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)
   of like-minded lists
@@ -72,6 +72,10 @@ an entry, and the `:sources` of `search!` and `fetch-chart!` can hold both.
 The `:id` of an entry names the source in `:directory/source`,
 `:directory/sources` and the `:source` of a diagnostic, and an entry
 without an `:id` takes the name of its API.
+
+The operators of gpodder.net said on 6 September 2026 that it's now a
+sync service, and that it hasn't indexed podcasts since 2023. Its search,
+its tag charts and its lookup still answer, but from that old index.
 
 ### The chart of a category
 
@@ -136,13 +140,13 @@ path of a URL, whose one group is the id.
 
 OP3 answers a URL that it doesn't accept with an error, so an episode with
 such a URL wouldn't play, and `analytics.op3/accepts?` checks a URL first.
-The URL must be http or https, with a path and without a user name, and
-its domain can't be:
+As of 11 October 2026, the URL must be http or https, with a path and
+without a user name, and its domain can't be:
 
 - an IPv6 address
-- a name without a dot
-- a name that RFC 2606 reserves for tests: `.test`, `.example`, `.invalid`
-  and `.localhost`
+- `localhost`
+- a name with characters other than ASCII letters, digits, dots and
+  hyphens
 
 Another instance of OP3 may accept other URLs, so give its `:origin`, and
 its rules as `:accepts-pred`.
@@ -237,21 +241,22 @@ The default relays for comments on Nostr are in `comments.nostr/relays`,
 which `comments/fetch!` asks when the options give no `:relays`. A thread
 whose root names relays asks those first.
 
-The table shows what each relay answered on 29 September 2026, when asked
-for the notes about one episode by its NIP-73 id, which Fountain wrote that
-day.
+The table shows what each relay answered on 11 October 2026, when asked
+for the notes about one episode by its NIP-73 id. Fountain wrote three
+notes about it on 29 September.
 
 | Relay | In `comments.nostr/relays` | The answer |
 |---|---|---|
-| `wss://relay.fountain.fm` | yes | Three notes about the episode. No answer to a filter that only names kind 1111, and it doesn't read a filter on the tags `I` and `E`. |
+| `wss://relay.fountain.fm` | yes | The three notes about the episode. It closes a filter that names kind 1111 as "kinds not supported", and answers a filter on the tags `I` and `E` with "invalid filters". |
 | `wss://relay.damus.io` | yes | No note about the episode, but notes about other episodes |
-| `wss://relay.primal.net` | yes | One note about the episode |
-| `wss://nos.lol` | no | No note about any episode |
+| `wss://relay.primal.net` | yes | No note about the episode, but notes about other episodes, and a comment of kind 1111 on one |
+| `wss://nos.lol` | no | No note about the episode, but notes about other episodes |
 | `wss://relay.nostr.band` | no | No connection within ten seconds |
 
 On that day, the relays had notes of kind 1 about episodes, with the id of
-the episode in an `i` tag as Fountain writes them, but no comments of kind
-1111 on an episode, the form that NIP-22 defines. The reader asks for both.
+the episode in an `i` tag as Fountain writes them. Only relay.primal.net
+had a comment of kind 1111 on an episode, the form that NIP-22 defines,
+written on 8 October. The reader asks for both.
 
 Choose your own relays with `:relays`:
 

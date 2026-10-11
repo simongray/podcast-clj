@@ -54,24 +54,21 @@
      (boolean (some found? starts)))))
 
 (defn accepts?
-  "Whether OP3 takes the URL `url` behind its prefix, as its server did in
-  September 2026.
+  "Whether OP3 takes the URL `url` behind its prefix, as its server did on
+  11 October 2026.
 
   OP3 answers a URL that it doesn't take with an error, so the episode
   behind the prefix doesn't play. It takes an http or https URL with a
   path and without a user name. It doesn't take a domain that's an IPv6
-  address, that has no dot, or that RFC 2606 keeps for tests, such as
-  example.test."
+  address or localhost, or that has characters other than ASCII letters,
+  digits, dots and hyphens."
   [url]
-  (let [web-url  #"(?i)https?://([a-z0-9.-]+)(?::(\d{1,5}))?/.+"
-        reserved #{"test" "example" "invalid" "localhost"}]
+  (let [web-url #"(?i)https?://([a-z0-9.-]+)(?::(\d{1,5}))?/.+"]
     (boolean
      (when-let [[_ domain port] (re-matches web-url (str url))]
-       (let [tld (peek (str/split (str/lower-case domain) #"\."))]
-         (and (not (re-find #"^[.-]|-$|\.\." domain))
-              (str/includes? domain ".")
-              (not (contains? reserved tld))
-              (or (nil? port) (<= 1 (parse-long port) 65535))))))))
+       (and (not (re-find #"^[.-]|-$|\.\." domain))
+            (not= "localhost" (str/lower-case domain))
+            (or (nil? port) (<= 1 (parse-long port) 65535)))))))
 
 (defn- scheme-and-rest
   "The scheme of the http or https URL `url` and the rest of the URL, as a

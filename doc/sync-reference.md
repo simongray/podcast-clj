@@ -117,14 +117,14 @@ promise, so in ClojureScript, where `sync!` returns a promise, sync
 separately and merge the result into the atom.
 
 
-## gpodder servers, as of September 2026
+## gpodder servers, as of October 2026
 
 The root of a gpodder server is a fact about another product that can
 change, so podcast-clj contains none of them.
 
 | gpodder server | The root to give `gpodder/backend` | `:api` | Notes |
 |---|---|---|---|
-| gpodder.net | `https://gpodder.net` | `:gpodder` | Each device has its own subscriptions. To share them, link the devices on the site, or give the device id of the other app as `:device`. |
+| gpodder.net | `https://gpodder.net` | `:gpodder` | Each device has its own subscriptions. To share them, link the devices on the site, or give the device id of the other app as `:device`. Since a notice of 6 September 2026, it's a sync service and little else: an account may be archived after six months without use, and the older episode actions may be cut to the latest of each episode on each device, so a pull may not give them all. |
 | Nextcloud with the GPodder Sync app | `https://HOST` | `:nextcloud` | An app password, as for WebDAV. The app only keeps play actions, so an episode marked as unplayed doesn't reach it. |
 | oPodSync | The URL that it's installed at | `:gpodder` | |
 | PinePods | `https://HOST` | `:gpodder` | |

@@ -233,10 +233,17 @@
     (is (= url (op3/target (op3/prefix url))) "the URL of the file, with its query and its scheme of http"))
   (is (= "https://cdn.example.com/e.mp3" (op3/target "https://cdn.example.com/e.mp3")) "a URL without a prefix stays")
   (is (every? nil? (map op3/prefix ["https://user:pw@cdn.example.com/e.mp3" "https://[2001:db8::1]/e.mp3"
-                                    "https://cdn_example.com/e.mp3" "https://localhost/e.mp3" "https://media/e.mp3"
-                                    "https://media.example/e.mp3" "https://cdn.example.com" "https://cdn.example.com/"
-                                    "https://cdn.example.com:0/e.mp3" "ipfs://bafy/e.mp3" nil]))
-      "no prefix where OP3 answers with an error")
+                                    "https://cdn_example.com/e.mp3" "https://localhost/e.mp3" "https://localhost:8080/e.mp3"
+                                    "https://bücher.example/e.mp3" "https://cdn.example.com" "https://cdn.example.com/"
+                                    "https://cdn.example.com:0/e.mp3" "https://cdn.example.com:65536/e.mp3"
+                                    "https://.cdn.example.com/e.mp3" "https://-cdn.example.com/e.mp3"
+                                    "https://example.com-/e.mp3" "https://cdn..example.com/e.mp3" "ipfs://bafy/e.mp3" nil]))
+      "no prefix where OP3 answered with an error on 11 October 2026")
+  (is (every? op3/accepts? ["https://media/e.mp3" "https://media.example/e.mp3" "https://example.test/e.mp3"
+                            "https://a.localhost/e.mp3" "https://127.0.0.1/e.mp3" "https://cdn.example.com:65535/e.mp3"
+                            "https://cdn-.example.com/e.mp3" "https://cdn.example.com./e.mp3"
+                            "https://xn--bcher-kva.example/e.mp3" "https://cdn.example.com/e?a=b"])
+      "where OP3 answered with a redirect on that day")
   (is (= "https://staging.op3.dev/e/cdn.example.com/e.mp3"
          (op3/prefix "https://cdn.example.com/e.mp3" {:origin "https://staging.op3.dev"})))
   (testing "another instance of OP3"
@@ -255,9 +262,9 @@
           "a prefix in the query is no prefix")))
   (testing "an instance that takes other URLs"
     (is (op3/accepts? "https://cdn.example.com/e.mp3"))
-    (is (not (op3/accepts? "https://media.test/e.mp3")))
-    (is (= "https://op3.example.org/e/media.test/e.mp3"
-           (op3/prefix "https://media.test/e.mp3" {:origin "https://op3.example.org" :accepts-pred (constantly true)})))
+    (is (not (op3/accepts? "https://localhost/e.mp3")))
+    (is (= "https://op3.example.org/e/localhost/e.mp3"
+           (op3/prefix "https://localhost/e.mp3" {:origin "https://op3.example.org" :accepts-pred (constantly true)})))
     (is (nil? (op3/prefix "https://cdn.example.com/e.mp3" {:accepts-pred #(str/ends-with? % ".m4a")})))
     (is (nil? (op3/prefix "ipfs://bafy/e.mp3" {:accepts-pred (constantly true)})) "a prefix is for http and https"))
   (let [feed (op3/with-prefix (rss/parse (fixture "feeds/namespace-example.xml")))

@@ -11,7 +11,7 @@
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
 (defn uuid-v5
-  "The name-based UUID (RFC 4122, section 4.3) of the string `name` in the
+  "The name-based UUID (RFC 9562, section 5.5) of the string `name` in the
   UUID namespace `ns`, as a lower-case string."
   [ns name]
   (let [ns-bytes (bytes/from-hex (str/replace ns "-" ""))

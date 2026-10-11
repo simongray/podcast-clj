@@ -105,8 +105,8 @@
   "The SHA-1 digest of the bytes `b`, as 20 bytes.
 
   An attacker can make two inputs with one SHA-1 digest. So the digest is
-  here only for what asks for it: the UUID of version 5 (RFC 4122, section
-  4.3), which the podcast:guid is, and the requests of the Podcast Index."
+  here only for what asks for it: the UUID of version 5 (RFC 9562, section
+  5.5), which the podcast:guid is, and the requests of the Podcast Index."
   [b]
   (digest :sha1 b))
 
