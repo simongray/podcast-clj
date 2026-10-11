@@ -275,9 +275,12 @@
    {:tag :comments :key :rss/comments
     :parent #{:item} :count :one :content :url
     :doc "URL of a page for comments relating to the item."}
+   ;; RSS 2.0 requires all three attributes
    {:tag :enclosure :key :rss/enclosure
     :parent #{:item} :count :one :content :none
-    :attrs {:url req-url :length integer :type {:type :mime}}
+    :attrs {:url    req-url
+            :length {:type :integer :required true}
+            :type   {:type :mime :required true}}
     :doc "The media object attached to the item."}
    {:tag :guid :key :rss/guid
     :parent #{:item} :count :one

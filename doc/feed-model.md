@@ -335,8 +335,8 @@ The media object attached to the item.
 
 | Attribute | Key | Type | |
 |---|---|---|---|
-| `length` | `:length` | integer |  |
-| `type` | `:type` | mime |  |
+| `length` | `:length` | integer | required |
+| `type` | `:type` | mime | required |
 | `url` | `:url` | url | required |
 
 ### `<guid>`

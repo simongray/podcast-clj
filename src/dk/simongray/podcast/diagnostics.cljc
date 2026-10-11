@@ -346,6 +346,10 @@
     {:id :check/type :level :warning
      :doc "The server gives the file a different media type than the feed
            declares."}
+    {:id :check/no-type :level :warning
+     :doc "The feed declares no media type for the file, which RSS 2.0 and
+           the podcast namespace require. The :served type is the one that
+           the server gives it."}
     {:id :check/length :level :info
      :doc "The size of the file differs from the length that the feed declares.
            A host that inserts ads sends a file of a different size to each
@@ -434,6 +438,23 @@
      :doc "An element that RSS 2.0 requires is missing."}
     {:id :validate/missing-enclosure :level :warning
      :doc "An item has no enclosure, so there's nothing to play."}
+    {:id :validate/duplicate-guid :level :error
+     :doc "An item has the guid of an earlier item, so apps, directories and
+           sync servers take the two for one episode. The :first-path is
+           that of the earlier item."}
+    {:id :validate/duplicate-enclosure :level :warning
+     :doc "An item has the enclosure URL of an earlier item, e.g. a trailer
+           and the episode it's cut from. Apple keeps only the first, so its
+           requirements make it an error. The :first-path is that of the
+           earlier item."}
+    {:id :validate/unknown-media-type :level :warning
+     :doc "The type of an enclosure is neither audio, video nor a playlist of
+           either, e.g. application/octet-stream, so apps may not play it.
+           The :value is the type."}
+    {:id :validate/unknown-length :level :info
+     :doc "The length of an enclosure is 0, which says that it isn't known,
+           e.g. under dynamic ad insertion, so an app can't tell the size of
+           the file before it downloads it."}
     {:id :validate/missing-attribute :level :error
      :doc "A required attribute is missing."}
     {:id :validate/wrong-shape :level :error

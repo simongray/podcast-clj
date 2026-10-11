@@ -116,6 +116,21 @@
   [m k]
   (count (get m k)))
 
+;; RFC 8216, section 4: the media types of an HLS playlist
+(def ^:no-doc playlist-types
+  "The media types of a playlist of audio or video, which an enclosure can
+  name for a stream."
+  #{"application/vnd.apple.mpegurl" "application/x-mpegurl"})
+
+(defn- media-type?
+  "Whether the media type `s` is of audio, of video or of a playlist of
+  either, whatever its case and parameters."
+  [s]
+  (let [t (-> (str/split s #";" 2) first str/trim str/lower-case)]
+    (or (str/starts-with? t "audio/")
+        (str/starts-with? t "video/")
+        (contains? playlist-types t))))
+
 (def structural-rules
   "Checks by tag of the model value of an element, each a function of the
   value and its path that returns diagnostics."
@@ -179,7 +194,22 @@
        [(diagnostic :validate/invalid-guid :warning path
                     (str "podcast:guid " (pr-str v) " is not a UUID, so "
                          "apps and the Podcast Index use the one derived "
-                         "from the URL"))]))})
+                         "from the URL"))]))
+
+   ;; RSS 2.0, enclosure; RSS Best Practices Profile, 4.1.1.20.5: a length
+   ;; of 0 says that the length isn't known
+   :enclosure
+   (fn [{:keys [type length]} path]
+     (concat
+      (when (and (string? type)
+                 (not (str/blank? type))
+                 (not (media-type? type)))
+        [(diagnostic :validate/unknown-media-type :warning (conj path :type)
+                     "the enclosure is neither audio nor video"
+                     :value type)])
+      (when (= 0 length)
+        [(diagnostic :validate/unknown-length :info (conj path :length)
+                     "the enclosure's length is 0, which says it isn't known")])))})
 
 (declare children-diagnostics)
 
@@ -308,13 +338,52 @@
                    [:rss/items i :rss/enclosure]
                    "the item has no enclosure, so there is nothing to play")))))
 
+(defn- duplicates
+  "The diagnostics `id` at the `level` with the `message` of the items of
+  `feed` that have the text at `k`, a path into an item, of an earlier
+  item, each at the path `at` in its item, with the :value and the
+  :first-path of the earlier item."
+  [feed id level k at message]
+  (->> (map-indexed vector (:rss/items feed))
+       (reduce (fn [[seen found] [i item]]
+                 (let [v    (get-in item k)
+                       path (into [:rss/items i] at)]
+                   (cond
+                     (not (and (string? v) (not (str/blank? v))))
+                     [seen found]
+
+                     (contains? seen v)
+                     [seen (conj found (diagnostic id level path message
+                                                   :value v
+                                                   :first-path (seen v)))]
+
+                     :else
+                     [(assoc seen v path) found])))
+               [{} []])
+       second))
+
+;; RSS 2.0, guid; Apple's A Podcaster's Guide to RSS keeps the first item of
+;; an enclosure URL that two share
+(defn- item-diagnostics
+  "The diagnostics of the items of `feed` that repeat the guid or the
+  enclosure URL of an earlier item."
+  [feed]
+  (concat (duplicates feed :validate/duplicate-guid :error
+                      [:rss/guid :content] [:rss/guid]
+                      "the item has the guid of an earlier item")
+          (duplicates feed :validate/duplicate-enclosure :warning
+                      [:rss/enclosure :url] [:rss/enclosure :url]
+                      "the item has the enclosure URL of an earlier item")))
+
 (def requirements
   "The required and recommended elements of the channel and of an item,
-  for each standard or directory by name.
+  for each standard or directory by name, and the levels that it raises
+  above those of the catalogue.
 
   A requirement is a model key, or a vector of a key, a predicate of its
   value, and a description. They're the requirements of PSP-1, and of
-  Apple's A Podcaster's Guide to RSS, as of September 2026."
+  Apple's A Podcaster's Guide to RSS, as of September 2026. Apple keeps
+  only the first of the items that share an enclosure URL."
   (let [self-link [:atom/links
                    #(some (comp #{"self"} :rel) %)
                    "atom:link rel=self"]
@@ -339,7 +408,8 @@
              :item    {:required    [:rss/title enclosure :rss/guid]
                        :recommended [:rss/pub-date :rss/description
                                      :itunes/duration :rss/link :itunes/image
-                                     :itunes/explicit]}}}))
+                                     :itunes/explicit]}
+             :levels  {:validate/duplicate-enclosure :error}}}))
 
 (defn- missing-diagnostics
   [level id m reqs path]
@@ -382,8 +452,10 @@
     entries
 
   The feed is normalized first, so the shorthand that a producer can write
-  passes too. A requirement that an error of the other checks already
-  covers isn't reported again, so one fix counts once."
+  passes too. The chosen requirements can raise the level of a
+  diagnostic, e.g. a repeated enclosure URL is an error for Apple. A
+  requirement that an error of the other checks already covers isn't
+  reported again, so one fix counts once."
   ([feed]
    (validate feed {}))
   ([feed {chosen :requirements
@@ -399,10 +471,14 @@
                       :known        (set (keys requirements))})))
    (let [registry (spec/registry registry)
          feed     (feed/normalize feed {:registry registry})
-         checked  (vec (concat (rss-diagnostics feed)
-                               (children-diagnostics registry :channel feed [])
-                               (unknown-key-diagnostics registry :channel nil
-                                                        feed [])))
+         levels   (:levels (if (map? chosen) chosen (get requirements chosen)))
+         raised   #(assoc % :level (get levels (:id %) (:level %)))
+         checked  (mapv raised
+                        (concat (rss-diagnostics feed)
+                                (item-diagnostics feed)
+                                (children-diagnostics registry :channel feed [])
+                                (unknown-key-diagnostics registry :channel nil
+                                                         feed [])))
          errors   (into #{} (comp (filter (comp #{:error} :level)) (map :path))
                         checked)]
      (into checked

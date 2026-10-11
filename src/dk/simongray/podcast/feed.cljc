@@ -63,6 +63,10 @@
                                      :path  (conj path k')})
                          m)
 
+                     ;; for the validator, which reports it as missing
+                     (= "" (xml/trim v))
+                     (assoc m k' v)
+
                      (coerce/invalid? v')
                      (do (note! ctx {:id :feed/invalid-value :level :warning
                                      :path (conj path k') :type type :value v})

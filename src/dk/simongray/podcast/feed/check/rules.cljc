@@ -125,15 +125,18 @@
 
 (defn ^:no-doc type-verdict
   "The diagnostic of the media type `served` for `file`, by the `chosen`
-  requirements, when it differs from the one that the feed declares."
+  requirements, when it differs from the one that the feed declares, or
+  the feed declares none."
   [file chosen served]
   (let [declared (headers/media-type (get-in file [:declared :type]))]
-    (when (and declared
-               served
-               (not= declared served))
+    (cond
+      (and declared served (not= declared served))
       [(diagnostic file chosen :check/type
                    :declared declared
-                   :served   served)])))
+                   :served   served)]
+
+      (and (nil? declared) served)
+      [(diagnostic file chosen :check/no-type :served served)])))
 
 (defn- as-is?
   "Whether the `answer` sends the file as it is, not in a content coding

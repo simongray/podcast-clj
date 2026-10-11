@@ -126,6 +126,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/moved` | warning | The file moved for good, with a 301 or 308 redirect, so the feed can name its new URL. |
 | `:check/head` | error | The server doesn't answer a HEAD request for the file. RFC 9110 requires HEAD of every general-purpose server, and directories use it to check files. |
 | `:check/type` | warning | The server gives the file a different media type than the feed declares. |
+| `:check/no-type` | warning | The feed declares no media type for the file, which RSS 2.0 and the podcast namespace require. The :served type is the one that the server gives it. |
 | `:check/length` | info | The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of a different size to each request, so the length can't be exact. |
 | `:check/ranges` | warning | The server doesn't answer a request for a byte range with that range. RFC 9110 makes ranges optional but recommends them, players need them to seek and resume, and Apple Podcasts requires them. |
 | `:check/format` | warning | The media file is in a different format than the type that the feed declares. |
@@ -152,6 +153,10 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/rss-version` | warning | The version of the rss element isn't 2.0. |
 | `:validate/missing-element` | error | An element that RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there's nothing to play. |
+| `:validate/duplicate-guid` | error | An item has the guid of an earlier item, so apps, directories and sync servers take the two for one episode. The :first-path is that of the earlier item. |
+| `:validate/duplicate-enclosure` | warning | An item has the enclosure URL of an earlier item, e.g. a trailer and the episode it's cut from. Apple keeps only the first, so its requirements make it an error. The :first-path is that of the earlier item. |
+| `:validate/unknown-media-type` | warning | The type of an enclosure is neither audio, video nor a playlist of either, e.g. application/octet-stream, so apps may not play it. The :value is the type. |
+| `:validate/unknown-length` | info | The length of an enclosure is 0, which says that it isn't known, e.g. under dynamic ad insertion, so an app can't tell the size of the file before it downloads it. |
 | `:validate/missing-attribute` | error | A required attribute is missing. |
 | `:validate/wrong-shape` | error | A value doesn't have the shape that its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does. |
 | `:validate/missing-child` | error | A container lacks a child that the spec requires. |

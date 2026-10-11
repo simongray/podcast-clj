@@ -62,6 +62,9 @@
   (is (= #{:check/head} (ids media (assoc served :head {:status 404 :type "text/html" :length 50})))
       "an answer to HEAD that failed tells nothing of the file")
   (is (= #{:check/type} (ids media (assoc-in served [:get :type] "application/octet-stream"))))
+  (is (= [[:check/no-type "audio/mpeg"]]
+         (map (juxt :id :served) (rules/verdicts (update media :declared dissoc :type) served)))
+      "a type the feed doesn't declare, which the server names")
   (testing "the length"
     (is (= #{:check/length} (ids media (assoc-in served [:get :range :total] 2000))))
     (is (= #{} (ids (assoc-in media [:declared :length] 0) (assoc-in served [:get :range :total] 2000)))

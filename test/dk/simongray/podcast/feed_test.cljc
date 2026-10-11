@@ -168,12 +168,13 @@
 
 (deftest duplicates-and-empties
   (let [f (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>A</title><title>B</title><link></link>
-                           <item><title>E</title><enclosure url=\"https://a/1.mp3\" type=\"\"/><itunes:image href=\"\"/></item></channel></rss>")
+                           <item><title>E</title><guid isPermaLink=\"\">g</guid><enclosure url=\"https://a/1.mp3\" length=\"1\" type=\"\"/><itunes:image href=\"\"/></item></channel></rss>")
         item (first (:rss/items f))]
     (is (= "A" (:rss/title f)))
     (is (not (contains? f :rss/link)))
     (testing "a blank optional attribute is absent; a blank required one is kept for the validator"
-      (is (= {:url "https://a/1.mp3"} (:rss/enclosure item)))
+      (is (= {:content "g"} (:rss/guid item)))
+      (is (= {:url "https://a/1.mp3" :length 1 :type ""} (:rss/enclosure item)))
       (is (= {:href ""} (:itunes/image item))))
     (is (= #{:feed/duplicate-element :feed/empty-element :feed/empty-attribute}
            (into #{} (map :id) (rss/report f))))))

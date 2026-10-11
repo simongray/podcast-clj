@@ -22,7 +22,9 @@
 
 (deftest real-feeds-validate
   (is (nil? (explain (rss/parse (slurp (io/resource "feeds/namespace-example.xml"))))))
-  (is (nil? (explain (rss/parse (slurp (io/resource "feeds/quirky.xml"))))))
+  (is (= {:rss/items [{:rss/enclosure {:length ["missing required key"]}}]}
+         (explain (rss/parse (slurp (io/resource "feeds/quirky.xml")))))
+      "but for a blank length that the parse drops, which RSS 2.0 requires")
   (testing "every feed in the corpus, when it is there"
     (doseq [{:keys [name feed]} @corpus-feeds]
       (is (nil? (explain feed)) name))))

@@ -23,7 +23,7 @@
                               <podcast:person role=\"Wizard\">Merlin</podcast:person>
                               <podcast:funding>no url</podcast:funding>
                               <itunes:type>weekly</itunes:type>
-                              <item><title>E</title><enclosure url=\"https://a/1.mp3\" type=\"audio/mpeg\"/>
+                              <item><title>E</title><enclosure url=\"https://a/1.mp3\" length=\"1\" type=\"audio/mpeg\"/>
                                 <podcast:transcript url=\"http://a/t.vtt\" type=\"text/vtt\"/>
                                 <podcast:alternateEnclosure type=\"audio/opus\"/>
                                 <itunes:episode>seven</itunes:episode></item>
@@ -52,7 +52,7 @@
                (validate/validate {:rss/version "2.0"} {:requirements :bogus}))))
 
 (deftest rss-basics
-  (let [v (validate/validate (rss/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\"/></item></channel></rss>"))]
+  (let [v (validate/validate (rss/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\" length=\"1\" type=\"audio/mpeg\"/></item></channel></rss>"))]
     (is (= {:validate/rss-version 1 :validate/missing-element 4} (ids v))))
   (is (= {:validate/missing-enclosure 1}
          (ids (validate/validate (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><item><title>E</title></item></channel></rss>"))))))
@@ -98,6 +98,51 @@
                (validate/validate f {:requirements (:apple validate/requirements)}))
             "an entry of requirements, given as a map")))))
 
+(deftest repeated-items
+  (let [item  (fn [guid url]
+                {:rss/title "E" :rss/guid guid :rss/enclosure {:url url :length 1 :type "audio/mpeg"}})
+        f     {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+               :rss/items   [(item "a" "https://t/1.mp3") (item "a" "https://t/2.mp3")
+                             (item "c" "https://t/1.mp3") (item "d" "https://t/4.mp3")]}
+        found (fn [opts]
+                (->> (validate/validate f opts)
+                     (filter (comp #{:validate/duplicate-guid :validate/duplicate-enclosure} :id))
+                     (map (juxt :id :level :path :first-path))))]
+    (is (= [[:validate/duplicate-guid :error [:rss/items 1 :rss/guid] [:rss/items 0 :rss/guid]]
+            [:validate/duplicate-enclosure :warning [:rss/items 2 :rss/enclosure :url]
+             [:rss/items 0 :rss/enclosure :url]]]
+           (found {}))
+        "a guid is an error, an enclosure URL a warning, e.g. of a trailer, each naming the earlier item")
+    (is (= [:error :error] (map second (found {:requirements :apple})))
+        "both errors for Apple, which keeps only the first item")))
+
+(deftest enclosure-attributes
+  (let [found (fn [enclosure]
+                (->> (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                                         :rss/items   [{:rss/title "E" :rss/enclosure enclosure}]})
+                     (map (juxt :id :path))
+                     set))
+        path  (fn [k] [:rss/items 0 :rss/enclosure k])]
+    (is (= #{[:validate/missing-attribute (path :length)] [:validate/missing-attribute (path :type)]}
+           (found {:url "https://t/1.mp3"}))
+        "RSS 2.0 requires a length and a type")
+    (is (= #{[:validate/missing-attribute (path :length)] [:validate/missing-attribute (path :type)]}
+           (set (map (juxt :id :path)
+                     (validate/validate (rss/parse (str "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link>"
+                                                        "<description>d</description><item><title>E</title>"
+                                                        "<enclosure url=\"https://t/1.mp3\" length=\" \" type=\"\"/>"
+                                                        "</item></channel></rss>"))))))
+        "a blank one is missing")
+    (is (= #{[:validate/unknown-length (path :length)]}
+           (found {:url "https://t/1.mp3" :length 0 :type "audio/mpeg"}))
+        "a length of 0 says it isn't known")
+    (is (= #{[:validate/unknown-media-type (path :type)]}
+           (found {:url "https://t/1.pdf" :length 1 :type "application/pdf"})))
+    (is (= #{}
+           (found {:url "https://t/1.m3u8" :length 1 :type "application/x-mpegURL"})
+           (found {:url "https://t/1.mp4" :length 1 :type "Video/MP4; codecs=\"avc1\""}))
+        "an HLS playlist, and a type in any case with parameters")))
+
 (deftest unknown-elements-are-reported
   (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
         v (validate/validate f)]
@@ -121,7 +166,7 @@
                [:validate/unknown-key [:rss/items 0 :itunes/autor]]}
              (found (assoc base :rss/titel "x" :title "merged"
                            :rss/items [{:rss/title "E" :itunes/autor "A" :foo "an attribute a parse kept"
-                                        :rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}}])))))
+                                        :rss/enclosure {:url "https://a/1.mp3" :length 1 :type "audio/mpeg"}}])))))
     (testing "a value that is not of its type, whatever it is instead of a string"
       (is (= #{[:validate/invalid-value [:rss/pub-date]] [:validate/invalid-value [:itunes/explicit]]}
              (found (assoc base :rss/pub-date 1700000000000 :itunes/explicit :no)))))
