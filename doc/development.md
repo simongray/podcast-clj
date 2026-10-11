@@ -14,7 +14,10 @@ Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
 The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
 to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
 To measure a larger sample of real feeds, see
-[the corpus study](corpus-study-2026.md) and `dev/study.clj`.
+[the corpus study](corpus-study-2026.md) and `dev/study.clj`. To time the
+core of the library over the corpus before and after a change, run
+`(bench/run!)` from `dev/bench.clj`, and `(bench/compare before after)`
+with the dates of two runs.
 
 To change [wary-fetch](https://github.com/simongray/wary-fetch),
 [qname-hiccup](https://github.com/simongray/qname-hiccup),
