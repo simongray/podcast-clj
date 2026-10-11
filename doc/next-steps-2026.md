@@ -55,7 +55,7 @@ steps 5 to 8 take about two weeks and fix the ways a listener loses data.
 | 7 | [Keep what a fetch no longer brings back](#7-keep-what-a-fetch-no-longer-brings-back) | podcast-clj | about three days | Capped feeds lose their back catalogue and their downloaded files |
 | 8 | [Renamed episodes, and a bound on new ones](#8-renamed-episodes-and-a-bound-on-new-ones) | podcast-clj | a few days | A guid rewrite appends the whole back catalogue to the queue |
 | 9 | [A dead network isn't a failing feed](#9-a-dead-network-isnt-a-failing-feed) | wary-fetch, then podcast-clj | about three days | After a flight, no feed is checked until tomorrow |
-| 10 | [The siblings' small needs and releases](#10-the-siblings-small-needs-and-releases) | six libraries | about three days | Needs of an hour with gain 3, and podcast-clj can't be released before mind-meld and like-minded |
+| 10 | [The siblings' small needs and releases](#10-the-siblings-small-needs-and-releases) | eight libraries | about a week | Needs of an hour with gain 3, and podcast-clj can't be released before mind-meld and like-minded |
 | 11 | [A complete validator](#11-a-complete-validator) | podcast-clj | about a week | Checks every other validator makes, and messages a podcaster can act on |
 | 12 | [Field-wise entries in mind-meld](#12-field-wise-entries-in-mind-meld) | mind-meld | a few days | Two devices editing two fields of one entry lose one of the edits |
 | 13 | [The host's path](#13-the-hosts-path) | podcast-clj | about three days | Serves a subset, and two decisions come first |
@@ -89,6 +89,11 @@ The reports leave these open. Each blocks the step it names.
   be given again on every restore since a function can't be saved, or
   should its README drop the half-true promise that you can bring your
   own stemmer? ([drop-in-search](siblings-2026.md#drop-in-search))
+- **Step 10.** Where does the shared endpoint discovery go? The notes of
+  webmention-clj put it in microformats-clj, and those of indieauth-clj in
+  html-pieces, with options for the tags and whether the body counts,
+  since the rels of microformats include links in the body, where a
+  commenter can plant a decoy (indieauth.rocks, C112).
 - **Step 12.** The field-wise entry itself, or first a README section on
   the per-field schema and a `live?` that reads it?
   ([mind-meld](siblings-2026.md#mind-meld))
@@ -336,16 +341,32 @@ the unresolved name under [The host](hosts-and-servers-2026.md#the-host).
   attribute map.
 - Releases of mind-meld and then like-minded, each with a build.clj; then
   html-pieces 0.3.0 in websub-clj and podcast-clj.
+- For the IndieWeb libraries, which copy the same code today, the needs
+  that webmention-clj and indieauth-clj sent later:
+  - In wary-fetch, a namespace with SHA-256, HMAC-SHA256, random bytes,
+    base64url and a comparison in constant time; JSON responses; query
+    parameters as pairs, so that a repeated one can be refused; the parts
+    of a URL as written; and perhaps Ring helpers for the server side.
+  - In html-pieces, the head of a page and its base URL, and plain text
+    as Hiccup, since `html/hiccup` reads "Use <b> for bold." as a tag.
+  - In microformats-clj, the representative h-card and the authorship
+    algorithm, and helpers for a property's value, its URLs and the items
+    of a type at any depth.
+  - One endpoint discovery for all of them, where you decide.
 
 **Why here.** Each need is an hour with gain 2 or 3 for its library's own
 audience, and the releases close a chain that podcast-clj can't be
 released without, since it takes mind-meld and like-minded by Git SHA.
 It comes after step 9 because, except for the head fix and the step
-helper, nothing here changes what podcast-clj gets wrong.
+helper, nothing here changes what podcast-clj gets wrong. The IndieWeb
+needs aren't podcast-clj's, but each one ends a copy in two or more
+libraries.
 
 **Read more.** [Summary](siblings-2026.md#summary), the needs of each
 library, [Release readiness across the seven](siblings-2026.md#release-readiness-across-the-seven)
-and items 1, 3 and 5 of [What to build first](siblings-2026.md#what-to-build-first).
+and items 1, 3 and 5 of [What to build first](siblings-2026.md#what-to-build-first);
+for the IndieWeb needs, doc/sibling-notes.md in webmention-clj and
+indieauth-clj.
 
 ### 11. A complete validator
 
