@@ -218,6 +218,15 @@
                                [:itunes/categories 0 :categories 0 :text] []]))
         "a path as people read it")))
 
+(deftest the-report-of-a-fetch
+  (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><title>U</title><link>https://t</link><description>d</description></channel></rss>")]
+    (is (= #{:feed/duplicate-element :validate/required :validate/recommended}
+           (set (map :id (validate/report {:status 200 :feed f :report (rss/report f)} {:requirements :apple}))))
+        "the report of the parse and the validation of the feed together"))
+  (is (= [[:fetch/status :error]]
+         (map (juxt :id :level) (validate/report {:status 404 :error {:id :fetch/status :level :warning :status 404}})))
+      "and a feed that can't be read, which fails as a whole"))
+
 (deftest unknown-elements-are-reported
   (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
         v (validate/validate f)]

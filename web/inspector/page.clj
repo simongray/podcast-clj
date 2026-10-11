@@ -187,6 +187,18 @@
                           (str (name k) "=" (pr-str v)))]
               [:span.muted (str " · " (str/join ", " pairs))]))]])]]))
 
+(defn- verdict-line
+  "A line that says whether the feed passes by the `verdict` of its
+  diagnostics, with `against` naming the requirements, and the counts."
+  [{:keys [passed? counts]} against]
+  (let [n (fn [level word]
+            (let [k (get counts level)]
+              (str k " " word (when (and (not= 1 k) (not= :info level)) "s"))))]
+    [:p
+     [:strong {:class (if passed? "info" "error")} (if passed? "Passes" "Fails")]
+     (str against ": " (n :error "error") ", " (n :warning "warning") ", "
+          (n :info "info"))]))
+
 (defn- kv-table
   "A table of the entries of `m`, values pretty-printed."
   [m]
@@ -395,6 +407,8 @@
                             [:a {:href href} feed-url]
                             feed-url)
                (when status (str " · HTTP " status))]]]
+            (verdict-line (diagnostics/verdict (concat report validation))
+                          against)
             [:p
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "

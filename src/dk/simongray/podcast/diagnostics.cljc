@@ -23,7 +23,21 @@
   - podping, a poll of the Hive chain
   - comments, reading a thread of comments
   - value, the records of payments
-  - analytics, the list of user agents"
+  - analytics, the list of user agents
+
+  The level says how much a diagnostic matters:
+
+  - :error, a rule of a spec or of the chosen requirements is broken, so
+    apps or a directory can misread the feed, or refuse it
+  - :warning, the feed works, but apps are likely to show or treat
+    something worse than the podcaster means
+  - :info, something worth knowing that needs no change, e.g. a repair
+    that the parse made
+
+  The requirements of a directory can raise a level, e.g. a repeated
+  enclosure URL is an error for Apple. An error under Apple's
+  requirements breaks a rule of its guide, though Apple Podcasts Connect
+  doesn't say which rules it refuses a feed for."
   (:require [clojure.string :as str]
             [dk.simongray.like-minded.diagnostics :as sync-diagnostics]
             [dk.simongray.wary-fetch.url :as url]))
@@ -812,3 +826,23 @@
               (-> (select-keys example [:id :level :message])
                   (assoc :count (count group) :example example))))
        (sort-by (fn [{:keys [count id]}] [(- count) (str id)]))))
+
+(def levels
+  "The levels of a diagnostic, from the worst."
+  [:error :warning :info])
+
+(defn verdict
+  "The verdict of `diagnostics` from any reports, e.g. those of a fetch, a
+  parse, a validation and a check, as a map:
+
+  - :passed?, whether none is an error
+  - :level, the worst level, or nil when there are none
+  - :counts, the number at each level
+  - :errors, what fails, as summarize gives it"
+  [diagnostics]
+  (let [counts (frequencies (map :level diagnostics))
+        errors (filter (comp #{:error} :level) diagnostics)]
+    {:passed? (empty? errors)
+     :level   (some #(when (contains? counts %) %) levels)
+     :counts  (into {} (map (juxt identity #(get counts % 0))) levels)
+     :errors  (summarize errors)}))

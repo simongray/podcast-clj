@@ -1184,6 +1184,49 @@ Remove duplicates by `:id`, since a sender can point to the metadata of
 another payment, and show the texts as text, not HTML.
 
 
+## Validate a feed
+
+To validate a feed, e.g. one that a podcaster submits, fetch it with
+`fetch!` and give the answer to `validate/report`, with the requirements of
+PSP-1 or Apple Podcasts. It gives the diagnostics of the fetch, the parse
+and the validation in one list, and `diagnostics/verdict` says whether the
+feed passes:
+
+```clojure
+(def diagnostics
+  (validate/report (podcast/fetch! url) {:requirements :apple}))
+
+(diagnostics/verdict diagnostics)
+;; => {:passed? false
+;;     :level   :error
+;;     :counts  {:error 2 :warning 187 :info 373}
+;;     :errors  ({:id      :validate/unknown-category
+;;                :message "Apple Podcasts doesn't list the category"
+;;                :count   1 …} …)}
+```
+
+A feed that can't be read fails as a whole, e.g. on a 404, or when the
+document is an Atom feed. An error breaks a rule of a spec or of the
+requirements you chose, a warning is something that apps are likely to
+show worse than the podcaster means, and an info needs no change, as
+[Diagnostics](diagnostics.md) explains. The requirements raise some
+levels, e.g. a repeated enclosure URL is a warning, but an error for
+Apple, which keeps only the first of the items.
+
+For a table of the diagnostics, `diagnostics/summarize` groups them by
+kind, and `validate/location` writes the path of each as people read it:
+
+```clojure
+(validate/location [:rss/items 6 :rss/enclosure :url])
+;; => "item 7 › enclosure › url"
+```
+
+To validate a feed that you've built rather than fetched, e.g. before you
+publish it, give the map to `validate/validate`. The files that a feed
+links to are the next section's matter. Add the `:report` of
+`check/check-files!` to the diagnostics for a verdict on both.
+
+
 ## Check the files that a feed links to
 
 To check a feed before you publish it, or one that a podcaster submits,
@@ -1413,6 +1456,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
+            [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]

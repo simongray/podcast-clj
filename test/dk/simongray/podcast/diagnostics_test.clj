@@ -74,3 +74,14 @@
     (is (= [[:a 2] [:b 1]] (map (juxt :id :count) summary)))
     (is (= {:id :a :level :warning :message "m" :path [:rss/items 0]} (:example (first summary))))
     (is (= [] (diagnostics/summarize [])))))
+
+(deftest a-verdict
+  (is (= {:passed? true :level :warning :counts {:error 0 :warning 1 :info 1} :errors []}
+         (diagnostics/verdict [{:id :a :level :warning} {:id :b :level :info}])))
+  (let [{:keys [passed? level counts errors]} (diagnostics/verdict [{:id :x :level :error :message "m"}
+                                                                   {:id :x :level :error :message "m"}
+                                                                   {:id :y :level :info}])]
+    (is (= [false :error {:error 2 :warning 0 :info 1}] [passed? level counts]))
+    (is (= [[:x 2]] (map (juxt :id :count) errors)) "what fails, by kind"))
+  (is (= {:passed? true :level nil :counts {:error 0 :warning 0 :info 0} :errors []}
+         (diagnostics/verdict []))))

@@ -107,7 +107,7 @@
                   (typed-diagnostics type values v path' https?)
                   (when required
                     [(diagnostic :validate/missing-attribute :error path'
-                                 (str "required attribute " (name k)
+                                 (str "the required attribute " (name k)
                                       " is missing"))]))))
             (:attrs entry))))
 
@@ -731,6 +731,21 @@
        (empty? parts)                  "channel"
        (and many? (= 1 (count parts))) (str "every " (first parts))
        :else                           (str/join " › " parts)))))
+
+(defn report
+  "The diagnostics of the `answer` of fetch!, with the `opts` of validate:
+  the :error of the fetch or of the parse, the :report of the parse, and
+  those of validating its :feed. Give them to diagnostics/verdict for the
+  verdict on the feed.
+
+  The :error is an error here, whatever its level elsewhere, e.g. a 404,
+  since a feed that can't be read fails as a whole."
+  ([answer]
+   (report answer {}))
+  ([{:keys [error feed] :as answer} opts]
+   (concat (when error [(assoc error :level :error)])
+           (:report answer)
+           (when feed (validate feed opts)))))
 
 (defn valid?
   "Whether `feed` has no errors, with the `opts` of validate."

@@ -9,6 +9,20 @@ a `:path` into the data or the `:tag` of an element. Use `report` for the diagno
 parsed feed, transcript or chapters document, `validate` for those of a feed, and
 `summarize` to group diagnostics by kind.
 
+The level says how much a diagnostic matters:
+
+- `error`: a rule of a spec or of the chosen requirements is broken, so apps or a
+  directory can misread the feed, or refuse it
+- `warning`: the feed works, but apps are likely to show or treat something worse
+  than the podcaster means
+- `info`: something worth knowing that needs no change, e.g. a repair that the parse
+  made
+
+The requirements of a directory can raise a level, e.g. a repeated enclosure URL is an
+error for Apple. An error under Apple's requirements breaks a rule of its guide, though
+Apple Podcasts Connect doesn't say which rules it refuses a feed for. To tell whether a
+feed passes, give the diagnostics of `validate/report` to `diagnostics/verdict`.
+
 The namespace of an id says which part of podcast-clj found the problem:
 
 - `fetch`: the fetch of a feed or a list

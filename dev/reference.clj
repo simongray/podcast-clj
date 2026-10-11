@@ -219,6 +219,27 @@
                    "for those of a feed, and")
               "`summarize` to group diagnostics by kind."
               ""
+              "The level says how much a diagnostic matters:"
+              ""
+              (str "- `error`: a rule of a spec or of the chosen requirements "
+                   "is broken, so apps or a")
+              "  directory can misread the feed, or refuse it"
+              (str "- `warning`: the feed works, but apps are likely to show "
+                   "or treat something worse")
+              "  than the podcaster means"
+              (str "- `info`: something worth knowing that needs no change, "
+                   "e.g. a repair that the parse")
+              "  made"
+              ""
+              (str "The requirements of a directory can raise a level, e.g. a "
+                   "repeated enclosure URL is an")
+              (str "error for Apple. An error under Apple's requirements "
+                   "breaks a rule of its guide, though")
+              (str "Apple Podcasts Connect doesn't say which rules it refuses "
+                   "a feed for. To tell whether a")
+              (str "feed passes, give the diagnostics of `validate/report` to "
+                   "`diagnostics/verdict`.")
+              ""
               (str "The namespace of an id says which part of podcast-clj "
                    "found the problem:")
               ""
