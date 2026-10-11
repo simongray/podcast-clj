@@ -56,26 +56,29 @@
     (and (contains? coerce/coerced-types type)
          (not (coerce/of-type? type v)))
     [(diagnostic :validate/invalid-value :error path
-                 (str "value " (pr-str v) " is not a valid " (name type)))]
+                 (str "the value isn't a valid " (name type))
+                 :value v)]
 
     (and (#{:integer :decimal :duration} type)
          (neg? v))
     [(diagnostic :validate/invalid-value :error path
-                 (str "value " (pr-str v)
-                      " is below zero, as no quantity in a feed is"))]
+                 "the value is below zero, as no quantity in a feed is"
+                 :value v)]
 
     (and (= type :enum)
          values
          (not (enum-ok? values v)))
     [(diagnostic :validate/invalid-enum :warning path
-                 (str "value " (pr-str v) " is not one of "
-                      (str/join ", " (sort values))))]
+                 (str "the value isn't one of "
+                      (str/join ", " (sort values)))
+                 :value v)]
 
     (and (= type :url)
          (string? v)
          (not (absolute-url? v)))
     [(diagnostic :validate/invalid-url :warning path
-                 (str "not an absolute URL: " (pr-str v)))]
+                 "the URL isn't absolute"
+                 :value v)]
 
     (and (= type :url)
          https?
@@ -185,16 +188,16 @@
      (when-let [role (:role v)]
        (when-not (contains? spec/roles (str/lower-case role))
          [(diagnostic :validate/unknown-role :info (conj path :role)
-                      (str "role " (pr-str role)
-                           " is not in the Podcast Taxonomy"))])))
+                      "the role isn't in the Podcast Taxonomy"
+                      :value role)])))
 
    :podcast/guid
    (fn [v path]
      (when-not (guid/guid? v)
        [(diagnostic :validate/invalid-guid :warning path
-                    (str "podcast:guid " (pr-str v) " is not a UUID, so "
-                         "apps and the Podcast Index use the one derived "
-                         "from the URL"))]))
+                    (str "podcast:guid isn't a UUID, so apps and the Podcast"
+                         " Index use the one derived from the URL")
+                    :value v)]))
 
    ;; RSS 2.0, enclosure; RSS Best Practices Profile, 4.1.1.20.5: a length
    ;; of 0 says that the length isn't known
@@ -240,7 +243,8 @@
                               (namespace k)
                               (ours? k))))]
       (diagnostic :validate/unknown-key :warning (conj path k)
-                  (str "unknown key " (pr-str k))))))
+                  "the registry doesn't define the key"
+                  :key k))))
 
 (defn- shape
   "What kind of value `v` is, for a message."
@@ -312,17 +316,18 @@
      f)
    (for [element (:xml/unknown m)]
      (diagnostic :validate/unknown-element :info (conj path :xml/unknown)
-                 (str "unknown element " (pr-str (first element)))
+                 "the registry doesn't know the element"
                  :tag (first element)))))
 
 (defn- rss-diagnostics
   [feed]
   (let [items (map-indexed vector (:rss/items feed))]
     (concat
-     (when-not (= "2.0" (:rss/version feed))
+     ;; a feed built from data has no version, which emit writes
+     (when-not (contains? #{nil "2.0"} (:rss/version feed))
        [(diagnostic :validate/rss-version :warning [:rss/version]
-                    (str "rss version is " (pr-str (:rss/version feed))
-                         ", expected 2.0"))])
+                    "the version of rss isn't 2.0"
+                    :value (:rss/version feed))])
      (for [k [:rss/title :rss/link :rss/description]
            :when (nil? (get feed k))]
        (diagnostic :validate/missing-element :error [k]
@@ -515,15 +520,15 @@
   URL."
   (let [self-link  [:atom/links
                     #(some (comp #{"self"} :rel) %)
-                    "atom:link rel=self"]
+                    "<atom:link rel=\"self\">"]
         enclosure  [:rss/enclosure
                     (comp absolute-url? :url)
-                    "rss:enclosure with an absolute url"]
+                    "<enclosure> with an absolute url"]
         categories {:validate/unknown-category  :error
                     :validate/escaped-category  :error
                     :validate/wrong-subcategory :error
                     :validate/category-depth    :error}]
-    {:psp-1 {:name    "Podcast Standards Project PSP-1"
+    {:psp-1 {:name    "PSP-1 of the Podcast Standards Project"
              :channel {:required    [self-link :rss/title :rss/description
                                      :rss/link :rss/language :itunes/categories
                                      :itunes/explicit :itunes/image]
@@ -546,37 +551,88 @@
              :levels  (assoc categories
                              :validate/duplicate-enclosure :error)}}))
 
-(defn- missing-diagnostics
-  [level id m reqs path]
-  (let [wanted (if (= :error level) "required" "recommended")]
-    (for [req   reqs
-          :when (map? m)
-          :let  [[k pred label] (if (vector? req)
-                                  req
-                                  [req nil (xml/qname req)])
-                 v              (get m k)]
-          :when (not (and (some? v)
-                          (or (nil? pred) (pred v))))]
-      (diagnostic id level (conj path k) (str label " is " wanted)))))
+(defn- requirement
+  "The key, the predicate and the label of the requirement `req` of an
+  element under `parent` in `registry`. The label names the element as the
+  specs write it, e.g. <pubDate>."
+  [registry parent req]
+  (if (vector? req)
+    req
+    (let [tag (or (:tag (spec/entry-by-key registry parent req)) req)]
+      [req nil (str "<" (xml/qname tag) ">")])))
 
-(defn- requirements-diagnostics
-  [feed chosen]
-  (let [{:keys [channel item]} (if (map? chosen) chosen (requirements chosen))
-        missing (fn [m reqs path]
-                  (concat (missing-diagnostics :error :validate/required
-                                               m (:required reqs) path)
-                          (missing-diagnostics :warning :validate/recommended
-                                               m (:recommended reqs) path)))]
-    (concat (missing feed channel [])
-            (mapcat (fn [[i it]]
-                      (missing it item [:rss/items i]))
-                    (map-indexed vector (:rss/items feed))))))
+(defn- met?
+  "Whether the map `m` meets the requirement of the key `k` and the
+  predicate `pred`."
+  [m k pred]
+  (let [v (get m k)]
+    (and (some? v)
+         (or (nil? pred) (pred v)))))
 
 (defn- reported?
   "Whether `found`, a set of the paths that have an error, already has one
   at `path` or below it."
   [found path]
   (some #(= path (take (count path) %)) found))
+
+(defn- missing-diagnostic
+  "The diagnostic of the map `m` at `path`, an element under `parent` that
+  `place` names, when it doesn't meet the requirement `req` at the `level`
+  of the requirements that `who` names, by `registry`, or nil."
+  [registry who level parent place m req path]
+  (let [[k pred label] (requirement registry parent req)]
+    (when (and (map? m) (not (met? m k pred)))
+      (diagnostic (if (= :error level) :validate/required :validate/recommended)
+                  level
+                  (conj path k)
+                  (str place " has no " label ", which " who
+                       (if (= :error level) " requires" " recommends"))))))
+
+;; one diagnostic for a recommendation that every item lacks, rather than
+;; one for each item, which a feed of a thousand episodes would list a
+;; thousand times
+(defn- folded-diagnostic
+  "The one diagnostic of the recommendation `req` of the requirements that
+  `who` names, when no item of `feed` meets it and there's more than one,
+  by `registry`, or nil."
+  [registry who feed req]
+  (let [items          (:rss/items feed)
+        [k pred label] (requirement registry :item req)]
+    (when (and (< 1 (count items))
+               (not-any? #(and (map? %) (met? % k pred)) items))
+      (diagnostic :validate/recommended :warning [:rss/items]
+                  (str "no item has " label ", which " who " recommends")
+                  :count (count items)))))
+
+(defn- requirements-diagnostics
+  "The diagnostics of what `feed` lacks of the `chosen` requirements, by
+  `registry`, but those that the paths of the errors in `found` cover."
+  [registry feed chosen found]
+  (let [{:keys [channel item] :as reqs} (if (map? chosen)
+                                          chosen
+                                          (requirements chosen))
+        who    (or (:name reqs) "the requirements")
+        check  (partial missing-diagnostic registry who)
+        folded (keep (fn [req]
+                       (some->> (folded-diagnostic registry who feed req)
+                                (vector req)))
+                     (:recommended item))
+        each   (remove (set (map first folded)) (:recommended item))]
+    (concat
+     (->> (concat
+           (keep #(check :error :channel "the channel" feed % [])
+                 (:required channel))
+           (keep #(check :warning :channel "the channel" feed % [])
+                 (:recommended channel))
+           (for [[i it]       (map-indexed vector (:rss/items feed))
+                 [level reqs] [[:error (:required item)] [:warning each]]
+                 req          reqs
+                 :let         [d (check level :item "the item" it req
+                                        [:rss/items i])]
+                 :when        d]
+             d))
+          (remove #(reported? found (:path %))))
+     (map second folded))))
 
 (defn validate
   "The diagnostics of `feed` with the `opts` below: the checks of the
@@ -624,8 +680,57 @@
                         checked)]
      (into checked
            (when chosen
-             (remove #(reported? errors (:path %))
-                     (requirements-diagnostics feed chosen)))))))
+             (requirements-diagnostics registry feed chosen errors))))))
+
+(defn- step
+  "The `place` of a path, a map of the :parts read so far, the :parent and
+  :entry of the element there, and whether it's :many?, after the key or
+  index `k`, by `registry`."
+  [registry {:keys [parent entry] :as place} k]
+  (cond
+    (integer? k)
+    (-> place
+        (update :parts #(conj (pop %) (str (peek %) " " (inc k))))
+        (assoc :many? false))
+
+    (spec/entry-by-key registry parent k)
+    (let [entry' (spec/entry-by-key registry parent k)]
+      (-> place
+          (update :parts conj (xml/qname (:tag entry')))
+          (assoc :parent (spec/children-context entry')
+                 :entry  entry'
+                 :many?  (= :many (spec/count-for entry' parent)))))
+
+    :else
+    (-> place
+        (update :parts conj
+                (case k
+                  :content     "text"
+                  :xml/unknown "unknown element"
+                  :rss/version "rss › version"
+                  (or (some (fn [[a _]] (when (= k (names/attr-key a)) (name a)))
+                            (:attrs entry))
+                      (name k))))
+        (assoc :many? false))))
+
+(defn location
+  "The `path` into a feed of a diagnostic as people read it, by the
+  `registry` of spec, spec/default unless given: each element by its XML
+  name, one of several by its number from 1, and an attribute by its name.
+  The items of the channel as a whole are every item.
+
+      (location [:rss/items 6 :rss/enclosure :url])
+      ;; => \"item 7 › enclosure › url\""
+  ([path]
+   (location path spec/default))
+  ([path registry]
+   (let [{:keys [parts many?]} (reduce (partial step (spec/registry registry))
+                                       {:parts [] :parent :channel}
+                                       path)]
+     (cond
+       (empty? parts)                  "channel"
+       (and many? (= 1 (count parts))) (str "every " (first parts))
+       :else                           (str/join " › " parts)))))
 
 (defn valid?
   "Whether `feed` has no errors, with the `opts` of validate."

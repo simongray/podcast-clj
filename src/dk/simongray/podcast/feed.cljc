@@ -177,31 +177,43 @@
   parsed with `ctx` into a map keyed by the registry. Unknown elements
   collect under :xml/unknown."
   [ctx parent elements path]
-  (reduce (fn [m element]
-            (let [tag (xml/tag element)]
-              (if-let [entry (spec/entry-for (:registry ctx) tag parent)]
-                (let [k     (spec/key-for entry parent)
-                      many? (= :many (spec/count-for entry parent))
-                      path' (cond-> (conj path k)
-                              many? (conj (count (get m k))))
-                      v     (parse-element ctx entry element path')]
-                  (cond
-                    (= v ::empty)
-                    m
+  (let [extra (volatile! {})
+        m     (reduce
+               (fn [m element]
+                 (let [tag (xml/tag element)]
+                   (if-let [entry (spec/entry-for (:registry ctx) tag parent)]
+                     (let [k     (spec/key-for entry parent)
+                           many? (= :many (spec/count-for entry parent))
+                           path' (cond-> (conj path k)
+                                   many? (conj (count (get m k))))
+                           v     (parse-element ctx entry element path')]
+                       (cond
+                         (= v ::empty)
+                         m
 
-                    many?
-                    (update m k (fnil conj []) v)
+                         many?
+                         (update m k (fnil conj []) v)
 
-                    (contains? m k)
-                    (do (note! ctx {:id :feed/duplicate-element :level :warning
-                                    :path path' :tag tag})
-                        m)
+                         (contains? m k)
+                         (do (vswap! extra update k (fnil inc 0)) m)
 
-                    :else
-                    (assoc m k v)))
-                (update m :xml/unknown (fnil conj []) element))))
-          {}
-          elements))
+                         :else
+                         (assoc m k v)))
+                     (update m :xml/unknown (fnil conj []) element))))
+               {}
+               elements)]
+    ;; one note for each element that repeats, e.g. on an item of several
+    ;; enclosures, of which apps play the first
+    (doseq [[k n] @extra
+            :let  [tag (:tag (spec/entry-by-key (:registry ctx) parent k))]]
+      (note! ctx {:id      :feed/duplicate-element
+                  :level   :warning
+                  :path    (conj path k)
+                  :tag     tag
+                  :count   n
+                  :message (str "<" (xml/qname tag) "> occurs more than once,"
+                                " and only the first is kept")}))
+    m))
 
 (defn- note-leftovers!
   "Note in `ctx` what the rss element `tree` and its `channel` hold that

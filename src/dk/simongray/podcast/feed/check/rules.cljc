@@ -55,7 +55,7 @@
                  :types      #{"image/jpeg" "image/png"}
                  :colors     #{:rgb :indexed}
                  :extension? true}]
-    {:psp-1 {:name    "Podcast Standards Project PSP-1"
+    {:psp-1 {:name    "PSP-1 of the Podcast Standards Project"
              :artwork artwork}
      :apple {:name    "Apple Podcasts"
              :artwork (assoc artwork :alpha? false :last-modified? true)

@@ -180,6 +180,8 @@
          [:td [:code (str id)]]
          [:td n]
          [:td message
+          (when-let [path (:path example)]
+            [:span.muted (str " · " (validate/location path))])
           (when-let [extras (seq (dissoc example :id :level :message :path))]
             (let [pairs (for [[k v] extras]
                           (str (name k) "=" (pr-str v)))]

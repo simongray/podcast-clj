@@ -177,7 +177,12 @@
       (is (= {:url "https://a/1.mp3" :length 1 :type ""} (:rss/enclosure item)))
       (is (= {:href ""} (:itunes/image item))))
     (is (= #{:feed/duplicate-element :feed/empty-element :feed/empty-attribute}
-           (into #{} (map :id) (rss/report f))))))
+           (into #{} (map :id) (rss/report f))))
+    (is (= [[:title 1 "<title> occurs more than once, and only the first is kept"]]
+           (->> (rss/report f)
+                (filter (comp #{:feed/duplicate-element} :id))
+                (map (juxt :tag :count :message))))
+        "naming the element, with the number of the others")))
 
 (deftest identities
   (is (= "https://example.com/ep0003"

@@ -897,6 +897,11 @@
   [entry parent]
   (by-parent (:key entry) parent))
 
+(defn entry-by-key
+  "The entry of `registry` whose model key under `parent` is `k`, or nil."
+  [registry parent k]
+  (some #(when (= k (key-for % parent)) %) (entries-for registry parent)))
+
 (defn count-for
   "The cardinality of `entry` under `parent`: :one or :many."
   [entry parent]

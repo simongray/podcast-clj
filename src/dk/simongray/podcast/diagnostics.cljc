@@ -171,7 +171,8 @@
     ;; the model
     {:id :feed/duplicate-element :level :warning
      :doc "An element that the spec allows once occurred again, and only the
-           first one is kept."}
+           first one is kept. The :tag names the element, and the :count is
+           the number of the others."}
     {:id :feed/empty-element :level :info
      :doc "An element with a single value had no text, and was left out."}
     {:id :feed/empty-attribute :level :info
@@ -433,7 +434,8 @@
 
     ;; validation
     {:id :validate/rss-version :level :warning
-     :doc "The version of the rss element isn't 2.0."}
+     :doc "The version of the rss element isn't 2.0. The :value is the one it
+           has. A feed built from data has none, which emit writes."}
     {:id :validate/missing-element :level :error
      :doc "An element that RSS 2.0 requires is missing."}
     {:id :validate/missing-enclosure :level :warning
@@ -492,31 +494,36 @@
     {:id :validate/invalid-value :level :error
      :doc "A value isn't of its type, such as a string where a date belongs or
            :no where a boolean does, or it's a negative number, which no
-           quantity in a feed can be."}
+           quantity in a feed can be. The :value is the value."}
     {:id :validate/invalid-enum :level :warning
-     :doc "A value isn't one of those that the spec lists."}
+     :doc "A value isn't one of those that the spec lists. The :value is the
+           value."}
     {:id :validate/invalid-url :level :warning
-     :doc "A URL isn't absolute."}
+     :doc "A URL isn't absolute. The :value is the URL."}
     {:id :validate/http-url :level :info
      :doc "A URL uses http where the podcast namespace requires https."}
     {:id :validate/invalid-guid :level :warning
      :doc "A podcast:guid isn't a UUID, so the library, like the Podcast
-           Index, identifies the feed by the guid derived from its URL."}
+           Index, identifies the feed by the guid derived from its URL. The
+           :value is the guid."}
     {:id :validate/unknown-role :level :info
-     :doc "The role of a person isn't in the Podcast Taxonomy."}
+     :doc "The role of a person isn't in the Podcast Taxonomy. The :value is
+           the role."}
     {:id :validate/unknown-element :level :info
      :doc "The registry doesn't know the element, so it's kept under
            :xml/unknown."}
     {:id :validate/unknown-key :level :warning
-     :doc "The registry doesn't define the key, e.g. the typo :rss/titel, or a
-           key on the channel that isn't an element, since a parse keeps no
+     :doc "The registry doesn't define the :key, e.g. the typo :rss/titel, or
+           a key on the channel that isn't an element, since a parse keeps no
            attributes there."}
     {:id :validate/deprecated :level :info
      :doc "The spec of the element has deprecated it."}
     {:id :validate/required :level :error
      :doc "A required element of the chosen requirements is missing."}
     {:id :validate/recommended :level :warning
-     :doc "A recommended element of the chosen requirements is missing."}
+     :doc "A recommended element of the chosen requirements is missing. When
+           every item lacks it, it's one diagnostic of all the items, whose
+           :count is the number of items."}
 
     ;; gpodder: what a sync through the gpodder API found
     {:id :gpodder/unknown-episodes :level :info

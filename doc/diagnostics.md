@@ -71,7 +71,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:quirk/podcast-category` | info | A channel had the non-standard podcast:category elements that Wavlake writes, and no itunes:category, so they were read as itunes:category, whose shape they copy. |
 | `:quirk/duration-format` | info | An itunes:duration was written as a clock time rather than in seconds, and was read as seconds. |
 | `:quirk/date-format` | info | A date wasn't in strict RFC 2822 form, but could still be read. |
-| `:feed/duplicate-element` | warning | An element that the spec allows once occurred again, and only the first one is kept. |
+| `:feed/duplicate-element` | warning | An element that the spec allows once occurred again, and only the first one is kept. The :tag names the element, and the :count is the number of the others. |
 | `:feed/empty-element` | info | An element with a single value had no text, and was left out. |
 | `:feed/empty-attribute` | info | An optional attribute was blank, and is left out of the model. A required one that's blank is kept for the validator. |
 | `:feed/invalid-value` | warning | A value didn't read as its type, and stays a string. |
@@ -150,7 +150,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/feed-cors` | info | The server doesn't let pages on other sites read the feed, so a web app can't read it without a server of its own. |
 | `:check/validators` | info | The server sends the feed without ETag or Last-Modified, so a client can't ask whether it changed, and has to fetch it whole every time. |
 | `:check/unchecked` | warning | The check reached a limit of files or time, and skipped the files after it, which the diagnostic counts. |
-| `:validate/rss-version` | warning | The version of the rss element isn't 2.0. |
+| `:validate/rss-version` | warning | The version of the rss element isn't 2.0. The :value is the one it has. A feed built from data has none, which emit writes. |
 | `:validate/missing-element` | error | An element that RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there's nothing to play. |
 | `:validate/duplicate-guid` | error | An item has the guid of an earlier item, so apps, directories and sync servers take the two for one episode. The :first-path is that of the earlier item. |
@@ -166,17 +166,17 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/wrong-shape` | error | A value doesn't have the shape that its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does. |
 | `:validate/missing-child` | error | A container lacks a child that the spec requires. |
 | `:validate/invalid-structure` | error | The children of a container contradict the spec, such as a time split with both recipients and a remote item. |
-| `:validate/invalid-value` | error | A value isn't of its type, such as a string where a date belongs or :no where a boolean does, or it's a negative number, which no quantity in a feed can be. |
-| `:validate/invalid-enum` | warning | A value isn't one of those that the spec lists. |
-| `:validate/invalid-url` | warning | A URL isn't absolute. |
+| `:validate/invalid-value` | error | A value isn't of its type, such as a string where a date belongs or :no where a boolean does, or it's a negative number, which no quantity in a feed can be. The :value is the value. |
+| `:validate/invalid-enum` | warning | A value isn't one of those that the spec lists. The :value is the value. |
+| `:validate/invalid-url` | warning | A URL isn't absolute. The :value is the URL. |
 | `:validate/http-url` | info | A URL uses http where the podcast namespace requires https. |
-| `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID, so the library, like the Podcast Index, identifies the feed by the guid derived from its URL. |
-| `:validate/unknown-role` | info | The role of a person isn't in the Podcast Taxonomy. |
+| `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID, so the library, like the Podcast Index, identifies the feed by the guid derived from its URL. The :value is the guid. |
+| `:validate/unknown-role` | info | The role of a person isn't in the Podcast Taxonomy. The :value is the role. |
 | `:validate/unknown-element` | info | The registry doesn't know the element, so it's kept under :xml/unknown. |
-| `:validate/unknown-key` | warning | The registry doesn't define the key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there. |
+| `:validate/unknown-key` | warning | The registry doesn't define the :key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there. |
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
 | `:validate/required` | error | A required element of the chosen requirements is missing. |
-| `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. |
+| `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. When every item lacks it, it's one diagnostic of all the items, whose :count is the number of items. |
 | `:gpodder/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
 | `:gpodder/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |
 | `:gpodder/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |

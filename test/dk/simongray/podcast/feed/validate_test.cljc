@@ -63,7 +63,9 @@
       (let [v (validate/validate f {:requirements :psp-1})]
         (is (= 1 (:validate/required (ids v))))
         (is (= [:atom/links] (:path (first (filter (comp #{:validate/required} :id) v)))))
-        (is (= 3 (:validate/recommended (ids v))))))
+        (is (= [[[:rss/items] 3]]
+               (map (juxt :path :count) (filter (comp #{:validate/recommended} :id) v)))
+            "one for the duration that no item has")))
     (testing "and against Apple"
       (is (validate/valid? f {:requirements :apple}))
       (is (= [[:rss/items 0 :rss/guid]]
@@ -184,6 +186,37 @@
         "the list is for podcasts, not for a feed of music")
     (is (= [] (found [{:text "Knitting"}] {:categories {"Knitting" #{}}}))
         "by a table of an app's own")))
+
+(deftest messages-for-people
+  (let [base {:rss/title "T" :rss/link "https://t" :rss/description "d"}
+        item {:rss/title "E" :rss/guid "g" :rss/enclosure {:url "https://t/1.mp3" :length 1 :type "audio/mpeg"}}]
+    (is (= [["the value isn't a valid duration" "1h"] ["the value isn't a valid duration" "2h"]]
+           (->> (validate/validate (assoc base :rss/items [(assoc item :itunes/duration "1h")
+                                                           (assoc item :rss/guid "h" :itunes/duration "2h")]))
+                (filter (comp #{:validate/invalid-value} :id))
+                (map (juxt :message :value))))
+        "the same message for every value, which is a detail, so that summarize counts them as one")
+    (testing "the requirements"
+      (let [v (->> (validate/validate (assoc base :rss/items [(assoc item :rss/pub-date #inst "2026-10-01")
+                                                              (assoc item :rss/guid "h")])
+                                      {:requirements :apple})
+                   (filter (comp #{:validate/recommended} :id)))]
+        (is (= ["the item has no <pubDate>, which Apple Podcasts recommends" [:rss/items 1 :rss/pub-date]]
+               ((juxt :message :path) (first (filter (comp #{[:rss/items 1 :rss/pub-date]} :path) v))))
+            "name the element as the specs write it, at the path of the item")
+        (is (= [[:rss/items] 2]
+               ((juxt :path :count)
+                (first (filter (comp #{"no item has <itunes:duration>, which Apple Podcasts recommends"} :message)
+                               v))))
+            "and a recommendation that no item meets once")))
+    (is (= [] (filter (comp #{:validate/rss-version} :id) (validate/validate base)))
+        "no version of rss in a feed built from data, which emit writes")
+    (is (= ["0.91"] (map :value (filter (comp #{:validate/rss-version} :id)
+                                        (validate/validate (assoc base :rss/version "0.91"))))))
+    (is (= ["item 2 › enclosure › url" "every item" "itunes:category 1 › itunes:category 1 › text" "channel"]
+           (map validate/location [[:rss/items 1 :rss/enclosure :url] [:rss/items]
+                               [:itunes/categories 0 :categories 0 :text] []]))
+        "a path as people read it")))
 
 (deftest unknown-elements-are-reported
   (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
