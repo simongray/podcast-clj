@@ -46,7 +46,9 @@
 
 (deftest mounted-on-a-dom
   (async done
-    (install-dom! "http://localhost:8300/queue?add=https%3A%2F%2Fx%2Frss&guid=a&mode=next")
+    ;; port 1, where nothing listens, so that the player's sync never
+    ;; reaches the folder of an inspector running on this machine
+    (install-dom! "http://localhost:1/queue?add=https%3A%2F%2Fx%2Frss&guid=a&mode=next")
     (shell/init)
     (js/setTimeout
      (fn []
