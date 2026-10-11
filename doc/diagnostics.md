@@ -40,6 +40,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/unsupported-format` | warning | The document is an Atom or RSS 1.0 feed rather than RSS 2.0, so it can't be read. The :format names which. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
+| `:fetch/empty-feed` | warning | The feed came back without items, though it had some before, as some hosts answer during an outage. The feed stays as it was, and the next fetch waits as after a failure. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
 | `:fetch/guid-changed` | info | The feed gives itself another guid than before, from :old to :new, e.g. a new podcast:guid, or a new URL of a feed that declares none. Its subscription keeps its key, the :feed-guid, and notes the new guid. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |

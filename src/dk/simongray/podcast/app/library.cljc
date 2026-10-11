@@ -14,8 +14,13 @@
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
        :config        {…}}             ; the options below
 
-  The profile is a CRDT, so never change it with assoc or dissoc. The
-  config holds the options that the functions take, given once:
+  The profile is a CRDT, so never change it with assoc or dissoc. A feed
+  keeps the episodes that a fetch no longer brings back, as app.feeds
+  says, and the views and listings mark each with its :retained fact.
+  With :max-items, the oldest of them go once a feed has more items, but
+  never one that the profile holds anything for, e.g. progress, a played
+  mark, a star or a place in the queue. The config holds the options that
+  the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of client/send!
@@ -26,6 +31,8 @@
        :search?        true           ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
        :concurrency    8              ; how many feeds are fetched at once
+       :max-pages      5              ; of a paged feed, at its first fetch
+       :max-items      500            ; the most items of a feed, all by default
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
@@ -52,6 +59,7 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
             [dk.simongray.podcast.profile.queue :as profile.queue]
@@ -118,12 +126,27 @@
   [profile feed-guid]
   [(profile/subscribed? profile feed-guid) (remote-guids profile feed-guid)])
 
+(defn- with-fact
+  "The `item` of the feeds `entry` with the fact that the entry keeps of
+  it under :retained, when the feed no longer brings it back."
+  [entry item]
+  (if-let [fact (get-in entry [:retained (guid/item-guid item)])]
+    (assoc item :retained fact)
+    item))
+
+(defn- marked
+  "The feed of the feeds `entry`, with the fact of each item that it
+  retains under the item's :retained."
+  [{:keys [feed retained] :as entry}]
+  (cond-> feed
+    (seq retained) (update :rss/items (partial mapv #(with-fact entry %)))))
+
 (defn- shown
   "The feed `feed-guid` of `library` as the library lists its episodes, or
   nil without the feed: whole for a subscription, and else with the items
-  of the remote items alone."
+  of the remote items alone, each item with its :retained fact."
   [library feed-guid]
-  (when-let [feed (get-in library [:feeds feed-guid :feed])]
+  (when-let [feed (some-> (get-in library [:feeds feed-guid]) marked)]
     (if (profile/subscribed? (:profile library) feed-guid)
       feed
       (let [guids (remote-guids (:profile library) feed-guid)]
@@ -183,13 +206,65 @@
     (cond-> (update library :feeds dissoc feed-guid)
       (:index library) (update :index feed.search/without-feed feed-guid))))
 
+(defn- held
+  "The ids of the episodes that `profile` holds anything for: progress or
+  a played mark, a place in the queue, the inbox or a playlist, a star, a
+  bookmark, a clip, a rating, or a remote item."
+  [profile]
+  (-> (set (keys (profile/episode-entries profile)))
+      (into (profile.queue/queue profile))
+      (into (profile.queue/inbox profile))
+      (into cat (vals (profile.queue/playlists profile)))
+      (into (profile.marks/starred profile))
+      (into (map :id) (profile.marks/bookmarks profile))
+      (into (map :id) (profile.marks/clips profile))
+      (into (map :id) (profile.marks/rated profile))
+      (into (keys (profile/remote-items profile)))))
+
+(defn- capped
+  "The feeds `entry` of `feed-guid` with at most `max-items` items, as far
+  as dropping the items it retains allows, the oldest first, but none that
+  `profile` holds anything for."
+  [entry feed-guid profile max-items]
+  (let [{:keys [feed retained]} entry
+        excess (- (count (:rss/items feed)) max-items)]
+    (if (or (<= excess 0) (empty? retained))
+      entry
+      (let [ids      (held profile)
+            dropped? (fn [item]
+                       (let [g (guid/item-guid item)]
+                         (and (contains? retained g)
+                              (not (contains? ids [feed-guid g])))))
+            dropped  (->> (:rss/items feed)
+                          (filter dropped?)
+                          (sort-by #(some-> (resolve/published %) inst-ms))
+                          (take excess)
+                          (into #{} (map guid/item-guid)))
+            left     (apply dissoc retained dropped)]
+        (if (empty? dropped)
+          entry
+          (cond-> (-> entry
+                      (update-in [:feed :rss/items]
+                                 #(into [] (remove (comp dropped
+                                                         guid/item-guid))
+                                        %))
+                      (assoc :changed-at (:fetched-at entry)))
+            (seq left)    (assoc :retained left)
+            (empty? left) (dissoc :retained)))))))
+
 (defn- kept
-  "The `library` with the feed `feed-guid` cut down to what `keep-fn` gives
-  of it, once nothing else needs the whole feed."
-  [library feed-guid keep-fn]
-  (cond-> library
-    (and keep-fn (get-in library [:feeds feed-guid :feed]))
-    (update-in [:feeds feed-guid :feed] keep-fn)))
+  "The `library` with the feed `feed-guid` cut down to the :max-items of
+  `opts`, as far as capped allows, and to what their :keep-fn gives of it,
+  once nothing else needs the whole feed."
+  [library feed-guid {:keys [keep-fn max-items] :as opts}]
+  (let [feed? (some? (get-in library [:feeds feed-guid :feed]))]
+    (cond-> library
+      (and max-items feed?)
+      (update-in [:feeds feed-guid] capped feed-guid (:profile library)
+                 max-items)
+
+      (and keep-fn feed?)
+      (update-in [:feeds feed-guid :feed] keep-fn))))
 
 (defn- fetch-result
   "The result of a fetch that `x` stands for: `x` itself, or a map with `x`
@@ -257,7 +332,7 @@
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
                         (reindexed feed-guid)
-                        (kept feed-guid (:keep-fn (:config library))))]
+                        (kept feed-guid (:config library)))]
      (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -307,7 +382,7 @@
                  {:feed-url url} at)
          (cond-> new? (update :feeds feeds/add url result at cadence))
          (reindexed feed-guid)
-         (cond-> new? (kept feed-guid (:keep-fn (:config library))))))))
+         (cond-> new? (kept feed-guid (:config library)))))))
 
 (defn remove-episode
   "The `library` without the remote item `id`, with the :at of `opts`. The
@@ -466,7 +541,7 @@
 
 (defn- first-fetched
   "The accumulator `acc` of a refresh with the feed of the new subscription
-  `feed-guid`, fetched at `at` and cut down by `keep-fn`.
+  `feed-guid`, fetched at `at` and cut down as the `opts` say.
 
   A subscription that no device settled yet, one without a :guid, moves to
   the guid that its feed gives itself, with its settings and tags, and one
@@ -474,7 +549,7 @@
   subscription notes the guid of its feed, and gets the title of the feed
   when it has none. A feed that would take another subscription over is
   left out with a report, and fetched next time."
-  [acc feed-guid at keep-fn]
+  [acc feed-guid at opts]
   (let [library (:library acc)
         sub     (get (profile/subscriptions (:profile library)) feed-guid)
         entry   (get-in library [:feeds feed-guid])
@@ -495,28 +570,28 @@
           (cond-> (not (:title sub))
             (update-in [:library :profile] profile/relocate target details))
           (update :library reindexed target)
-          (update :library kept target keep-fn)
+          (update :library kept target opts)
           (assoc-in [:guids feed-guid] target)))))
 
 (defn- applied
   "The `library` with the `result` of a refresh of its feeds applied to the
-  profile at `at`, and the fresh feeds cut down by `keep-fn`, as a map of
-  the :library, what was :added and :moved, and the :report of the feeds
-  that would take another subscription over or give themselves another
-  guid.
+  profile at `at`, and the fresh feeds cut down as the `opts` say, as a map
+  of the :library, what was :added and :moved, and the :report of the
+  feeds that would take another subscription over or give themselves
+  another guid.
 
   A feed fetched for the first time is that of a new subscription, so its
   episodes aren't new ones, and neither are those of a feed of remote
   items. A feed that's still not fetched is left out, and fetched next
   time."
-  [library {:keys [feeds changed moved] :as result} at keep-fn]
+  [library {:keys [feeds changed moved] :as result} at opts]
   (let [before   (:feeds library)
         library  (assoc library :feeds (into {} (filter (comp :feed val))
                                              feeds))
         noted    (fn [acc feed-guid]
                    (-> acc
                        (update :library reindexed feed-guid)
-                       (update :library kept feed-guid keep-fn)))
+                       (update :library kept feed-guid opts)))
         fresh    (fn [acc feed-guid]
                    (let [{:keys [feed url]} (get feeds feed-guid)
                          old-feed (get-in before [feed-guid :feed])
@@ -536,7 +611,7 @@
                              (update :added into added)))
 
                        :else
-                       (first-fetched acc feed-guid at keep-fn))))
+                       (first-fetched acc feed-guid at opts))))
         relocate (fn [acc [feed-guid new-url]]
                    (let [now-guid (get-in acc [:guids feed-guid] feed-guid)
                          parsed   (get-in feeds [feed-guid :feed])
@@ -578,7 +653,7 @@
          opts       (clojure.core/merge defaults (options library opts))
          feeds-opts (-> opts
                         (select-keys [:feed-guids :fetch :credentials-of
-                                      :concurrency :cadence :send
+                                      :concurrency :cadence :max-pages :send
                                       :timeout-seconds :max-bytes
                                       :user-agent :allow-pred])
                         (assoc :at at))]
@@ -595,7 +670,7 @@
                            feeds-opts)
            (fn [step]
              (let [{:keys [library added moved] :as done}
-                   (applied library step at (:keep-fn opts))
+                   (applied library step at opts)
 
                    reports (-> []
                                (into report)
@@ -614,21 +689,22 @@
 
 (defn- item-of
   "The entry of the feed `feed-guid` in `library` and its item
-  `item-guid`, as a pair, or nil."
+  `item-guid`, with its :retained fact, as a pair, or nil."
   [library [feed-guid item-guid]]
   (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
     (when-let [item (some #(when (= item-guid (guid/item-guid %)) %)
                           (:rss/items feed))]
-      [entry item])))
+      [entry (with-fact entry item)])))
 
 (defn show
   "The view of the show `feed-guid` of `library`, with the `opts` of
-  app.show/view, or nil when the library has no such feed."
+  app.show/view, or nil when the library has no such feed. Its episodes
+  have their :retained facts."
   ([library feed-guid]
    (show library feed-guid {}))
   ([library feed-guid opts]
-   (when-let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
-     (show/view feed (assoc opts :url url)))))
+   (when-let [{:keys [url] :as entry} (get-in library [:feeds feed-guid])]
+     (show/view (marked entry) (assoc opts :url url)))))
 
 (defn fetch-linked-shows!
   "Fetch the shows that the show `feed-guid` of `library` links to, with
@@ -647,7 +723,9 @@
   "The view of the episode `id`, [feed-guid item-guid], of `library`, with
   the `opts` of app.episode/view over the config, e.g. its :languages, or
   nil when the library has no such episode. Unless the `opts` say, the
-  :video? of the view is whether the listener watches the show."
+  :video? of the view is whether the listener watches the show. The view
+  has the :retained fact of an episode that the feed no longer brings
+  back."
   ([library id]
    (episode library id {}))
   ([library id opts]
@@ -951,12 +1029,12 @@
 (defn- saved-map
   "The parts of `library` that `keys` names, as library.edn holds them:
   with the :version, and each feeds entry with the name of the document
-  of its feed in place of the feed."
+  of its feed in place of the feed and its retained items."
   [library keys]
   (let [outlined (fn [[feed-guid entry]]
                    [feed-guid
                     (if (:feed entry)
-                      (-> (dissoc entry :feed)
+                      (-> (dissoc entry :feed :retained)
                           (assoc :document (entry-document feed-guid entry)))
                       entry)])]
     (cond-> (assoc (select-keys library keys) :version version)
@@ -978,7 +1056,8 @@
                        [(entry-document feed-guid entry) entry]))]
     {:put    (for [[name entry] wanted
                    :when (not (contains? held name))]
-               {:name name :body (printed {:feed (:feed entry)})})
+               {:name name
+                :body (printed (select-keys entry [:feed :retained]))})
      :delete (->> held
                   (filter #(and (feed-document? %) (not (contains? wanted %))))
                   sort
@@ -1138,9 +1217,9 @@
       [(clojure.core/merge library (select-keys (migrated saved) keys)) []])))
 
 (defn- with-feeds
-  "The `library` and its `report`, a pair, with the feed of each feeds
-  entry that names a document read from `store`, in a future or a promise.
-  Each feed has its key, as guid/with-key gives it.
+  "The `library` and its `report`, a pair, with the feed and the retained
+  facts of each feeds entry that names a document read from `store`, in a
+  future or a promise. Each feed has its key, as guid/with-key gives it.
 
   An entry whose document is missing or doesn't read keeps only its URL,
   so that the next refresh fetches it again, with
@@ -1150,9 +1229,12 @@
                        :when (and document (not feed))]
                    [feed-guid document])
         loaded   (fn [{:keys [value error]}]
-                   (let [feed (:feed (when-not error (read-map value)))]
+                   (let [{:keys [feed retained]} (when-not error
+                                                   (read-map value))]
                      (cond
-                       (map? feed)  {:feed feed}
+                       (map? feed)  (cond-> {:feed feed}
+                                      (map? retained) (assoc :retained
+                                                             retained))
                        error        {:reason (async/explain error)}
                        (nil? value) {:reason "It isn't in the store"}
                        :else        {:reason "It isn't a feed in EDN"})))
@@ -1160,9 +1242,10 @@
                    (async/then (async/attempt #((:fetch store) document {}))
                                #(vector feed-guid document (loaded %))))
         applied  (fn [[library report] [feed-guid document read]]
-                   (if-let [feed (:feed read)]
+                   (if (:feed read)
                      [(update-in library [:feeds feed-guid]
-                                 #(-> % (assoc :feed feed) (dissoc :document)))
+                                 #(-> (clojure.core/merge % read)
+                                      (dissoc :document)))
                       report]
                      [(update-in library [:feeds feed-guid] select-keys [:url])
                       (conj report (diagnostics/describe

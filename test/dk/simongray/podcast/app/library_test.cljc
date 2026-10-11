@@ -757,6 +757,57 @@
                             (is (= [:library/malformed-profile] (map :id (:report (:restore lib)))))
                             (is (= (:profile (made)) (:profile lib)) "the profile it had")))))))
 
+(deftest the-episodes-that-a-fetch-no-longer-brings-back
+  (let [[ep3 ep2 ep1] (:rss/items show)
+        id        (fn [item] [guid (feed.guid/item-guid item)])
+        guids     (fn [lib] (mapv feed.guid/item-guid (get-in lib [:feeds guid :feed :rss/items])))
+        refreshed (fn [lib items t opts]
+                    (library/refresh! lib (merge {:at         t
+                                                  :feed-guids [guid]
+                                                  :fetch      (fn [u _] {:status 200 :url u :feed (assoc show :rss/items items)})}
+                                                 opts)))
+        missed    {:missed-at (at 86400)}
+        starred   (library/update-profile library profile.marks/star (id ep1))
+        s         (store/memory (atom {}))
+        pages     (atom nil)]
+    (run
+     #(async/then (refreshed library [ep3] (at 86400) {})
+                  (fn [lib]
+                    (testing "an episode that the feed no longer brings back can still be shown and played"
+                      (is (= missed (:retained (library/episode lib (id ep1)))))
+                      (is (= [nil missed missed] (map :retained (:episodes (library/show lib guid))))
+                          "and the show lists it with its fact")
+                      (is (= [nil missed missed] (map (comp :retained second) (library/episodes lib {:order :newest})))))
+                    (async/then (refreshed lib (:rss/items show) (at (* 2 86400)) {})
+                                (fn [lib']
+                                  (is (= [] (:added (:refresh lib'))) "nor is it new when it comes back")
+                                  (is (nil? (get-in lib' [:feeds guid :retained])))))))
+     #(async/then (refreshed starred [ep3] (at 86400) {:max-items 1})
+                  (fn [lib]
+                    (is (= (mapv feed.guid/item-guid [ep3 ep1]) (guids lib))
+                        "a cap drops the episodes that the feed no longer brings back, but none that the listener marked")
+                    (is (= {(feed.guid/item-guid ep1) missed} (get-in lib [:feeds guid :retained])))))
+     #(async/then (refreshed library [ep3] (at 86400) {:max-items 2})
+                  (fn [lib]
+                    (is (= (mapv feed.guid/item-guid [ep3 ep2]) (guids lib)) "the oldest first")))
+     #(async/then (refreshed library [ep3] (at 86400) {})
+                  (fn [lib]
+                    (async/then (library/save! lib s)
+                                (fn [_]
+                                  (async/then (library/restore! (library/make "phone") s)
+                                              (fn [lib']
+                                                (is (= (get-in lib [:feeds guid]) (get-in lib' [:feeds guid]))
+                                                    "saved with the feed, and read back")))))))
+     #(async/then (refreshed library [] (at 86400) {})
+                  (fn [lib]
+                    (is (= [:fetch/empty-feed] (map :id (:report (:refresh lib)))))
+                    (is (= show (get-in lib [:feeds guid :feed])) "an empty answer leaves the episodes")))
+     #(async/then (library/refresh! (library/update-profile (library/make "phone" {:config {:max-pages 3}})
+                                                            profile/subscribe "g" {:url url})
+                                    {:at now :fetch (fn [u opts] (reset! pages (:max-pages opts)) {:status 200 :url u :feed show})})
+                  (fn [_]
+                    (is (= 3 @pages) "the pages of a paged feed at the first fetch of a subscription"))))))
+
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
         written             (document/decode body sync/defaults)]

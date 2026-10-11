@@ -156,6 +156,58 @@
   (testing "a guid that is not there"
     (is (thrown? #?(:clj Throwable :cljs js/Error) (feeds/refresh feeds "nope" fresh now)))))
 
+(defn- item-guids
+  [feed]
+  (mapv feed.guid/item-guid (:rss/items feed)))
+
+(deftest the-items-that-a-fetch-no-longer-brings-back
+  (let [[ep3 ep2 ep1] (:rss/items show)
+        undated  (-> ep1 (assoc :rss/guid {:content "undated"}) (dissoc :rss/pub-date))
+        nameless (dissoc ep1 :rss/guid :rss/enclosure)
+        stored   (feeds/add {} url (assoc fresh :feed (update show :rss/items into [undated nameless])) now)
+        refresh  (fn [fs items t] (feeds/refresh fs guid (assoc fresh :feed (assoc show :rss/items items)) t))
+        r1       (refresh stored [ep3 ep2] (at 3600))
+        e1       (get-in r1 [:feeds guid])
+        r2       (refresh (:feeds r1) [ep3 ep1] (at 7200))
+        e2       (get-in r2 [:feeds guid])
+        e3       (get-in (refresh (:feeds r2) [ep3 ep1] (at 9000)) [:feeds guid])]
+    (testing "the fresh items first, and then the stored ones that they lack"
+      (is (= (conj (item-guids show) "undated") (item-guids (:feed e1))))
+      (is (= [(:rss/guid ep3) (:rss/guid ep1) (:rss/guid ep2) {:content "undated"}] (map :rss/guid (:rss/items (:feed e2))))))
+    (testing "a fact of each: aged out of a capped feed, or gone, when it's later than the oldest fresh item or has no date"
+      (is (= {(feed.guid/item-guid ep3) {:missed-at (at 3600) :gone? true}
+              "undated"                 {:missed-at (at 3600) :gone? true}}
+             (:retained (get-in (refresh stored [ep2 ep1] (at 3600)) [:feeds guid])))
+          "the newest episode taken out")
+      (is (= {(feed.guid/item-guid ep1) {:missed-at (at 3600)}
+              "undated"                 {:missed-at (at 3600) :gone? true}}
+             (:retained e1)))
+      (is (= {(feed.guid/item-guid ep2) {:missed-at (at 7200) :gone? true}
+              "undated"                 {:missed-at (at 3600) :gone? true}}
+             (:retained e2))
+          "an item that comes back has none, and a fact keeps when it was first missed"))
+    (testing "the feed changed when the items it keeps did, not at each fetch"
+      (is (= [(at 3600) (at 7200) (at 7200)] (map :changed-at [e1 e2 e3]))))
+    (testing "the slim form keeps them too"
+      (is (= (item-guids (:feed e2)) (item-guids (feeds/slim (:feed e2))))))
+    (testing "a feed without items, where it had some"
+      (let [r (refresh stored [] (at 3600))]
+        (is (nil? (:changed r)))
+        (is (= [[:fetch/empty-feed guid]] (map (juxt :id :feed-guid) (:report r))))
+        (is (= [(get-in stored [guid :feed]) 1 (at (+ 3600 900))] ((juxt :feed :failures :next-check) (get-in r [:feeds guid])))
+            "keeps the feed, and waits as after a failure")))
+    (let [none (feeds/add {} url (assoc fresh :feed (assoc show :rss/items [])) now)]
+      (is (= [guid] (:changed (refresh none [] (at 3600)))) "but a show that has none yet can stay so"))))
+
+(deftest the-pages-of-a-first-fetch
+  (let [asked (atom {})
+        fetch (fn [u opts] (swap! asked assoc u (:max-pages opts)) {:status 304 :url u})
+        fs    (assoc feeds "new" {:url "https://example.org/new.xml"})]
+    (run #(async/then (feeds/refresh! fs {:at (at 86400) :fetch fetch :max-pages 5})
+                      (fn [_]
+                        (is (= {url nil "https://example.org/new.xml" 5} @asked)
+                            "the pages of a paged feed at its first fetch alone"))))))
+
 (deftest podping
   (let [other (feeds/add feeds "https://example.org/other.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)]
     (is (= ["b1"] (feeds/affected other [{:iris ["https://example.org/other.xml"]}])))

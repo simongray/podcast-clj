@@ -195,7 +195,10 @@ In a browser, give `search!` the `:send` of the proxy.
 ```
 
 With `:max-pages`, `fetch!` also reads the older pages of a paged feed,
-which is only needed on the first fetch. The last argument holds the
+which is only needed on the first fetch, since the library keeps the
+episodes that later fetches no longer bring back. The setting
+`:max-pages` does the same for a subscription that `refresh!` fetches for
+the first time, e.g. one from another device. The last argument holds the
 settings of the subscription, as `profile/configure` takes them, e.g.
 `:auto-queue?` puts the show's new episodes in the listener's queue.
 
@@ -280,7 +283,20 @@ new episodes go to the queue of a show with `:auto-queue?`, or to the
 inbox with `:inbox?`. An episode that the listener already played or
 removed on another device doesn't come back. A feed that moved for good
 moves its subscription too, and a feed that failed stays as it was and
-waits longer before the next try.
+waits longer before the next try. So does a feed that comes back without
+episodes, as some hosts serve one during an outage, with
+`:fetch/empty-feed` in the report.
+
+Many hosts serve only the newest hundred or so episodes, so the library
+keeps the ones that a fetch no longer brings back, and `library/episode`,
+`library/show` and `library/episodes` mark each with `:retained`: when a
+fetch first missed it, and `:gone? true` when the host took it out rather
+than leaving it to age out. Show them with the mark, as AntennaPod does,
+or hide the gone ones, as Apple Podcasts does. The setting `:max-items`
+caps the episodes of a show, dropping the oldest of those that the feed
+no longer brings back, but never one that the listener has progress, a
+mark or a place in the queue for. These episodes stay on the device, so
+another device only has what the host serves.
 
 When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `schedule/next-check` reads them,

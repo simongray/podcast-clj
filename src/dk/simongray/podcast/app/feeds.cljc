@@ -8,6 +8,8 @@
 
       {\"917393e3-…\" {:url          \"https://feeds.podcastindex.org/pc20.xml\"
                      :feed         {…}
+                     :retained     {item-guid {:missed-at #inst \"…\"
+                                               :gone?     true}}
                      :etag         \"…\"
                      :last-modified \"…\"
                      :guid         \"917393e3-…\"  ; what the feed says now
@@ -16,6 +18,12 @@
                      :next-check   #inst \"…\"
                      :failures     0
                      :status       200}}
+
+  The feed keeps the items that a fetch no longer brings back, after the
+  fresh ones, since many hosts serve only the newest items. Each has a fact
+  under :retained: when a fetch first missed it, and :gone? when the host
+  took it out rather than leaving it to age out of a capped feed, as it's
+  later than the oldest fresh item, or has no date.
 
   An entry with only its :url is a feed to fetch for the first time, e.g.
   of a new subscription, and it's due at once."
@@ -60,34 +68,76 @@
                                 ceiling)
                  not-before)))
 
+(defn- oldest
+  "The earliest date of the items of `feed` in milliseconds, or nil when
+  none has a date."
+  [feed]
+  (let [ms (keep #(some-> (resolve/published %) inst-ms) (:rss/items feed))]
+    (when (seq ms)
+      (apply min ms))))
+
+(defn- gone?
+  "Whether the host took `item` out of its feed rather than leaving it to
+  age out: whether it's later than `oldest`, the earliest date of the fresh
+  items, or has no date."
+  [oldest item]
+  (if-let [d (resolve/published item)]
+    (boolean (and oldest (< oldest (inst-ms d))))
+    true))
+
+;; RSS 2.0 sets no limit on the items of a channel, and RFC 5005, sections 3
+;; and 4, serves the older ones on other pages or nowhere
+(defn- with-retained
+  "The fresh `feed` with the items of the `old` entry that it lacks after
+  its own, and the facts of those items at `at`, as a pair.
+
+  An item without a guid or an enclosure URL can't be told from another,
+  so it isn't kept."
+  [old feed at]
+  (let [present (into #{} (map guid/item-guid) (:rss/items feed))
+        missing (filterv #(let [g (guid/item-guid %)]
+                            (and g (not (contains? present g))))
+                         (get-in old [:feed :rss/items]))
+        since   (oldest feed)
+        fact    (fn [item]
+                  (let [g (guid/item-guid item)]
+                    [g (cond-> (get-in old [:retained g] {:missed-at at})
+                         (gone? since item) (assoc :gone? true))]))]
+    [(cond-> feed
+       (seq missing) (update :rss/items #(into (vec %) missing)))
+     (into {} (map fact) missing)]))
+
 (defn- fetched
   "The entry `old` of the feed `feed-guid` after a fetch from `url` gave
   the fresh feed of `result` at `at`, with the next check by `cadence`.
 
-  The entry has the feed, with `feed-guid` as its key, its ETag and
-  Last-Modified, the new URL of a feed that moved, and the :guid that the
-  feed gives itself there. Its :changed-at is `at` unless the feed is the
-  one it had, since a server without validators answers 200 for a feed
-  that didn't change."
+  The entry has the feed, with `feed-guid` as its key and the items it
+  retains, its ETag and Last-Modified, the new URL of a feed that moved,
+  and the :guid that the feed gives itself there. Its :changed-at is `at`
+  unless the feed is the one it had, since a server without validators
+  answers 200 for a feed that didn't change."
   [old feed-guid url result at cadence]
   (let [{:keys [status etag last-modified not-before websub
                 permanent-url new-feed-url]} result
-        feed  (guid/with-key (:feed result) feed-guid)
-        url   (or permanent-url new-feed-url url)
-        same? (= feed (:feed old))]
-    (-> (dissoc old :etag :last-modified :websub :status)
+        fresh           (guid/with-key (:feed result) feed-guid)
+        [feed retained] (with-retained old fresh at)
+        url             (or permanent-url new-feed-url url)
+        same?           (and (= feed (:feed old))
+                             (= retained (:retained old {})))]
+    (-> (dissoc old :etag :last-modified :websub :status :retained)
         (assoc :url url
-               :guid (guid/feed-guid feed url)
+               :guid (guid/feed-guid fresh url)
                :feed feed
                :changed-at (if same? (:changed-at old at) at)
                :fetched-at at
-               :next-check (check-at feed at not-before cadence)
+               :next-check (check-at fresh at not-before cadence)
                :failures 0)
         (cond->
-          status        (assoc :status status)
-          etag          (assoc :etag etag)
-          last-modified (assoc :last-modified last-modified)
-          websub        (assoc :websub websub)))))
+          (seq retained) (assoc :retained retained)
+          status         (assoc :status status)
+          etag           (assoc :etag etag)
+          last-modified  (assoc :last-modified last-modified)
+          websub         (assoc :websub websub)))))
 
 (defn- unchanged
   "The entry `old` after the server answered 304 at `at` with `result`,
@@ -121,8 +171,8 @@
   under its guid, and its next check by `cadence`.
 
   The `result` is that of dk.simongray.podcast/fetch!, and must have a
-  :feed. It replaces any entry under the same guid, and the `cadence` goes
-  over the defaults."
+  :feed. An entry under the same guid takes the feed as refresh would,
+  and the `cadence` goes over the defaults."
   ([feeds url result at]
    (add feeds url result at {}))
   ([feeds url result at cadence]
@@ -191,10 +241,13 @@
        :moved   {feed-guid \"https://…\"}  ; when the feed moved for good
        :report  [diagnostic]}            ; when the fetch failed
 
-  A fresh feed replaces the old one, and a 304 keeps it. After a failure,
-  the feed stays and the next check waits longer for each failure in a
-  row. A feed that moved keeps its guid, and its subscription should move
-  to the URL under :moved. The `cadence` goes over the defaults."
+  A fresh feed replaces the old one, but for the items that it lacks,
+  which stay after its own, and a 304 keeps it. After a failure, the feed
+  stays and the next check waits longer for each failure in a row. A fresh
+  feed without items, where the old one had some, counts as a failure, with
+  :fetch/empty-feed, since hosts serve such a feed during an outage. A feed
+  that moved keeps its guid, and its subscription should move to the URL
+  under :moved. The `cadence` goes over the defaults."
   ([feeds feed-guid result at]
    (refresh feeds feed-guid result at {}))
   ([feeds feed-guid result at cadence]
@@ -215,6 +268,11 @@
 
        (= 304 (:status result))
        {:feeds (assoc feeds feed-guid (unchanged old result at cadence))}
+
+       (and (:feed result)
+            (empty? (:rss/items (:feed result)))
+            (seq (get-in old [:feed :rss/items])))
+       (failure (diagnostics/describe {:id :fetch/empty-feed :url url}))
 
        (:feed result)
        (let [entry (fetched old feed-guid url result at cadence)]
@@ -257,11 +315,14 @@
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
   - :concurrency, how many feeds to fetch at once, and :cadence
+  - :max-pages, the most pages of a paged feed to read at its first fetch,
+    one by default, since the later fetches keep what it read
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
     fetch! takes them"
   ([feeds]
    (refresh! feeds {}))
-  ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence]
+  ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence
+                  max-pages]
            :or   {fetch       podcast/fetch!
                   concurrency default-concurrency
                   cadence     {}}
@@ -272,14 +333,18 @@
          common (select-keys opts [:send :timeout-seconds :max-bytes
                                    :user-agent :allow-pred])
          fetch1 (fn [feed-guid]
-                  (let [{:keys [url etag last-modified]} (get feeds feed-guid)
+                  (let [{:keys [url etag last-modified feed]}
+                        (get feeds feed-guid)
+
                         credentials (when credentials-of (credentials-of url))
                         fetch-opts  (cond-> common
                                       etag          (assoc :etag etag)
                                       last-modified (assoc :last-modified
                                                            last-modified)
                                       credentials   (assoc :credentials
-                                                           credentials))]
+                                                           credentials)
+                                      (and max-pages (not feed))
+                                      (assoc :max-pages max-pages))]
                     (async/then (async/attempt #(fetch url fetch-opts))
                                 (fn [{:keys [value error]}]
                                   [feed-guid (if error

@@ -57,6 +57,10 @@
      :doc "The server answered with a status that isn't a success, such as 404.
            The feed stays as it was, and the next fetch waits longer after each
            failure in a row."}
+    {:id :fetch/empty-feed :level :warning
+     :doc "The feed came back without items, though it had some before, as
+           some hosts answer during an outage. The feed stays as it was, and
+           the next fetch waits as after a failure."}
     {:id :fetch/guid-taken :level :warning
      :doc "The feed declares the podcast:guid of another subscription, at
            another URL, and would take that subscription over, so it isn't

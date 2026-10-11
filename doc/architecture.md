@@ -131,6 +131,17 @@ on every device. A subscription notes the guid its feed gives itself,
 and the first device to fetch it settles the key for the others. The key
 travels in the feed's metadata, so `episode-id` gives ids by it.
 
+A feed is a window on a show rather than its catalogue: RSS 2.0 sets no
+limit on the items of a channel, and RFC 5005 serves the older ones on
+other pages, or a host serves them nowhere. So a library keeps the items
+that a fetch no longer brings back, after the fresh ones, with a fact of
+each beside the feed rather than in it. An item counts as taken out by
+the host when it's later than the oldest fresh item, since a capped feed
+loses its oldest items first. The kept items
+stay on the device and out of the profile, as the downloads do, since
+they're a copy of what the host once served, not something the listener
+did.
+
 
 ## Resolving the vocabularies
 
