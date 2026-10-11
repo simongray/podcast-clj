@@ -238,6 +238,9 @@ skew are harmless.
 | No quota on the sync folder | the friend, a leaked password | A cap on the count and the bytes of the documents of a store, in the WebDAV handler or the folder store | a day |
 | No cap on the proxy's requests in flight | the friend, a leaked password | A semaphore of a few requests in the proxy handler, with 503 and Retry-After beyond it | an hour |
 | No cap on what a gpodder push subscribes | a gpodder client with the password | A limit on new subscriptions per push, and a report | an hour |
+| An uncaught exception logs the request with its Authorization header; a WebDAV put with a 300-character name is one | anyone with the password, and whoever reads the logs | Catch the I/O exception in the WebDAV handler, and hide the Authorization header after the login so no log holds it | half a day |
+| Without a password, the only guard refuses Tailscale Funnel; behind Caddy or any other proxy the server is open | anyone | Refuse to start without a password unless bound to localhost, and require it in the compose file | an hour |
+| A gpodder push accepts any string as a subscription, and the device fetches it every minute | a gpodder client with the password | Refuse what isn't a public web URL | an hour |
 | Nothing slows down password guesses | anyone | Known; a delay that grows per address, careful of a shared NAT | an hour |
 | The inspector allows every address and has no login | anyone, if it's exposed | Say in its docs that it's for localhost, and give it `url/public?` when it binds elsewhere | an hour |
 | Private feed URLs with tokens reach the server's log through the refresh report | the operator's logs | Log the diagnostic without its URL, or with the token masked | an hour |

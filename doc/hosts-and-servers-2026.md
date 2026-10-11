@@ -249,12 +249,101 @@ with Apple that the needs report lists, 5 to 20 lines each.
 
 ## The public server
 
-The third walk, by a self-hoster following the server's README without
-Tailscale, is written up here when it completes.
+The self-hoster read the README, the service and the compose file as a
+person deploying for themself and a friend behind Caddy, started the
+server with a password, and probed it with curl as an attacker and as a
+user: every route with and without the password, the headers, the Host
+and Funnel checks, 200 wrong passwords in a row, the proxy with private
+and spoofed addresses, redirects, a 50 MB file and byte ranges, WebDAV
+with every method and odd names and bodies, the gpodder API as
+AntennaPod uses it as two people with one password, and a restart.
+Much of it held: the proxy refused every private address in every
+spelling, the password compare took constant time, the Host check
+stopped DNS rebinding, every body was bounded, paths out of the client
+folder were refused, no credential reached a site upstream, and no
+Server header leaked.
+
+### Defects
+
+- **An uncaught exception logs the password.** A WebDAV put with a
+  300-character name hits a file-system exception that the handler
+  doesn't catch, the server answers 500, and Pedestal's servlet
+  interceptor logs the whole request context, the Authorization header
+  with the Basic credentials included. Reproduced twice: once in the
+  walk, once again afterwards. In Docker the line lands in the daemon's
+  logs. Catch the I/O exception in the WebDAV handler and answer 400,
+  and put an interceptor after the login that hides the Authorization
+  header before anything logs the request. Half a day.
+- **The gpodder API has no cross-site defence.** A POST with a text/plain
+  body and the browser's cached credentials changes the subscriptions
+  and adds plays, since the handler reads JSON out of any body and
+  checks neither Origin nor Sec-Fetch-Site, which the proxy does check;
+  the WebDAV handler is saved by the CORS preflight. The session cookie
+  has no SameSite and no Secure. The threat model lists both. An hour.
+- **The documented public path with an empty password is an open
+  server.** Without a password the only guard refuses requests that
+  carry the Tailscale Funnel header, which Caddy never sends, and the
+  compose file makes the password optional while it requires the names.
+  So `docker compose up` behind Caddy without a password serves the
+  internet with no login. Refuse to start without a password unless the
+  host is localhost, and make the password required in the compose
+  file. An hour.
+- **A server name with a port never matches.** The Host check strips the
+  port from the request but not from the configured names, so
+  `PODCAST_SERVER_NAMES=pi.example.ts.net:8443`, which the README's own
+  example invites, answers 403 to every request with a message about the
+  name. Strip the port from the names too. An hour.
+- **Junk subscriptions are kept and fetched every minute.** The gpodder
+  handler takes any string as a subscription, including `ftp://x/`, `not
+  a url` and a private address, the server's device then tries each one
+  every 60 seconds and logs a warning each time, and the reads filter
+  them out, so they're stored but invisible. Refuse what isn't a public
+  web URL at the handler, and back off a feed that keeps failing, which
+  the needs report's ceiling and dead-network items cover. An hour.
+- **Plays that were synced disappear after a restart.** Before a restart
+  the API gave four episode actions, after it one: an action needs the
+  media URL, which the handler reconstructs from a book kept in memory,
+  and three of the four entries were keyed by the subscription's
+  URL-derived guid while the fetched feed is keyed by its declared one,
+  so after the restart the names can't be re-derived. The README
+  promises duplicates after a restart, not losses. Persisting the book is
+  a known gap; the guid duality is the identity design's first batch.
+
+### Docs
+
+- **Changing the password doesn't end sessions, and isn't described.** A
+  wrong password with a still-valid session cookie is answered 200 for
+  up to a day, since sessions are checked first. Tie a session to the
+  password, or drop them at start, and write the steps. An hour.
+- **The public section never says that a friend is the same listener.** A
+  second person with another user name and the same password sees the
+  first's devices, subscriptions and plays, and writes into them; the
+  README says "any user name and password" and reads as if names
+  separate people. One paragraph, pointing at the many-listeners gap.
+- **The whole client folder is served, dotfiles included.** A `.env` in
+  the folder is served to anyone with the password. One line to point
+  the setting at a release build, and skip dotfiles in the file routes.
+- **Small proxy edges.** A redirect to a private address comes back as a
+  bare 30x with no Location and no Proxy-Status; a binary body fetched
+  without `as=bytes` gets a charset on its type; HSTS with
+  includeSubdomains goes out on every answer, plain HTTP included, which
+  the README doesn't mention.
+
+### What the self-hoster still writes
+
+The browser client itself, which is weeks; a Caddyfile and a compose
+`.env`, which the README gives; a backup of the volume, which a
+two-person server wants although the README says none is needed; and
+log rotation with a way to quiet the per-minute warnings.
 
 
 ## What to build first
 
+0. The server's four small defects: the credentials kept out of the log
+   on an error, the cross-site check and the cookie attributes, a
+   refusal to start on the public path without a password, and the port
+   stripped from the names. A day, and the "Without Tailscale" section
+   is safe to follow.
 1. The validator's defects: the duration pattern, the blank enclosure
    URL, the self-pointing move, the doubled description error, and the
    rule for a guid that isn't a UUID. A day in all, and every validator
@@ -284,3 +373,8 @@ Tailscale, is written up here when it completes.
 - A private feed's `?token=` stays in `:url`, in the WebSub topic and in
   every diagnostic's `:url`. Should the library redact it before a
   validator logs it, as the checker does for credentials in the URL?
+- Is the one-listener model meant to cover "for yourself and a friend",
+  which the README's "any user name" invites, or should the public
+  section steer a household to wait for the many-listeners feature?
+- Should the server refuse to run without a password when it isn't bound
+  to localhost, or is the open server behind Caddy operator error?
