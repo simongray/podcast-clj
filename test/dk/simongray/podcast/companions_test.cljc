@@ -1,10 +1,13 @@
 (ns dk.simongray.podcast.companions-test
   "Chapters, transcripts, OPML, value blocks and query-string encoding."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -168,6 +171,15 @@
   (testing "a cue full of stray angle brackets is read in linear time"
     (let [text (str (apply str (repeat 50000 "a <v b ")) "c")]
       (is (= [text] (map :body (:segments (transcript/parse-vtt (str "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n" text)))))))))
+
+(deftest one-list-of-transcript-types
+  (is (= spec/transcript-types
+         (set resolve/transcript-preference)
+         (set (keys transcript/formats)))
+      "the types that the feed names, that an app picks among, and that read")
+  (is (set/subset? resolve/timed-transcript-types spec/transcript-types))
+  (is (set/subset? (set (vals quirks/transcript-type-values)) spec/transcript-types)
+      "and what the quirk respells a type to"))
 
 (deftest transcript-formats
   (let [vtt  (transcript/parse vtt-text)

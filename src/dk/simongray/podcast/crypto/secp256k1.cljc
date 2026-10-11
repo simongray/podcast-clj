@@ -22,6 +22,14 @@
   #?(:clj  (BigInteger. ^String s 16)
      :cljs (js/BigInt (str "0x" s))))
 
+(def ^:no-doc zero
+  "The number 0, as the platform keeps a number of any size."
+  (big "0"))
+
+(def ^:no-doc one
+  "The number 1, as the platform keeps a number of any size."
+  (big "1"))
+
 ;; BIP-340, part Specification: the constants p, n and G
 (def ^:no-doc p
   "The size of the field of secp256k1."
@@ -35,20 +43,12 @@
   "The generator of secp256k1, as a point."
   [(big "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
    (big "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8")
-   (big "1")])
-
-(def ^:no-doc zero
-  "The number 0, as the platform keeps a number of any size."
-  (big "0"))
-
-(def ^:no-doc one
-  "The number 1, as the platform keeps a number of any size."
-  (big "1"))
+   one])
 
 (def ^:no-doc root-power
   "The power that gives a square root in the field: (p + 1) / 4."
   #?(:clj  (.shiftRight (.add ^BigInteger p BigInteger/ONE) 2)
-     :cljs (/ (+ p (big "1")) (big "4"))))
+     :cljs (/ (+ p one) (big "4"))))
 
 (def ^:no-doc inverse-power
   "The power that gives an inverse in the field: p - 2."
@@ -290,7 +290,16 @@
     (let [c (add (mul x (mul x x)) (big "7"))
           y (power c root-power)]
       (when (= c (mul y y))
-        [x (if (even-number? y) y (sub zero y)) (big "1")]))))
+        [x (if (even-number? y) y (sub zero y)) one]))))
+
+(defn- key-point
+  "The point of the curve that the public key `public-key` names by its x
+  coordinate, in hexadecimal text of 32 bytes, or nil for a text that
+  isn't a public key."
+  [public-key]
+  (when (and (string? public-key)
+             (re-matches #"[0-9a-fA-F]{64}" public-key))
+    (lifted (big (str/lower-case public-key)))))
 
 (defn- challenge
   "The number e of BIP-340 for the hexadecimal texts `r`, `public-key` and
@@ -367,18 +376,16 @@
   y coordinate."
   [public-key message signature]
   (boolean
-   (when (and (string? public-key)
-              (re-matches #"[0-9a-fA-F]{64}" public-key)
-              (string? signature)
-              (re-matches #"[0-9a-fA-F]{128}" signature)
-              (some? (bytes/from-hex message)))
+   (when-let [point (and (string? signature)
+                         (re-matches #"[0-9a-fA-F]{128}" signature)
+                         (some? (bytes/from-hex message))
+                         (key-point public-key))]
      (let [[public-key message signature]
            (map str/lower-case [public-key message signature])
 
-           point (lifted (big public-key))
-           r     (big (subs signature 0 64))
-           s     (big (subs signature 64))]
-       (when (and point (< r p) (< s n))
+           r (big (subs signature 0 64))
+           s (big (subs signature 64))]
+       (when (and (< r p) (< s n))
          (let [e     (challenge (subs signature 0 64) public-key message)
                terms [(by-generator s) (by-point (negated e) point)]
                [x y] (affine (summed terms))]
@@ -400,9 +407,7 @@
   "Whether `x` is a public key of BIP-340: hexadecimal text of 32 bytes
   that is the x coordinate of a point of the curve."
   [x]
-  (boolean (and (string? x)
-                (re-matches #"[0-9a-fA-F]{64}" x)
-                (lifted (big (str/lower-case x))))))
+  (boolean (key-point x)))
 
 (defn shared-x
   "The x coordinate of the point that the owner of `secret-key` shares
@@ -420,12 +425,11 @@
   the secret key."
   [secret-key public-key]
   (when-let [d (secret-number secret-key)]
-    (when (public-key? public-key)
-      (let [point (lifted (big (str/lower-case public-key)))]
-        (some-> (affine (summed [(by-point d point)]))
-                first
-                hex32
-                secret/hide)))))
+    (when-let [point (key-point public-key)]
+      (some-> (affine (summed [(by-point d point)]))
+              first
+              hex32
+              secret/hide))))
 
 (defn sign
   "The signature of the `message` with the `secret-key` and the random

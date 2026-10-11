@@ -109,9 +109,9 @@
   period that a feed can name.
 
   The `opts` can give :not-before, the earliest instant that the server
-  allows, e.g. the :not-before of a fetch. The answer
-  is then no earlier than that instant, even when it's more than a year
-  after `at`. For a feed that gives no time, the answer is that instant."
+  allows, e.g. the :not-before of a fetch. The answer is then no earlier
+  than that instant, even when it's more than a year after `at`. For a
+  feed that gives no time, the answer is that instant."
   ([feed at]
    (next-check feed at {}))
   ([feed at {:keys [not-before] :as opts}]
@@ -125,12 +125,8 @@
                        (+ at-ms (* 60000.0 ttl)))
                      (syndication-due feed at-ms)
                      (cadence-due feed at-ms))
-           due   (some-> due (min (+ at-ms (syndication-periods "yearly"))))
-           floor (some-> not-before inst-ms)]
-       (when-let [t (if (and due floor)
-                      (max due floor)
-                      (or due floor))]
-         (time/->inst (long t)))))))
+           due   (some-> due (min (+ at-ms (syndication-periods "yearly"))))]
+       (time/latest (some-> due long time/->inst) not-before)))))
 
 #?(:clj
    (comment

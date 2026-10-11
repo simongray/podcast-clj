@@ -267,6 +267,14 @@
       (and keep-fn feed?)
       (update-in [:feeds feed-guid :feed] keep-fn))))
 
+(defn- settled
+  "The `library` with the feed `feed-guid` indexed again and cut down as
+  the `opts` say, as after a fetch."
+  [library feed-guid opts]
+  (-> library
+      (reindexed feed-guid)
+      (kept feed-guid opts)))
+
 (defn- fetch-result
   "The result of a fetch that `x` stands for: `x` itself, or a map with `x`
   as the :feed when `x` is a parsed feed, which has namespaced keys."
@@ -332,8 +340,7 @@
          cadence   (:cadence (:config library) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
-                        (reindexed feed-guid)
-                        (kept feed-guid (:config library)))]
+                        (settled feed-guid (:config library)))]
      (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -585,8 +592,7 @@
           (with-guid target)
           (cond-> (not (:title sub))
             (update-in [:library :profile] profile/relocate target details))
-          (update :library reindexed target)
-          (update :library kept target opts)
+          (update :library settled target opts)
           (assoc-in [:guids feed-guid] target)))))
 
 (defn- applied
@@ -605,9 +611,7 @@
         library  (assoc library :feeds (into {} (filter (comp :feed val))
                                              feeds))
         noted    (fn [acc feed-guid]
-                   (-> acc
-                       (update :library reindexed feed-guid)
-                       (update :library kept feed-guid opts)))
+                   (update acc :library settled feed-guid opts))
         fresh    (fn [acc feed-guid]
                    (let [{:keys [feed url]} (get feeds feed-guid)
                          old-feed (get-in before [feed-guid :feed])

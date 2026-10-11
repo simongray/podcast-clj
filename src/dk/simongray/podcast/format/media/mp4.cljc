@@ -549,13 +549,6 @@
         (str "mp4a.40." audio)
         (str "mp4a." (digits object 16 2))))))
 
-(defn- config
-  "The box of `type` among those of the sample entry `entry` in `view`,
-  which start `skip` bytes into its content."
-  [view {:keys [content end] :as entry} skip type]
-  (some #(when (= type (:type %)) %)
-        (children view (+ content skip) end)))
-
 ;; ISO/IEC 14496-12, section 12.1.3 and 12.2.3: the boxes of a visual
 ;; sample entry start 78 bytes in, those of an audio one 28, and the sound
 ;; descriptions of QuickTime versions 1 and 2 are 16 and 36 bytes longer
@@ -569,7 +562,7 @@
     (let [skip (if (= "vide" handler)
                  78
                  (case (view/u16 view (+ content 8)) 1 44 2 64 28))
-          conf #(config view entry skip %)]
+          conf #(child view entry % skip)]
       (or (case type
             ("avc1" "avc3") (some->> (conf "avcC") (avc-codecs view type))
             ("hvc1" "hev1") (some->> (conf "hvcC") (hevc-codecs view type))

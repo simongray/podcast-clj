@@ -106,7 +106,7 @@
   or https. Nil otherwise, which leaves the attribute out, so that a
   javascript: URL is never a link."
   [url]
-  (when (re-find #"(?i)^https?://" (str url))
+  (when (url/web-url? url)
     url))
 
 (defn- field

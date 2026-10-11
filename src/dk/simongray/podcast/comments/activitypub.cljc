@@ -982,10 +982,7 @@
                     (= :status part)
                     (assoc :root (get document "uri") :via :mastodon-api))]
     (if problem
-      (update thread ::comments/api
-              #(-> %
-                   (update :read (fnil conj #{}) part)
-                   (assoc :error problem)))
+      (assoc-in noted [::comments/api :error] problem)
       (reduce #(with-status %1 %2 ids origin own? at) root-read statuses))))
 
 (defn- api-fallback?

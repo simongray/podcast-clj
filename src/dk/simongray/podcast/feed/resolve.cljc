@@ -171,6 +171,13 @@
            (and (empty? (:purpose image))
                 (square? image)))))
 
+(defn- largest
+  "The widest of the `images`, the first of those as wide, or nil for none.
+  An image without a width counts as the narrowest."
+  [images]
+  (let [width #(let [w (:width %)] (if (number? w) w 0))]
+    (first (sort-by #(- (width %)) images))))
+
 (defn artwork
   "The URL of the square artwork of `x`, or of an `item` of `feed`, with
   the item's own before the feed's.
@@ -179,11 +186,8 @@
   image, the Google Play image, the RSS image or a media thumbnail."
   ([x]
    (let [candidates (images x)
-         podcast?   #(= :podcast (:source %))
-         artworks   (filter (every-pred podcast? artwork?) candidates)
-         width      #(let [w (:width %)] (if (number? w) w 0))
-         largest    (first (sort-by #(- (width %)) artworks))]
-     (:href (or largest
+         podcast?   #(= :podcast (:source %))]
+     (:href (or (largest (filter (every-pred podcast? artwork?) candidates))
                 (first (remove podcast? candidates))))))
   ([feed item]
    (or (artwork item) (artwork feed))))
@@ -196,13 +200,8 @@
 
   It's the largest podcast:image whose purpose is poster."
   ([x]
-   (let [width   #(let [w (:width %)] (if (number? w) w 0))
-         poster? #(and (contains? (:purpose %) "poster") (picture? %))]
-     (->> (images x)
-          (filter poster?)
-          (sort-by #(- (width %)))
-          first
-          :href)))
+   (let [poster? #(and (contains? (:purpose %) "poster") (picture? %))]
+     (:href (largest (filter poster? (images x))))))
   ([feed item]
    (or (poster item) (poster feed))))
 

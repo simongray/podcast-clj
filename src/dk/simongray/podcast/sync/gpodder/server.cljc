@@ -15,6 +15,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
@@ -30,11 +31,7 @@
 (defn- new-session
   "The id of a new session, which nobody can guess."
   []
-  #?(:clj  (str (random-uuid))
-     ;; random-uuid asks Math.random there
-     :cljs (if (exists? js/crypto)
-             (.randomUUID js/crypto)
-             (str (random-uuid)))))
+  (bytes/hex (bytes/generate! 16)))
 
 (defn ^:no-doc live
   "The `sessions` that still last at the instant `at`, by id."

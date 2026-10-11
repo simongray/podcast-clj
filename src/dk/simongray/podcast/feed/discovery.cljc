@@ -484,6 +484,13 @@
                         (#{:app-link :link :link-header :rule} where)
                         (update :report into errors))))))))
 
+(defn- signing
+  "The options that sign a request to the Podcast Index with the :index
+  credentials of `opts`, at the time of their clock."
+  [{:keys [index now-fn] :as opts}]
+  {:credentials index
+   :auth-date   (time/unix-seconds (now-fn))})
+
 (defn- lookups
   "The lookups of the show that the `ids` of a link of an app name, or the
   podcast:guid `guid` of a fast-follow link, at the :lookup directories of
@@ -493,14 +500,12 @@
   when `opts` give its :index credentials."
   [{:keys [apple-id podcastindex-id podcast-guid] :as ids}
    guid
-   {:keys [lookup index now-fn] :as opts}]
+   {:keys [lookup index] :as opts}]
   (let [entries      (map directory/entry lookup)
         of-api       (fn [api] (first (filter #(= api (:api %)) entries)))
         apple        (of-api :apple)
         podcastindex (of-api :podcastindex)
-        index-id     (or podcast-guid guid podcastindex-id)
-        signed       {:credentials index
-                      :auth-date   (time/unix-seconds (now-fn))}]
+        index-id     (or podcast-guid guid podcastindex-id)]
     (cond-> []
       (and apple apple-id)
       (conj [apple (directory/request apple :lookup {:id apple-id})])
@@ -508,7 +513,7 @@
       (and podcastindex index index-id)
       (conj [podcastindex (directory/request podcastindex :lookup
                                              {:id index-id}
-                                             signed)]))))
+                                             (signing opts))]))))
 
 (defn- fetch-feed-urls!
   "Send the requests of the `call` of directories with `opts`, and give
@@ -555,13 +560,12 @@
 
   A feed counts only when its website is on the domain of the page. When
   `acc` has a podcast already, no directory is asked."
-  [acc body page {:keys [search index now-fn max-candidates] :as opts}]
+  [acc body page {:keys [search max-candidates] :as opts}]
   (let [q (when-not (or (empty? search) (podcast-found? acc))
             (page-name body page))]
     (if (nil? q)
       acc
-      (let [signed   {:credentials index
-                      :auth-date   (time/unix-seconds (now-fn))}
+      (let [signed   (signing opts)
             asked    (for [source (map directory/entry search)]
                        [source (directory/request source :search
                                                   {:q q :limit max-candidates}

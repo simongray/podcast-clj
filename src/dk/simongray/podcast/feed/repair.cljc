@@ -52,6 +52,12 @@
       (<= 0xE000 n 0xFFFD)
       (<= 0x10000 n 0x10FFFF)))
 
+(defn- legal-reference?
+  "Whether the character reference `ref`, such as #38 or #x26, names a
+  character that XML 1.0 allows."
+  [ref]
+  (boolean (some-> (entities/code-point ref) legal-code-point?)))
+
 (defn- illegal-reference?
   "Whether `s` can hold a character reference to a character that XML 1.0
   forbids, judged at each &# alone. One in CDATA, which isn't a reference,
@@ -62,8 +68,7 @@
       (if-let [at (str/index-of s "&#" from)]
         (let [window  (subs s at (min n (+ at 32)))
               [_ ref] (re-find #"^&(#\d+|#[xX][0-9a-fA-F]+);" window)]
-          (if (and ref
-                   (not (some-> (entities/code-point ref) legal-code-point?)))
+          (if (and ref (not (legal-reference? ref)))
             true
             (recur (+ at 2))))
         false))))
@@ -82,9 +87,7 @@
       (map-outside-cdata
        #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
                      (fn [[whole ref]]
-                       (if (some-> (entities/code-point ref) legal-code-point?)
-                         whole
-                         "")))
+                       (if (legal-reference? ref) whole "")))
        s)
       s)))
 

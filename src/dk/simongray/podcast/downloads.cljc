@@ -114,27 +114,21 @@
   [{:keys [episodes played inactive] :as rule}]
   (let [unknown (remove #(contains? default-rule %) (keys rule))
         kept    (:keep rule)]
-    (cond
-      (seq unknown)
-      (str "the keys " (str/join ", " (map pr-str unknown)) " are not known")
-
-      (not (or (nil? episodes) (map? episodes)))
-      (str "the value of :episodes is " (pr-str episodes) ", not a map")
-
-      (criteria/problem (or episodes {}))
-      (criteria/problem (or episodes {}))
-
-      (not (or (nil? played) (amount? played)))
-      (str "the value of :played is " (pr-str played)
-           ", not a number of seconds")
-
-      (not (or (nil? inactive) (amount? inactive)))
-      (str "the value of :inactive is " (pr-str inactive)
-           ", not a number of seconds")
-
-      (not (or (nil? kept) (and (set? kept) (every? keeps kept))))
-      (str "the value of :keep is " (pr-str kept) ", not a set of "
-           (str/join ", " (sort keeps))))))
+    (or (when (seq unknown)
+          (str "the keys " (str/join ", " (map pr-str unknown))
+               " are not known"))
+        (when-not (or (nil? episodes) (map? episodes))
+          (str "the value of :episodes is " (pr-str episodes) ", not a map"))
+        (criteria/problem (or episodes {}))
+        (when-not (or (nil? played) (amount? played))
+          (str "the value of :played is " (pr-str played)
+               ", not a number of seconds"))
+        (when-not (or (nil? inactive) (amount? inactive))
+          (str "the value of :inactive is " (pr-str inactive)
+               ", not a number of seconds"))
+        (when-not (or (nil? kept) (and (set? kept) (every? keeps kept)))
+          (str "the value of :keep is " (pr-str kept) ", not a set of "
+               (str/join ", " (sort keeps)))))))
 
 (def ^:no-doc checks
   "The tests of the values of the rules, by key."

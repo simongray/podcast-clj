@@ -114,7 +114,7 @@
       :yes-no   (read-yes-no s)
       :presence true
       :rfc2822  (or-invalid (some-> (time/parse-date s) time/floor-seconds))
-      :iso8601  (or-invalid (or (time/parse-iso8601 s) (time/parse-rfc2822 s)))
+      :iso8601  (or-invalid (time/parse-date s))
       :duration (or-invalid (time/parse-duration s))
       :rrule    (or-invalid (rrule/parse s))
       :geo      (or-invalid (read-geo s))

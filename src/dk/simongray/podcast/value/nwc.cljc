@@ -572,7 +572,7 @@
   (let [info    (when-not (= :value/no-wallet-info (:id (:error info)))
                   info)
         at      (now-fn)
-        expires (time/->inst (+ (inst-ms at) (* 1000 timeout-seconds)))
+        expires (time/later at timeout-seconds)
         event   (when-not (:error info)
                   (request-event connection command
                                  {:at         at
@@ -584,19 +584,12 @@
                   "#e"      [(get event "id")]}]
         asking  (fn [url] {:url url :event event :filters filters})
         read    #(answered connection command event expires %)]
-    (cond
-      (:error info)
-      info
-
-      (unsupported info command)
-      (unsupported info command)
-
-      (nil? event)
-      (diagnostics/failed {:id     :value/command-too-large
-                           :method (:method command)})
-
-      :else
-      (ask-relays! opts asking read relays []))))
+    (or (when (:error info) info)
+        (unsupported info command)
+        (if (nil? event)
+          (diagnostics/failed {:id     :value/command-too-large
+                               :method (:method command)})
+          (ask-relays! opts asking read relays [])))))
 
 (defn ask!
   "Ask the wallet of `connection` to do `command` with `opts`, and give its

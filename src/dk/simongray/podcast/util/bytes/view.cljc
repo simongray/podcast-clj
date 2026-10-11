@@ -225,6 +225,18 @@
   (into {:id :file/unreachable :level :warning}
         (select-keys failure [:reason :type :url :status])))
 
+(defn- guarded
+  "What `f` gives when called, or what `failed` gives for the exception
+  when the call fails. On the JVM, a call that overflows the stack fails
+  too, as deep input can make it."
+  [f failed]
+  (try
+    (f)
+    (catch #?(:clj Exception :cljs :default) e
+      (failed e))
+    #?(:clj (catch StackOverflowError e
+              (failed e)))))
+
 (defn ^:no-doc part
   "What `f` gives when called, as a map of the :value, for the reading of
   the part `k` of a file that the rest of the file can do without, such
@@ -238,12 +250,7 @@
                  (if (missing e)
                    (throw e)
                    {:report [(assoc (failure e) :part k)]}))]
-    (try
-      {:value (f)}
-      (catch #?(:clj Exception :cljs :default) e
-        (failed e))
-      #?(:clj (catch StackOverflowError e
-                (failed e))))))
+    (guarded (fn [] {:value (f)}) failed)))
 
 (defn reading
   "What the function `f` gives, a reading of a view that takes no
@@ -260,12 +267,7 @@
                  (if (missing e)
                    {:need (missing e)}
                    (reported {} [(failure e)])))]
-    (try
-      (f)
-      (catch #?(:clj Exception :cljs :default) e
-        (failed e))
-      #?(:clj (catch StackOverflowError e
-                (failed e))))))
+    (guarded f failed)))
 
 (def ^:no-doc chunk-size
   "The least that a reading fetches at a time, so that small reads come in

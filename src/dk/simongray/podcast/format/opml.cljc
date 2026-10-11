@@ -60,15 +60,20 @@
               attr-names)
         (names/attr-key k))))
 
+(defn- attributes
+  "The attributes of the `outline` element by key, without those of other
+  namespaces."
+  [outline]
+  (into {} (for [[k v] (xml/attrs outline)
+                 :when (not (namespace k))]
+             [(outline-key k) v])))
+
 (defn- subscription
-  "The subscription of the `outline` element with an xmlUrl, under `path`.
-  It has the attributes by key, the categories as a vector, and the time
-  it was created as an instant when it reads as one."
-  [path outline]
-  (let [m          (into {} (for [[k v] (xml/attrs outline)
-                                  :when (not (namespace k))]
-                              [(outline-key k) v]))
-        categories (when (string? (:category m))
+  "The subscription of an outline with an xmlUrl, under `path`, from its
+  attributes `m`. It has the attributes by key, the categories as a vector,
+  and the time it was created as an instant when it reads as one."
+  [path m]
+  (let [categories (when (string? (:category m))
                      (->> (str/split (:category m) #",")
                           (into [] (comp (map str/trim) (remove str/blank?)))
                           not-empty))]
@@ -78,13 +83,11 @@
       (string? (:created m)) (update :created #(or (time/parse-rfc2822 %) %)))))
 
 (defn- inclusion
-  "The OPML list that `outline` includes, when it's an inclusion: the type
-  include, or the type link to a URL that ends in .opml."
-  [outline]
-  (let [attrs (into {} (for [[k v] (xml/attrs outline)]
-                         [(outline-key k) v]))
-        {:keys [type url text title]} attrs
-        type  (some-> type str/lower-case)]
+  "The OPML list that an outline with the attributes `m` includes, when
+  it's an inclusion: the type include, or the type link to a URL that ends
+  in .opml."
+  [{:keys [type url text title] :as m}]
+  (let [type (some-> type str/lower-case)]
     (when (and (not (str/blank? url))
                (or (= "include" type)
                    (and (= "link" type)
@@ -101,14 +104,11 @@
   ::include."
   [path element]
   (mapcat (fn [outline]
-            (let [{:keys [text title] :as attrs} (xml/attrs outline)
-                  url      (some (fn [[k v]]
-                                   (when (= :xml-url (outline-key k)) v))
-                                 attrs)
-                  included (inclusion outline)]
+            (let [{:keys [xml-url text title] :as m} (attributes outline)
+                  included (inclusion m)]
               (cond
-                (not (str/blank? url))
-                [(subscription path outline)]
+                (not (str/blank? xml-url))
+                [(subscription path m)]
 
                 included
                 [(cond-> (assoc included ::include true)
