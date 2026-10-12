@@ -429,11 +429,11 @@
             :show     "Podcasting 2.0 Namespace Example"}
            (select-keys view [:id :src :local? :position :duration :rate :played? :title :show])))
     (is (= ["https://example.com/ep3_chapters.json" "text/vtt"] [(:chapters-url view) (:type (:transcript view))]))
-    (is (= {:title       "Episode 3 - The Future"
-            :artist      "John Doe"
-            :album       "Podcasting 2.0 Namespace Example"
-            :artwork     [{:src "https://example.com/images/ep3/pci_avatar-massive.png"}]
-            :chapterInfo []}
+    (is (= {:title        "Episode 3 - The Future"
+            :artist       "John Doe"
+            :album        "Podcasting 2.0 Namespace Example"
+            :artwork      [{:src "https://example.com/images/ep3/pci_avatar-massive.png"}]
+            :chapter-info []}
            (:metadata view))
         "the metadata of the Media Session")
     (testing "a downloaded file"
@@ -447,8 +447,8 @@
             "after the app's own")))
     (testing "what the files that were read add"
       (let [with-read (library/playback library id {:read files})]
-        (is (= [{:title "Intro" :startTime 0} {:title "Talk" :startTime 94 :artwork [{:src "https://x/i.png"}]}]
-               (:chapterInfo (:metadata with-read)))
+        (is (= [{:title "Intro" :start-time 0} {:title "Talk" :start-time 94 :artwork [{:src "https://x/i.png"}]}]
+               (:chapter-info (:metadata with-read)))
             "the chapters of the table of contents")
         (is (= 3599.5 (:duration with-read)))
         (is (= 3600 (:duration (library/playback lib id {:read files}))) "after the duration the player reported")))

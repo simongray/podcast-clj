@@ -652,33 +652,45 @@ To start an episode, `library/playback` gives what the player needs: the
 file, where the listener left it or the end of its intro, the show's
 rate, the title and artwork, the chapters, a transcript for captions, and
 the metadata of the Media Session, which a browser shows on the lock
-screen. With `media-session/apply!`, the buttons there and on the
+screen.
+
+The page's Media Session is set by
+[play-nice](https://github.com/simongray/play-nice), a library that you
+add to your app yourself, since podcast-clj doesn't depend on it. It
+isn't on Clojars yet, so take it from GitHub:
+
+```clojure
+dk.simongray/play-nice
+{:git/url "https://github.com/simongray/play-nice"
+ :git/sha "…"}
+```
+
+With its `session` namespace, the buttons on the lock screen and the
 headphones send their events through `library/step` too:
 
 ```clojure
 (defn play-episode!
   "Start the episode `id` of the library in the media element `audio`."
   [audio id]
-  (let [{:keys [src position rate] :as playback} (library/playback @lib id)
-        step! #(apply-effects! audio (:effects (swap! lib library/step %)))]
+  (let [{:keys [src position rate metadata]} (library/playback @lib id)
+        step!  #(apply-effects! audio (:effects (swap! lib library/step %)))
+        press! (fn [details]
+                 (run! step! (media-session/events
+                              @lib id (.-currentTime audio) details)))]
     (set! (.-src audio) src)
     (set! (.-playbackRate audio) rate)
     (.addEventListener audio "loadedmetadata"
                        #(set! (.-currentTime audio) position)
                        #js {:once true})
-    (media-session/apply! playback
-                          (media-session/actions @lib id)
-                          (fn [details]
-                            (run! step! (media-session/events
-                                         @lib id (.-currentTime audio)
-                                         details))))
+    (session/metadata! metadata)
+    (session/actions! (zipmap (media-session/actions @lib id)
+                              (repeat press!)))
     (.play audio)))
 ```
 
-So that the lock screen shows how far the episode has come, call
-`media-session/position!` with the element at its `loadedmetadata`,
-`seeked` and `ratechange` events. The next and previous buttons go to
-the chapters of the episode by default. The listener's preference
+The lock screen follows the media element by itself, so it shows how far
+the episode has come. The next and previous buttons go to the chapters
+of the episode by default. The listener's preference
 `:track-buttons` can send them to the episodes of the queue instead,
 with `:queue`, or to the queue once no chapter is left, with
 `:chapters-first`. For buttons of your own, the events
@@ -1606,7 +1618,8 @@ that changed its requirements takes them as `:requirements`, e.g.
 ## The namespaces of the examples
 
 The namespaces outside `dk.simongray.podcast` are those of the libraries
-that [Before you start](#before-you-start) lists.
+that [Before you start](#before-you-start) lists, and that of play-nice,
+which [Play episodes](#play-episodes) adds.
 
 ```clojure
 (ns my.app
@@ -1621,6 +1634,7 @@ that [Before you start](#before-you-start) lists.
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]

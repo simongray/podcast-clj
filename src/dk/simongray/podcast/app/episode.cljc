@@ -173,9 +173,10 @@
 ;; and ChapterInformationInit dictionaries
 (defn metadata
   "The metadata of the episode `view` of the show `feed` for the Media
-  Session API, as a map of the keys of MediaMetadataInit, e.g.
+  Session API, as a map of the keys of MediaMetadataInit in kebab-case,
+  e.g. for the session namespace of the play-nice library:
 
-      (js/MediaMetadata. (clj->js (metadata feed view)))
+      (session/metadata! (metadata feed view))
 
   The artist is the author of the show, or else its title, since the
   author of an episode is often an email address, and the album is the
@@ -185,14 +186,14 @@
   (let [show    (resolve/title feed)
         image   #(when % [{:src %}])
         chapter (fn [{:keys [title start-time img]}]
-                  (cond-> {:title (or title "") :startTime start-time}
+                  (cond-> {:title (or title "") :start-time start-time}
                     img (assoc :artwork (image img))))]
-    {:title       (or (:title view) "")
-     :artist      (or (resolve/author feed) show "")
-     :album       (or show "")
-     :artwork     (or (image (:artwork view)) [])
-     :chapterInfo (mapv chapter
-                        (chapters/visible (:document (:chapters view))))}))
+    {:title        (or (:title view) "")
+     :artist       (or (resolve/author feed) show "")
+     :album        (or show "")
+     :artwork      (or (image (:artwork view)) [])
+     :chapter-info (mapv chapter
+                         (chapters/visible (:document (:chapters view))))}))
 
 (defn- unreachable
   "The diagnostic for the file at `url` that couldn't be fetched, because

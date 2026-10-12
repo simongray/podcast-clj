@@ -60,7 +60,7 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`. |
-| `app.media-session` | The Media Session of a browser for the episode that plays: which `actions` do something, the `events` of `library/step` for each, and in ClojureScript, `apply!` and `position!` to set the session of the page. |
+| `app.media-session` | The Media Session of a browser for the episode that plays: which `actions` do something, and the `events` of `library/step` for each. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, the value blocks that its time splits point at from `fetch-remote-values!`, and the metadata of the Media Session from `metadata`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. A device that never shows the feeds can keep only what `slim` gives of each. |
