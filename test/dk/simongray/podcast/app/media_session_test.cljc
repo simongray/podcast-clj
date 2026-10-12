@@ -65,7 +65,7 @@
   (let [all (into media-session/seek-actions media-session/track-actions)]
     (is (= media-session/seek-actions (media-session/actions lib id))
         "no chapters, so no track buttons")
-    (is (= all (media-session/actions lib id {:files files})))
+    (is (= all (media-session/actions lib id {:read files})))
     (is (= all (media-session/actions (buttons lib :queue) id)))))
 
 (deftest seeking
@@ -81,7 +81,7 @@
       "the browser plays and pauses the element itself"))
 
 (deftest the-track-buttons
-  (let [chapters {:files files}]
+  (let [chapters {:read files}]
     (testing "chapters, by default"
       (is (= [[:seek id 94]] (press lib 30 {:action "nexttrack"} chapters)))
       (is (= [] (media-session/events lib id 120 {:action "nexttrack"} chapters))
@@ -118,9 +118,9 @@
 #?(:cljs
    (deftest the-session-of-the-page
      (let [^js session (some-> js/globalThis .-navigator .-mediaSession)
-           playback    (library/playback lib id {:files files})
+           playback    (library/playback lib id {:read files})
            applied     (media-session/apply! playback
-                                             (media-session/actions lib id {:files files})
+                                             (media-session/actions lib id {:read files})
                                              identity)]
        (if-not session
          (is (nil? applied) "nothing where the browser has none")

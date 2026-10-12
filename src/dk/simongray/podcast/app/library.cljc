@@ -12,6 +12,7 @@
        :refresh       {:added […] …}   ; the new episodes, moves and report
        :effects       [[:seek id 784]] ; the effects of the last event, to apply
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
+       :files         {id {…}}         ; the downloaded files of this device
        :config        {…}}             ; the options below
 
   The profile is a CRDT, so never change it with assoc or dissoc. A feed
@@ -113,6 +114,7 @@
       :fetched-lists {}
       :index         (when (:search? config) (feed.search/index))
       :sync          {}
+      :files         {}
       :config        config})))
 
 (defn- remote-guids
@@ -888,14 +890,15 @@
        :transcript {:url \"…\" :type \"text/vtt\" …}   ; e.g. for captions
        :metadata   {…}}                 ; for the Media Session
 
-  The file to play is the one that the :local-file-fn of the options
-  gives for the id, e.g. a path or an object URL, or else the enclosure.
-  With :files, what read-files! gave for the episode, its chapters and
-  measured duration go over those of the feed. The keys without a value
-  are left out, and app.episode/metadata gives the metadata."
+  The file to play is the downloaded one, which the :local-file-fn of the
+  options gives for the id, e.g. an object URL, or else the record of the
+  files in the library, and otherwise the enclosure. With :read, what
+  read-files! gave for the episode, its chapters and measured duration go
+  over those of the feed. The keys without a value are left out, and
+  app.episode/metadata gives the metadata."
   ([library id]
    (playback library id {}))
-  ([library id {:keys [files] :as opts}]
+  ([library id {:keys [read] :as opts}]
    {:pre [(map? opts)]}
    (when-let [view (episode library id (assoc opts :except #{:notes :text
                                                              :links}))]
@@ -903,12 +906,13 @@
            profile     (:profile library)
            feed        (get-in library [:feeds feed-guid :feed])
            view        (cond-> view
-                         (:chapters files) (assoc :chapters (:chapters files)))
-           local-file  (when-let [f (:local-file-fn (options library opts))]
-                         (f id))
+                         (:chapters read) (assoc :chapters (:chapters read)))
+           local-file  (or (when-let [f (:local-file-fn (options library opts))]
+                             (f id))
+                           (downloads/local-file (:files library) id))
            src         (or local-file (:url (:enclosure view)))
            duration    (or (:duration (profile/episode-entry profile id))
-                           (:duration files)
+                           (:duration read)
                            (:duration view))]
        (into {:id       id
               :local?   (some? local-file)
@@ -1172,9 +1176,9 @@
 ;; has documents of its own
 (def saved-keys
   "The parts of a library that are saved by default: the profile, the
-  feeds, the followed lists and the last sync, whose cursors fit the
-  profile."
-  [:profile :feeds :fetched-lists :sync])
+  feeds, the followed lists, the last sync, whose cursors fit the profile,
+  and the downloaded files."
+  [:profile :feeds :fetched-lists :sync :files])
 
 (def version
   "The version of the shape of a saved library: 4 since a played episode
@@ -1542,16 +1546,57 @@
 (defn plan
   "The episodes to download and the files to delete on this device with
   `files`, for the profile and feeds of `library`, with the `opts` of
-  downloads/plan."
+  downloads/plan. Without `files`, it's the record of the files in the
+  library."
+  ([library]
+   (plan library nil {}))
   ([library files]
    (plan library files {}))
   ([library files opts]
    {:pre [(map? opts)]}
    (downloads/plan (:profile library)
                    (shown-feeds library)
-                   files
+                   (or files (:files library))
                    (time-of library opts)
                    (assoc opts :url (urls library)))))
+
+(defn start-download
+  "The `library` with the download of `entry`, one of the :download of
+  its plan, started at the time of the call, with `opts`, as
+  downloads/start-download records it."
+  ([library entry]
+   (start-download library entry {}))
+  ([library entry opts]
+   {:pre [(map? opts)]}
+   (update library :files downloads/start-download entry
+           (time-of library opts))))
+
+(defn finish-download
+  "The `library` with the download of the episode `id` finished at the
+  time of the call, with `opts`, and the :path and :bytes of the file in
+  `details`, as downloads/finish-download records it."
+  ([library id details]
+   (finish-download library id details {}))
+  ([library id details opts]
+   {:pre [(map? opts)]}
+   (update library :files downloads/finish-download id details
+           (time-of library opts))))
+
+(defn remove-file
+  "The `library` without the file of the episode `id`, deleted at the time
+  of the call, with `opts`. The entry stays, so that no plan downloads it
+  again."
+  ([library id]
+   (remove-file library id {}))
+  ([library id opts]
+   {:pre [(map? opts)]}
+   (update library :files downloads/remove-file id (time-of library opts))))
+
+(defn keep-file
+  "The `library` with the file of the episode `id` kept whatever the rules
+  say, or no longer kept when `keep?` is false."
+  [library id keep?]
+  (update library :files downloads/keep-file id keep?))
 
 #?(:clj
    (comment

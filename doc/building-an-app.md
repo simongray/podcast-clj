@@ -82,11 +82,10 @@ podcast-clj. It depends on them, so they come with it:
 
 ## What you build yourself
 
-- Pick a store for the library, and keep the record of the files on the
-  device.
+- Pick a store for the library.
 - Play the media, as the effects of `library/step` say.
 - Download and delete episode files, as `library/plan` says, when the
-  network and the battery allow it.
+  network and the battery allow it, and tell the library when you do.
 - Show notifications and make payments.
 - Draw the user interface.
 - For a host, keep the server logs and the lists of user agents, data
@@ -674,13 +673,16 @@ with `:queue`, or to the queue once no chapter is left, with
 `[:next id]` and `[:previous id]` of `library/step` skip to the next
 episode of the queue and go back to the one heard before.
 
-The file is the downloaded one when the config's `:local-file-fn` gives
-one for the episode's id, e.g. an object URL, and else the enclosure.
-Once `library/read-files!` has read the episode's chapters file, give its
-result to `playback` as `:files`, and the metadata has those chapters too.
+The file is the downloaded one when the library's record of the files
+has it, as the next section shows, or when the config's
+`:local-file-fn` gives one for the episode's id, e.g. an object URL. Else
+it's the enclosure. Once `library/read-files!` has read the episode's
+chapters file, give its result to `playback` as `:read`, and the
+metadata has those chapters too.
 
 To pick the file to play yourself, use `resolve/enclosure`, e.g. with
-`{:types ["audio/opus" "audio/mpeg"] :max-bitrate 64000}`. To keep to audio when a show also offers video, add
+`{:types ["audio/opus" "audio/mpeg"] :max-bitrate 64000}`. To keep to
+audio when a show also offers video, add
 `:playable-pred resolve/audio?`, which leaves out a stream that doesn't
 say what it holds. The listener chooses between the audio and the video
 of an episode that offers both with the preference `:video?`, or the
@@ -725,18 +727,17 @@ working example.
 ## Download episodes
 
 ```clojure
-(library/plan @lib files)
+(library/plan @lib)
 ;; => {:download [{:id [guid "ep-3"] :url "https://…" :reason :rule …}]
 ;;     :delete   [{:id [guid "ep-1"] :bytes 50117331 :reason :played}]
 ;;     :waiting  []}
 ```
 
-The plan says which episodes to download and which files to delete. The
-`files` are your own record of the files on the device, e.g.
-`{[guid "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}}`. Downloading,
-deleting and choosing when to do it are up to you, since podcast-clj
-knows nothing about the network or the battery. Make a plan after each
-refresh, and when the listener plays or queues an episode.
+The plan says which episodes to download and which files to delete, by
+the library's record of the files on this device. Downloading, deleting
+and choosing when to do it are up to you, since podcast-clj knows nothing
+about the network or the battery. Make a plan after each refresh, and
+when the listener plays or queues an episode.
 
 The rules live in the profile, so they sync: the listener's rules are
 the preference `:downloads`, and the rule of a show is the setting
@@ -765,18 +766,35 @@ rule in `downloads/default-rule`.
 
 To follow the plan:
 
-- Download each file of `:download` in order, and add it to `files` with
-  the time as `:at` when the download starts.
-- Delete each file of `:delete`, and keep its entry with `:removed?`, so it
-  isn't downloaded again.
+- Download each file of `:download` in order. Record the start with
+  `library/start-download`, and the end with `library/finish-download`
+  and the `:path` and `:bytes` of the file.
+- Delete each file of `:delete`, and record it with `library/remove-file`,
+  which keeps its entry so that it isn't downloaded again.
 - Show the listener what's in `:waiting`, which didn't fit within
   `:max-episodes` or `:max-bytes`, or was a file above `:max-file-bytes`.
   Stop a download that runs past `:max-file-bytes` yourself, since a feed
   can give the wrong length.
 
-Set `:keep?` in the entry of a file the listener asked for, and no rule
-deletes it. For rules that only apply to this device, give `plan` the
-rules as `:rules`. To choose among the files of an episode, e.g. audio
+```clojure
+(defn download!
+  "Download the `entry` of a plan with `save!`, your own function that
+  writes the file at a URL to the device and gives its path and bytes."
+  [entry save!]
+  (swap! lib library/start-download entry)
+  (let [{:keys [path bytes]} (save! (:url entry))]
+    (swap! lib library/finish-download (:id entry) {:path path :bytes bytes})))
+```
+
+Once a download has finished, `library/playback` plays the file. A file
+that the listener marks with `library/keep-file` stays whatever the rules
+say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes
+of each show on the device, e.g. for a storage screen. The record is
+saved with the library, but never synced, since each device has its own
+files. To keep a record of your own instead, give it to `plan` as
+`files`, e.g. `{[guid "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}}`.
+For rules that only apply to this device, give `plan` the rules as
+`:rules`. To choose among the files of an episode, e.g. audio
 alone, give it the options of `resolve/enclosure` as `:enclosure`. The
 plan only has files that `resolve/downloadable?` takes, so never an HLS
 stream or a torrent. A rule written by a newer version of podcast-clj does

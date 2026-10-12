@@ -11,7 +11,10 @@
                    :limit 3}
        :played    86400}
 
-  The rules sync in the profile, and a device can have rules of its own."
+  The rules sync in the profile, and a device can have rules of its own.
+  The record of the files on a device, which the plan reads, is kept by
+  start-download, finish-download, remove-file and keep-file, and
+  app.library holds it and saves it."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -462,13 +465,18 @@
                     :else                   :max-bytes)]
         (update plan :waiting conj (assoc entry :limit limit))))))
 
+(defn on-device
+  "The entries of the `files` of a device that are on it, the finished
+  files and the downloads that run, by episode id."
+  [files]
+  (into {} (remove (comp :removed? val)) files))
+
 (defn- planned
   "The plan for the context `ctx` and the `feeds`."
   [{:keys [files rules] :as ctx} feeds]
   (let [selected  (selections ctx feeds)
         going     (vec (deletes ctx selected))
-        on-device (into {} (remove (comp :removed? val)) files)
-        staying   (apply dissoc on-device (map :id going))
+        staying   (apply dissoc (on-device files) (map :id going))
         total     {:episodes (count staying)
                    :bytes    (reduce + (map #(:bytes % 0) (vals staying)))}
         start     {:download []
@@ -490,7 +498,9 @@
 
   The :at of a file is when it was downloaded. No rule deletes a file with
   :keep?, and a file that's gone has :removed?. Keep that entry, since no
-  episode with an entry is downloaded again. The result is:
+  episode with an entry is downloaded again. The functions start-download,
+  finish-download, remove-file and keep-file keep such a record. The
+  result is:
 
       {:download [{:id id :url \"…\" :bytes 48211004 :reason :rule …}]
        :delete   [{:id id :bytes 51093220 :reason :played}]
@@ -535,6 +545,71 @@
                {:download [] :delete [] :waiting []}
                (planned ctx (if (map? feeds) [feeds] feeds)))
        problems (assoc :problems problems)))))
+
+(defn start-download
+  "The `files` of a device with the download of `entry`, one of the
+  :download of a plan, started at `at`.
+
+  The entry of the file keeps the :url, the :type and the :bytes that the
+  plan expects, and the time as :at. A file that the listener asked to
+  keep stays kept."
+  [files {:keys [id] :as entry} at]
+  (update files id #(-> %
+                        (dissoc :removed? :removed-at :finished-at :path)
+                        (merge (select-keys entry [:url :type :bytes]))
+                        (assoc :at at))))
+
+(defn finish-download
+  "The `files` of a device with the download of the episode `id` finished
+  at `at`, with the :path and the :bytes of the file in `details`. The
+  path is whatever the platform reads the file by, e.g. a file path or
+  the key of a cached response."
+  [files id {:keys [path bytes] :as details} at]
+  (update files id #(cond-> (assoc % :finished-at at)
+                      (nil? (:at %)) (assoc :at at)
+                      path           (assoc :path path)
+                      bytes          (assoc :bytes bytes))))
+
+(defn remove-file
+  "The `files` of a device without the file of the episode `id`, deleted
+  at `at`. Its entry stays with :removed?, so that no plan downloads it
+  again."
+  [files id at]
+  (if (contains? files id)
+    (update files id #(-> (dissoc % :path :finished-at)
+                          (assoc :removed? true :removed-at at)))
+    files))
+
+(defn keep-file
+  "The `files` of a device with the file of the episode `id` kept whatever
+  the rules say, or no longer kept when `keep?` is false."
+  [files id keep?]
+  (cond
+    (not (contains? files id)) files
+    keep?                      (assoc-in files [id :keep?] true)
+    :else                      (update files id dissoc :keep?)))
+
+(defn local-file
+  "The path of the downloaded file of the episode `id` in the `files` of a
+  device, or nil until a download of it has finished."
+  [files id]
+  (let [{:keys [path finished-at removed?]} (get files id)]
+    (when (and path finished-at (not removed?))
+      path)))
+
+(defn usage
+  "How many of the `files` of a device are on it, and their bytes, by feed
+  guid, e.g. {feed-guid {:episodes 3 :bytes 151000000}}. A download that
+  runs counts with the bytes that the plan expects."
+  [files]
+  (reduce-kv (fn [acc [feed-guid] {:keys [bytes]}]
+               (-> acc
+                   (update-in [feed-guid :episodes] (fnil inc 0))
+                   (update-in [feed-guid :bytes]
+                              (fnil + 0)
+                              (if (number? bytes) bytes 0))))
+             {}
+             (on-device files)))
 
 (comment
   (def show

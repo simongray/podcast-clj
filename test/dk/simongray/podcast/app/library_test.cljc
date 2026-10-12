@@ -436,14 +436,21 @@
            (:metadata view))
         "the metadata of the Media Session")
     (testing "a downloaded file"
-      (is (= ["file:///ep3.mp3" true] ((juxt :src :local?) (library/playback lib id {:local-file-fn {id "file:///ep3.mp3"}})))))
+      (is (= ["file:///ep3.mp3" true] ((juxt :src :local?) (library/playback lib id {:local-file-fn {id "file:///ep3.mp3"}}))))
+      (let [downloaded (-> lib
+                           (library/start-download {:id id :url "https://example.com/file-03.mp3" :bytes 9000})
+                           (library/finish-download id {:path "/podcasts/ep3.mp3" :bytes 8800}))]
+        (is (= ["/podcasts/ep3.mp3" true] ((juxt :src :local?) (library/playback downloaded id)))
+            "from the record of the files")
+        (is (= "file:///ep3.mp3" (:src (library/playback downloaded id {:local-file-fn {id "file:///ep3.mp3"}})))
+            "after the app's own")))
     (testing "what the files that were read add"
-      (let [read (library/playback library id {:files files})]
+      (let [with-read (library/playback library id {:read files})]
         (is (= [{:title "Intro" :startTime 0} {:title "Talk" :startTime 94 :artwork [{:src "https://x/i.png"}]}]
-               (:chapterInfo (:metadata read)))
+               (:chapterInfo (:metadata with-read)))
             "the chapters of the table of contents")
-        (is (= 3599.5 (:duration read)))
-        (is (= 3600 (:duration (library/playback lib id {:files files}))) "after the duration the player reported")))
+        (is (= 3599.5 (:duration with-read)))
+        (is (= 3600 (:duration (library/playback lib id {:read files}))) "after the duration the player reported")))
     (is (nil? (library/playback lib [guid "none"])))))
 
 (deftest a-new-subscription-through-the-send
@@ -975,3 +982,33 @@
                 (update :profile profile/prefer {:downloads {:queue 1}} now))]
     (is (= [[id :queue]] (map (juxt :id :reason) (:download (library/plan lib {})))))
     (is (= [] (:download (library/plan lib {id {:bytes 1 :at now}}))) "a file that the device has")))
+
+(deftest the-record-of-the-files
+  (let [id     [guid "https://example.com/ep0003"]
+        lib    (-> library
+                   (update :profile profile.queue/enqueue id now)
+                   (update :profile profile/prefer {:downloads {:queue 1 :default {:played 0}}} now))
+        entry  (first (:download (library/plan lib)))
+        filed  (-> lib
+                   (library/start-download entry {:at (at 10)})
+                   (library/finish-download id {:path "/podcasts/ep3.mp3" :bytes 8800} {:at (at 20)}))
+        played (library/update-profile filed (fn [p at]
+                                               (-> (profile/mark-played p id at)
+                                                   (profile.queue/dequeue id at))))
+        s      (store/memory (atom {}))]
+    (is (= {id {:url "https://example.com/file-03.mp3" :type "audio/mpeg" :bytes 8800
+                :at (at 10) :finished-at (at 20) :path "/podcasts/ep3.mp3"}}
+           (:files filed)))
+    (testing "the plan reads it, unless it's given files of its own"
+      (is (= [] (:download (library/plan filed))))
+      (is (= [{:id id :bytes 8800 :reason :played}] (:delete (library/plan played))))
+      (is (= [] (:delete (library/plan played {}))))
+      (is (= [] (:delete (library/plan (library/keep-file played id true)))) "nor a file that the listener keeps")
+      (is (= [] (:delete (library/plan (library/remove-file played id {:at (at 30)})))) "nor one that's gone"))
+    (testing "a merge keeps the record of this device"
+      (is (= (:files filed) (:files (library/merge filed lib)))))
+    (run #(async/then (library/save! filed s)
+                      (fn [_]
+                        (async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
+                                    (fn [lib]
+                                      (is (= (:files filed) (:files lib)) "saved and read back"))))))))

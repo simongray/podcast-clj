@@ -413,3 +413,32 @@
         "the order of the feeds does not count")
     (is (= [["feed-b" "b1"] ["feed-a" "a4"] ["feed-b" "b2"] ["feed-a" "a3"] ["feed-a" "a2"]]
            (ids (:download (plan state files)))))))
+
+(deftest the-record-of-the-files
+  (let [state    (with-rules subscribed {:default {:download? true}} {})
+        entry    (first (:download (plan state {})))
+        id       (:id entry)
+        started  (downloads/start-download {} entry (at 1))
+        finished (downloads/finish-download started id {:path "/files/a4.mp3" :bytes 410} (at 2))]
+    (is (= {id {:url "https://example.org/a4.mp3" :type "audio/mpeg" :bytes 400 :at (at 1)}} started))
+    (testing "a download that runs"
+      (is (nil? (downloads/local-file started id)) "has no file to play yet")
+      (is (= {"feed-a" {:episodes 1 :bytes 400}} (downloads/usage started)) "counts with the bytes the plan expects")
+      (is (not (some #{id} (ids (:download (plan state started))))) "and isn't planned again"))
+    (testing "a finished download"
+      (is (= "/files/a4.mp3" (downloads/local-file finished id)))
+      (is (= {"feed-a" {:episodes 1 :bytes 410}} (downloads/usage finished)) "with the bytes that came"))
+    (testing "a removed file keeps its entry, without the file"
+      (let [removed (downloads/remove-file finished id (at 3))]
+        (is (= {:removed? true :removed-at (at 3)} (select-keys (get removed id) [:removed? :removed-at :path])))
+        (is (nil? (downloads/local-file removed id)))
+        (is (= {} (downloads/usage removed) (downloads/on-device removed)))
+        (is (not (some #{id} (ids (:download (plan state removed))))) "so no plan downloads it again")
+        (is (= (assoc-in started [id :at] (at 4)) (downloads/start-download removed entry (at 4)))
+            "until the listener asks for it")))
+    (testing "a file that the listener keeps"
+      (let [kept (downloads/keep-file finished id true)]
+        (is (:keep? (get kept id)))
+        (is (= finished (downloads/keep-file kept id false)))
+        (is (:keep? (get (downloads/start-download kept entry (at 4)) id)) "stays kept when it downloads again")
+        (is (= {} (downloads/keep-file {} id true)) "only a file that the record has")))))
