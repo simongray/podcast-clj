@@ -301,9 +301,9 @@ All gain 2 and an hour each:
 - The artwork of a subscription kept in the profile, so a synced device
   shows it before its first refresh.
 - Continuous play, where new episodes join the queue and how many,
-  defaults for new subscriptions, a rewind after a long pause or an
-  interruption, which Safari's Audio Session reports, and bulk arities of
-  the marks and the queue.
+  defaults for new subscriptions, a rewind after a long pause, which an
+  interruption such as a call causes too, and bulk arities of the marks
+  and the queue.
 - A `:playable-pred` from a browser's Media Capabilities, for Opus, video
   codecs and alternate enclosures.
 - A string form of episode ids for routes and native bridges.
