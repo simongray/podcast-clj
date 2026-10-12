@@ -321,7 +321,9 @@
   (testing "a stream that doesn't say what it holds, as a video"
     (is (= {:type :file :video {:content-type "application/x-mpegurl"}}
            (resolve/decoding-configuration {:url "https://a/m.m3u8" :type "application/x-mpegURL"}))))
-  (is (nil? (resolve/decoding-configuration {:url "https://a/1.mp3"})) "nothing without a type"))
+  (testing "nothing for a type that says nothing of the format"
+    (doseq [type [nil "application/octet-stream" "Binary/Octet-Stream" "None" "audio/"]]
+      (is (nil? (resolve/decoding-configuration {:url "https://a/1.mp3" :type type})) (pr-str type)))))
 
 (deftest people-and-inheritance
   (let [f    @example

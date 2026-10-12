@@ -396,6 +396,23 @@
   codecs parameter."
   #{"audio/mpeg" "audio/mp3" "audio/aac" "audio/flac" "audio/x-flac"})
 
+;; RFC 2046, section 4.5.1: the type of data whose format isn't known
+(def ^:no-doc unknown-types
+  "The media types, in lower case, that say nothing of the format of a
+  file."
+  #{"application/octet-stream" "binary/octet-stream"})
+
+(defn- format-type
+  "The media type that the `type` attribute names, in lower case and without
+  its parameters, or nil when it says nothing of the format: there's none,
+  it isn't a type and a subtype, or it's one of unknown-types."
+  [type]
+  (let [essence (headers/media-type (str type))]
+    (when (and essence
+               (re-matches #"[^/]+/[^/]+" essence)
+               (not (unknown-types essence)))
+      essence)))
+
 (defn- content-type
   "The media type `essence` as a content type of the `kind`, :audio or
   :video, with the `codec`, if any, as its codecs parameter."
@@ -416,8 +433,7 @@
 ;; (2.1.8), and a container type names a single codec (2.3.3)
 (defn decoding-configuration
   "The MediaDecodingConfiguration of the `enclosure`, one of those that
-  enclosures gives, as a map in kebab-case with keyword enum values, or
-  nil when it has no type, e.g.
+  enclosures gives, as a map in kebab-case with keyword enum values, e.g.
 
       {:type :file :audio {:content-type \"audio/mpeg\" :bitrate 128000}}
 
@@ -427,10 +443,14 @@
   names one codec, of the codecs of the enclosure or of its type, and the
   rest is what the feed declares: the bitrate, the channels and sample
   rate of audio, and the width, height and frame rate of a video, which
-  are left out unless the video has them all."
+  are left out unless the video has them all.
+
+  It's nil when the type says nothing of the format: there's none, or
+  it's e.g. application/octet-stream. Such a file is almost always an
+  MP3, so a :playable-pred of enclosure can count it as playable."
   [{:keys [type bitrate width height framerate channels samplingrate]
     :as   enclosure}]
-  (when-let [essence (headers/media-type (str type))]
+  (when-let [essence (format-type type)]
     (let [as-video? (not (false? (video? enclosure)))
           codecs    (codec-list (or (:codecs enclosure)
                                     (second (re-find #"(?i)codecs=\"?([^\";]+)"

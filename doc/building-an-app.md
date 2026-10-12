@@ -719,15 +719,24 @@ Media Capabilities, and `canPlayType` where that says no, about what
 `resolve/decoding-configuration` gives:
 
 ```clojure
+(defn playable-pred
+  "A predicate of an enclosure by the answers `infos` of the browser, which
+  takes one whose type says nothing of its format as playable."
+  [infos]
+  (fn [enclosure]
+    (if-let [configuration (resolve/decoding-configuration enclosure)]
+      (capabilities/playable? (infos configuration))
+      true)))
+
 (-> (capabilities/decoding-infos!
-     (map resolve/decoding-configuration (resolve/enclosures item)))
+     (keep resolve/decoding-configuration (resolve/enclosures item)))
     (.then (fn [infos]
-             (resolve/enclosure
-              item
-              {:playable-pred (comp capabilities/playable?
-                                    infos
-                                    resolve/decoding-configuration)}))))
+             (resolve/enclosure item {:playable-pred (playable-pred infos)}))))
 ```
+
+A file without a type, or with one such as `application/octet-stream`,
+is almost always an MP3, so it counts as playable. If the browser can't
+play it after all, the audio element fires an error when it starts.
 
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:
