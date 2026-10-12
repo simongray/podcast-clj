@@ -95,6 +95,56 @@
   [feed url item]
   [(feed-key feed url) (item-guid item)])
 
+(defn- unreserved?
+  "Whether the byte `x` is a character that a URL needn't percent-encode."
+  [x]
+  (or (<= 65 x 90) (<= 97 x 122) (<= 48 x 57) (#{45 46 95 126} x)))
+
+;; RFC 3986, sections 2.1 and 2.3
+(defn- encoded
+  "The text `s` with each byte of its UTF-8 percent-encoded but for the
+  unreserved characters of a URL."
+  [s]
+  (let [b (bytes/encode s)]
+    (apply str (for [i (range (bytes/length b))
+                     :let [x (bytes/at b i)]]
+                 (if (unreserved? x)
+                   (char x)
+                   (str "%" (str/upper-case (bytes/hex (bytes/of [x])))))))))
+
+(defn- decoded
+  "The text that `s` percent-encodes as encoded does, or nil when it isn't
+  such a text."
+  [s]
+  (let [pieces (re-seq #"%[0-9A-Fa-f]{2}|[A-Za-z0-9._~-]+" s)
+        text   (bytes/decode (bytes/join (for [piece pieces]
+                                           (if (str/starts-with? piece "%")
+                                             (bytes/from-hex (subs piece 1))
+                                             (bytes/encode piece))))
+                             :utf8)]
+    ;; anything else in it, or bytes that aren't UTF-8, give another text
+    (when (= (str/replace s #"%[0-9a-f]{2}" str/upper-case) (encoded text))
+      text)))
+
+(defn format-episode-id
+  "The episode `id` as one string, e.g. for a route, a key or a native
+  bridge, or nil when it isn't a pair of strings. Each part is
+  percent-encoded and they're joined by a colon, so any guid round-trips,
+  e.g. 917393e3-…:https%3A%2F%2Fexample.com%2Fep%201."
+  [[feed-guid item-guid :as id]]
+  (when (and (string? feed-guid) (string? item-guid) (= 2 (count id)))
+    (str (encoded feed-guid) ":" (encoded item-guid))))
+
+(defn parse-episode-id
+  "The episode id that format-episode-id gives the string `s` for, or nil
+  when `s` is no such string."
+  [s]
+  (let [parts (when (string? s) (str/split s #":" -1))]
+    (when (= 2 (count parts))
+      (let [[feed-guid item-guid] (map decoded parts)]
+        (when (and feed-guid item-guid)
+          [feed-guid item-guid])))))
+
 (comment
   (from-url "https://mp3s.nashownotes.com/pc20rss.xml")
   ;; => "917393e3-1b1e-5cef-ace4-edaa54e1f810"

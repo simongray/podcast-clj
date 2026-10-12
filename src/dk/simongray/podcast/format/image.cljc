@@ -352,7 +352,9 @@
   The reading most often needs the first 64 KB alone. The `opts` are
   these:
 
-  - :fetch, a function as http/fetcher makes
+  - :fetch, a function as http/fetcher makes, or for a local file one
+    that view/file-fetcher or view/blob-fetcher makes, when `url` only
+    names the file in an error
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow-pred and :user-agent, as http/send! takes them
   - the limits of view/read!, with view/default-limits for those that

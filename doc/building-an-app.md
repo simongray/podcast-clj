@@ -506,6 +506,10 @@ add what the episode's chapters file, transcript and media file say:
 (transcript/at (:document (:transcript page)) 754)  ; the segment at 12:34
 ```
 
+An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
+route or a key that takes one string, `feed.guid/format-episode-id`
+writes the id as one, and `feed.guid/parse-episode-id` reads it back.
+
 The chapters come from the first place that has them: the chapters file,
 Podlove chapters in the feed, the media file, or timestamps in the show
 notes, and `:source` says which. A file that couldn't be read leaves an
@@ -857,8 +861,11 @@ bytes. Send its `:headers` with the request, and `downloads/resume-result`
 says what the answer means: append its body, replace the bytes with it,
 keep them as the whole file, or start over.
 
-Once a download has finished, `library/playback` plays the file. A file
-that the listener marks with `library/keep-file` stays whatever the rules
+Once a download has finished, `library/playback` plays the file. To read
+what the file says about itself, e.g. its chapters, give `media/read!` a
+fetcher of the file as `:fetch`: `view/file-fetcher` of its path on the
+JVM, or `view/blob-fetcher` of a File or a Blob in a browser. A file that
+the listener marks with `library/keep-file` stays whatever the rules
 say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes
 of each show on the device, e.g. for a storage screen. The record is
 saved with the library, but never synced, since each device has its own
@@ -1718,6 +1725,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]

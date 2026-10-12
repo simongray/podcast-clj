@@ -140,7 +140,9 @@
 
   The `opts` are these:
 
-  - :fetch, a function as http/fetcher makes, to fetch your own way
+  - :fetch, a function as http/fetcher makes, to fetch your own way, or
+    for a local file one that view/file-fetcher or view/blob-fetcher
+    makes, when `url` only names the file in an error
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow-pred and :user-agent, as http/send! takes them
   - :except, as read takes it

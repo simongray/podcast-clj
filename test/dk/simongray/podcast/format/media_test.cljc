@@ -579,6 +579,37 @@
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally done))))))
 
+(deftest media-in-memory
+  (let [b (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))]
+    (is (= 150.5 (:duration (media/read (view/whole b)))) "a file that the app has read whole")))
+
+#?(:clj
+   (deftest media-from-a-local-file
+     (let [b    (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
+           file (java.io.File/createTempFile "episode" ".m4a")]
+       (try
+         (with-open [out (java.io.FileOutputStream. file)]
+           (.write out ^bytes b))
+         (let [r (media/read! (str file) {:fetch (view/file-fetcher file)})]
+           (is (= 150.5 (:duration r)))
+           (is (= ["Intro" "Talk"] (map :title (:chapters (:chapters r)))))
+           (is (= (bytes/length b) (:bytes r))))
+         (is (= 0 (bytes/length (:bytes ((view/file-fetcher file) (+ 10 (bytes/length b)) (+ 20 (bytes/length b))))))
+             "no bytes past the end")
+         (finally
+           (.delete file))))))
+
+#?(:cljs
+   (deftest media-from-a-blob
+     (async done
+       (let [b (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))]
+         (-> (media/read! "episode.m4a" {:fetch (view/blob-fetcher (js/Blob. #js [b]))})
+             (.then (fn [r]
+                      (is (= 150.5 (:duration r)))
+                      (is (= ["Intro" "Talk"] (map :title (:chapters (:chapters r)))))))
+             (.catch (fn [e] (is false (str "rejected: " e))))
+             (.finally done))))))
+
 #?(:clj
    (deftest media-over-http
      (let [b   (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))

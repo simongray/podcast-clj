@@ -7,11 +7,15 @@
   A range that the view doesn't hold throws an exception that holds the
   ranges, so that the caller can fetch them and read again. A range past
   the end of the file throws too."
-  (:require [dk.simongray.podcast.util.bytes :as bytes]
+  (:require #?(:clj [clojure.java.io :as io])
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async])
+  #?(:clj (:import [java.nio ByteBuffer]
+                   [java.nio.channels FileChannel]
+                   [java.nio.file OpenOption StandardOpenOption])))
 
 (defn view
   "A view of a file of `total` bytes, which is nil when the size isn't
@@ -36,6 +40,43 @@
 
       total
       (assoc :total total))))
+
+(defn whole
+  "A view of the file whose bytes are all in `b`, e.g. a file that the app
+  has read, for a reader to read at once."
+  [b]
+  (add (view (bytes/length b)) 0 b (bytes/length b)))
+
+#?(:clj
+   (defn file-fetcher
+     "A function that fetches the bytes of the local file `f`, a path or a
+     java.io.File, by range, as read! takes it, e.g. as the :fetch of
+     format.media/read! for a downloaded episode."
+     [f]
+     (fn [start end]
+       (with-open [channel (FileChannel/open (.toPath (io/file f))
+                                             (into-array OpenOption
+                                                         [StandardOpenOption/READ]))]
+         (let [total  (.size channel)
+               buffer (ByteBuffer/allocate (int (max 0 (- (min end total) start))))]
+           (.position channel (long start))
+           (while (and (.hasRemaining buffer) (pos? (.read channel buffer))))
+           {:bytes (.array buffer) :start start :total total})))))
+
+;; File API, the slice and arrayBuffer methods of a Blob, which a browser's
+;; File is, and which Node's fs.openAsBlob gives of a file
+#?(:cljs
+   (defn blob-fetcher
+     "A function that fetches the bytes of the Blob `blob` by range, as read!
+     takes it, e.g. a File that the listener picked, as the :fetch of
+     format.media/read!."
+     [^js blob]
+     (fn [start end]
+       (.then (.arrayBuffer (.slice blob start end))
+              (fn [buffer]
+                {:bytes (js/Uint8Array. buffer)
+                 :start start
+                 :total (.-size blob)})))))
 
 (defn ^:no-doc part-at
   "The part of `view` that holds the byte at `p`, as a pair of its offset
