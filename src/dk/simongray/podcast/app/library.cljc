@@ -1582,6 +1582,18 @@
    (update library :files downloads/finish-download id details
            (time-of library opts))))
 
+(defn fail-download
+  "The `library` with the download of the episode `id` failed at the time
+  of the call, with `opts`, and the `details` of downloads/fail-download:
+  the bytes on the device and the headers that came with them, and the
+  error."
+  ([library id details]
+   (fail-download library id details {}))
+  ([library id details opts]
+   {:pre [(map? opts)]}
+   (update library :files downloads/fail-download id details
+           (time-of library opts))))
+
 (defn remove-file
   "The `library` without the file of the episode `id`, deleted at the time
   of the call, with `opts`. The entry stays, so that no plan downloads it

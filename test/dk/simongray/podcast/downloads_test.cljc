@@ -442,3 +442,65 @@
         (is (= finished (downloads/keep-file kept id false)))
         (is (:keep? (get (downloads/start-download kept entry (at 4)) id)) "stays kept when it downloads again")
         (is (= {} (downloads/keep-file {} id true)) "only a file that the record has")))))
+
+(deftest a-download-that-failed
+  (let [state    (with-rules subscribed {:default {:download? true}} {})
+        entry    (first (:download (plan state {})))
+        id       (:id entry)
+        started  (downloads/start-download {} entry (at 27))
+        details  {:received 150 :etag "\"v1\"" :error {:id :fetch/unreachable}}
+        broke    (downloads/fail-download started id details now)
+        again    (fn [files] (first (filter #(= id (:id %)) (:download (plan state files)))))]
+    (testing "a download that broke off goes on at the next plan, from its bytes"
+      (is (= (assoc entry :received 150 :headers {"Range" "bytes=150-" "If-Range" "\"v1\""}) (again broke)))
+      (is (= {"feed-a" {:episodes 1 :bytes 150}} (downloads/usage broke)) "which take room on the device")
+      (is (= 1 (:failures (get broke id)))))
+    (testing "and starts over without a strong validator, or from another URL"
+      (is (= entry (again (downloads/fail-download started id (assoc details :etag "W/\"v1\"") now))))
+      (is (= entry (again (assoc-in broke [id :url] "https://example.org/old.mp3")))))
+    (testing "the next failure waits"
+      (let [twice (-> broke
+                      (downloads/start-download (again broke) now)
+                      (downloads/fail-download id {:received 0} now))]
+        (is (= [2 false] [(:failures (get twice id)) (contains? (get twice id) :received)]))
+        (is (nil? (again twice)) "the 900 seconds of the second failure")
+        (is (= entry (first (:download (downloads/plan state [show] twice (at 29))))) "and comes again after them")
+        (is (= {} (downloads/usage twice)) "with no bytes on the device")))
+    (testing "the bytes of a try that tells none stay"
+      (is (= 150 (:received (get (downloads/fail-download broke id {:error {:id :fetch/unreachable}} now) id)))))
+    (testing "a retried download counts once against the limits"
+      (is (= (again broke)
+             (first (:download (plan (with-rules subscribed {:default {:download? true} :max-episodes 1} {})
+                                     broke))))))
+    (testing "a download that goes on keeps its bytes, and a finished one forgets them"
+      (let [resumed  (downloads/start-download broke (again broke) (at 28))
+            finished (downloads/finish-download resumed id {:path "/files/a4.mp3" :bytes 400} (at 28))]
+        (is (= [150 "\"v1\""] ((juxt :received :etag) (get resumed id))))
+        (is (not (contains? (get resumed id) :failed-at)) "and runs")
+        (is (= {:url "https://example.org/a4.mp3" :type "audio/mpeg" :bytes 400 :at (at 28) :finished-at (at 28)
+                :path "/files/a4.mp3"}
+               (get finished id)))))
+    (testing "a removed file forgets them too"
+      (is (= #{:url :type :bytes :at :removed? :removed-at} (set (keys (get (downloads/remove-file broke id now) id))))))))
+
+(deftest resuming-a-download
+  (let [file {:received 1048576}
+        date "Tue, 29 Sep 2026 10:00:00 GMT"]
+    (testing "the headers, with a strong validator alone"
+      (is (= {"Range" "bytes=1048576-" "If-Range" "\"v1\""} (downloads/resume-headers (assoc file :etag "\"v1\""))))
+      (is (nil? (downloads/resume-headers (assoc file :etag "W/\"v1\""))) "never a weak entity tag")
+      (is (nil? (downloads/resume-headers (assoc file :etag "W/\"v1\"" :last-modified date :date "Tue, 29 Sep 2026 10:05:00 GMT")))
+          "nor a date beside an entity tag")
+      (is (= date (get (downloads/resume-headers (assoc file :last-modified date :date "Tue, 29 Sep 2026 10:00:01 GMT")) "If-Range"))
+          "a date a second before the answer was sent")
+      (is (nil? (downloads/resume-headers (assoc file :last-modified date :date date))) "but not in the same second")
+      (is (nil? (downloads/resume-headers {:etag "\"v1\""})) "and nothing without bytes"))
+    (testing "the answer"
+      (let [answer (fn [status range] (downloads/resume-result file {:status status :headers (if range {"content-range" range} {})}))]
+        (is (= :append (answer 206 "bytes 1048576-2000000/2000001")))
+        (is (= :restart (answer 206 "bytes 0-2000000/2000001")) "a range from elsewhere")
+        (is (= :replace (answer 200 nil)) "a file that changed, or comes whole")
+        (is (= :complete (answer 416 "bytes */1048576")) "bytes that were whole")
+        (is (= :restart (answer 416 "bytes */2000001")))
+        (is (= :restart (answer 416 nil)))
+        (is (nil? (answer 503 nil)) "no success, so the bytes stay")))))

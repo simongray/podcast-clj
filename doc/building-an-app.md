@@ -786,6 +786,14 @@ To follow the plan:
     (swap! lib library/finish-download (:id entry) {:path path :bytes bytes})))
 ```
 
+When a download fails, record it with `library/fail-download`, with the
+bytes that came and the ETag, Last-Modified and Date of the answer. The
+plan lists it again, at once the first time and later after each failure
+that follows. An entry of the plan with `:received` goes on from those
+bytes. Send its `:headers` with the request, and `downloads/resume-result`
+says what the answer means: append its body, replace the bytes with it,
+keep them as the whole file, or start over.
+
 Once a download has finished, `library/playback` plays the file. A file
 that the listener marks with `library/keep-file` stays whatever the rules
 say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes

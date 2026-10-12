@@ -21,7 +21,9 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
-            [dk.simongray.podcast.profile.queue :as profile.queue]))
+            [dk.simongray.podcast.profile.queue :as profile.queue]
+            [dk.simongray.wary-fetch.date :as date]
+            [dk.simongray.wary-fetch.headers :as headers]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:
@@ -77,6 +79,13 @@
   length nor its bitrate, for :audio at 128 kbit/s and :video at 1 Mbit/s,
   unless the :estimate-fn of the options says otherwise."
   {:audio 16000 :video 125000})
+
+(def retry-waits
+  "How many seconds the plan waits before it lists a failed download
+  again, by how many times in a row it failed, repeating the last wait:
+  none after the first failure, so that a download that broke off goes on
+  at the next plan, and longer after each one that follows."
+  [0 900 3600 14400 86400])
 
 (defn rules
   "The rules that `profile` holds, over default-rules: the listener's
@@ -215,7 +224,8 @@
   with their :problems, and the :held episodes."
   [profile files at opts]
   (let [rules (:rules opts (rules profile))]
-    (merge (select-keys opts [:scale :enclosure :estimate-fn])
+    (merge {:retry-waits retry-waits}
+           (select-keys opts [:scale :enclosure :estimate-fn :retry-waits])
            {:profile  profile
             :at       at
             :url      (:url opts resolve/self-url)
@@ -346,14 +356,66 @@
   (boolean (and (:removed? (get-in profile [:inbox id]))
                 (not (profile.queue/queued? profile id)))))
 
+(defn- retrying?
+  "Whether the plan of `ctx` lists the failed download of `file` again: once
+  the wait of its :retry-waits after the last failure has passed."
+  [{:keys [at retry-waits] :as ctx} {:keys [failed-at failures] :as file}]
+  (when (and failed-at (not (:removed? file)))
+    (let [n    (if (pos-int? failures) failures 1)
+          wait (nth retry-waits (min (dec n) (dec (count retry-waits))) 0)]
+      (<= (+ (inst-ms failed-at) (* 1000 wait)) (inst-ms at)))))
+
 (defn- wanted?
   "Whether to download the episode `id`, by the profile and files of `ctx`.
-  It's false when the device has or had the file, or when the listener
-  played or dismissed the episode."
+  It's false when the device has or had the file, but for a failed
+  download whose wait has passed, or when the listener played or
+  dismissed the episode."
   [{:keys [profile files] :as ctx} id]
-  (not (or (contains? files id)
+  (not (or (and (contains? files id)
+                (not (retrying? ctx (get files id))))
            (profile/played? profile id)
            (dismissed? profile id))))
+
+;; TODO: move the choice of the If-Range validator, strong-date? and
+;; complete-length to wary-fetch, which reads the other HTTP headers
+(defn- strong-date?
+  "Whether the Last-Modified value `last-modified` of an answer is a strong
+  validator, by the Date value `date` of the same answer."
+  [last-modified date]
+  (let [modified (some-> last-modified date/epoch-ms)
+        sent     (some-> date date/epoch-ms)]
+    (boolean (and modified sent (<= (+ modified 1000) sent)))))
+
+;; RFC 9110, section 13.1.5: an If-Range with a strong validator alone,
+;; and a date only without an entity tag; section 8.8.2.2: a date is strong
+;; when the Date of its answer is at least a second later
+(defn resume-headers
+  "The headers of a request for the rest of the partial `file`, from the
+  bytes it has to the end, or nil when it can't go on: when it has no
+  bytes, or no strong validator that tells whether the file is still the
+  same, e.g.
+
+      {\"Range\" \"bytes=1048576-\" \"If-Range\" \"\\\"5f3a\\\"\"}"
+  [{:keys [received etag last-modified date] :as file}]
+  (let [validator (cond
+                    etag
+                    (when-not (str/starts-with? etag "W/") etag)
+
+                    (strong-date? last-modified date)
+                    last-modified)]
+    (when (and (pos-int? received) validator)
+      {"Range"    (str "bytes=" received "-")
+       "If-Range" validator})))
+
+(defn- resumed
+  "The plan entry `entry` for downloading the `file` of an episode again,
+  with the :received bytes and the :headers that ask for the rest, when
+  the file broke off from the same URL and can go on."
+  [entry file]
+  (let [headers (when (= (:url entry) (:url file))
+                  (resume-headers file))]
+    (cond-> entry
+      headers (assoc :received (:received file) :headers headers))))
 
 (defn- download
   "The plan entry for downloading the `item` of the episode `id` for
@@ -363,7 +425,7 @@
   those that can be downloaded, the audio or the video as the listener
   watches the show unless the :enclosure says. The bytes are the length in
   the feed, or else what the :estimate-fn of `ctx` gives for the item and
-  the enclosure."
+  the enclosure. A download that broke off goes on where it can."
   [ctx id item reason]
   (let [video?    (profile/prefers-video? (:profile ctx) (first id))
         opts      (-> (merge {:video? video?} (:enclosure ctx))
@@ -373,13 +435,14 @@
         enclosure (some-> item (resolve/enclosure opts))
         estimator (:estimate-fn ctx estimate)]
     (when-let [{:keys [url type length]} enclosure]
-      (cond-> {:id     id
-               :url    url
-               :bytes  (if (and (number? length) (pos? length))
-                         length
-                         (estimator item enclosure))
-               :reason reason}
-        type (assoc :type type)))))
+      (-> {:id     id
+           :url    url
+           :bytes  (if (and (number? length) (pos? length))
+                     length
+                     (estimator item enclosure))
+           :reason reason}
+          (cond-> type (assoc :type type))
+          (resumed (get-in ctx [:files id]))))))
 
 (defn- front
   "The episode ids at the front of the queue of `profile` that the rules'
@@ -465,20 +528,35 @@
                     :else                   :max-bytes)]
         (update plan :waiting conj (assoc entry :limit limit))))))
 
+(defn- size
+  "The bytes that `file` takes on the device: those received of a download
+  that failed, and else its :bytes, which a download that runs expects."
+  [file]
+  (let [n (if (:failed-at file) (:received file) (:bytes file))]
+    (if (number? n) n 0)))
+
 (defn on-device
-  "The entries of the `files` of a device that are on it, the finished
-  files and the downloads that run, by episode id."
+  "The entries of the `files` of a device that are on it, by episode id:
+  the finished files, the downloads that run, and the bytes of those that
+  broke off."
   [files]
-  (into {} (remove (comp :removed? val)) files))
+  (into {}
+        (remove (fn [[_ file]]
+                  (or (:removed? file)
+                      (and (:failed-at file) (zero? (size file))))))
+        files))
 
 (defn- planned
   "The plan for the context `ctx` and the `feeds`."
   [{:keys [files rules] :as ctx} feeds]
   (let [selected  (selections ctx feeds)
         going     (vec (deletes ctx selected))
-        staying   (apply dissoc (on-device files) (map :id going))
+        ;; a download that's tried again counts as its download
+        retried   (keep (fn [[id file]] (when (retrying? ctx file) id)) files)
+        staying   (apply dissoc (on-device files)
+                         (concat (map :id going) retried))
         total     {:episodes (count staying)
-                   :bytes    (reduce + (map #(:bytes % 0) (vals staying)))}
+                   :bytes    (reduce + (map size (vals staying)))}
         start     {:download []
                    :delete   going
                    :waiting  []
@@ -498,9 +576,12 @@
 
   The :at of a file is when it was downloaded. No rule deletes a file with
   :keep?, and a file that's gone has :removed?. Keep that entry, since no
-  episode with an entry is downloaded again. The functions start-download,
-  finish-download, remove-file and keep-file keep such a record. The
-  result is:
+  episode with an entry is downloaded again, but for one that failed,
+  which comes again after the :retry-waits of `opts`, retry-waits by
+  default. One that broke off comes with the :received bytes and the
+  :headers that ask for the rest, when they can, as resume-headers says.
+  The functions start-download, finish-download, fail-download,
+  remove-file and keep-file keep such a record. The result is:
 
       {:download [{:id id :url \"…\" :bytes 48211004 :reason :rule …}]
        :delete   [{:id id :bytes 51093220 :reason :played}]
@@ -531,6 +612,8 @@
   - :estimate-fn, a function of an item and its enclosure that gives the
     bytes of a file whose feed gives no length, estimate by default
   - :scale, the scale of the criterion :rating
+  - :retry-waits, the seconds before a failed download comes again, as
+    retry-waits has them
 
   When the rules have a problem, the result describes it under
   :problems."
@@ -552,12 +635,16 @@
 
   The entry of the file keeps the :url, the :type and the :bytes that the
   plan expects, and the time as :at. A file that the listener asked to
-  keep stays kept."
-  [files {:keys [id] :as entry} at]
-  (update files id #(-> %
-                        (dissoc :removed? :removed-at :finished-at :path)
-                        (merge (select-keys entry [:url :type :bytes]))
-                        (assoc :at at))))
+  keep stays kept, and the bytes of a download that broke off stay when
+  the plan entry goes on from them, with :received."
+  [files {:keys [id received] :as entry} at]
+  (update files id
+          #(cond-> (-> %
+                       (dissoc :removed? :removed-at :finished-at :path
+                               :failed-at :error)
+                       (merge (select-keys entry [:url :type :bytes]))
+                       (assoc :at at))
+             (not received) (dissoc :received :etag :last-modified :date))))
 
 (defn finish-download
   "The `files` of a device with the download of the episode `id` finished
@@ -565,10 +652,35 @@
   path is whatever the platform reads the file by, e.g. a file path or
   the key of a cached response."
   [files id {:keys [path bytes] :as details} at]
-  (update files id #(cond-> (assoc % :finished-at at)
+  (update files id #(cond-> (-> %
+                                (dissoc :failed-at :failures :error :received
+                                        :etag :last-modified :date)
+                                (assoc :finished-at at))
                       (nil? (:at %)) (assoc :at at)
                       path           (assoc :path path)
                       bytes          (assoc :bytes bytes))))
+
+(defn fail-download
+  "The `files` of a device with the download of the episode `id` failed at
+  `at`, with the `details` below. The plan lists it again once the wait
+  of retry-waits after the failure has passed.
+
+  - :received, the bytes of the file that are on the device, from which
+    the next download can go on, or 0 for none. Without it, the bytes of
+    the last try stay.
+  - :etag, :last-modified and :date, the headers of the answer that gave
+    the bytes, which tell whether the file is still the same
+  - :error, a diagnostic of why it failed"
+  [files id {:keys [received] :as details} at]
+  (let [none? (and (number? received) (zero? received))]
+    (update files id
+            #(cond-> (-> (dissoc % :error)
+                         (merge (select-keys details [:received :etag
+                                                      :last-modified :date
+                                                      :error]))
+                         (assoc :failed-at at)
+                         (update :failures (fnil inc 0)))
+               none? (dissoc :received :etag :last-modified :date)))))
 
 (defn remove-file
   "The `files` of a device without the file of the episode `id`, deleted
@@ -576,7 +688,9 @@
   again."
   [files id at]
   (if (contains? files id)
-    (update files id #(-> (dissoc % :path :finished-at)
+    (update files id #(-> (dissoc % :path :finished-at :received :etag
+                                  :last-modified :date :failed-at :failures
+                                  :error)
                           (assoc :removed? true :removed-at at)))
     files))
 
@@ -600,16 +714,53 @@
 (defn usage
   "How many of the `files` of a device are on it, and their bytes, by feed
   guid, e.g. {feed-guid {:episodes 3 :bytes 151000000}}. A download that
-  runs counts with the bytes that the plan expects."
+  runs counts with the bytes that the plan expects, and one that broke off
+  with the bytes it received."
   [files]
-  (reduce-kv (fn [acc [feed-guid] {:keys [bytes]}]
+  (reduce-kv (fn [acc [feed-guid] file]
                (-> acc
                    (update-in [feed-guid :episodes] (fnil inc 0))
-                   (update-in [feed-guid :bytes]
-                              (fnil + 0)
-                              (if (number? bytes) bytes 0))))
+                   (update-in [feed-guid :bytes] (fnil + 0) (size file))))
              {}
              (on-device files)))
+
+;; TODO: move to wary-fetch, beside headers/content-range
+(defn- complete-length
+  "The size of the whole file that the Content-Range value `s` of an
+  answer of 416 gives, e.g. bytes */146515, or nil."
+  [s]
+  (some->> s
+           (re-matches #"(?i)\s*bytes\s+\*/(\d{1,15})\s*")
+           second
+           parse-long))
+
+;; RFC 9110, sections 14.4, 15.3.7 and 15.5.17
+(defn resume-result
+  "What the `response` to a request with the resume-headers of the partial
+  `file` means for the bytes of the file that the device has, or nil for
+  an answer that isn't a success, which leaves them as they are:
+
+  - :append, a 206 from the end of the bytes, whose body goes after them
+  - :replace, a 200 with the whole file, which changed or came whole, so
+    the body replaces them
+  - :complete, a 416 that gives the size of the file as that of the
+    bytes, which were whole already
+  - :restart, another 206 or 416, so the bytes go, and the file downloads
+    again from its start
+
+  The response is a map of :status and :headers, with the names of the
+  headers in lower case, as wary-fetch gives them."
+  [{:keys [received] :as file} {:keys [status headers] :as response}]
+  (let [value (headers/header headers "content-range")]
+    (case (long (or status 0))
+      206 (if (= received (:start (headers/content-range value)))
+            :append
+            :restart)
+      200 :replace
+      416 (if (= received (complete-length value))
+            :complete
+            :restart)
+      nil)))
 
 (comment
   (def show
