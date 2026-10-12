@@ -226,11 +226,17 @@
                                    {:rules (keep #{})}))))
             "a file that the app keeps, and a file that went")))
     (testing "a file of a show that the listener left, or that is no show of the state"
-      (is (= [["feed-a" "a1"] ["feed-c" "c1"]]
-             (ids (:delete (plan (-> (with-rules heard {:default {:played 0}} {})
-                                     (profile/unsubscribe "feed-a" (at 26))
-                                     (profile/mark-played ["feed-c" "c1"] (at 26)))
-                                 (assoc files ["feed-c" "c1"] {:bytes 10 :at (at 25)})))))))))
+      (let [state (-> (with-rules heard {:default {:played 0}} {})
+                      (profile/unsubscribe "feed-a" (at 26))
+                      (profile/mark-played ["feed-c" "c1"] (at 26)))
+            files (assoc files ["feed-c" "c1"] {:bytes 10 :at (at 25)})]
+        (is (= [["feed-a" "a1"] ["feed-a" "a2"] ["feed-a" "a4"] ["feed-c" "c1"]]
+               (ids (:delete (plan state files))))
+            "every one of them")
+        (is (= [["feed-a" "a1"] ["feed-c" "c1"]]
+               (ids (:delete (plan (with-rules state {:default {:played 0} :delete-unsubscribed? false} {})
+                                   files))))
+            "or those that the rules delete anyway")))))
 
 (deftest the-room-on-the-device
   (let [state (-> (with-rules subscribed {:default {:download? true}} {})
@@ -504,3 +510,31 @@
         (is (= :restart (answer 416 "bytes */2000001")))
         (is (= :restart (answer 416 nil)))
         (is (nil? (answer 503 nil)) "no success, so the bytes stay")))))
+
+(deftest the-files-of-a-show-that-the-listener-left
+  (let [files {["feed-a" "a1"] {:bytes 100 :at (at 2)}
+               ["feed-b" "b1"] {:bytes 200 :at (at 2)}
+               ["feed-b" "b2"] {:bytes 300 :at (at 2) :keep? true}}
+        left  (profile/unsubscribe subscribed "feed-b" (at 20))]
+    (is (= [{:id ["feed-b" "b1"] :bytes 200 :reason :unsubscribed}] (:delete (plan left files)))
+        "but for the file that the listener keeps")
+    (is (= [] (:delete (plan (with-rules left {:delete-unsubscribed? false} {}) files))) "unless the rules say")
+    (is (= [] (:delete (plan (profile/add-remote-item left ["feed-b" "b1"] {:feed-url "https://example.org/b.xml"} (at 21))
+                             files)))
+        "nor an episode that the listener added on its own")
+    (is (= [] (:delete (plan (profile.queue/enqueue left ["feed-b" "b1"] (at 21)) files)))
+        "nor one in the queue, which the rules keep")))
+
+(deftest the-name-of-a-file
+  (let [entry {:id ["feed-a" "a1"] :url "https://example.org/a1.mp3" :type "audio/mpeg"}
+        named #(downloads/file-name (merge entry %1) %2)]
+    (is (= "Soeren-og-AEbleskiverne-Cafe-f95ad19a.mp3" (named {} "Søren og Æbleskiverne — Café!"))
+        "letters without their accents, and the same digest of the id on both platforms")
+    (is (= "Episode-1-The-Past-f95ad19a.mp3" (named {} "Episode 1: The Past")))
+    (is (= "f95ad19a.mp3" (named {} "日本語")) "the digest alone for a title without such letters")
+    (is (not= (named {} "T") (named {:id ["feed-a" "a2"]} "T")) "two episodes of one title")
+    (is (= "T-f95ad19a.m4a" (named {:type "audio/x-m4a"} "T")))
+    (is (= "T-f95ad19a.opus" (named {:type "audio/x-unknown" :url "https://x.example/e.OPUS?t=1"} "T"))
+        "the extension of the URL for a type that the table lacks")
+    (is (= "T-f95ad19a" (downloads/file-name {:id ["feed-a" "a1"]} "T")))
+    (is (= 93 (count (named {} (apply str (repeat 30 "Long title "))))) "80 of the title at most")))

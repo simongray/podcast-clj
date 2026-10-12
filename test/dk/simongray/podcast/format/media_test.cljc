@@ -121,9 +121,9 @@
 
 (deftest reading-by-rounds
   (let [spread (fn [v] (view/reading #(do (view/need-all v (for [i (range 40)] [(* i 100000) (+ (* i 100000) 10)]))
-                                           {:read :spread})))
+                                          {:read :spread})))
         near   (fn [v] (view/reading #(do (view/need-all v (for [i (range 100)] [(* i 1000) (+ (* i 1000) 10)]))
-                                           {:read :near})))
+                                          {:read :near})))
         walk   (fn [v] (view/reading #(loop [p 0 k 0]
                                         (if (= k 10)
                                           {:read :walk}
@@ -503,6 +503,17 @@
           "the type of another codec, in lower case")))
   (testing "a movie after the media data starts late"
     (is (false? (:movie-first? (mp4/read (view (movie-file true (playing-trak 1 "soun" aac-entry))))))))
+  (testing "where the media data starts, after the movie or before it"
+    (let [first-movie (movie-file false (playing-trak 1 "soun" aac-entry))
+          last-movie  (movie-file true (playing-trak 1 "soun" aac-entry))
+          ;; the movie and no more, of a file whose size is known
+          b           (bytes/of first-movie)
+          moov-end    (- (bytes/length b) 24)
+          head        (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 moov-end) (bytes/length b))]
+      (is (= (- (count first-movie) 16) (:media-start (mp4/read (view first-movie)))))
+      (is (= 24 (:media-start (mp4/read (view last-movie)))) "past the ftyp box and the header of the mdat box")
+      (is (= (:duration (mp4/read (view first-movie))) (:duration (mp4/read head))))
+      (is (not (contains? (mp4/read head) :media-start)) "nothing beyond the bytes at hand")))
   (testing "a disabled track and a track of chapter pictures don't play"
     (let [chapters (box "tref" (box "chap" (be 4 3)))
           audio    (box "trak"
@@ -523,6 +534,13 @@
 
 (deftest reading-media
   (is (= :mp3 (:format (media/read (view (concat (tag 3 (text 3 "TIT2" "T")) (xing-frame 10) (audio-frame)))))))
+  (testing "the size of the file and where its audio starts, the header of the IAB's threshold"
+    (let [tagged (tag 3 (text 3 "TIT2" "T"))
+          file   (concat tagged (xing-frame 10) (audio-frame))]
+      (is (= {:bytes (count file) :media-start (count tagged)}
+             (select-keys (media/read (view file)) [:bytes :media-start])))
+      (is (not (contains? (media/read (view/add (view/view) 0 (bytes/of file) nil)) :bytes))
+          "unless the size isn't known")))
   (is (= :mp4 (:format (media/read (view (chapter-file ["A"] [1000] false))))))
   (is (= [:file/unknown-format] (map :id (media/report (media/read (view (ascii "<html><body>not audio</body></html>")))))))
   (testing "a view that lacks bytes gives the ranges it needs"

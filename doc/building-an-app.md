@@ -809,6 +809,14 @@ stream or a torrent. A rule written by a newer version of podcast-clj does
 nothing until this version understands it, and `downloads/problems` says
 why.
 
+The plan deletes the files of a show that the listener left, but for
+those that the rules keep and the episodes added on their own, unless
+the rules have `:delete-unsubscribed? false`. To name a file, give
+`downloads/file-name` the entry of the plan and the title of the episode.
+It gives a name that every file system takes, from the letters of the
+title, a digest of the episode's id and the extension of the file, e.g.
+`Episode-274-Vibe-Cloning-c71b5f4a.mp3`.
+
 
 ## Share a show or an episode
 
@@ -1400,6 +1408,15 @@ file needs to count, which `analytics/threshold` works out:
 (frequencies (map :url (:downloads result)))            ; downloads per file
 (count (distinct (map :listener (:downloads result))))  ; listeners
 (frequencies (map :agent-name (:downloads result)))     ; apps
+```
+
+A reading of the file gives the numbers of the threshold: its `:bytes`
+are the size, and its `:media-start`, where the audio starts after the
+ID3 tag, is the header:
+
+```clojure
+(let [{:keys [bytes media-start duration]} (media/read! episode-url)]
+  (analytics/threshold {:size bytes :header media-start :duration duration}))
 ```
 
 The requests that didn't count are under `:dropped`, by reason. Here

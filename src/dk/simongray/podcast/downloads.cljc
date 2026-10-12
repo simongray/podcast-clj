@@ -19,11 +19,14 @@
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.queue :as profile.queue]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.date :as date]
-            [dk.simongray.wary-fetch.headers :as headers]))
+            [dk.simongray.wary-fetch.headers :as headers]
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:
@@ -65,14 +68,18 @@
   - :max-file-bytes, the most bytes of one file, e.g. to keep a video of
     several gigabytes from a phone
   - :make-room?, whether the files of played episodes go when a download
-    needs room"
-  {:default        {}
-   :shows          {}
-   :queue          nil
-   :max-episodes   nil
-   :max-bytes      nil
-   :max-file-bytes nil
-   :make-room?     false})
+    needs room
+  - :delete-unsubscribed?, whether the files of a show go once the
+    listener unsubscribes from it, but for those that the rules keep and
+    the episodes added on their own"
+  {:default              {}
+   :shows                {}
+   :queue                nil
+   :max-episodes         nil
+   :max-bytes            nil
+   :max-file-bytes       nil
+   :make-room?           false
+   :delete-unsubscribed? true})
 
 (def bytes-per-second
   "The bytes of one second of an episode whose feed gives neither its
@@ -144,13 +151,14 @@
 
 (def ^:no-doc checks
   "The tests of the values of the rules, by key."
-  {:queue          #(or (nil? %) (boolean? %) (amount? %))
-   :max-episodes   #(or (nil? %) (amount? %))
-   :max-bytes      #(or (nil? %) (amount? %))
-   :max-file-bytes #(or (nil? %) (amount? %))
-   :make-room?     #(or (nil? %) (boolean? %))
-   :default        #(or (nil? %) (map? %))
-   :shows          #(or (nil? %) (map? %))})
+  {:queue                #(or (nil? %) (boolean? %) (amount? %))
+   :max-episodes         #(or (nil? %) (amount? %))
+   :max-bytes            #(or (nil? %) (amount? %))
+   :max-file-bytes       #(or (nil? %) (amount? %))
+   :make-room?           #(or (nil? %) (boolean? %))
+   :delete-unsubscribed? #(or (nil? %) (boolean? %))
+   :default              #(or (nil? %) (map? %))
+   :shows                #(or (nil? %) (map? %))})
 
 (defn- show-problem
   "A description of what this version of podcast-clj doesn't know in
@@ -293,12 +301,20 @@
   [{:keys [played-at updated-at] :as e}]
   (first (instants [played-at updated-at])))
 
-(defn- expired
-  "The reason that the show's rule in `ctx` deletes the `file` of the
-  episode `id`, given the ids it `selected`, or nil to keep the file.
+(defn- left?
+  "Whether the listener left the show of the episode `id` in `profile`: it
+  has no live subscription, and the episode wasn't added on its own."
+  [profile [feed-guid :as id]]
+  (not (or (profile/subscribed? profile feed-guid)
+           (contains? (profile/remote-items profile) id))))
 
-  The reason is :played, :inactive or :trimmed. The `selected` ids are nil
-  for a show whose feed wasn't given."
+(defn- expired
+  "The reason that the rules in `ctx` delete the `file` of the episode
+  `id`, given the ids that the rule of its show `selected`, or nil to keep
+  the file.
+
+  The reason is :unsubscribed, :played, :inactive or :trimmed. The
+  `selected` ids are nil for a show whose feed wasn't given."
   [{:keys [profile rules at] :as ctx} selected id file]
   (let [{:keys [played inactive trim?]} (rule rules (first id))
         e      (profile/episode-entry profile id)
@@ -310,9 +326,10 @@
         active (some->> (instants [(:at file) reported-at updated-at])
                         (apply max))]
     (cond
-      (and played? (past? (played-ms e) played))         :played
-      (and (not played?) (past? active inactive))        :inactive
-      (and trim? selected (not (contains? selected id))) :trimmed)))
+      (and (:delete-unsubscribed? rules) (left? profile id)) :unsubscribed
+      (and played? (past? (played-ms e) played))             :played
+      (and (not played?) (past? active inactive))            :inactive
+      (and trim? selected (not (contains? selected id)))     :trimmed)))
 
 (defn- gone
   "The plan entry for deleting the `file` of the episode `id`, for
@@ -596,6 +613,8 @@
   room within :max-episodes and :max-bytes wait, as do files above
   :max-file-bytes. A file is deleted for one of these reasons:
 
+  - :unsubscribed, the listener left the show, and the rules have
+    :delete-unsubscribed?
   - :played, the episode was played :played seconds ago
   - :inactive, it wasn't played for :inactive seconds
   - :trimmed, the rule no longer selects it, and has :trim?
@@ -723,6 +742,57 @@
                    (update-in [feed-guid :bytes] (fnil + 0) (size file))))
              {}
              (on-device files)))
+
+(def ^:no-doc unaccented
+  "The letters that keep their form when their accents are taken off, as
+  the letters of a name that every file system takes."
+  {\æ "ae" \Æ "AE" \ø "oe" \Ø "OE" \œ "oe" \Œ "OE" \ß "ss" \ł "l" \Ł "L"
+   \đ "d" \Đ "D" \ð "d" \Ð "D" \þ "th" \Þ "TH" \ı "i"})
+
+(defn- plain
+  "The text `s` with the accents taken off its letters, e.g. é as e and ø
+  as oe."
+  [s]
+  (let [decomposed #?(:clj  (java.text.Normalizer/normalize
+                             s java.text.Normalizer$Form/NFKD)
+                      :cljs (.normalize s "NFKD"))
+        letters    (str/escape decomposed unaccented)]
+    #?(:clj  (str/replace letters #"\p{M}+" "")
+       :cljs (.replace letters (js/RegExp. "\\p{M}+" "gu") ""))))
+
+(defn- extension
+  "The extension of the file of `url`, in lower case, or nil."
+  [url]
+  (some->> (:path (url/parts url))
+           (re-find #"\.([A-Za-z0-9]{1,5})$")
+           second
+           str/lower-case))
+
+;; POSIX.1-2017, section 3.282, the portable filename character set
+(defn file-name
+  "A name for the file of the download `entry` of a plan, made from the
+  `title` of its episode, that every file system takes, e.g.
+  Episode-274-Vibe-Cloning-3fa2b9c1.mp3.
+
+  The name keeps the letters and digits of the title without their
+  accents, and a hyphen for any other run of characters, up to 80 of
+  them. Eight hex digits of the episode's id come next, so that two
+  episodes with one title don't share a name, and then the extension of
+  the media type of the entry, or else of its URL."
+  [{:keys [id type url] :as entry} title]
+  (let [words  (-> (plain (str title))
+                   (str/replace #"[^A-Za-z0-9]+" "-")
+                   (str/replace #"^-+" ""))
+        words  (-> (subs words 0 (min 80 (count words)))
+                   (str/replace #"-+$" ""))
+        digest (subs (bytes/hex (bytes/sha256 (bytes/encode (pr-str id))))
+                     0 8)
+        ending (or (:extension (get media/types
+                                    (some-> type headers/media-type)))
+                   (extension url))]
+    (str (when (seq words) (str words "-"))
+         digest
+         (when ending (str "." ending)))))
 
 ;; TODO: move to wary-fetch, beside headers/content-range
 (defn- complete-length

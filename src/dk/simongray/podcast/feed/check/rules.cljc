@@ -31,18 +31,14 @@
   [facts]
   (get-in facts [:error :reason]))
 
-;; PSP-1, the enclosure types, with Apple's spellings beside them
 (def ^:no-doc formats
-  "The format that the media reader finds in a file of each declared type.
-  The reader knows no other."
-  {"audio/mpeg"      :mp3
-   "audio/mp4"       :mp4
-   "audio/x-m4a"     :mp4
-   "audio/m4a"       :mp4
-   "video/mp4"       :mp4
-   "video/m4v"       :mp4
-   "video/x-m4v"     :mp4
-   "video/quicktime" :mp4})
+  "The format that the media reader finds in a file of each declared type,
+  for the types whose files it reads."
+  (into {}
+        (keep (fn [[type {:keys [format]}]]
+                (when format
+                  [type format])))
+        media/types))
 
 (def requirements
   "The requirements that a check adds for a standard or a directory, by name.

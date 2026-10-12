@@ -24,6 +24,30 @@
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch.async :as async]))
 
+;; IANA Media Types: RFC 3003 for audio/mpeg, RFC 4337 for audio/mp4 and
+;; video/mp4, RFC 7845, section 9, for .opus; and the spellings of Apple
+;; Podcasts, which PSP-1 lists beside them
+(def types
+  "What each media type of an enclosure says of its files: the :extension
+  of a file name, and the :format that read finds in them, for those it
+  reads."
+  {"audio/mpeg"      {:extension "mp3" :format :mp3}
+   "audio/mp4"       {:extension "m4a" :format :mp4}
+   "audio/x-m4a"     {:extension "m4a" :format :mp4}
+   "audio/m4a"       {:extension "m4a" :format :mp4}
+   "video/mp4"       {:extension "mp4" :format :mp4}
+   "video/m4v"       {:extension "m4v" :format :mp4}
+   "video/x-m4v"     {:extension "m4v" :format :mp4}
+   "video/quicktime" {:extension "mov" :format :mp4}
+   "audio/aac"       {:extension "aac"}
+   "audio/ogg"       {:extension "ogg"}
+   "audio/opus"      {:extension "opus"}
+   "audio/flac"      {:extension "flac"}
+   "audio/wav"       {:extension "wav"}
+   "audio/x-wav"     {:extension "wav"}
+   "audio/webm"      {:extension "webm"}
+   "video/webm"      {:extension "webm"}})
+
 (defn- sniff
   "The format of the file whose start `view` holds, or nil: :mp3 for an ID3
   tag or an MPEG audio frame, and :mp4 for an ftyp box."
@@ -39,11 +63,13 @@
   [view opts]
   (let [file     (mp3/read view opts)
         frames   (mapcat :frames (:tags file))
+        start    (:audio-start file)
         duration (or (:duration file) (id3/duration frames))
         chs      (id3/chapters frames opts)
         artwork  (id3/artwork frames)]
     (view/reported
      (cond-> {:format :mp3}
+       start     (assoc :media-start start)
        duration  (assoc :duration duration)
        (seq chs) (assoc :chapters {:version chapters/version :chapters chs})
        artwork   (assoc :artwork artwork))
@@ -74,9 +100,9 @@
 
 (defn read
   "What the media file whose parts `view` holds says about itself, read
-  with `opts`. It's a map of :format, :duration, :chapters and :artwork,
-  and for an MP4 file the :codecs, :width, :height and :movie-first? that
-  format.media.mp4/read gives, each absent when the file doesn't have it.
+  with `opts`. It's a map of the keys below, and for an MP4 file the
+  :codecs, :width, :height and :movie-first? that format.media.mp4/read
+  gives, each absent when the file doesn't have it.
 
   - :format is :mp3 or :mp4
   - :duration is in seconds
@@ -84,6 +110,10 @@
     and the images of an MP3 file's chapters are data URLs, which a host
     serves as files with update-image-urls of that namespace
   - :artwork is a map of :type and :data
+  - :bytes is the size of the file, when the view knows it
+  - :media-start is where the audio or video starts, after the ID3 tag of
+    an MP3 file or the boxes before the media data of an MP4 file. With
+    :bytes, it's the :header and the :size of analytics/threshold.
 
   When the view lacks bytes, the result has the ranges that the reading
   needs under :need, as pairs of start and end, end excluded.
@@ -95,11 +125,13 @@
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
-   (let [unknown {:id :file/unknown-format :level :warning}]
-     (view/reading #(case (sniff view)
-                      :mp3 (mp3-result view opts)
-                      :mp4 (mp4-result view opts)
-                      (view/reported {} [unknown]))))))
+   (let [unknown {:id :file/unknown-format :level :warning}
+         total   (:total view)]
+     (view/reading #(cond-> (case (sniff view)
+                              :mp3 (mp3-result view opts)
+                              :mp4 (mp4-result view opts)
+                              (view/reported {} [unknown]))
+                      (number? total) (assoc :bytes total))))))
 
 (defn read!
   "Read what the media file at `url` says about itself, fetched with

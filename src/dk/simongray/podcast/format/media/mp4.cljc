@@ -77,6 +77,26 @@
             (cond-> b media? (assoc :after-media? true))
             (recur end (or media? (= "mdat" type)))))))))
 
+(defn- held?
+  "Whether `view` holds the `n` bytes at `p`, without asking for them."
+  [view p n]
+  (let [[o b] (view/part-at view p)]
+    (boolean (and o (<= (+ p n) (+ o (bytes/length b)))))))
+
+(defn ^:no-doc media-start
+  "Where the media data of the file in `view` starts, the content of its
+  first mdat box at the top level, as far as the bytes at hand go, or nil.
+  It asks for no more bytes, since a reading that comes by the movie
+  first may not have the box after it."
+  [view]
+  (let [limit (or (:total view) ##Inf)]
+    (loop [p 0]
+      (when (and (< (+ p 8) limit) (held? view p 16))
+        (when-let [{:keys [type end content]} (box view p limit)]
+          (if (= "mdat" type)
+            content
+            (recur end)))))))
+
 (defn ^:no-doc flags
   "The flags of the full box `b` in `view`."
   [view {:keys [content] :as b}]
@@ -643,6 +663,8 @@
   - :width and :height of the video, in pixels
   - :movie-first?, whether the movie comes before the media data, so that
     a player can start before it has the end of the file
+  - :media-start, where the media data starts, when the bytes at hand
+    reach it
 
   The :except of `opts` is the ids of the quirks to leave out. When the
   view lacks bytes, the reading throws an exception that holds their
@@ -656,7 +678,9 @@
   ([view {:keys [except] :as opts}]
    {:pre [(map? opts)]}
    (if-let [moov (movie view)]
-     (read-movie view moov except)
+     (let [start (media-start view)]
+       (cond-> (read-movie view moov except)
+         start (assoc :media-start start)))
      (view/reported {} [{:id :mp4/no-movie :level :warning}]))))
 
 (comment

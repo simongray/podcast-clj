@@ -273,6 +273,8 @@
     the feed declares, so that a position may not carry over to another
     file of the episode.
   - :duration is that of the media file or the stream.
+  - :bytes is the size of the media file, e.g. for a feed that gives the
+    wrong length.
 
   Nothing is thrown for what the network or a server does, and a part
   that couldn't be read has an :error. The `opts` are:
@@ -320,10 +322,11 @@
                                     (update :report (fnil conj [])
                                             (diagnostics/describe other)))]
                      (cond-> {}
-                       chapters   (assoc :chapters chapters)
-                       transcript (assoc :transcript transcript)
-                       media      (assoc :media media)
-                       duration   (assoc :duration duration))))))))
+                       chapters       (assoc :chapters chapters)
+                       transcript     (assoc :transcript transcript)
+                       media          (assoc :media media)
+                       duration       (assoc :duration duration)
+                       (:bytes media) (assoc :bytes (:bytes media)))))))))
 
 (defn report
   "The diagnostics of all the parts of the read `files`, each with the
