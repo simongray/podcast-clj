@@ -6,7 +6,8 @@
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.profile.marks :as profile.marks]))
+            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.queue :as profile.queue]))
 
 (def t0 #inst "2026-03-01T00:00:00Z")
 (def t1 #inst "2026-03-02T00:00:00Z")
@@ -229,3 +230,42 @@
         "the url as a function of the feed, for the identities the profile uses")
     (is (= ["Other" "Test Show"] (distinct (mapv (comp :rss/title first) (criteria/episodes [other show]))))
         "in the listening order, each show keeps its episodes together, in the order the feeds come")))
+
+(deftest criteria-of-the-show-the-queue-and-the-device
+  (let [video  (assoc show :rss/items
+                      [{:rss/title "Seen" :rss/guid {:content "v"}
+                        :rss/enclosure {:url "https://x/v.mp4" :type "video/mp4"}}
+                       {:rss/title "Heard" :rss/guid {:content "a"}
+                        :rss/enclosure {:url "https://x/a.mp3" :type "audio/mpeg"}}])
+        other  (guid/with-key {:rss/title "Other" :podcast/guid "other"
+                               :rss/items [{:rss/title "Elsewhere" :rss/guid {:content "e"}}]}
+                              "other")
+        state  (-> listened
+                   (profile/subscribe "feed-guid" {:url "https://x/feed" :title "Test Show"} t0)
+                   (profile/subscribe "other" {:url "https://x/other" :title "Other"} t0)
+                   (profile/configure "feed-guid" {:folder "News"} t0)
+                   (profile/tag "other" "Daily" t0)
+                   (profile.queue/enqueue ["other" "e"] t1))
+        found  (fn [where & {:as opts}]
+                 (mapv (comp :rss/title second)
+                       (criteria/episodes [video other] (merge {:where where :profile state} opts))))]
+    (is (= ["Elsewhere"] (found {:show "other"})))
+    (is (= ["Seen" "Heard" "Elsewhere"] (found {:show #{"feed-guid" "other"}})))
+    (is (= ["Seen" "Heard"] (found {:folder "News"})))
+    (is (= ["Elsewhere"] (found {:folder nil})) "a show in no folder")
+    (is (= ["Elsewhere"] (found {:tag #{"Daily" "Weekly"}})))
+    (is (= ["Seen"] (found {:media :video})))
+    (is (= ["Heard"] (found {:media :audio})))
+    (is (= ["Elsewhere"] (found {:queued? true})))
+    (testing "the state of the file on the device"
+      (let [files {["feed-guid" "v"] {:at t0 :finished-at t0 :path "/v.mp4"}
+                   ["feed-guid" "a"] {:at t0}
+                   ["other" "e"]     {:at t0 :removed? true}}]
+        (is (= ["Seen"] (found {:download :downloaded} :files files)))
+        (is (= ["Heard"] (found {:download :downloading} :files files)))
+        (is (= ["Elsewhere"] (found {:download :none} :files files)) "a file that went is none")
+        (is (= ["Heard"] (found {:download :failed} :files (assoc-in files [["feed-guid" "a"] :failed-at] t1))))
+        (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:download needs the files"
+                              (criteria/where {:download :none})))))
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:tag needs the profile"
+                          (criteria/where {:tag "Daily"})))))

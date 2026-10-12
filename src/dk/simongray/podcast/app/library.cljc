@@ -968,15 +968,20 @@
 
       (episodes library {:where {:status :unplayed} :order :listening})
 
-  The criteria are those of criteria/episodes. They read the profile of
-  the library, and the time of its clock unless the `opts` give :at."
+  The criteria are those of criteria/episodes. They read the profile and
+  the downloaded files of the library, and the time of its clock unless
+  the `opts` give :at. With :feed-guids, only the episodes of those shows
+  are read, e.g. for the page of a show."
   ([library]
    (episodes library {}))
-  ([library opts]
+  ([library {:keys [feed-guids] :as opts}]
    {:pre [(map? opts)]}
-   (criteria/episodes (shown-feeds library)
-                      (cond-> (assoc opts
+   (criteria/episodes (if feed-guids
+                        (keep #(shown library %) feed-guids)
+                        (shown-feeds library))
+                      (cond-> (assoc (dissoc opts :feed-guids)
                                      :profile (:profile library)
+                                     :files   (:files library {})
                                      :url     (urls library)
                                      :at      (time-of library opts))
                         (:index library) (assoc :index (:index library))))))

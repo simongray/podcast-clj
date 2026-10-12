@@ -979,6 +979,13 @@ icon, give `(count (profile.queue/inbox profile))` to
   statistics. Report the position at least every 30 seconds while an
   episode plays, or it isn't counted.
 
+Besides what an episode is, its criteria can name its show, the show's
+folder and tags, the queue and the state of its file on the device, e.g.
+`{:where {:folder "News" :download :downloaded}}` for the downloaded
+episodes of the shows in News. The docstring of `criteria/where` lists
+them all. To read the episodes of some shows alone, e.g. for the page of
+a show, give `library/episodes` their guids as `:feed-guids`.
+
 A saved filter holds the options of `library/episodes`. Another device may
 have saved it with a newer version, so check it with `criteria/problem`
 first:

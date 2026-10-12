@@ -618,7 +618,18 @@
     (is (= 2 (count (library/episodes lib {:limit 2}))))
     (let [id     [guid "https://example.com/ep0003"]
           played (update lib :profile profile/mark-played id now)]
-      (is (= 3 (count (library/episodes played {:where {:status :unplayed}}))))))
+      (is (= 3 (count (library/episodes played {:where {:status :unplayed}})))))
+    (testing "the episodes of some shows, e.g. for a show's page"
+      (is (= #{"Other"} (set (map (comp :rss/title first)
+                                  (library/episodes lib {:feed-guids ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"]})))))
+      (is (= [] (library/episodes lib {:feed-guids ["none"]}))))
+    (testing "the state of a download, by the library's record of the files"
+      (let [id         [guid "https://example.com/ep0003"]
+            started    (library/start-download lib {:id id :url "https://example.com/file-03.mp3"})
+            ids-where  #(mapv (fn [[feed item]] (library/episode-id started feed item))
+                              (library/episodes started {:where %}))]
+        (is (= [id] (ids-where {:download :downloading})))
+        (is (= 3 (count (ids-where {:download :none})))))))
   (testing "a show without a podcast:guid, which the profile knows by its URL"
     (let [bare-url "https://example.net/bare.xml"
           bare     (dissoc other :podcast/guid)

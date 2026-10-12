@@ -124,6 +124,27 @@
                   published
                   (> (inst-ms published) (inst-ms added))))))
 
+(defn- download-state
+  "The state of the file of the episode `id` in the `files` of a device,
+  the record that dk.simongray.podcast.downloads keeps: :downloaded,
+  :downloading, :failed or :none."
+  [files id]
+  (let [{:keys [finished-at failed-at removed?] :as file} (get files id)]
+    (cond
+      (or (nil? file) removed?) :none
+      finished-at               :downloaded
+      failed-at                 :failed
+      :else                     :downloading)))
+
+(defn- of-show
+  "The predicate of a criterion about the show of an episode, for `v`, a
+  value or a set of them, and `f`, a function of the profile in `ctx` and
+  a feed guid that gives the values of a show."
+  [v ctx f]
+  (fn [feed item]
+    (let [[feed-guid] (episode-id ctx feed item)]
+      (boolean (some #(in? v %) (f (:profile ctx) feed-guid))))))
+
 (declare where)
 
 (def ^:no-doc criterion
@@ -181,7 +202,27 @@
    :since-subscription?
    (fn [v ctx]
      (fn [feed item]
-       (= (boolean v) (since-subscription? ctx feed item))))})
+       (= (boolean v) (since-subscription? ctx feed item))))
+   :show        (fn [v ctx]
+                  (of-show v ctx (fn [_ feed-guid] [feed-guid])))
+   :folder      (fn [v ctx]
+                  (of-show v ctx (fn [profile feed-guid]
+                                   [(:folder (profile/settings profile
+                                                               feed-guid))])))
+   :tag         (fn [v ctx]
+                  (of-show v ctx profile/tags))
+   :media       (fn [v _]
+                  (fn [_ item]
+                    (boolean (some #(in? v %) (resolve/media-kinds item)))))
+   :queued?     (fn [v ctx]
+                  (fn [feed item]
+                    (let [id (episode-id ctx feed item)]
+                      (= (boolean v)
+                         (profile.queue/queued? (:profile ctx) id)))))
+   :download    (fn [v ctx]
+                  (fn [feed item]
+                    (let [id (episode-id ctx feed item)]
+                      (in? v (download-state (:files ctx) id)))))})
 
 (defn where
   "The predicate of a feed and one of its items for `criteria` in the
@@ -205,18 +246,27 @@
     is in
   - :since-subscription?, whether it came out after the listener
     subscribed
+  - :show, the feed guid of a show, or a set of them
+  - :folder and :tag, the folder or a tag that the listener gave its show,
+    or a set of them, where a folder of nil is none
+  - :media, :audio or :video, or a set of them, which it offers
+  - :queued?, whether it's in the queue
+  - :download, the state of its file on the device, :downloaded,
+    :downloading, :failed or :none, or a set of them
 
   An empty map takes every item. The criteria about the listener need the
-  profile as :profile in `ctx`. For feeds without a podcast:guid, they
-  also need the :url, a string or a function of the feed. The :age needs
-  the current time as :at, and with :scale, the :rating is in that scale.
-  With an index of the documents of the items as :index, the :text reads
-  it instead of each item's notes."
+  profile as :profile in `ctx`, and :download needs the :files of the
+  device, as dk.simongray.podcast.downloads keeps them. For feeds without
+  a podcast:guid, the criteria also need the :url, a string or a function
+  of the feed. The :age needs the current time as :at, and with :scale,
+  the :rating is in that scale. With an index of the documents of the
+  items as :index, the :text reads it instead of each item's notes."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
    (let [unknown  (filter #(not (contains? criterion %)) (keys criteria))
-         personal #{:status :starred? :inbox? :rating :since-subscription?}]
+         personal #{:status :starred? :inbox? :rating :since-subscription?
+                    :folder :tag :queued?}]
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: "
                             (str/join ", " unknown))
@@ -228,6 +278,10 @@
      (when (and (contains? criteria :age)
                 (not (inst? (:at ctx))))
        (throw (ex-info ":age needs the instant of now under :at"
+                       {:criteria criteria})))
+     (when (and (contains? criteria :download)
+                (not (map? (:files ctx))))
+       (throw (ex-info ":download needs the files of the device under :files"
                        {:criteria criteria})))
      (let [ctx   (with-feed-guids ctx)
            tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
@@ -297,8 +351,8 @@
   - :where, criteria as where takes them, or else every item
   - :order, as order takes it, :listening by default
   - :limit, the most items
-  - :profile, :url, :at, :scale and :index, the context of the criteria
-    and the order
+  - :profile, :url, :at, :scale, :index and :files, the context of the
+    criteria and the order
 
   For a collection of feeds, the result is [feed item] pairs in one order,
   e.g. for an inbox, with :url as a function of the feed. With a :limit
@@ -308,7 +362,8 @@
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx       (-> (select-keys opts [:profile :url :scale :at :index])
+   (let [ctx       (-> (select-keys opts [:profile :url :scale :at :index
+                                          :files])
                        (with-feed-guids))
          pred      (where (or (:where opts) {}) ctx)
          k         (or (:order opts) :listening)
