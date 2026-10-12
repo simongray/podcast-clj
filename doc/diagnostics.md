@@ -249,6 +249,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/amount-out-of-range` | warning | The Lightning address doesn't accept this amount. |
 | `:value/wrong-amount` | error | The invoice asks for a different amount than the one requested, so don't pay it. |
 | `:value/unknown-success-action` | error | The answer has a success action that LUD-09 doesn't define, or a URL on another host, so don't pay the invoice. |
+| `:value/unverifiable` | info | The service of the Lightning address gave no URL to ask whether the invoice is paid, which LUD-21 defines. |
+| `:value/unproven` | error | The service of the Lightning address says that the invoice is paid, but gives no preimage that proves it. |
 | `:value/no-keysend` | info | The domain of the Lightning address names no node for keysend, so pay it with LNURL-pay. |
 | `:value/insecure` | error | The answer came over plain http, where anyone on the way can change it, so don't pay with it. |
 | `:value/no-wallet-info` | info | No relay of the connection has the info event of the wallet, so it isn't known which commands the wallet accepts. The wallet says so when it gets a command that it doesn't accept. |

@@ -318,13 +318,19 @@
     :texts  (when (sequential? v) (vec (filter string? v)))))
 
 (defn- result
-  "The result `raw` of a wallet in the keys of podcast-clj, by fields."
+  "The result `raw` of a wallet in the keys of podcast-clj, by fields. An
+  invoice whose expiry the wallet didn't give has that of the invoice
+  itself."
   [raw]
-  (into {} (for [[k v] raw
-                 :let  [[name type] (get fields k)
-                        value       (when name (typed type v))]
-                 :when (some? value)]
-             [name value])))
+  (let [read    (into {} (for [[k v] raw
+                               :let  [[name type] (get fields k)
+                                      value       (when name (typed type v))]
+                               :when (some? value)]
+                           [name value]))
+        expires (when (and (:invoice read) (not (:expires-at read)))
+                  (bolt11/expires-at (:invoice read)))]
+    (cond-> read
+      expires (assoc :expires-at expires))))
 
 (defn answer
   "What the `event` of a wallet answers over `connection`, or a map with a

@@ -205,7 +205,8 @@
       "an onion service answers http, as LUD-01 allows")
   (testing "the terms that six services give"
     (is (= {:min-msat 1000 :max-msat 10000000000 :comment-length 255 :description "Sats for Alby"
-            :identifier "hello@getalby.com" :callback "https://getalby.com/lnurlp/hello/callback"}
+            :identifier "hello@getalby.com" :callback "https://getalby.com/lnurlp/hello/callback"
+            :payer-data {:name {:mandatory? false} :email {:mandatory? false} :pubkey {:mandatory? false}}}
            (dissoc (terms-of "hello@getalby.com") :metadata)))
     (is (= [500 nil] ((juxt :comment-length :identifier) (terms-of "fountain@fountain.fm")))
         "Fountain leaves out the identifier that LUD-16 asks for")
@@ -253,7 +254,16 @@
       (is (nil? (bolt11/payment-hash (str/replace-first coffee "zyg3" "zyg4"))) "a character that the checksum does not take")
       (is (nil? (bolt11/payment-hash (str donation "q"))))
       (doseq [x [nil 5 "" "an invoice" "lnbc250n1pvjluez" "lnbc1pvjluezsp5zyg3" invoice-25]]
-        (is (nil? (bolt11/payment-hash x)) (pr-str x)))))
+        (is (nil? (bolt11/payment-hash x)) (pr-str x)))
+      (testing "and its expiry"
+        (is (= [#inst "2017-06-01T11:57:38Z" #inst "2017-06-01T10:58:38Z"]
+               (map bolt11/expires-at [donation coffee]))
+            "an hour after the time of the invoice, or the 60 seconds of its field x")
+        (is (= [false true true]
+               (map #(bolt11/expired? coffee %)
+                    [#inst "2017-06-01T10:58:37Z" #inst "2017-06-01T10:58:38Z" #inst "2026-10-13"])))
+        (is (every? nil? (map bolt11/expires-at [nil "an invoice" invoice-25])))
+        (is (bolt11/expired? invoice-25 #inst "2017-06-01") "an invoice that doesn't read"))))
   (testing "the proof of a payment"
     (let [preimage (apply str (repeat 64 "7"))
           paid     (invoice preimage)]
@@ -279,7 +289,24 @@
            (:url (lnaddress/invoice-request (assoc coinos :comment-length 0) 25000 "abc")))
         "no comment where the terms take none")
     (is (thrown? #?(:clj Exception :cljs :default) (lnaddress/invoice-request coinos 999)))
-    (is (= [true false false] (map #(lnaddress/sendable? coinos %) [1000 999 1000.5]))))
+    (is (= [true false false] (map #(lnaddress/sendable? coinos %) [1000 999 1000.5])))
+    (testing "the details of the payer, as LUD-18 has them"
+      (let [answer  #(lnaddress/terms (update (recorded (lnaddress/lnurlp-request "coinos@coinos.io")) :body
+                                              (fn [body] (json/write-str (assoc (json/read-str body) "payerData" %)))))
+            takes   (answer {"name" {"mandatory" false} "email" {"mandatory" true} "auth" {"mandatory" false "k1" "ab"}
+                             "phone" {"mandatory" true} "pubkey" "yes"})
+            payer   {:name "Ann" :email "ann@example.com" :pubkey "02ab" :phone "123"}
+            url-of  #(:url (lnaddress/invoice-request %1 25000 nil %2))]
+        (is (= {:name {:mandatory? false} :email {:mandatory? true}} (:payer-data takes))
+            "the fields of LUD-18 that it names, but auth, which LNURL-auth signs")
+        (is (every? nil? (map (comp :payer-data answer) [nil {} {"phone" {}} "name"])))
+        (is (= (str "https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io&amount=25000&payerdata="
+                    "%7B%22name%22%3A%22Ann%22%2C%22email%22%3A%22ann%40example.com%22%7D")
+               (url-of takes payer))
+            "the details that the terms take, as JSON")
+        (is (= "https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io&amount=25000"
+               (url-of coinos payer) (url-of takes {:name 42}) (url-of takes nil))
+            "no details where the terms take none, or none of them is text"))))
   (let [alby   (terms-of "hello@getalby.com")
         answer #(lnaddress/invoice alby 25000 {:status 200 :body (json/write-str (merge {"pr" invoice-25 "routes" []} %))})]
     (is (= {:invoice invoice-25 :msat 25000 :network :bitcoin} (answer {})))
@@ -303,7 +330,28 @@
           "an answer that came over plain http, where anyone can change the invoice"))
     (is (= [:value/lnurl-error "Too many requests"]
            ((juxt :id :reason) (:error (answer {"status" "ERROR" "reason" "Too many requests"})))))
-    (is (= "https://getalby.com/verify/x" (:verify (answer {"verify" "https://getalby.com/verify/x"}))))))
+    (is (= "https://getalby.com/verify/x" (:verify (answer {"verify" "https://getalby.com/verify/x"}))))
+    (is (= #inst "2017-06-01T11:57:38Z"
+           (:expires-at (lnaddress/invoice alby 50000 {:body (json/write-str {"pr" (invoice (apply str (repeat 64 "7")))})})))
+        "the expiry of an invoice that reads"))
+  (testing "whether an invoice is paid, as LUD-21 has it"
+    (let [preimage (apply str (repeat 64 "7"))
+          paid     {:invoice (invoice preimage) :verify "https://getalby.com/verify/x"}
+          verified #(lnaddress/verification paid {:status 200 :url "https://getalby.com/verify/x" :body (json/write-str %)})]
+      (is (= {:method :get :url "https://getalby.com/verify/x" :headers {"Accept" "application/json"}}
+             (lnaddress/verify-request paid)))
+      (is (nil? (lnaddress/verify-request (dissoc paid :verify))))
+      (is (= {:settled? false} (verified {"status" "OK" "settled" false "preimage" nil "pr" (:invoice paid)})))
+      (is (= {:settled? true :preimage preimage} (verified {"status" "OK" "settled" true "preimage" preimage})))
+      (is (= [:value/unproven :value/unproven :value/malformed :value/malformed]
+             (map (comp :id :error verified)
+                  [{"settled" true} {"settled" true "preimage" (apply str (repeat 64 "8"))} {"settled" "true"} {}]))
+          "a payment counts only with the preimage that proves it")
+      (is (= [:value/lnurl-error "Not found"]
+             ((juxt :id :reason) (:error (verified {"status" "ERROR" "reason" "Not found"})))))
+      (is (= :value/insecure
+             (:id (:error (lnaddress/verification paid {:url "http://getalby.com/verify/x"
+                                                        :body (json/write-str {"settled" false})}))))))))
 
 (deftest paying-an-address
   (run (fn []
@@ -350,6 +398,30 @@
          (lnaddress/request-invoice! "not an address" 25000 {:send (fn [_] (throw (ex-info "sent" {})))})
          (fn [{:keys [error]}]
            (is (= :value/not-an-address (:id error)))))
+       (fn []
+         (let [log (atom [])]
+           (async/then
+            (lnaddress/request-invoice! "hello@getalby.com" 25000 {:send  (serving {"pr" invoice-25} log)
+                                                                   :payer #(select-keys {:name "Ann" :email "ann@example.com"}
+                                                                                        (keys (:payer-data %)))})
+            (fn [_]
+              (is (= (str "https://getalby.com/lnurlp/hello/callback?amount=25000&payerdata="
+                          "%7B%22name%22%3A%22Ann%22%2C%22email%22%3A%22ann%40example.com%22%7D")
+                     (second @log))
+                  "the details of the payer from a function of the terms")))))
+       (fn []
+         (let [preimage (apply str (repeat 64 "7"))
+               paid     {:invoice (invoice preimage) :verify "https://getalby.com/verify/x"}
+               log      (atom [])]
+           (async/then
+            (async/all [(lnaddress/verify! paid {:send (serving {"settled" true "preimage" preimage} log)})
+                        (lnaddress/verify! (dissoc paid :verify) {:send (serving {} log)})
+                        (lnaddress/verify! paid {:send (fn [_] (throw (ex-info "Connection refused" {})))})])
+            (fn [[settled none unreachable]]
+              (is (= {:settled? true :preimage preimage} settled))
+              (is (= :value/unverifiable (:id (:error none))))
+              (is (= :value/unreachable (:id (:error unreachable))))
+              (is (= ["https://getalby.com/verify/x"] @log))))))
        #(async/then
          (lnaddress/fetch-node! "fountain@fountain.fm" {:send recorded})
          (fn [node]

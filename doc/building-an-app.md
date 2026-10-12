@@ -1317,6 +1317,18 @@ If the comment doesn't fit, none is sent and the invoice has no
 has an `:error`, e.g. an invoice for another amount. The metadata page is
 public, and so are the sender's name and message.
 
+No wallet pays an invoice after its `:expires-at`, so check it with
+`bolt11/expired?` before paying, and ask for a new one once it has
+expired. With the listener's consent, the `:payer` option sends their
+details to a service that takes them, e.g. `{:name "Ann"}`. When a wallet
+doesn't say whether it paid, `lnaddress/verify!` asks the service, if the
+invoice has a `:verify` URL:
+
+```clojure
+(bolt11/expired? (:invoice invoice) (time/now))  ; => false
+(lnaddress/verify! invoice)  ; => {:settled? true :preimage "…"}
+```
+
 ### Pay from the listener's wallet
 
 A listener can connect their own wallet with a Nostr Wallet Connect URI.
@@ -1732,7 +1744,9 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
+            [dk.simongray.podcast.value.bolt11 :as bolt11]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]

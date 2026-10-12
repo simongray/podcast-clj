@@ -128,6 +128,24 @@
                    (second %))]
     (some text-of (when (sequential? entries) entries))))
 
+;; LUD-18: the details of the payer that a service takes, but auth, which
+;; LNURL-auth signs
+(def ^:no-doc payer-fields
+  "The details of a payer that a service can take, by their name in
+  LUD-18."
+  {"name" :name "pubkey" :pubkey "identifier" :identifier "email" :email})
+
+(defn- payer-data
+  "The details of the payer that the `raw` payerData of a service takes,
+  as a map of each to whether it's :mandatory?, or nil."
+  [raw]
+  (when (map? raw)
+    (not-empty (into {}
+                     (for [[field k] payer-fields
+                           :let  [spec (get raw field)]
+                           :when (map? spec)]
+                       [k {:mandatory? (true? (get spec "mandatory"))}])))))
+
 (defn terms
   "The terms on which a Lightning address takes a payment, from the
   `response` to the request for its terms, or a map with a diagnostic
@@ -139,10 +157,12 @@
        :comment-length 255          ; how long a comment can be, 0 for none
        :description    \"Pay Ann\"   ; the text of the metadata
        :identifier     \"ann@…\"     ; the address, as the metadata names it
-       :metadata       \"[[…]]\"}    ; the metadata, as the service wrote it
+       :metadata       \"[[…]]\"     ; the metadata, as the service wrote it
+       :payer-data     {:name {:mandatory? false}}}  ; LUD-18
 
   The callback is an https URL, or http for an onion service. It can be on
-  another host than the address."
+  another host than the address. The :payer-data names the details of the
+  payer that the service takes: :name, :pubkey, :identifier and :email."
   [response]
   (let [raw (json/object (:body response))
         url (:url response)]
@@ -157,6 +177,7 @@
                               (entry metadata "text/plain"))
               identifier  (or (entry metadata "text/identifier")
                               (entry metadata "text/email"))
+              payer       (payer-data (get raw "payerData"))
               valid?      (and (= "payRequest" (get raw "tag"))
                                (secure-url? callback)
                                low
@@ -169,7 +190,8 @@
                      :comment-length (or comments 0)}
               description        (assoc :description description)
               identifier         (assoc :identifier identifier)
-              (string? metadata) (assoc :metadata metadata))
+              (string? metadata) (assoc :metadata metadata)
+              payer              (assoc :payer-data payer))
             (diagnostics/failed {:id     :value/malformed
                                  :url    url
                                  :status (:status response)}))))))
@@ -194,24 +216,44 @@
              (pos? (or comment-length 0)))
     (value.payment/cut comment comment-length)))
 
+;; LUD-18: the payerdata of the request is JSON of the details
+(defn ^:no-doc sent-payer
+  "The JSON of the details of the `payer` that go out with a request to the
+  callback of `terms`: those that the terms take, as text, or nil for
+  none."
+  [{:keys [payer-data] :as terms} payer]
+  (let [sent (into {}
+                   (for [[field k] payer-fields
+                         :let  [v (get payer k)]
+                         :when (and (contains? payer-data k) (string? v))]
+                     [field v]))]
+    (when (seq sent)
+      (json/write-str sent))))
+
 (defn invoice-request
   "The request to the callback of `terms` for an invoice of `msat`
-  millisatoshis, with a `comment` when the terms take one.
+  millisatoshis, with a `comment` when the terms take one, and the details
+  of the `payer` that they take, as LUD-18 has it.
 
-  The comment is cut to fit the terms. The amount and the comment follow
-  the query that the callback has. It throws when the terms don't take
-  `msat`."
+  The comment is cut to fit the terms. The `payer` is a map of :name,
+  :pubkey, :identifier and :email, e.g. {:name \"Ann\"}, and those that
+  the :payer-data of the terms doesn't name stay out. The amount, the
+  comment and the details follow the query that the callback has. It
+  throws when the terms don't take `msat`."
   ([terms msat]
-   (invoice-request terms msat nil))
-  ([{:keys [callback] :as terms} msat comment]
+   (invoice-request terms msat nil nil))
+  ([terms msat comment]
+   (invoice-request terms msat comment nil))
+  ([{:keys [callback] :as terms} msat comment payer]
    (when-not (sendable? terms msat)
      (throw (ex-info "The address does not take this amount"
                      {:type     ::amount
                       :msat     msat
                       :min-msat (:min-msat terms)
                       :max-msat (:max-msat terms)})))
-   (let [query (url/query-string {"amount"  msat
-                                  "comment" (sent-comment terms comment)})]
+   (let [query (url/query-string {"amount"    msat
+                                  "comment"   (sent-comment terms comment)
+                                  "payerdata" (sent-payer terms payer)})]
      {:method  :get
       :url     (str callback (if (str/includes? callback "?") "&" "?") query)
       :headers {"Accept" "application/json"}})))
@@ -260,6 +302,7 @@
       {:invoice        \"lnbc…\"  ; for the wallet to pay
        :msat           25000
        :network        :bitcoin
+       :expires-at     #inst \"…\" ; after which no wallet pays it
        :success-action {:tag \"message\" :message \"Thanks!\"}
        :verify         \"https://…\"}  ; tells whether it is paid, LUD-21
 
@@ -296,9 +339,52 @@
             (diagnostics/failed {:id :value/unknown-success-action :url url})
 
             :else
-            (cond-> {:invoice pr :msat msat :network (:network amount)}
-              action               (assoc :success-action action)
-              (secure-url? verify) (assoc :verify verify)))))))
+            (let [expires (bolt11/expires-at pr)]
+              (cond-> {:invoice pr :msat msat :network (:network amount)}
+                expires              (assoc :expires-at expires)
+                action               (assoc :success-action action)
+                (secure-url? verify) (assoc :verify verify))))))))
+
+;; LUD-21
+(defn verify-request
+  "The request to the service of a Lightning address for whether the
+  `invoice` that it gave is paid, to its :verify URL, or nil when it has
+  none."
+  [{:keys [verify] :as invoice}]
+  (when verify
+    {:method  :get
+     :url     verify
+     :headers {"Accept" "application/json"}}))
+
+(defn verification
+  "What the `response` to the verify-request of `invoice` tells, or a map
+  with a diagnostic under :error: {:settled? false} while it's unpaid, and
+  {:settled? true :preimage \"…\"} once it's paid.
+
+  A payment counts only with the preimage that proves it, by
+  bolt11/proves?, since the service writes the answer. A service that says
+  that the invoice is paid without that proof is :value/unproven."
+  [{pr :invoice :as invoice} response]
+  (let [raw      (json/object (:body response))
+        url      (:url response)
+        settled  (get raw "settled")
+        preimage (json/text (get raw "preimage"))]
+    (or (insecure url)
+        (refusal raw url)
+        (cond
+          (not (boolean? settled))
+          (diagnostics/failed {:id     :value/malformed
+                               :url    url
+                               :status (:status response)})
+
+          (not settled)
+          {:settled? false}
+
+          (bolt11/proves? preimage pr)
+          {:settled? true :preimage preimage}
+
+          :else
+          (diagnostics/failed {:id :value/unproven :url url})))))
 
 (defn node
   "The node that the `response` to the keysend lookup names, as the keys of
@@ -359,14 +445,14 @@
 
 (defn- fetch-invoice!
   "Ask the callback of the terms `offer` for an invoice of `msat`
-  millisatoshis with the comment `text` and `opts`, and give the invoice,
-  in a future or a promise.
+  millisatoshis with the comment `text`, the details of the `payer` and
+  `opts`, and give the invoice, in a future or a promise.
 
   The invoice has the :comment that went out, and a failure gives a map
   with a diagnostic under :error."
-  [offer msat text opts]
+  [offer msat text payer opts]
   (let [sent (sent-comment offer text)]
-    (async/then (send! (invoice-request offer msat text) opts)
+    (async/then (send! (invoice-request offer msat text payer) opts)
                 (fn [response]
                   (let [read (if (:error response)
                                response
@@ -385,7 +471,8 @@
   text, e.g. to fit a comment to their :comment-length. The invoice has
   the :comment that went out, as it was cut. An invoice without one went
   out with no comment, so the recipient doesn't learn what the payment is
-  for.
+  for. The :payer of `opts` is the details of the payer, as
+  invoice-request takes them, or a function of the terms that gives them.
 
   The other `opts` are these:
 
@@ -399,7 +486,7 @@
   true) as :allow-pred."
   ([address msat]
    (request-invoice! address msat {}))
-  ([address msat {:keys [comment] :as opts}]
+  ([address msat {:keys [comment payer] :as opts}]
    (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
@@ -415,8 +502,29 @@
                                           :max-msat (:max-msat offer)})
 
                      :else
-                     (let [text (if (fn? comment) (comment offer) comment)]
-                       (fetch-invoice! offer msat text opts))))))))
+                     (let [text (if (fn? comment) (comment offer) comment)
+                           who  (if (fn? payer) (payer offer) payer)]
+                       (fetch-invoice! offer msat text who opts))))))))
+
+(defn verify!
+  "Ask the service of a Lightning address whether the `invoice` that
+  request-invoice! gave is paid, with the `opts` of request-invoice!, and
+  give what verification makes of the answer. On the JVM it gives the
+  answer, and in ClojureScript a promise of it.
+
+  A failure gives a map with a diagnostic under :error, and so does an
+  invoice without a :verify URL, :value/unverifiable."
+  ([invoice]
+   (verify! invoice {}))
+  ([invoice opts]
+   (let [defaults {:send client/send! :allow-pred url/public?}
+         opts     (merge default-limits defaults opts)]
+     (async/then (verify-request invoice)
+                 (fn [request]
+                   (if request
+                     (async/then (send! request opts)
+                                 #(if (:error %) % (verification invoice %)))
+                     (diagnostics/failed {:id :value/unverifiable})))))))
 
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with

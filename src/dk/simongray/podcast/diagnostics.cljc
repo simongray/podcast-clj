@@ -754,6 +754,12 @@
     {:id :value/unknown-success-action :level :error
      :doc "The answer has a success action that LUD-09 doesn't define, or a URL
            on another host, so don't pay the invoice."}
+    {:id :value/unverifiable :level :info
+     :doc "The service of the Lightning address gave no URL to ask whether the
+           invoice is paid, which LUD-21 defines."}
+    {:id :value/unproven :level :error
+     :doc "The service of the Lightning address says that the invoice is paid,
+           but gives no preimage that proves it."}
     {:id :value/no-keysend :level :info
      :doc "The domain of the Lightning address names no node for keysend, so pay
            it with LNURL-pay."}

@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.value.bolt11
   "The invoices of BOLT 11, as far as an app that pays needs to read them:
-  the network and the amount, the payment hash, and the proof of payment.
+  the network and the amount, the payment hash, the expiry, and the proof
+  of payment.
 
   An invoice is the text that a Lightning address or a wallet gives, e.g.
   lnbc2500u1…, and a wallet pays it. None of these functions checks the
@@ -8,7 +9,8 @@
   https://github.com/lightning/bolts/blob/master/11-payment-encoding.md"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def ^:no-doc max-invoice-length
   "The most characters of an invoice that podcast-clj reads: the most
@@ -99,6 +101,24 @@
             (let [field [(nth words i) (subvec words (+ i 3) next)]]
               (recur next (conj out field)))))))))
 
+(defn- number-of
+  "The number that the `words` of five bits give, the first the highest."
+  [words]
+  (reduce (fn [n w] (+ (* n 32) w)) 0 words))
+
+(defn- data-of
+  "The data of the BOLT 11 `invoice` as a map of its :timestamp, in seconds
+  since 1970, and its :fields, as tagged-fields gives them, or nil for a
+  text that isn't an invoice whose checksum holds."
+  [invoice]
+  (when (invoice-amount invoice)
+    (let [words (some-> (bech32/decode-words invoice
+                                             {:max-length max-invoice-length})
+                        :words)]
+      (when-let [fields (some-> words tagged-fields)]
+        {:timestamp (number-of (subvec words 0 7))
+         :fields    fields}))))
+
 (defn payment-hash
   "The payment hash of the BOLT 11 `invoice`, as hexadecimal text of 32
   bytes, or nil for a text that isn't an invoice with one payment hash.
@@ -107,15 +127,33 @@
   bits to pad, as the section Tagged Fields of BOLT 11 defines it. The
   reader checks the checksum of the invoice."
   [invoice]
-  (when (invoice-amount invoice)
-    (let [limits  {:max-length max-invoice-length}
-          decoded (bech32/decode-words invoice limits)]
-      (when-let [fields (some-> decoded :words tagged-fields)]
-        (let [hashes (filter #(= 1 (first %)) fields)
-              data   (second (first hashes))]
-          (when (and (= 1 (count hashes))
-                     (= 52 (count data)))
-            (some-> (bech32/regroup data 5 8 false) bytes/of bytes/hex)))))))
+  (when-let [{:keys [fields]} (data-of invoice)]
+    (let [hashes (filter #(= 1 (first %)) fields)
+          data   (second (first hashes))]
+      (when (and (= 1 (count hashes))
+                 (= 52 (count data)))
+        (some-> (bech32/regroup data 5 8 false) bytes/of bytes/hex)))))
+
+;; BOLT 11, Data Part and Tagged Fields: the timestamp is the first 35 bits
+;; of the data, and the field x the seconds that the invoice holds, 3600
+;; when it has none
+(defn expires-at
+  "The instant at which the BOLT 11 `invoice` expires, from its timestamp
+  and its field x, or nil for a text that isn't an invoice that reads."
+  [invoice]
+  (when-let [{:keys [timestamp fields]} (data-of invoice)]
+    (let [x       (second (first (filter #(= 6 (first %)) fields)))
+          seconds (if x (number-of x) 3600)]
+      (when (< (+ timestamp seconds) 9007199254740)
+        (time/->inst (* 1000 (+ timestamp seconds)))))))
+
+(defn expired?
+  "Whether the BOLT 11 `invoice` has expired at the instant `at`, since a
+  wallet refuses to pay it then. An invoice that doesn't read counts as
+  expired."
+  [invoice at]
+  (let [end (expires-at invoice)]
+    (or (nil? end) (<= (inst-ms end) (inst-ms at)))))
 
 (defn proves?
   "Whether `preimage` is the proof that somebody paid the BOLT 11

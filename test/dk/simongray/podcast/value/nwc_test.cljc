@@ -177,6 +177,13 @@
                                                               "metadata" {"comment" "Thanks"} "other" 1}}))
                      :method :request :result))
           "a field of another type is left out")
+      (is (= [#inst "2017-06-01T11:57:38Z" #inst "2026-09-29T13:00:00Z"]
+             (for [expiry [nil 1790686800]]
+               (:expires-at (nwc/answer connection
+                                        (reply event {"result_type" "make_invoice"
+                                                      "result"      {"invoice"    (invoice (apply str (repeat 64 "7")))
+                                                                     "expires_at" expiry}})))))
+          "the expiry of the invoice itself where the wallet gives none")
       (is (= {:alias "Ann's wallet" :network "mainnet" :block-height 900000 :methods ["pay_invoice" "get_info"]}
              (dissoc (nwc/answer connection
                                  (reply event {"result_type" "get_info"
