@@ -284,6 +284,45 @@
                                    {:playable-pred resolve/audio?}))
           "no stream that doesn't say, for audio alone"))))
 
+(deftest what-to-ask-the-browser
+  (testing "audio, with what the feed declares"
+    (is (= {:type :file :audio {:content-type "audio/mpeg" :bitrate 128000}}
+           (resolve/decoding-configuration {:url "https://a/1.mp3" :type "audio/mpeg" :bitrate 128000})))
+    (is (= {:type :file :audio {:content-type "audio/mp4"}}
+           (resolve/decoding-configuration {:url "https://a/1.m4a" :type "audio/mp4"}))
+        "without codecs, as most feeds give AAC")
+    (is (= {:type :file :audio {:content-type "audio/mp4; codecs=\"mp4a.40.2\"" :bitrate 64000}}
+           (resolve/decoding-configuration {:url "https://a/1.m4a" :type "audio/mp4" :codecs "mp4a.40.2" :bitrate 64000.0})))
+    (is (= {:type :file :audio {:content-type "audio/ogg; codecs=\"opus\"" :channels "2" :samplerate 48000}}
+           (resolve/decoding-configuration {:url "https://a/1.ogg" :type "audio/ogg" :codecs "opus" :channels 2 :samplingrate 48}))
+        "with the sample rate of Media RSS in Hz")
+    (is (= {:type :file :audio {:content-type "audio/mp4; codecs=\"mp4a.40.5\""}}
+           (resolve/decoding-configuration {:url "https://a/1.m4a" :type "audio/mp4; codecs=\"mp4a.40.5\""}))
+        "the codecs of the type")
+    (is (= {:type :file :audio {:content-type "audio/mpeg"}}
+           (resolve/decoding-configuration {:url "https://a/1.mp3" :type "audio/mpeg" :codecs "mp3"}))
+        "but none for a type that implies its codec"))
+  (testing "a video, with one codec of each kind"
+    (is (= {:type  :file
+            :video {:content-type "video/mp4; codecs=\"avc1.42E01E\""}
+            :audio {:content-type "audio/mp4; codecs=\"mp4a.40.2\""}}
+           (resolve/decoding-configuration {:url "https://a/720.mp4" :type "video/mp4" :codecs "avc1.42E01E, mp4a.40.2" :height 720})))
+    (is (= {:type  :file
+            :video {:content-type "video/mp4; codecs=\"avc1.64001F\"" :width 1280 :height 720 :bitrate 2500000 :framerate 30}}
+           (resolve/decoding-configuration {:url "https://a/720.mp4" :type "video/mp4" :codecs "avc1.64001F"
+                                            :width 1280 :height 720 :bitrate 2500000 :framerate 30}))
+        "with its size, bitrate and frame rate")
+    (is (= {:type :file :video {:content-type "video/mp4"}}
+           (resolve/decoding-configuration {:url "https://a/720.mp4" :type "video/mp4" :width 1280 :height 720 :bitrate 2500000}))
+        "but none of them without its frame rate, which Media Capabilities needs too")
+    (is (= {:type :file :audio {:content-type "audio/mp4; codecs=\"mp4a.40.2\""}}
+           (resolve/decoding-configuration {:url "https://m/1.mp4" :type "video/mp4" :medium "audio" :codecs "mp4a.40.2"}))
+        "and audio under an audio type"))
+  (testing "a stream that doesn't say what it holds, as a video"
+    (is (= {:type :file :video {:content-type "application/x-mpegurl"}}
+           (resolve/decoding-configuration {:url "https://a/m.m3u8" :type "application/x-mpegURL"}))))
+  (is (nil? (resolve/decoding-configuration {:url "https://a/1.mp3"})) "nothing without a type"))
+
 (deftest people-and-inheritance
   (let [f    @example
         item (first (:rss/items f))]

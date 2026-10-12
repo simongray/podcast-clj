@@ -305,7 +305,9 @@ All gain 2 and an hour each:
   interruption such as a call causes too, and bulk arities of the marks
   and the queue.
 - A `:playable-pred` from a browser's Media Capabilities, for Opus, video
-  codecs and alternate enclosures.
+  codecs and alternate enclosures. Done on 12 October 2026:
+  `resolve/decoding-configuration` gives what to ask, and the play-nice
+  library asks the browser.
 - A string form of episode ids for routes and native bridges.
 - Media files and images read from a local file or a Blob.
 - `podping/notify!` beside `notify-request`, and rules on the delivery

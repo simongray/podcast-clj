@@ -713,6 +713,22 @@ of an episode that offers both with the preference `:video?`, or the
 show's setting of that name, and `library/episode` and `library/plan`
 follow it.
 
+To keep to what the browser can play, e.g. Opus or a video codec, ask
+it about each enclosure. The `capabilities` namespace of play-nice asks
+Media Capabilities, and `canPlayType` where that says no, about what
+`resolve/decoding-configuration` gives:
+
+```clojure
+(-> (capabilities/decoding-infos!
+     (map resolve/decoding-configuration (resolve/enclosures item)))
+    (.then (fn [infos]
+             (resolve/enclosure
+              item
+              {:playable-pred (comp capabilities/playable?
+                                    infos
+                                    resolve/decoding-configuration)}))))
+```
+
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:
 
@@ -1618,7 +1634,7 @@ that changed its requirements takes them as `:requirements`, e.g.
 ## The namespaces of the examples
 
 The namespaces outside `dk.simongray.podcast` are those of the libraries
-that [Before you start](#before-you-start) lists, and that of play-nice,
+that [Before you start](#before-you-start) lists, and those of play-nice,
 which [Play episodes](#play-episodes) adds.
 
 ```clojure
@@ -1634,6 +1650,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.capabilities :as capabilities]
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]

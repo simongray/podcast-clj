@@ -346,6 +346,17 @@
                   "mhm1" "mp3" "vorbis"]
                  (repeat :audio))))
 
+(defn- codec-list
+  "The codecs of the RFC 6381 codecs string `s`, trimmed."
+  [s]
+  (into [] (comp (map str/trim) (remove str/blank?)) (str/split (str s) #",")))
+
+(defn- codec-kind
+  "The kind of media of the `codec`, :audio or :video, or nil when it isn't
+  known."
+  [codec]
+  (codec-kinds (first (str/split (str/lower-case codec) #"\."))))
+
 (defn video?
   "Whether the `enclosure` is a video, or nil when nothing tells.
 
@@ -357,10 +368,7 @@
   [{:keys [medium type codecs height]}]
   (let [kind  (some-> type str/lower-case (str/split #"/") first)
         kinds (when codecs
-                ;; the kind of each codec, or nil for one that isn't known
-                (set (for [codec (str/split (str/lower-case codecs) #",")]
-                       (codec-kinds (first (str/split (str/trim codec)
-                                                      #"\."))))))]
+                (set (map codec-kind (codec-list codecs))))]
     (cond
       medium                               (= "video" (str/lower-case medium))
       (= "video" kind)                     true
@@ -382,6 +390,72 @@
   (into #{}
         (keep #(case (video? %) true :video false :audio nil))
         (enclosures item)))
+
+(def ^:no-doc single-codec-types
+  "The media types, in lower case, that imply their codec, and so take no
+  codecs parameter."
+  #{"audio/mpeg" "audio/mp3" "audio/aac" "audio/flac" "audio/x-flac"})
+
+(defn- content-type
+  "The media type `essence` as a content type of the `kind`, :audio or
+  :video, with the `codec`, if any, as its codecs parameter."
+  [essence kind codec]
+  (let [[top sub] (str/split essence #"/" 2)
+        top       (if (#{"audio" "video"} top) (name kind) top)]
+    (cond-> (str top "/" sub)
+      (and codec (not (single-codec-types essence)))
+      (str "; codecs=\"" codec "\""))))
+
+(defn- positive?
+  "Whether `x` is a number above 0."
+  [x]
+  (and (number? x) (pos? x)))
+
+;; Media Capabilities, Working Draft of 9 June 2026: a video needs its
+;; size, bitrate and frame rate (2.1.4), the samplerate of audio is in Hz
+;; (2.1.8), and a container type names a single codec (2.3.3)
+(defn decoding-configuration
+  "The MediaDecodingConfiguration of the `enclosure`, one of those that
+  enclosures gives, as a map in kebab-case with keyword enum values, or
+  nil when it has no type, e.g.
+
+      {:type :file :audio {:content-type \"audio/mpeg\" :bitrate 128000}}
+
+  It has :video for a video, and for an enclosure whose kind video?
+  doesn't tell, and else :audio. A video has the codec of its audio, if
+  the codecs name one, as :audio under an audio type. Each content type
+  names one codec, of the codecs of the enclosure or of its type, and the
+  rest is what the feed declares: the bitrate, the channels and sample
+  rate of audio, and the width, height and frame rate of a video, which
+  are left out unless the video has them all."
+  [{:keys [type bitrate width height framerate channels samplingrate]
+    :as   enclosure}]
+  (when-let [essence (headers/media-type (str type))]
+    (let [as-video? (not (false? (video? enclosure)))
+          codecs    (codec-list (or (:codecs enclosure)
+                                    (second (re-find #"(?i)codecs=\"?([^\";]+)"
+                                                     (str type)))))
+          of-kind   #(first (filter (comp #{%} codec-kind) codecs))
+          own       (or (of-kind (if as-video? :video :audio))
+                        (first (remove codec-kind codecs)))
+          rate      (when (positive? bitrate) (Math/round (double bitrate)))]
+      (if as-video?
+        (cond-> {:type  :file
+                 :video (cond-> {:content-type (content-type essence :video
+                                                             own)}
+                          (every? positive? [width height rate framerate])
+                          (assoc :width width :height height :bitrate rate
+                                 :framerate framerate))}
+          (of-kind :audio)
+          (assoc :audio {:content-type (content-type essence :audio
+                                                     (of-kind :audio))}))
+        {:type  :file
+         :audio (cond-> {:content-type (content-type essence :audio own)}
+                  rate                    (assoc :bitrate rate)
+                  (positive? channels)    (assoc :channels (str channels))
+                  (positive? samplingrate)
+                  (assoc :samplerate
+                         (Math/round (* 1000 (double samplingrate)))))}))))
 
 ;; ISO/IEC 23009-1; the podcast namespace, source
 (def ^:no-doc manifest-types
