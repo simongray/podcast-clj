@@ -454,6 +454,30 @@
         (is (= 3600 (:duration (library/playback lib id {:read files}))) "after the duration the player reported")))
     (is (nil? (library/playback lib [guid "none"])))))
 
+(deftest the-ids-of-a-show-in-the-directories
+  (let [apple   (str "{\"resultCount\":1,\"results\":[{\"kind\":\"podcast\",\"collectionId\":123456,"
+                     "\"collectionName\":\"Podcasting 2.0 Namespace Example\","
+                     "\"feedUrl\":\"https://example.com/feed.xml\"}]}")
+        asked   (atom 0)
+        send    (fn [_] (swap! asked inc) {:status 200 :body apple})
+        apps    (fn [lib] (set (map :app (:links (library/show lib guid)))))]
+    (run #(async/then (library/identify! library {:send send})
+                      (fn [lib]
+                        (is (= {:apple "123456"} (get-in lib [:feeds guid :ids])) "kept in the entry of the feed")
+                        (is (= [] (:report (:identify lib))))
+                        (is (some #{:castbox} (apps lib)) "so the views link to the show in the apps that know it by its id")
+                        (is (not (some #{:castbox} (apps library))))
+                        (is (= {:apple "123456"}
+                               (get-in (library/merge (assoc-in library [:feeds guid :fetched-at] (at 99)) lib)
+                                       [:feeds guid :ids]))
+                            "and a merge keeps them, whichever fetch was later")
+                        (async/then (library/identify! lib {:send send})
+                                    (fn [_] (is (= 1 @asked) "a show with its ids isn't asked again")))))
+         #(async/then (library/identify! library {:send (constantly {:status 503 :body ""})})
+                      (fn [lib]
+                        (is (nil? (get-in lib [:feeds guid :ids])) "a show whose directory failed is asked again next time")
+                        (is (= [:directory/source-failed] (map :id (:report (:identify lib))))))))))
+
 (deftest a-new-subscription-through-the-send
   (let [xml  (fixture "feeds/namespace-example.xml")
         lib  (library/update-profile (library/make "phone") profile/subscribe "g" {:url url})

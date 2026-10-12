@@ -145,7 +145,9 @@
 
   - :search takes :q and :limit, with :country for Apple
   - :lookup takes the :id of the show at the source, which for
-    gpodder.net is the feed URL and for Apple can be several ids at once
+    gpodder.net is the feed URL and for Apple can be several ids at once.
+    The Podcast Index also takes the :url of the feed in its place, and a
+    podcast:guid as the :id.
   - :trending takes :limit, with :country for Apple and :language for
     fyyd and the Podcast Index. A source that can take neither of those
     that are given throws, since its chart would be of the wrong shows.
@@ -290,7 +292,7 @@
     (get-request (below root path))))
 
 (defn- podcastindex-request
-  [{:keys [root id]} call {:keys [q limit language category] show :id}
+  [{:keys [root id]} call {:keys [q limit language category url] show :id}
    credentials opts]
   (when-not credentials
     (throw (ex-info "The Podcast Index needs credentials under :credentials"
@@ -299,8 +301,14 @@
         index-request #(index/request credentials %1 %2 opts)]
     (case call
       :search   (index-request :search/by-term {:q q :max limit})
-      :lookup   (if (guid/guid? (str show))
+      :lookup   (cond
+                  (guid/guid? (str show))
                   (index-request :podcasts/by-guid {:guid show})
+
+                  (and (nil? show) url)
+                  (index-request :podcasts/by-feed-url {:url url})
+
+                  :else
                   (index-request :podcasts/by-feed-id {:id show}))
       :trending (let [cat (some-> category index/category-filter)]
                   (index-request :podcasts/trending
@@ -758,6 +766,65 @@
              :trending
              (select-keys opts [:limit :country :language :category])
              opts)))
+
+(defn- apple-id
+  "The Apple id `n` that the Podcast Index gives a show, as Apple writes
+  it, or nil when the index knows none."
+  [n]
+  (when (and (number? n) (pos? n))
+    (str (long n))))
+
+(defn identify!
+  "Ask the directories for the ids of the show of `feed` at `url`, with
+  `opts`, as a map of the :ids by source, e.g. {:podcastindex 920666
+  :apple \"1584274529\"}, in ClojureScript as a promise.
+
+  The Podcast Index is asked when the `opts` have its :credentials, by the
+  podcast:guid of the feed or else by `url`, and its answer often has the
+  Apple id too. Otherwise Apple is asked by the title of the show, and its
+  answer counts only for a show at `url`, since shows share titles. A
+  source that fails is in the :report, and its id is left out. The `opts`
+  are those of call!, and :country for Apple."
+  ([feed url]
+   (identify! feed url {}))
+  ([feed url {:keys [credentials country] :as opts}]
+   {:pre [(map? opts)]}
+   (let [declared (:podcast/guid feed)
+         lookup   (if (guid/guid? (str declared)) {:id declared} {:url url})
+         title    (resolve/title feed)
+         here     (guid/normal-url url)
+         same?    #(= here (some-> (resolve/self-url %) guid/normal-url))
+         attempt  (fn [source call params]
+                    (async/attempt #(call! source call params opts)))
+         failed   (fn [report source error]
+                    (cond-> report
+                      error (conj (diagnostics/describe
+                                   {:id     :directory/source-failed
+                                    :source source
+                                    :reason (async/explain error)}))))
+         result   (fn [ids report]
+                    (cond-> {:ids ids} (seq report) (assoc :report report)))]
+     (async/then
+      (if credentials
+        (attempt :podcastindex :lookup lookup)
+        {:value []})
+      (fn [{:keys [value error]}]
+        (let [show   (first value)
+              ids    (into {}
+                           (remove (comp nil? val))
+                           {:podcastindex (:index/id show)
+                            :apple        (apple-id (:index/itunes-id show))})
+              report (failed [] :podcastindex error)
+              params (cond-> {:q title :limit 10}
+                       country (assoc :country country))]
+          (if (or (:apple ids) (not title))
+            (result ids report)
+            (async/then
+             (attempt :apple :search params)
+             (fn [{:keys [value error]}]
+               (let [found (some #(when (same? %) (:directory/id %)) value)]
+                 (result (cond-> ids found (assoc :apple found))
+                         (failed report :apple error))))))))))))
 
 #?(:clj
    (comment

@@ -58,6 +58,7 @@
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -141,11 +142,19 @@
     (assoc item :retained fact)
     item))
 
-(defn- marked
-  "The feed of the feeds `entry`, with the fact of each item that it
-  retains under the item's :retained."
-  [{:keys [feed retained] :as entry}]
+(defn- identified
+  "The feed of the feeds `entry`, with the ids of the directories that the
+  entry keeps as its :directory/sources, from which the views link to the
+  show in the apps."
+  [{:keys [feed ids] :as entry}]
   (cond-> feed
+    (seq ids) (assoc :directory/sources ids)))
+
+(defn- marked
+  "The feed of the feeds `entry`, with its directory ids, and with the fact
+  of each item that it retains under the item's :retained."
+  [{:keys [retained] :as entry}]
+  (cond-> (identified entry)
     (seq retained) (update :rss/items (partial mapv #(with-fact entry %)))))
 
 (defn- shown
@@ -783,6 +792,45 @@
                     (when offline?
                       (time/later last-at offline-seconds)))))))
 
+(defn identify!
+  "Ask the directories for the ids of the shows of `library` that have
+  none yet, with `opts`, as directory/identify! does, and keep them in
+  the entries of their feeds. The views of a show and its episodes then
+  link to it in the apps that know it by those ids. It gives the library
+  with the :report of the directories that failed under :identify, in
+  ClojureScript as a promise.
+
+  The Podcast Index is asked with the credentials of the :index of the
+  config. The shows are asked about two at a time, since Apple limits how
+  often it answers, and a show whose directory failed is asked again
+  next time. The `opts` are the config for this call, and :feed-guids,
+  the shows to ask about, ids or not."
+  ([library]
+   (identify! library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [{:keys [index feed-guids] :as opts} (options library opts)
+         asking (cond-> (select-keys opts [:send :timeout-seconds
+                                           :user-agent :country])
+                  index (assoc :credentials index))
+         fed?   #(get-in library [:feeds % :feed])
+         guids  (filter fed? (or feed-guids
+                                 (remove #(get-in library [:feeds % :ids])
+                                         (keys (:feeds library)))))
+         ask!   (fn [feed-guid]
+                  (let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
+                    (async/then (directory/identify! feed url asking)
+                                #(vector feed-guid %))))
+         known  (fn [lib [feed-guid {:keys [ids report]}]]
+                  (cond-> lib
+                    (empty? report) (assoc-in [:feeds feed-guid :ids] ids)))]
+     (async/then (async/in-groups ask! 2 guids)
+                 (fn [answers]
+                   (assoc (reduce known library answers)
+                          :identify {:at     (time-of library opts)
+                                     :report (vec (mapcat (comp :report second)
+                                                          answers))}))))))
+
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
   item-guid]."
@@ -872,11 +920,13 @@
   ([library id]
    (episode library id {}))
   ([library id opts]
-   (when-let [[{:keys [feed url]} item] (item-of library id)]
+   (when-let [[{:keys [url] :as entry} item] (item-of library id)]
      (let [video? (profile/prefers-video? (:profile library) (first id))]
-       (episode/view feed item (clojure.core/merge {:video? video?}
-                                                   (options library opts)
-                                                   {:url url}))))))
+       (episode/view (identified entry)
+                     item
+                     (clojure.core/merge {:video? video?}
+                                         (options library opts)
+                                         {:url url}))))))
 
 (defn playback
   "What a player needs for the episode `id` of `library`, with the `opts`
@@ -1102,11 +1152,16 @@
 
 (defn- merged-entries
   "The entries of `mine` and `theirs` whose key `keep?` holds for, and of
-  two with one key, the one fetched later."
+  two with one key, the one fetched later, with the directory ids of
+  either."
   [mine theirs keep?]
-  (into {}
-        (filter (comp keep? key))
-        (merge-with (partial newer :fetched-at) mine theirs)))
+  (let [later (fn [a b]
+                (let [e   (newer :fetched-at a b)
+                      ids (or (:ids e) (:ids a) (:ids b))]
+                  (cond-> e ids (assoc :ids ids))))]
+    (into {}
+          (filter (comp keep? key))
+          (merge-with later mine theirs))))
 
 (defn merge
   "The `library` with `result` merged in, a library that came from an

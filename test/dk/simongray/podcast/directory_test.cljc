@@ -346,3 +346,45 @@
         (is (= "Mørkeland" (:rss/title show)) "the chart's record first")
         (is (= 1 (:directory/rank show)))
         (is (= "https://example.com/morkeland.xml" (resolve/self-url show)))))))
+
+(deftest the-ids-of-a-show-known-by-its-feed
+  (let [asked       (atom [])
+        answering   (fn [answers]
+                      (fn [{:keys [url]}]
+                        (swap! asked conj url)
+                        (or (some (fn [[part answer]] (when (str/includes? url part) answer)) answers)
+                            {:status 404 :body ""})))
+        apple       {"itunes.apple.com/search" {:status 200 :body apple-search}}
+        index       {"podcasts/byguid" {:status 200 :body (fixture "index/podcast-byguid.json")}}
+        credentials {:key "k" :secret "s"}
+        batman      {:podcast/guid "9b024349-ccf0-5f69-a609-6b82873eab3c" :rss/title "Batman University"}
+        batman-url  "https://feeds.theincomparable.com/batmanuniversity"]
+    (run #(async/then (directory/identify! {:rss/title "Podcasting 2.0"} pc20-url {:send (answering apple)})
+                      (fn [result]
+                        (is (= {:ids {:apple "1584274529"}} result) "Apple, by the title and the feed URL")))
+         #(async/then (directory/identify! {:rss/title "Podcasting 2.0"} "https://example.com/elsewhere.xml"
+                                           {:send (answering apple)})
+                      (fn [result]
+                        (is (= {:ids {}} result) "a show of the title at another URL is another show")))
+         (fn []
+           (reset! asked [])
+           (async/then (directory/identify! batman batman-url {:credentials credentials :send (answering index)})
+                       (fn [result]
+                         (is (= {:ids {:podcastindex 75075 :apple "1441923632"}} result)
+                             "the Podcast Index by the guid, with the Apple id")
+                         (is (= 1 (count @asked)) "so Apple isn't asked"))))
+         (fn []
+           (reset! asked [])
+           (async/then (directory/identify! (dissoc batman :podcast/guid) batman-url
+                                            {:credentials credentials :send (answering {})})
+                       (fn [result]
+                         (is (str/includes? (first @asked) "podcasts/byfeedurl?url=https%3A%2F%2Ffeeds.theincomparable.com")
+                             "by the feed URL without a guid")
+                         (is (= {:ids {}} result)))))
+         #(async/then (directory/identify! {:rss/title "Podcasting 2.0"} pc20-url
+                                           {:credentials credentials
+                                            :send        (answering (assoc apple "podcastindex" {:status 500 :body ""}))})
+                      (fn [{:keys [ids report]}]
+                        (is (= {:apple "1584274529"} ids))
+                        (is (= [[:directory/source-failed :podcastindex]] (map (juxt :id :source) report))
+                            "a source that fails is in the report"))))))

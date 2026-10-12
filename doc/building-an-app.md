@@ -845,6 +845,17 @@ the link for each app that the show's ids are enough for. A show from
 ;;      :subscribe "antennapod-subscribe://…"} …]
 ```
 
+A show that the listener subscribed to by its URL has only the ids of its
+feed, so `library/identify!` asks the directories for the rest: the
+Podcast Index by its guid or its URL when the config has the
+credentials, and Apple by its title. The ids stay in the library, and
+the views of the show and its episodes link to it in more apps, e.g. 44
+rather than 29 for Podcasting 2.0:
+
+```clojure
+(swap! lib library/merge (library/identify! @lib))
+```
+
 A `:subscribe` link opens the app, so only show it on a device that has
 the app. The link formats change, so give your own table as `:apps` when
 one is wrong. For a link to a moment in an episode, `links/at-time` puts a
