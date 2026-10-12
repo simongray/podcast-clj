@@ -397,14 +397,29 @@
     moved   (update :moved merge moved)
     report  (update :report into report)))
 
+(defn- in-time
+  "The results of `f` on each of `xs` as a vector, `n` calls at a time, in
+  a future or a promise, as async/in-groups gives them, but starting no
+  group once `over?` says that the time is up."
+  [f n xs over?]
+  (reduce (fn [acc group]
+            (async/then acc (fn [done]
+                              (if (over?)
+                                done
+                                (async/then (async/all f group)
+                                            #(into done %))))))
+          []
+          (partition-all n xs)))
+
 (defn refresh!
   "Fetch the feeds of `feeds` that are due with the `opts` below, and apply
   each result.
 
   Returns a map of :feeds, :changed, :failed, :moved and :report for all
-  the fetches, as refresh gives them, and :checked, the guids of the feeds
-  fetched, in ClojureScript as a promise. Nothing is thrown for what the
-  network or a server does. The `opts` are:
+  the fetches, as refresh gives them, :checked, the guids of the feeds
+  fetched, and :left, those of the feeds that stay due, in ClojureScript
+  as a promise. Nothing is thrown for what the network or a server does.
+  The `opts` are:
 
   - :at, the instant of the refresh, the time of the clock by default
   - :feed-guids, the feeds to fetch instead of the due ones, e.g. those
@@ -419,13 +434,23 @@
     one by default, since the later fetches keep what it read
   - :online?, false when the device has no network, so that nothing is
     fetched
+  - :max-feeds, the most feeds to fetch, the earliest due first
+  - :max-seconds, a deadline: no group of fetches starts once that many
+    seconds have passed by the clock of :now-fn, util.time/now by default,
+    so a refresh ends at most a :timeout-seconds later, e.g. within the
+    time that a platform gives a task in the background
+  - :on-feed-fn, a function called as each fetch ends, with a map of the
+    :feed-guid, its :status or the :error, and how many fetches are :done
+    of the :total, e.g. to show progress. On the JVM, fetches that run at
+    once can call it at once.
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
     fetch! takes them
 
-  A round in which every fetch failed before a server answered, at more
-  than one host, counts as offline too. Offline, every feed stays as it
-  was, so that none counts it as a failure and each is due at the next
-  refresh, and the report has :refresh/offline.
+  The feeds that :max-feeds or :max-seconds leave out stay due, for the
+  next refresh. A round in which every fetch failed before a server
+  answered, at more than one host, counts as offline too. Offline, every
+  feed stays as it was, so that none counts it as a failure and each is
+  due at the next refresh, and the report has :refresh/offline.
 
   A move that a feed declares, e.g. by itunes:new-feed-url, is followed
   only when a feed of the same show answers at the new URL. Otherwise the
@@ -433,14 +458,22 @@
   ([feeds]
    (refresh! feeds {}))
   ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence
-                  max-pages online?]
+                  max-pages online? max-feeds max-seconds on-feed-fn now-fn]
            :or   {fetch       podcast/fetch!
                   concurrency default-concurrency
-                  cadence     {}}
+                  cadence     {}
+                  now-fn      time/now}
            :as   opts}]
    {:pre [(map? opts)]}
-   (let [at     (or at (time/now))
-         guids  (vec (or feed-guids (due feeds at)))
+   (let [at     (or at (now-fn))
+         start  (now-fn)
+         wanted (vec (or feed-guids (due feeds at)))
+         guids  (cond-> wanted
+                  max-feeds (subvec 0 (min max-feeds (count wanted))))
+         over?  #(and max-seconds
+                      (<= (* 1000 max-seconds)
+                          (- (inst-ms (now-fn)) (inst-ms start))))
+         done   (atom 0)
          common (select-keys opts [:send :timeout-seconds :max-bytes
                                    :user-agent :allow-pred])
          private (fn [url]
@@ -473,6 +506,17 @@
 
                            :else
                            [feed-guid value]))))))
+         told   (fn [feed-guid]
+                  (async/then
+                   (fetch1 feed-guid)
+                   (fn [[_ {:keys [status error]} :as pair]]
+                     (when on-feed-fn
+                       (on-feed-fn (cond-> {:feed-guid feed-guid
+                                            :done      (swap! done inc)
+                                            :total     (count guids)}
+                                     status (assoc :status status)
+                                     error  (assoc :error error))))
+                     pair)))
          step   (fn [acc [feed-guid result]]
                   (->> (refresh (:feeds acc) feed-guid result at cadence)
                        (merged acc)))
@@ -486,10 +530,12 @@
                              :failed  []
                              :moved   {}
                              :report  []}
-                            results)))]
+                            results)))
+         left   #(assoc % :left (vec (remove (set (:checked %)) wanted)))]
      (if (false? online?)
-       (async/then nil (fn [_] (offline feeds nil)))
-       (async/then (async/in-groups fetch1 concurrency guids) round)))))
+       (async/then nil (fn [_] (left (offline feeds nil))))
+       (async/then (in-time told concurrency guids over?)
+                   (comp left round))))))
 
 #?(:clj
    (comment

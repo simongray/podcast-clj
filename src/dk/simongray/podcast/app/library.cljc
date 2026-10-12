@@ -662,13 +662,14 @@
 
 (defn- counted
   "How many feeds the `step` of feeds/refresh! checked, and of those, how
-  many were unchanged, changed and failed."
-  [{:keys [checked changed failed] :as step}]
+  many were unchanged, changed and failed, and how many it left due."
+  [{:keys [checked changed failed left] :as step}]
   (let [n (count checked)]
     {:checked   n
      :unchanged (- n (count changed) (count failed))
      :changed   (count changed)
-     :failed    (count failed)}))
+     :failed    (count failed)
+     :left      (count left)}))
 
 (defn refresh!
   "Fetch and apply whatever `library` is due to fetch, with the `opts`
@@ -685,7 +686,8 @@
                                               ; which took their state along
        :moved      {feed-guid \"https://…\"}   ; the feeds that moved, and so
                                               ; their subscriptions
-       :counts     {:checked 120 :unchanged 104 :changed 14 :failed 2}
+       :counts     {:checked 120 :unchanged 104 :changed 14 :failed 2
+                    :left 0}
        :seconds    4.2                        ; how long it took
        :report     [...]}                     ; the fetches that failed, and why
 
@@ -697,6 +699,10 @@
     those that a Podping names
   - :online?, false when the device has no network, so that nothing is
     fetched
+  - :max-feeds, :max-seconds and :on-feed-fn, to fetch fewer feeds or
+    within a deadline, and to hear of each fetch as it ends, as
+    app.feeds/refresh! takes them. The feeds left out stay due, and the
+    :left of the :counts says how many there are.
 
   A refresh in which every fetch of a feed failed before a server
   answered, at more than one host, counts as offline too. Offline, no feed
@@ -715,7 +721,9 @@
                         (select-keys [:feed-guids :fetch :credentials-of
                                       :concurrency :cadence :max-pages :send
                                       :timeout-seconds :max-bytes
-                                      :user-agent :allow-pred :online?])
+                                      :user-agent :allow-pred :online?
+                                      :max-feeds :max-seconds :on-feed-fn
+                                      :now-fn])
                         (assoc :at at))]
      (async/then
       (refresh-lists! library at opts)

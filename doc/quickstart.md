@@ -129,7 +129,7 @@ result into the atom with `library/merge`, which keeps those changes:
 ```clojure
 (:refresh (swap! lib library/merge (library/refresh! @lib)))
 ;; => {:at #inst "…" :added [] :backfilled [] :renamed [] :moved {}
-;;     :counts {:checked 0 :unchanged 0 :changed 0 :failed 0}
+;;     :counts {:checked 0 :unchanged 0 :changed 0 :failed 0 :left 0}
 ;;     :seconds 0.001 :report []}
 
 (library/next-refresh @lib)

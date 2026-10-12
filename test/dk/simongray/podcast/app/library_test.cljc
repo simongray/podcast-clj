@@ -282,7 +282,7 @@
        (async/then (library/refresh! lib {:at later :fetch fetch :send send})
                    (fn [{{:keys [added moved report counts seconds]} :refresh :as lib'}]
                      (testing "a summary of the feeds: the new subscription's and the due one"
-                       (is (= {:checked 2 :unchanged 0 :changed 2 :failed 0} counts))
+                       (is (= {:checked 2 :unchanged 0 :changed 2 :failed 0 :left 0} counts))
                        (is (= 0.0 seconds) "by the clock of the config, which stands still here"))
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
@@ -314,7 +314,7 @@
                    (fn [{{:keys [added report counts]} :refresh :as lib'}]
                      (testing "nothing comes: the library stays, and the report says why"
                        (is (= [] added))
-                       (is (= {:checked 2 :unchanged 0 :changed 0 :failed 2} counts))
+                       (is (= {:checked 2 :unchanged 0 :changed 0 :failed 2 :left 0} counts))
                        (is (= #{:fetch/unreachable} (set (map :id report))))
                        (is (= 3 (count report)) "the list, the new subscription and the due feed")
                        (is (= show (get-in lib' [:feeds guid :feed])))
@@ -366,7 +366,8 @@
                     (is (= [:refresh/offline] (map :id (:report (:refresh lib')))))
                     (is (= (:feeds lib) (:feeds lib')) "no feed counts it as a failure")
                     (is (= (:fetched-lists lib) (:fetched-lists lib')) "nor the list, which stays due")
-                    (is (= {:checked 0 :unchanged 0 :changed 0 :failed 0} (:counts (:refresh lib'))))
+                    (is (= {:checked 0 :unchanged 0 :changed 0 :failed 0 :left 2} (:counts (:refresh lib')))
+                        "the show and the new one from the list stay due")
                     (is (= (at (+ (* 2 86400) 300)) (library/next-refresh lib' {:at later}))
                         "the next refresh waits a while rather than at once")
                     (is (= (at (* 3 86400)) (library/next-refresh lib' {:at (at (* 3 86400))})))))

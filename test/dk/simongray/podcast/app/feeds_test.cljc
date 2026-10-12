@@ -267,6 +267,33 @@
                      (is (= [0 three [:refresh/offline]] [@asked feeds (map :id report)])
                          "a device that knows it has no network fetches nothing")))))))
 
+(deftest a-refresh-on-a-budget
+  (let [entry (assoc (get feeds guid) :next-check nil)
+        five  (into (sorted-map)
+                    (for [i (range 5)]
+                      [(str "g" i) (assoc entry :url (str "https://x.example/" i))]))
+        clock (atom 0)
+        ;; each fetch takes ten seconds of the clock of the refresh
+        fetch (fn [u _] (swap! clock + 10) {:status 304 :url u})
+        opts  {:at now :fetch fetch :concurrency 1 :now-fn #(at @clock)}
+        heard (atom [])]
+    (run #(async/then (feeds/refresh! five (assoc opts :max-seconds 25 :on-feed-fn (partial swap! heard conj)))
+                      (fn [{:keys [checked left] :as result}]
+                        (is (= [["g0" "g1" "g2"] ["g3" "g4"]] [checked left])
+                            "no fetch starts once the time is up")
+                        (is (= ["g3" "g4"] (feeds/due (:feeds result) now)) "and the rest stay due")
+                        (is (= [{:feed-guid "g0" :done 1 :total 5 :status 304}
+                                {:feed-guid "g1" :done 2 :total 5 :status 304}
+                                {:feed-guid "g2" :done 3 :total 5 :status 304}]
+                               @heard)
+                            "each fetch heard of as it ends")))
+         #(async/then (feeds/refresh! five (assoc opts :max-feeds 2))
+                      (fn [{:keys [checked left]}]
+                        (is (= [["g0" "g1"] ["g2" "g3" "g4"]] [checked left]) "the earliest due first")))
+         #(async/then (feeds/refresh! five (assoc opts :online? false))
+                      (fn [{:keys [checked left]}]
+                        (is (= [[] ["g0" "g1" "g2" "g3" "g4"]] [checked left]) "and offline, all of them"))))))
+
 (deftest the-pages-of-a-first-fetch
   (let [asked (atom {})
         fetch (fn [u opts] (swap! asked assoc u (:max-pages opts)) {:status 304 :url u})

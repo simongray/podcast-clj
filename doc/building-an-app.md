@@ -275,7 +275,7 @@ check a new feed with `profile/takeover` first.
 (:refresh @lib)
 ;; => {:at #inst "…" :added [[feed-guid item-guid] …] :backfilled []
 ;;     :renamed [] :moved {} :report []
-;;     :counts {:checked 12 :unchanged 10 :changed 2 :failed 0}
+;;     :counts {:checked 12 :unchanged 10 :changed 2 :failed 0 :left 0}
 ;;     :seconds 1.4}
 
 (library/next-refresh @lib)  ; when to refresh again
@@ -296,6 +296,12 @@ went, e.g. for a status line or a log. Schedule the next refresh at
 `library/next-refresh`: when the first feed or list is due, or right away
 after a new subscription. After a refresh that found the device offline,
 it waits five minutes, the config's `:offline-seconds`.
+
+A platform gives a task in the background little time, e.g. half a
+minute. Give `refresh!` that budget as `:max-seconds`, or a most number
+of feeds as `:max-feeds`, and the feeds that it doesn't reach stay due
+for the next refresh, as the `:left` of the counts says. To show
+progress, give it `:on-feed-fn`, which hears of each fetch as it ends.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
