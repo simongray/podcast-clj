@@ -154,16 +154,17 @@
   credentials replaces that of podcast-clj. The secret can be a hidden
   text of dk.simongray.wary-fetch.secret. It's in no header, since the
   API gets the hash, which holds for some minutes. The hash is a hidden
-  text, as each Authorization header is."
+  text, as each Authorization header is. Credentials without a secret give
+  the User-Agent alone, for a request that sender signs on your server."
   [{:keys [key secret user-agent] :as credentials} seconds]
-  {"User-Agent"    (or user-agent client/user-agent)
-   "X-Auth-Key"    key
-   "X-Auth-Date"   (str seconds)
-   "Authorization" (-> (str key (secret/reveal secret) seconds)
-                       bytes/encode
-                       bytes/sha1
-                       bytes/hex
-                       secret/hide)})
+  (cond-> {"User-Agent" (or user-agent client/user-agent)}
+    secret (assoc "X-Auth-Key"    key
+                  "X-Auth-Date"   (str seconds)
+                  "Authorization" (-> (str key (secret/reveal secret) seconds)
+                                      bytes/encode
+                                      bytes/sha1
+                                      bytes/hex
+                                      secret/hide))))
 
 (defn request
   "The request map for `call`, a key of paths, with `params`, signed with
@@ -193,6 +194,36 @@
       batch? (-> (assoc :method :post
                         :body   (json/write-str params))
                  (assoc-in [:headers "Content-Type"] "application/json")))))
+
+(def ^:no-doc auth-header-names
+  "The names of the headers of auth-headers in lower case, which sender
+  replaces."
+  #{"user-agent" "x-auth-key" "x-auth-date" "authorization"})
+
+(defn sender
+  "A function to give as :send, which signs each request to the Podcast
+  Index with `credentials` and sends it with the :send of `opts`.
+
+  Give it to the proxy on your server, e.g. (proxy/handler {:send (sender
+  credentials)}), so that the secret stays there, and give the page
+  credentials without a :secret. The signature replaces any that the
+  request has, at the time of the :now-fn of `opts`. A request to another
+  URL than those below base-url, or the :base-url of `opts`, goes as it
+  is. The :send is client/send! by default."
+  ([credentials]
+   (sender credentials {}))
+  ([credentials {:keys [send now-fn]
+                 :or   {send client/send! now-fn time/now}
+                 :as   opts}]
+   (let [root (str (url/without-trailing-slashes (:base-url opts base-url))
+                   "/")
+         sign (fn [headers]
+                (into (auth-headers credentials (time/unix-seconds (now-fn)))
+                      (remove #(auth-header-names (str/lower-case (key %))))
+                      headers))]
+     (fn [{:keys [url] :as request}]
+       (send (cond-> request
+               (str/starts-with? (str url) root) (update :headers sign)))))))
 
 (defn- ->number
   [x]

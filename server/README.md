@@ -167,6 +167,8 @@ Each setting is an environment variable.
 | `PODCAST_SERVER_CLIENT` | none | The folder of the client's files. A file or folder whose name starts with a dot isn't served. |
 | `PODCAST_SERVER_MAX_SYNC_DOCUMENTS` | 1000 | The most documents that the sync folder holds |
 | `PODCAST_SERVER_MAX_SYNC_BYTES` | 536870912 (512 MB) | The most bytes that the documents of the sync folder add up to |
+| `PODCAST_SERVER_PODCASTINDEX_KEY` and `PODCAST_SERVER_PODCASTINDEX_SECRET` | none | The credentials of an account of the Podcast Index, with which the proxy signs the client's requests to it, so that the client gives `:index {}` |
+| `PODCAST_SERVER_OP3_TOKEN` | none | The token of an API key of OP3, which the proxy adds to the client's requests to its API, so that the client calls with a nil token |
 
 The server refuses a request that names it by any other name, as a page
 that points a domain of its own at the server would. Any other client can

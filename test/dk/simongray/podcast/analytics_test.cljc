@@ -283,6 +283,16 @@
     (is (= "Bearer test-token" (get-in (http/revealed request) [:headers "Authorization"]))
         "the token goes in a header, not in the URL")
     (is (not (re-find #"test-token" (pr-str request))) "a request that is printed does not show the token"))
+  (testing "a request that your server signs"
+    (let [sent (atom [])
+          send (op3/sender "test-token" {:send #(swap! sent conj %)})]
+      (is (= {} (:headers (op3/request nil :show {:show "abc"}))) "no token, no Authorization")
+      (send (op3/request nil :show {:show "abc"}))
+      (send {:method :get :url "https://op3.dev/api/1/shows/abc" :headers {"authorization" "Bearer forged"}})
+      (send {:method :get :url "https://op3.dev/e/cdn.example.com/e.mp3" :headers {}})
+      (is (= [{"Authorization" "Bearer test-token"} {"Authorization" "Bearer test-token"} {}]
+             (map (comp :headers http/revealed) @sent))
+          "the token in place of the request's own, and none outside the API")))
   (is (= ["https://op3.dev/api/1/shows/aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
           "https://op3.dev/api/1/queries/top-apps-for-show?podcastGuid=917393e3-1b1e-5cef-ace4-edaa54e1f810"
           "https://op3.dev/api/1/queries/show-download-counts?showUuid=a&showUuid=b"]

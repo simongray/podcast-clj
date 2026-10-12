@@ -148,6 +148,25 @@ the proxy, so to fetch a private feed through it, give the handler
 `{:forward (conj (:forward proxy/defaults) "authorization")}`, unless your
 own login uses that header.
 
+The Podcast Index and OP3 take their credentials in headers too. To keep
+the secrets on your server, e.g. for a public site, sign the requests
+there, and give the page credentials without the `:secret`, or a nil
+token for OP3:
+
+```clojure
+;; on the server
+(proxy/handler {:send (podcastindex/sender credentials
+                                           {:send (op3/sender token)})})
+
+;; in the page
+(library/make device-id {:config {:send (proxy/sender "/proxy") :index {}}})
+```
+
+Anyone who passes your login then spends the quota of your accounts. If
+each listener brings their own key instead, the page signs, and the
+handler forwards "x-auth-key", "x-auth-date" and "authorization" in its
+`:forward`, which works only when your login doesn't use that header.
+
 
 ## Find a show
 

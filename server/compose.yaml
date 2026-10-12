@@ -18,6 +18,10 @@ services:
       # true when only the tailnet reaches it, so that it needs no password
       PODCAST_SERVER_PRIVATE_NETWORK: ${PODCAST_SERVER_PRIVATE_NETWORK:-false}
       PODCAST_SERVER_CLIENT: /client
+      # the credentials with which the proxy signs requests, if any
+      PODCAST_SERVER_PODCASTINDEX_KEY: ${PODCAST_SERVER_PODCASTINDEX_KEY:-}
+      PODCAST_SERVER_PODCASTINDEX_SECRET: ${PODCAST_SERVER_PODCASTINDEX_SECRET:-}
+      PODCAST_SERVER_OP3_TOKEN: ${PODCAST_SERVER_OP3_TOKEN:-}
       JDK_JAVA_OPTIONS: -Xmx256m
     volumes:
       - data:/data

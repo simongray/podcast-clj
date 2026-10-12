@@ -45,6 +45,19 @@
          (:url (index/request credentials :value/by-episode-guid {:podcastguid "a94f" :episodeguid "x#1"} {:auth-date 1}))))
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
                (index/request credentials :nope {} {:auth-date 1})))
+  (testing "a request that your server signs"
+    (let [sent     (atom [])
+          send     (index/sender credentials {:send   #(swap! sent conj %)
+                                              :now-fn (constantly #inst "2023-11-14T22:13:20Z")})
+          unsigned (index/request {} :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} {:auth-date 1})]
+      (is (= {"User-Agent" client/user-agent} (:headers unsigned)) "credentials without a secret sign nothing")
+      (send (update unsigned :headers assoc "authorization" "forged" "x-auth-date" "1" "Via" "1.1 wary-fetch"))
+      (send {:method :get :url "https://api.podcastindex.org.example.com/api/1.0/x" :headers {"Accept" "a"}})
+      (is (= [{"User-Agent" client/user-agent "X-Auth-Key" "K" "X-Auth-Date" "1700000000" "Via" "1.1 wary-fetch"
+               "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
+              {"Accept" "a"}]
+             (map (comp :headers http/revealed) @sent))
+          "the signature in place of the request's own, and none for another host")))
   (testing "another service with the same API"
     (is (= ["https://index.example.org/api/1.0/podcasts/byguid?guid=a94f"
             "https://index.example.org/api/1.0/podcasts/byguid?guid=a94f"]

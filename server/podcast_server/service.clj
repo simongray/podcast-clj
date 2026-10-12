@@ -19,6 +19,8 @@
             [clojure.string :as str]
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
+            [dk.simongray.podcast.analytics.op3 :as op3]
+            [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.ring :as ring]
@@ -54,33 +56,45 @@
   - :data-dir, the folder of its data, with the sync folder in it
   - :client-dir, the folder of the client's files, or nil for none
   - :max-sync-documents and :max-sync-bytes, the most documents that the
-    sync folder holds and the most bytes that they add up to"
-  {:port               8400
-   :host               "localhost"
-   :names              #{}
-   :password           nil
-   :private-network?   false
-   :data-dir           "data"
-   :client-dir         nil
-   :max-sync-documents 1000
-   :max-sync-bytes     (* 512 1024 1024)})
+    sync folder holds and the most bytes that they add up to
+  - :podcastindex-key and :podcastindex-secret, the credentials of an
+    account of the Podcast Index, with which the proxy signs the client's
+    requests to it, or nil
+  - :op3-token, the token of an API key of OP3, which the proxy adds to
+    the client's requests to its API, or nil"
+  {:port                8400
+   :host                "localhost"
+   :names               #{}
+   :password            nil
+   :private-network?    false
+   :data-dir            "data"
+   :client-dir          nil
+   :max-sync-documents  1000
+   :max-sync-bytes      (* 512 1024 1024)
+   :podcastindex-key    nil
+   :podcastindex-secret nil
+   :op3-token           nil})
 
 (def environment
   "The environment variable of each setting. The names are separated by
   commas, and whether the network is private is true or false."
-  {:port               "PODCAST_SERVER_PORT"
-   :host               "PODCAST_SERVER_HOST"
-   :names              "PODCAST_SERVER_NAMES"
-   :password           "PODCAST_SERVER_PASSWORD"
-   :private-network?   "PODCAST_SERVER_PRIVATE_NETWORK"
-   :data-dir           "PODCAST_SERVER_DATA"
-   :client-dir         "PODCAST_SERVER_CLIENT"
-   :max-sync-documents "PODCAST_SERVER_MAX_SYNC_DOCUMENTS"
-   :max-sync-bytes     "PODCAST_SERVER_MAX_SYNC_BYTES"})
+  {:port                "PODCAST_SERVER_PORT"
+   :host                "PODCAST_SERVER_HOST"
+   :names               "PODCAST_SERVER_NAMES"
+   :password            "PODCAST_SERVER_PASSWORD"
+   :private-network?    "PODCAST_SERVER_PRIVATE_NETWORK"
+   :data-dir            "PODCAST_SERVER_DATA"
+   :client-dir          "PODCAST_SERVER_CLIENT"
+   :max-sync-documents  "PODCAST_SERVER_MAX_SYNC_DOCUMENTS"
+   :max-sync-bytes      "PODCAST_SERVER_MAX_SYNC_BYTES"
+   :podcastindex-key    "PODCAST_SERVER_PODCASTINDEX_KEY"
+   :podcastindex-secret "PODCAST_SERVER_PODCASTINDEX_SECRET"
+   :op3-token           "PODCAST_SERVER_OP3_TOKEN"})
 
 (defn- setting
   "The setting `k` from the value `v` of its environment variable `var`. A
-  password has at least 16 characters, and it's kept as a hidden text."
+  password has at least 16 characters, and it's kept as a hidden text, as
+  the secrets of the Podcast Index and OP3 are."
   [k var v]
   ;; long, since the waits after wrong guesses slow an attacker, but only
   ;; down to a guess a minute
@@ -108,17 +122,26 @@
     (or (some-> (re-matches #"\d{1,15}" v) parse-long)
         (throw (ex-info (str var " is not a number: " v) {var v})))
 
+    (:podcastindex-secret :op3-token)
+    (secret/hide v)
+
     v))
 
 (defn settings
   "The settings that the environment variables in `env` give, over the
-  defaults."
+  defaults. The key and the secret of the Podcast Index come together."
   [env]
-  (into defaults
-        (for [[k var] environment
-              :let [v (get env var)]
-              :when (seq v)]
-          [k (setting k var v)])))
+  (let [given (into defaults
+                    (for [[k var] environment
+                          :let [v (get env var)]
+                          :when (seq v)]
+                      [k (setting k var v)]))]
+    (when-not (= (some? (:podcastindex-key given))
+                 (some? (:podcastindex-secret given)))
+      (throw (ex-info (str "PODCAST_SERVER_PODCASTINDEX_KEY and "
+                           "PODCAST_SERVER_PODCASTINDEX_SECRET come together")
+                      {})))
+    given))
 
 (defn refused
   "The answer to a request that the server refuses, with `message`."
@@ -401,6 +424,18 @@
                    "Content-Type" "text/plain; charset=utf-8"}
          :body    "The server is busy. Try again in a few seconds."}))))
 
+(defn proxy-send
+  "The :send of the proxy, which signs the requests to the Podcast Index
+  and to OP3 with the credentials of `settings`, where they give them."
+  [{:keys [podcastindex-key podcastindex-secret op3-token] :as settings}]
+  (let [index {:key podcastindex-key :secret podcastindex-secret}]
+    (cond-> client/send!
+      op3-token
+      (as-> send (op3/sender op3-token {:send send}))
+
+      podcastindex-key
+      (as-> send (podcastindex/sender index {:send send})))))
+
 (defn routes
   "The routes of the proxy, the sync folder `sync-store` and the gpodder
   API, in Pedestal's set syntax. The gpodder API names episodes by the
@@ -409,7 +444,8 @@
   The :password of `settings` lets in the apps of the gpodder API, or any
   app when it's nil, and the sync folder holds no more than their
   :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
-  once, of 32 MB at most, so that a heap of 256 MB holds them."
+  once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
+  with proxy-send."
   [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
                    :as   settings}]
   (let [dav         (within-quota (sync-dir settings)
@@ -422,8 +458,8 @@
                       (fn [_ given] (password? password given))
                       (constantly true))
         gpodder     (device/gpodder-handler sync-store lib authorized?)
-        proxy       (at-most 4 30 (proxy/handler {:user-agent
-                                                  client/user-agent}))]
+        proxy       (at-most 4 30 (proxy/handler {:user-agent client/user-agent
+                                                  :send (proxy-send settings)}))]
     #{["/proxy" :any proxy :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]

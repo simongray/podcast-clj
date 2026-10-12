@@ -216,15 +216,38 @@
 (defn request
   "The request map of the call `call` with `params`, as calls lists
   them, and the bearer `token` of an API key. The :origin of `opts` names
-  another instance of OP3."
+  another instance of OP3. A nil `token` gives no Authorization, for a
+  request that sender signs on your server."
   ([token call params]
    (request token call params {}))
   ([token call params opts]
    (let [[path query-params] (endpoint call params)
-         q                   (query query-params)]
+         q                   (query query-params)
+         authorization       (http/authorization {:token token})]
      {:method  :get
       :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
-      :headers {"Authorization" (http/authorization {:token token})}})))
+      :headers (if authorization {"Authorization" authorization} {})})))
+
+(defn sender
+  "A function to give as :send, which adds the bearer `token` to each
+  request to the API of OP3 and sends it with the :send of `opts`.
+
+  Give it to the proxy on your server, e.g. (proxy/handler {:send (sender
+  token)}), so that the token stays there, and call with a nil token in
+  the page. The token replaces any Authorization that the request has. A
+  request to another URL than those of the API at the :origin of `opts`
+  goes as it is. The :send is client/send! by default."
+  ([token]
+   (sender token {}))
+  ([token {:keys [send] :or {send client/send!} :as opts}]
+   (let [root (str (instance opts) "/api/")
+         sign (fn [headers]
+                (into {"Authorization" (http/authorization {:token token})}
+                      (remove #(= "authorization" (str/lower-case (key %))))
+                      headers))]
+     (fn [{:keys [url] :as request}]
+       (send (cond-> request
+               (str/starts-with? (str url) root) (update :headers sign)))))))
 
 (defn ^:no-doc record
   "The JSON object `m` with its fields as keywords in kebab-case, and its

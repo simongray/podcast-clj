@@ -9,6 +9,7 @@
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.secret :as secret]
             [io.pedestal.connector.test :refer [response-for]]
@@ -68,7 +69,31 @@
   (is (= [5 1000] ((juxt :max-sync-documents :max-sync-bytes)
                    (service/settings {"PODCAST_SERVER_MAX_SYNC_DOCUMENTS" "5" "PODCAST_SERVER_MAX_SYNC_BYTES" "1000"}))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_MAX_SYNC_BYTES is not a number"
-                        (service/settings {"PODCAST_SERVER_MAX_SYNC_BYTES" "1 GB"}))))
+                        (service/settings {"PODCAST_SERVER_MAX_SYNC_BYTES" "1 GB"})))
+  (let [given (service/settings {"PODCAST_SERVER_PODCASTINDEX_KEY"    "K"
+                                 "PODCAST_SERVER_PODCASTINDEX_SECRET" "S"
+                                 "PODCAST_SERVER_OP3_TOKEN"           "t"})]
+    (is (= ["K" "S" "t"] (map secret/reveal ((juxt :podcastindex-key :podcastindex-secret :op3-token) given))))
+    (is (= ["#<secret>" "#<secret>"] (map pr-str ((juxt :podcastindex-secret :op3-token) given)))
+        "secrets that don't print"))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"come together"
+                        (service/settings {"PODCAST_SERVER_PODCASTINDEX_KEY" "K"}))))
+
+(deftest requests-that-the-proxy-signs
+  (let [sent (atom [])]
+    (with-redefs [client/send! #(swap! sent conj %)]
+      (doseq [settings [{"PODCAST_SERVER_PODCASTINDEX_KEY"    "K"
+                         "PODCAST_SERVER_PODCASTINDEX_SECRET" "S"
+                         "PODCAST_SERVER_OP3_TOKEN"           "t"}
+                        {}]
+              url      ["https://api.podcastindex.org/api/1.0/search/byterm?q=x"
+                        "https://op3.dev/api/1/shows/abc"
+                        "https://example.org/feed.xml"]]
+        ((service/proxy-send (service/settings settings)) {:method :get :url url :headers {}})))
+    (is (= [#{"User-Agent" "X-Auth-Key" "X-Auth-Date" "Authorization"} #{"Authorization"} #{}
+            #{} #{} #{}]
+           (map (comp set keys :headers) @sent))
+        "the requests to the Podcast Index and OP3 with the credentials that the server has")))
 
 (deftest an-open-server
   (is (not (service/open? service/defaults)) "no password, on localhost")
