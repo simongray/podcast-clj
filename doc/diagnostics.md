@@ -28,7 +28,7 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `fetch`: the fetch of a feed or a list
 - `discovery`: finding the feeds of a show from an address
 - `repair`: the repairs of malformed XML
-- `xml`: namespace resolution
+- `xml`: the parse and namespace resolution
 - `quirk`: the normalisations of the tree
 - `feed`: the model
 - `transcript` and `chapters`: the companion formats
@@ -70,6 +70,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:repair/html-entities` | warning | HTML entities that XML lacks, such as &nbsp;, were replaced by character references. |
 | `:repair/bare-ampersands` | warning | Bare ampersands were escaped. |
 | `:repair/lenient-parser` | warning | The document was still malformed after the repairs, so it was parsed leniently with jsoup. |
+| `:xml/skipped-entity` | warning | An entity that only an external DTD could declare was left out of the text, since no external DTD is read. The :entity names it. |
 | `:xml/default-namespace` | info | A default namespace isn't known, so the elements in it have no alias, and its declaration stays as an xmlns attribute. |
 | `:xml/unknown-namespace` | info | The namespace URI isn't known, so its prefix is used as the alias. |
 | `:xml/undeclared-prefix` | warning | A prefix was used without a declaration, which only the JVM parser accepts, so the prefix is used as the alias. |
@@ -268,3 +269,4 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
 | `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so give the state a new device id to sync again. |
 | `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |
+| `:sync/overlapping-step` | info | A step began while another step of this device was still running, in this process or another tab of the page, so it did nothing, since two steps at once can write an older state after a newer one. |

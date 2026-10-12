@@ -138,7 +138,10 @@
      :doc "The document was still malformed after the repairs, so it was parsed
            leniently with jsoup."}
 
-    ;; namespace resolution
+    ;; the parse and namespace resolution
+    {:id :xml/skipped-entity :level :warning
+     :doc "An entity that only an external DTD could declare was left out of the
+           text, since no external DTD is read. The :entity names it."}
     {:id :xml/default-namespace :level :info
      :doc "A default namespace isn't known, so the elements in it have no
            alias, and its declaration stays as an xmlns attribute."}

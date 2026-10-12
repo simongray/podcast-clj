@@ -31,7 +31,7 @@
   tombstone, so that it outlives an older star on another device."
   [profile id at]
   (if (starred? profile id)
-    (crdt/write profile [:stars id] #(assoc % :removed? true) at)
+    (crdt/remove profile [:stars id] at)
     profile))
 
 (defn ^:no-doc second-of
@@ -62,7 +62,7 @@
   (let [s (second-of position)
         e (get-in profile [k id s])]
     (if (crdt/live? e)
-      (crdt/write profile [k id s] #(assoc % :removed? true) at)
+      (crdt/remove profile [k id s] at)
       profile)))
 
 (defn ^:no-doc marks
@@ -250,7 +250,7 @@
   tombstone."
   [profile id at]
   (if (rating profile id)
-    (crdt/write profile [:ratings id] #(assoc % :removed? true) at)
+    (crdt/remove profile [:ratings id] at)
     profile))
 
 (comment

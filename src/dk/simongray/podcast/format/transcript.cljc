@@ -615,7 +615,7 @@
   ([transcript q {:keys [length] :or {length passage-length} :as opts}]
    {:pre [(map? opts)]}
    (let [query  (if (string? q)
-                  (search.queries/parse q opts)
+                  (search.queries/parse q (dissoc opts :length))
                   q)
          marked (fn [piece]
                   (let [{:keys [body] :as passage} (turn piece)

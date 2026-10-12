@@ -494,7 +494,8 @@ even of its sink.
   a schema.
 - What the README of each still lacks for a release: a version and
   deprecation policy, a cljdoc.edn, and the claims that don't hold.
-- The commit of like-minded after 0.1.1, in its next release.
+- The commit of like-minded after 0.1.1, in its next release. Done:
+  like-minded 0.2.0 has it.
 
 **Why here.** Nothing here gives a wrong answer that an app meets in
 ordinary use.

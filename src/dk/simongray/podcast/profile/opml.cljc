@@ -38,7 +38,7 @@
   tombstone. The subscriptions that the list brought stay."
   [profile url at]
   (if (contains? (lists profile) url)
-    (crdt/write profile [:lists url] #(assoc % :removed? true) at)
+    (crdt/remove profile [:lists url] at)
     profile))
 
 (defn ^:no-doc outlines

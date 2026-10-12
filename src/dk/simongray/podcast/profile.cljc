@@ -172,7 +172,7 @@
   where no subscription was known, so that it outlives an older
   subscription on another device."
   [profile feed-guid at]
-  (crdt/write profile [:subscriptions feed-guid] #(assoc % :removed? true) at))
+  (crdt/remove profile [:subscriptions feed-guid] at))
 
 (defn ^:no-doc feed-author
   "The author of what the feed `feed-guid` brings about in a profile, such as
@@ -303,7 +303,7 @@
   "The `profile` without the remote item `id` at `at`, leaving a
   tombstone."
   [profile id at]
-  (crdt/write profile [:remote-items id] #(assoc % :removed? true) at))
+  (crdt/remove profile [:remote-items id] at))
 
 (defn remote-items
   "The live remote items of `profile`, by episode id, each with the
@@ -484,7 +484,7 @@
   tombstone."
   [profile feed-guid t at]
   (if (contains? (tags profile feed-guid) t)
-    (crdt/write profile [:tags feed-guid t] #(assoc % :removed? true) at)
+    (crdt/remove profile [:tags feed-guid t] at)
     profile))
 
 (defn rename-tag
@@ -529,7 +529,7 @@
   tombstone."
   [profile name at]
   (if (contains? (filters profile) name)
-    (crdt/write profile [:filters name] #(assoc % :removed? true) at)
+    (crdt/remove profile [:filters name] at)
     profile))
 
 (def played-threshold

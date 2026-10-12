@@ -249,7 +249,7 @@
               "- `fetch`: the fetch of a feed or a list"
               "- `discovery`: finding the feeds of a show from an address"
               "- `repair`: the repairs of malformed XML"
-              "- `xml`: namespace resolution"
+              "- `xml`: the parse and namespace resolution"
               "- `quirk`: the normalisations of the tree"
               "- `feed`: the model"
               "- `transcript` and `chapters`: the companion formats"
