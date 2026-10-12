@@ -277,9 +277,10 @@
      (let [original (.-fetch js/globalThis)
            node?    http/node?
            sent     (atom [])
-           answers  {"https://api.hive.blog"        502
-                     "https://api.deathwing.me"     :hang
-                     "https://api.openhive.network" (chain 110255080)}]
+           ;; fetch gets the URL of each node as wary-fetch writes it, with a
+           ;; / for its empty path
+           nodes    (map #(str % "/") podping/nodes)
+           answers  (zipmap nodes [502 :hang (chain 110255080)])]
        (run (fn []
               ;; the global fetch, which sends outside Node
               (set! http/node? false)
@@ -287,7 +288,7 @@
               (-> (podping/call! :head-block {} {:timeout-seconds 0.1})
                   (.then (fn [body]
                            (is (= 110255080 (:block (podping/head-block body))))
-                           (is (= (let [[a b c] podping/nodes]
+                           (is (= (let [[a b c] nodes]
                                     [[a "POST"] [b "POST"] [b :aborted] [c "POST"]])
                                   @sent)
                                "through http/send! and js/fetch, past a node that takes too long")))
