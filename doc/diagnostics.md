@@ -170,6 +170,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/empty` | error | The transcript or chapters file holds no segments or chapters in the format that the feed declares. |
 | `:check/feed-cors` | info | The server doesn't let pages on other sites read the feed, so a web app can't read it without a server of its own. |
 | `:check/validators` | info | The server sends the feed without ETag or Last-Modified, so a client can't ask whether it changed, and has to fetch it whole every time. |
+| `:check/feed-type` | warning | The server sends the feed as a media type that isn't one of XML, the :served, e.g. text/html, so a browser can show it as a page and an app or a directory can refuse it. Serve it as application/rss+xml or application/xml. |
+| `:check/feed-size` | warning | The feed is larger than the requirements take: its :bytes against their :max-bytes. |
 | `:check/unchecked` | warning | The check reached a limit of files or time, and skipped the files after it, which the diagnostic counts. |
 | `:validate/rss-version` | warning | The version of the rss element isn't 2.0. The :value is the one it has. A feed built from data has none, which emit writes. |
 | `:validate/missing-element` | error | An element that RSS 2.0 requires is missing. |
@@ -212,6 +214,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:library/malformed-profile` | warning | The saved profile breaks the rules of a profile, so the library kept the profile it had, and the next sync brings back what the other devices hold. The :reason says what's wrong. |
 | `:library/index-rebuilt` | info | The search index was built again from the feeds, since some of its documents were missing or didn't read. The :reason says why. |
 | `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that were read before that call. |
+| `:podping/not-notified` | warning | The service didn't take the word that a feed changed: the call failed, as the :reason says, or the service answered with the :status of a failure, e.g. 401 for a token that it doesn't know. |
 | `:comments/unsupported` | info | Comments over the protocol of the thread can't be read. |
 | `:comments/no-appview` | warning | An AT Protocol thread wasn't read, because the options named no AppView. |
 | `:comments/no-relay` | warning | A Nostr thread wasn't read, because neither the options nor the root named a relay. |

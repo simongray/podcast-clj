@@ -249,4 +249,23 @@
         "the validators of the answer to HEAD, which a 206 need not repeat")
     (is (= #{} (ids feed {:get {:status 200 :url "https://a/feed.xml" :filtered? true}}))
         "a browser hides the ETag")
-    (is (= #{:check/head} (ids feed {:head {:status 501} :get {:status 206 :url "https://a/feed.xml" :cors "*" :etag "\"1\""}})))))
+    (is (= #{:check/head} (ids feed {:head {:status 501} :get {:status 206 :url "https://a/feed.xml" :cors "*" :etag "\"1\""}})))
+    (testing "the media type that the feed is served as"
+      (let [served #(ids feed {:get {:status 206 :url "https://a/feed.xml" :cors "*" :etag "\"1\"" :type %}})]
+        (is (every? #(= #{} (served %)) ["application/rss+xml" "application/xml" "text/xml" "application/atom+xml"]))
+        (is (= #{:check/feed-type} (served "text/html")))
+        (is (= [["text/plain"]]
+               (map (juxt :served) (filter (comp #{:check/feed-type} :id)
+                                           (rules/verdicts feed {:head {:status 200 :type "text/plain" :etag "\"1\""}
+                                                                 :get  {:status 206 :url "https://a/feed.xml" :cors "*"}}))))
+            "that of the answer to HEAD when the other names none")))
+    (testing "the size, against a most that the requirements give"
+      (let [facts {:get {:status 206 :url "https://a/feed.xml" :cors "*" :etag "\"1\"" :range {:start 0 :end 1 :total 2000000}}}]
+        (is (= #{} (ids feed facts)) "which none of the built-in ones do")
+        (is (= #{} (ids feed facts :apple)))
+        (is (= [[:check/feed-size 2000000 1000000]]
+               (map (juxt :id :bytes :max-bytes) (rules/verdicts feed facts {:max-feed-bytes 1000000}))))
+        (is (= #{:check/feed-size} (ids feed {:head {:status 200 :length 2000000 :etag "\"1\""}
+                                              :get  {:status 200 :url "https://a/feed.xml" :cors "*"}}
+                                        {:max-feed-bytes 1000000}))
+            "or the length of the answer to HEAD")))))

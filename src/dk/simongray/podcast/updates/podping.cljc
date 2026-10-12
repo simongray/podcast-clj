@@ -23,7 +23,7 @@
   A host announces a change through podping.cloud, with the token that
   the host was given."
   (:require [clojure.string :as str]
-            #?(:clj [dk.simongray.podcast.diagnostics :as diagnostics])
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
@@ -242,6 +242,37 @@
       :url     (str service (if (str/includes? service "?") "&" "?") query)
       :headers {"Authorization" (secret/hide token)
                 "User-Agent"    user-agent}})))
+
+(defn notify!
+  "Announce with the `token` of the service that the feed at `url` changed,
+  by the call of notify-request with `opts`, and give a map of the :status
+  of the answer, in ClojureScript in a promise.
+
+  The `opts` are those of notify-request, :send, the function that sends
+  the request, client/send! by default, and the :timeout-seconds of
+  http/send!. Nothing that the network or the service does throws: the
+  result of a call that fails, or of an answer that isn't a success, has
+  a :podping/not-notified diagnostic under :error."
+  ([token url]
+   (notify! token url {}))
+  ([token url {:keys [send timeout-seconds] :or {send client/send!} :as opts}]
+   {:pre [(map? opts)]}
+   (let [request (cond-> (notify-request token url (dissoc opts :send))
+                   timeout-seconds (assoc :timeout-seconds timeout-seconds))
+         failed  #(diagnostics/failed (merge {:id :podping/not-notified :url url}
+                                             %))]
+     (async/then (async/attempt #(send request))
+                 (fn [{:keys [value error]}]
+                   (let [status (:status value)]
+                     (cond
+                       error
+                       (failed {:reason (async/explain error)})
+
+                       (and (integer? status) (<= 200 status 299))
+                       {:status status}
+
+                       :else
+                       (failed {:status status}))))))))
 
 (defn- call-node!
   "Send `call` with `params` to `node` as `opts` say, and give the body of

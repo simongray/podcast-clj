@@ -141,7 +141,23 @@
            (:url (podping/notify-request "t" "https://x/f" {:gateway "https://ping.example.org/notify"}))))
     (is (= "https://ping.example.org/?key=1&url=https%3A%2F%2Fx%2Ff&reason=update&medium=podcast"
            (:url (podping/notify-request "t" "https://x/f" {:gateway "https://ping.example.org/?key=1"})))
-        "a query of its own stays")))
+        "a query of its own stays"))
+  (testing "the call, and what the service answered"
+    (let [sent (atom [])
+          send (fn [status] (fn [r] (swap! sent conj r) {:status status :url (:url r) :headers {} :body ""}))]
+      (run #(async/then (podping/notify! "t" "https://x/f" {:send (send 200) :timeout-seconds 5})
+                        (fn [answer]
+                          (is (= {:status 200} answer))
+                          (is (= 5 (:timeout-seconds (peek @sent))))
+                          (is (= "t" (get-in (http/revealed (peek @sent)) [:headers "Authorization"])))))
+           #(async/then (podping/notify! "wrong" "https://x/f" {:send (send 401)})
+                        (fn [{:keys [error]}]
+                          (is (= [:podping/not-notified 401 "https://x/f"] ((juxt :id :status :url) error)))
+                          (is (some? (:message error)))))
+           #(async/then (podping/notify! "t" "https://x/f" {:send (fn [_] (throw (ex-info "connection refused" {})))})
+                        (fn [{:keys [error]}]
+                          (is (= :podping/not-notified (:id error)))
+                          (is (str/includes? (:reason error) "connection refused"))))))))
 
 (defn- node-answering
   "A stand-in for the HTTP client: `answers` by node URL, a function of

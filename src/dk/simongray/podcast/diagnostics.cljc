@@ -472,6 +472,14 @@
     {:id :check/validators :level :info
      :doc "The server sends the feed without ETag or Last-Modified, so a client
            can't ask whether it changed, and has to fetch it whole every time."}
+    {:id :check/feed-type :level :warning
+     :doc "The server sends the feed as a media type that isn't one of XML, the
+           :served, e.g. text/html, so a browser can show it as a page and an
+           app or a directory can refuse it. Serve it as application/rss+xml
+           or application/xml."}
+    {:id :check/feed-size :level :warning
+     :doc "The feed is larger than the requirements take: its :bytes against
+           their :max-bytes."}
     {:id :check/unchecked :level :warning
      :doc "The check reached a limit of files or time, and skipped the files
            after it, which the diagnostic counts."}
@@ -624,6 +632,10 @@
     {:id :podping/unavailable :level :warning
      :doc "No node of the Hive chain answered a call of the poll. The result has
            the pings of the blocks that were read before that call."}
+    {:id :podping/not-notified :level :warning
+     :doc "The service didn't take the word that a feed changed: the call failed,
+           as the :reason says, or the service answered with the :status of a
+           failure, e.g. 401 for a token that it doesn't know."}
 
     ;; comments: reading the thread that a podcast:socialInteract names
     {:id :comments/unsupported :level :info

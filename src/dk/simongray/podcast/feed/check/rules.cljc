@@ -46,7 +46,11 @@
   Each gives the size, type, colors and file extension of the artwork of
   an itunes:image, and the levels that it raises above those of the
   catalogue. They're the requirements of PSP-1, and of Apple's A
-  Podcaster's Guide to RSS, as of September 2026."
+  Podcaster's Guide to RSS, as of September 2026.
+
+  A map of your own can also give :max-feed-bytes, the largest feed that a
+  directory takes. None of these give it, since no directory publishes
+  one as of October 2026."
   (let [artwork {:sizes      [1400 3000]
                  :types      #{"image/jpeg" "image/png"}
                  :colors     #{:rgb :indexed}
@@ -523,6 +527,32 @@
        [(diagnostic file chosen :check/empty)])
      (passed-on file (:report read)))))
 
+;; RFC 7303, section 4: application/xml and text/xml; RFC 6839, section
+;; 4.1: a type with the suffix +xml, e.g. application/rss+xml
+(defn- xml-type?
+  "Whether the media type `t` is one of XML."
+  [t]
+  (or (contains? #{"application/xml" "text/xml"} t)
+      (str/ends-with? t "+xml")))
+
+(defn- feed-type-verdict
+  "The diagnostic of the feed `file` by the `chosen` requirements when the
+  answers `head` and `get` serve it as a media type that isn't one of XML."
+  [file chosen head get]
+  (let [served (or (:type get) (when (ok? head) (:type head)))]
+    (when (and served (not (xml-type? served)))
+      [(diagnostic file chosen :check/feed-type :served served)])))
+
+(defn- feed-size-verdict
+  "The diagnostic of the feed `file` when the answers `head` and `get` say
+  that it's larger than the :max-feed-bytes of the `chosen` requirements."
+  [file {:keys [max-feed-bytes] :as chosen} head get]
+  (let [size (or (get-in get [:range :total])
+                 (when (and (ok? head) (as-is? head)) (:length head)))]
+    (when (and max-feed-bytes (number? size) (< max-feed-bytes size))
+      [(diagnostic file chosen :check/feed-size
+                   :bytes size :max-bytes max-feed-bytes)])))
+
 (defn- feed-verdicts
   "The diagnostics of the feed `file` from its `facts`, by
   the `chosen` requirements.
@@ -537,6 +567,8 @@
      (reaching file chosen get)
      (head-verdict file chosen head)
      (cors-verdict file chosen :check/feed-cors url get)
+     (feed-type-verdict file chosen head get)
+     (feed-size-verdict file chosen head get)
      (when-not (or (:etag get)
                    (:last-modified get)
                    (:filtered? get)

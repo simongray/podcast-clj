@@ -667,13 +667,10 @@ screen.
 
 The page's Media Session is set by
 [play-nice](https://github.com/simongray/play-nice), a library that you
-add to your app yourself, since podcast-clj doesn't depend on it. It
-isn't on Clojars yet, so take it from GitHub:
+add to your app yourself, since podcast-clj doesn't depend on it:
 
 ```clojure
-dk.simongray/play-nice
-{:git/url "https://github.com/simongray/play-nice"
- :git/sha "…"}
+dk.simongray/play-nice {:mvn/version "0.1.0"}
 ```
 
 With its `session` namespace, the buttons on the lock screen and the
@@ -1583,6 +1580,15 @@ about each change:
   (update feed :atom/links conj {:rel "hub" :href "https://hub.example.org/"}))
 
 (websub/publish! ["https://hub.example.org/"] "https://example.org/feed.xml")
+```
+
+To announce a change through Podping, give `podping/notify!` the token
+that podping.cloud gave you. It gives the `:status` of the answer, or an
+`:error` when the service didn't take it:
+
+```clojure
+(podping/notify! token "https://example.org/feed.xml")
+;; => {:status 200}
 ```
 
 A private feed has a token for each subscriber. You make and check the
