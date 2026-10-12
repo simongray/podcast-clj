@@ -516,6 +516,12 @@ the episode or the show, and a link written as a bare domain, as many
 feeds do, gets `https://`. To do it your own way, give `:notes-url-fn` a
 function of the page and the URL, which gives the URL to keep or nil.
 
+To make the times in the notes, e.g. 12:34, play the episode from there,
+give `:timestamp-fn` a function of the seconds and the text of a time.
+It gives the Hiccup in its place, or nil to leave the text, e.g.
+`(fn [seconds text] [:a {:href (str "#t=" seconds)} text])`. A time in a
+link, or past the end of the episode, stays text.
+
 For the shows that a show recommends in its podroll, and the feed of its
 publisher, merge in `library/fetch-linked-shows!`. It reads each show of
 the podroll from the start of its feed, most often the first 64 KB, or

@@ -59,6 +59,21 @@
                                      {:notes-url-fn #(when (re-find #"^nytimes" %2)
                                                        (str "https://" %2))})))
             "by a function of the app")))
+    (testing "the times in the show notes, as the app links them"
+      (let [timed (assoc item
+                         :itunes/duration 4000
+                         :rss/description (str "At 12:34 we start, (1:02:03) is late, and 10:30:00 is past the end. "
+                                               "<p>Not 12:75, nor <a href=\"https://x.example/\">5:00</a>.</p>"))
+            link  (fn [seconds text] [:a {:href (str "#t=" seconds)} text])
+            notes #(:notes (episode/view show timed {:timestamp-fn %}))]
+        (is (= '("At " [:a {:href "#t=754"} "12:34"] " we start, (" [:a {:href "#t=3723"} "1:02:03"]
+                 ") is late, and 10:30:00 is past the end. "
+                 [:p {} "Not 12:75, nor " [:a {:href "https://x.example/"} "5:00"] "."])
+               (notes link))
+            "after the notes are made safe, outside links, and within the episode")
+        (is (= (:notes (episode/view show timed)) (notes (constantly nil))) "a time that the app leaves")
+        (is (= (:text (episode/view show timed)) (:text (episode/view show timed {:timestamp-fn link})))
+            "the text as it was")))
     (testing "the enclosure and the transcript, as the options select them"
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))
       (is (= "https://example.com/file-low-03.opus"

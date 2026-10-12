@@ -56,6 +56,49 @@
     (when-let [inferred (some-> text str/split-lines chapters/from-lines)]
       (with-report {:source :inferred} inferred chapters/report))))
 
+(defn- timed
+  "The text `s` of show notes as Hiccup, with each time in it, e.g. 12:34,
+  given to `f` with its seconds and its text, and replaced by what `f`
+  gives, unless that's nil or the time is past the `duration` of the
+  episode, when it's known."
+  [s f duration]
+  (if-not (str/includes? s ":")
+    [s]
+    (let [time? #(re-matches #"\d{1,2}:[0-5]\d:[0-5]\d|\d{1,3}:[0-5]\d" %)
+          piece (fn [token]
+                  (or (when (time? token)
+                        (let [seconds (time/parse-clock token)]
+                          (when (or (not (number? duration))
+                                    (<= seconds duration))
+                            (f seconds token))))
+                      token))
+          join  (fn [acc x]
+                  (if (and (string? x) (string? (peek acc)))
+                    (conj (pop acc) (str (peek acc) x))
+                    (conj acc x)))]
+      ;; runs of digits and colons, and the runs between them
+      (reduce join [] (map piece (re-seq #"[\d:]+|[^\d:]+" s))))))
+
+(defn- with-times
+  "The Hiccup `nodes` of show notes with the times in their text as `f`
+  gives them, as timed does, but for the text of a link, for an episode of
+  `duration`."
+  [nodes f duration]
+  (letfn [(node [x]
+            (cond
+              (string? x)
+              (timed x f duration)
+
+              (and (vector? x) (keyword? (first x)))
+              (if (= "a" (name (first x)))
+                [x]
+                (let [n (if (map? (second x)) 2 1)]
+                  [(into (subvec x 0 n) (mapcat node) (subvec x n))]))
+
+              :else
+              [x]))]
+    (apply list (mapcat node nodes))))
+
 (defn view
   "The episode `item` of `feed` as a page shows it, with the `opts` below:
   the item with the properties of resolve/properties merged in, and these
@@ -83,10 +126,14 @@
   - :notes-url-fn, a function of the web page of the episode and a URL
     in its show notes, which gives the URL to keep or nil, by default the
     URL made absolute
+  - :timestamp-fn, a function of the seconds and the text of a time in
+    the show notes, e.g. 12:34, which gives the Hiccup in its place, e.g.
+    a link that plays from there, or nil to leave the text. A time in a
+    link, or past the end of the episode, stays text.
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
-  ([feed item {:keys [url notes-url-fn except]
+  ([feed item {:keys [url notes-url-fn timestamp-fn except]
                :or   {notes-url-fn resolve/notes-url except #{}}
                :as   opts}]
    {:pre [(map? opts)]}
@@ -109,7 +156,9 @@
        (assoc :id (guid/episode-id feed url item))
 
        (and notes (wanted? :notes))
-       (assoc :notes notes)
+       (assoc :notes (cond-> notes
+                       timestamp-fn (with-times timestamp-fn
+                                      (resolve/duration item))))
 
        (and text (wanted? :text))
        (assoc :text text)
