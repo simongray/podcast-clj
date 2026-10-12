@@ -350,8 +350,10 @@
          feed      (when result
                      (feed-of url result "subscribe to"))
          feed-guid (guid/feed-guid feed url)
+         image     (resolve/artwork feed)
          details   (cond-> {:url url :title (resolve/title feed)}
-                     feed (assoc :guid feed-guid))
+                     feed  (assoc :guid feed-guid)
+                     image (assoc :image image))
          cadence   (:cadence (:config library) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
@@ -592,7 +594,9 @@
         sub     (get (profile/subscriptions (:profile library)) feed-guid)
         entry   (get-in library [:feeds feed-guid])
         target  (if (:guid sub) feed-guid (or (:guid entry) feed-guid))
-        details {:url (:url sub) :title (resolve/title (:feed entry))}
+        details {:url   (:url sub)
+                 :title (resolve/title (:feed entry))
+                 :image (resolve/artwork (:feed entry))}
         keyed   (update entry :feed guid/with-key target)
         moved   #(-> % (dissoc feed-guid) (assoc target keyed))
         taken   (when (not= target feed-guid)
@@ -605,7 +609,8 @@
           (update-in [:library :feeds] moved)
           (update-in [:library :profile] profile/rekey feed-guid target at)
           (with-guid target)
-          (cond-> (not (:title sub))
+          (cond-> (or (not (:title sub))
+                      (and (:image details) (not (:image sub))))
             (update-in [:library :profile] profile/relocate target details))
           (update :library settled target opts)
           (assoc-in [:guids feed-guid] target)))))
@@ -652,7 +657,9 @@
         relocate (fn [acc [feed-guid new-url]]
                    (let [now-guid (get-in acc [:guids feed-guid] feed-guid)
                          parsed   (get-in feeds [feed-guid :feed])
-                         details  {:url new-url :title (resolve/title parsed)}]
+                         details  {:url   new-url
+                                   :title (resolve/title parsed)
+                                   :image (resolve/artwork parsed)}]
                      (if (contains? (:feeds (:library acc)) now-guid)
                        (-> acc
                            (update-in [:library :profile]
@@ -974,7 +981,8 @@
                            (:duration view))]
        (into {:id       id
               :local?   (some? local-file)
-              :position (profile/resume-position profile feed-guid id)
+              :position (profile/resume-position profile feed-guid id
+                                                 (time-of library opts))
               :rate     (profile/playback-rate profile feed-guid)
               :played?  (profile/played? profile id)
               :metadata (episode/metadata feed view)}
@@ -1078,23 +1086,52 @@
            found  (search/query index q opts)]
        (with-meta (mapv locate found) (meta found))))))
 
+(defn- next-of-show
+  "The first episode of the show of the episode `id` in `library` that
+  isn't played, in its listening order, but for `id` itself, or nil."
+  [library [feed-guid :as id]]
+  (let [profile (:profile library)]
+    (->> (episodes library {:feed-guids [feed-guid] :order :listening})
+         (map (fn [[feed item]] (episode-id library feed item)))
+         (remove #(or (= id %) (profile/played? profile %)))
+         first)))
+
 (defn step
   "The `library` after the player `event`, with `opts`, both as
   profile.player/step takes them.
 
   It has the new profile, the :effects to apply, and what's left of
   the :sleep timer of this device. The `opts` go over the :sleep of
-  the library."
+  the library. With the listener's :continuous?, an episode that ends
+  with no other queued is followed by the first unplayed episode of its
+  show in the listening order: the next of a serial show, and the newest
+  of an episodic one."
   ([library event]
    (step library event {}))
   ([library event opts]
    {:pre [(map? opts)]}
    (let [at   (time-of library opts)
-         opts (clojure.core/merge (select-keys library [:sleep]) opts)
+         opts (clojure.core/merge {:continue-fn #(next-of-show library %)}
+                                  (select-keys library [:sleep])
+                                  opts)
          {:keys [profile effects sleep]}
          (profile.player/step (:profile library) event at opts)]
      (cond-> (assoc (dissoc library :sleep) :profile profile :effects effects)
        sleep (assoc :sleep sleep)))))
+
+(defn mark-show-played
+  "The `library` with every episode of the show `feed-guid` marked as
+  played with one stamp, with `opts`, e.g. for a show that the listener
+  heard elsewhere. The time is that of the clock unless the `opts` give
+  :at."
+  ([library feed-guid]
+   (mark-show-played library feed-guid {}))
+  ([library feed-guid opts]
+   {:pre [(map? opts)]}
+   (let [feed (get-in library [:feeds feed-guid :feed])
+         ids  (map #(episode-id library feed %) (:rss/items feed))]
+     (update library :profile profile/mark-all-played ids
+             (time-of library opts)))))
 
 (defn update-profile
   "The `library` with its profile replaced by what `f` gives for it, the

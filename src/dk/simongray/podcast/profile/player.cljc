@@ -46,17 +46,21 @@
 
 (defn ^:no-doc ended
   "The result of a player event for `profile` when the episode `id` ended
-  at `at`, with the sleep timer `sleep`.
+  at `at`, with the sleep timer `sleep` and the `continue-fn` of step.
 
   The episode counts as played and leaves the queue if it was current,
-  with the effect [:play next] when another episode is queued. With a
-  sleep timer, one episode less is left to play, and when none is left,
-  the effect is [:stop id] and the timer stops."
-  [profile id at sleep]
+  with the effect [:play next] when another episode is queued. Else, with
+  the listener's :continuous?, the next is what `continue-fn` gives for
+  the id. With a sleep timer, one episode less is left to play, and when
+  none is left, the effect is [:stop id] and the timer stops."
+  [profile id at sleep continue-fn]
   (let [profile' (profile/mark-played profile id at)
         current? (= id (profile.queue/current profile'))
         profile' (if current? (profile.queue/advance profile' at) profile')
-        next     (when current? (profile.queue/current profile'))
+        next     (or (when current? (profile.queue/current profile'))
+                     (when (and continue-fn
+                                (:continuous? (profile/preferences profile)))
+                       (continue-fn id)))
         left     (some-> (:episodes sleep) dec)]
     (if (and left (not (pos? left)))
       (stepped profile' [[:stop id]] nil)
@@ -65,20 +69,20 @@
                (cond-> sleep left (assoc :episodes left))))))
 
 (defn- moved
-  "The result of a player event, with the `effects` and the sleep timer
-  `sleep`, when the episode `id` moved at `at` from its position in
-  `profile` to that in `profile'`.
+  "The result of a player event, with the `effects`, the sleep timer `sleep`
+  and the `continue-fn` of step, when the episode `id` moved at `at` from
+  its position in `profile` to that in `profile'`.
 
   The result has `profile'` and the `effects`, then [:played id] if the
   episode now counts as played. When the position moved into the outro,
   the episode ends, with [:stop id] in place of the `effects`."
-  [profile profile' id effects at sleep]
+  [profile profile' id effects at sleep continue-fn]
   (let [was       (profile/played? profile id)
         start     (profile/outro-start profile' (first id) id)
         in-outro? #(let [p (:position (profile/episode-entry % id))]
                      (and start (number? p) (>= p start)))]
     (if (and (in-outro? profile') (not (in-outro? profile)))
-      (update (ended profile' id at sleep) :effects
+      (update (ended profile' id at sleep continue-fn) :effects
               #(into (cond-> [[:stop id]] (not was) (conj [:played id]))
                      (remove #{[:stop id]})
                      %))
@@ -99,7 +103,9 @@
     seconds heard, with the effect [:played id] when the episode now
     counts as played.
   - [:ended id] marks it played and drops it from the queue when it was
-    current, with the effect [:play next] when another episode is queued.
+    current, with the effect [:play next] when another episode is queued,
+    or else with the listener's :continuous?, the one that :continue-fn
+    gives.
   - [:play id] makes it current, at the front of the queue.
   - [:next id] skips it: it leaves the queue without counting as played,
     with the effect [:play next] for the first episode left in the queue.
@@ -124,10 +130,14 @@
   - :played-threshold, how many seconds before the end count as having
     heard an episode
   - :listening-gap, how many seconds can pass between two reports of the
-    position in one stretch of listening"
+    position in one stretch of listening
+  - :continue-fn, a function of the id of an episode that ended, which
+    gives the episode to play next when none is queued, e.g. the next of
+    its show, or nil"
   ([profile event at]
    (step profile event at {}))
-  ([profile [kind id & args :as event] at {:keys [sleep] :as opts}]
+  ([profile [kind id & args :as event] at
+    {:keys [sleep continue-fn] :as opts}]
    {:pre [(map? opts)]}
    (case kind
      :skip
@@ -140,7 +150,8 @@
            played   (select-keys opts [:played-threshold])
            profile' (profile/skip profile id seconds at played)
            position (:position (profile/episode-entry profile' id))]
-       (moved profile profile' id [[:seek id position]] at sleep))
+       (moved profile profile' id [[:seek id position]] at sleep
+              continue-fn))
 
      :chapter
      (let [[direction doc] args
@@ -158,10 +169,10 @@
            profile' (-> profile
                         (heard id position at gap)
                         (profile/progress id position duration at played))]
-       (moved profile profile' id [] at sleep))
+       (moved profile profile' id [] at sleep continue-fn))
 
      :ended
-     (ended profile id at sleep)
+     (ended profile id at sleep continue-fn)
 
      :play
      (let [others  (remove #{id} (profile.queue/queue profile))

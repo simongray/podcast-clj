@@ -78,7 +78,20 @@
         (is (= [a b] (profile.queue/queue profile)))
         (is (= [] effects))))
     (is (= [c a b] (profile.queue/queue (:profile (profile.player/step s [:play c] t1)))))
-    (is (= {:profile s :effects []} (profile.player/step s [:volume 3] t1)) "unknown events change nothing")))
+    (is (= {:profile s :effects []} (profile.player/step s [:volume 3] t1)) "unknown events change nothing")
+    (testing "continuous play, when nothing else is queued"
+      (let [on   (profile/prefer s {:continuous? true} t0)
+            next {b c a c c b}
+            opts {:continue-fn next}]
+        (is (= [[:play b]] (:effects (profile.player/step on [:ended a] t1 opts))) "the queue first")
+        (is (= [[:play b]] (:effects (profile.player/step on [:ended c] t1 opts))) "an episode outside the queue")
+        (is (= [[:play c]] (:effects (profile.player/step (profile.queue/dequeue on a t1) [:ended b] t2 opts)))
+            "the next of the show when the queue runs out")
+        (is (= [] (:effects (profile.player/step (profile.queue/dequeue s a t1) [:ended b] t2 opts)))
+            "only with the listener's :continuous?")
+        (is (= [[:stop b]] (:effects (profile.player/step (profile.queue/dequeue on a t1) [:ended b] t2
+                                                          (assoc opts :sleep {:episodes 1}))))
+            "and the sleep timer wins")))))
 
 (deftest the-next-and-the-previous-episode
   (let [s (-> (profile/make "phone")

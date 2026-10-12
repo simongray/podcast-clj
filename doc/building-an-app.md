@@ -199,7 +199,11 @@ episodes that later fetches no longer bring back. The setting
 `:max-pages` does the same for a subscription that `refresh!` fetches for
 the first time, e.g. one from another device. The last argument holds the
 settings of the subscription, as `profile/configure` takes them, e.g.
-`:auto-queue?` puts the show's new episodes in the listener's queue.
+`:auto-queue?` puts the show's new episodes in the listener's queue. The
+listener's preference `:subscription-defaults` gives the settings of
+every new subscription, e.g. `{:auto-queue? true}`. The subscription
+keeps the show's title and its artwork as `:image`, so a device that
+gets it by sync can show it before it fetches the feed.
 
 A failing network or server doesn't make `fetch!` throw. When it gets no
 answer or no feed, the result has an `:error` diagnostic. A status such as
@@ -283,9 +287,12 @@ check a new feed with `profile/takeover` first.
 
 This fetches whatever is due: the lists that the listener follows, the
 feeds of new subscriptions, and the feeds whose next check has come. The
-new episodes go to the queue of a show with `:auto-queue?`, or to the
-inbox with `:inbox?`. An episode that the listener already played or
-removed on another device doesn't come back. An episode older than the
+new episodes go to the queue of a show with `:auto-queue?`, at its end,
+or right after the current episode with `:next`, or to the inbox with
+`:inbox?`. With `:auto-queue-max`, only the newest of one fetch join the
+queue, and the others the inbox when `:inbox?` is set too. An episode
+that the listener already played or removed on another device doesn't
+come back. An episode older than the
 newest one the library knew isn't new either: it's `:backfilled` rather
 than `:added`, so that a host that publishes its back catalogue again
 doesn't fill the queue. The setting `:only-newer? false` counts those as
@@ -697,6 +704,13 @@ with `:queue`, or to the queue once no chapter is left, with
 `[:next id]` and `[:previous id]` of `library/step` skip to the next
 episode of the queue and go back to the one heard before.
 
+With the listener's preference `:continuous?`, an episode that ends with
+nothing else queued is followed by the first unplayed episode of its
+show in its listening order: the next of a serial show, and the newest
+of an episodic one. A sleep timer still stops the player. After a pause,
+e.g. a call, `playback` starts a few seconds before where the listener
+left off, by the preference `:rewinds`.
+
 The file is the downloaded one when the library's record of the files
 has it, as the next section shows, or when the config's
 `:local-file-fn` gives one for the episode's id, e.g. an object URL. Else
@@ -1026,6 +1040,12 @@ Each has a function to read it back, such as `profile/folders`,
 `profile.queue/playlist`. To show the size of the inbox on the app's
 icon, give `(count (profile.queue/inbox profile))` to
 `navigator.setAppBadge` in a browser, or to the platform's badge.
+
+To change many episodes at once, e.g. to clear the inbox or the queue,
+`profile/mark-all-played`, `profile/mark-all-unplayed`,
+`profile.queue/dismiss-all`, `profile.queue/enqueue-all` and
+`profile.queue/dequeue-all` take the ids, and write them with one stamp.
+To mark every episode of a show as heard, use `library/mark-show-played`.
 
 - A show is in one folder at most, but it can have many tags. Both go into
   OPML with `profile.opml/to-opml`, and `profile.opml/from-opml` reads

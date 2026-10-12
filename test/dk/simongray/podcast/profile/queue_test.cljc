@@ -149,7 +149,29 @@
         (is (= [["feed-a" "a4"]] (profile.queue/queue (profile/merge laptop phone))))))
     (testing "nothing joins for a show that the listener left"
       (let [left (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile/unsubscribe "feed-a" t1))]
-        (is (= [] (profile.queue/queue (:profile (profile.queue/refresh left "https://a/rss" before after t2)))))))))
+        (is (= [] (profile.queue/queue (:profile (profile.queue/refresh left "https://a/rss" before after t2)))))))
+    (testing "right after the current episode, oldest first"
+      (let [queued (-> s (profile.queue/enqueue c t0) (profile.queue/enqueue ["feed-b" "b2"] t0)
+                       (profile/configure "feed-a" {:auto-queue? :next} t0))]
+        (is (= [c ["feed-a" "a3"] ["feed-a" "a4"] ["feed-b" "b2"]]
+               (profile.queue/queue (:profile (profile.queue/refresh queued "https://a/rss" before after t1)))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]]
+               (profile.queue/queue (:profile (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? :next} t0)
+                                                                     "https://a/rss" before after t1))))
+            "or at the front of an empty queue")
+        (is (= [c ["feed-a" "a3"] ["feed-a" "a4"]]
+               (profile.queue/queue (:profile (profile.queue/refresh (-> (profile.queue/enqueue s c t0)
+                                                                         (profile/configure "feed-a" {:auto-queue? :next} t0))
+                                                                     "https://a/rss" before after t1))))
+            "or after the current one alone")))
+    (testing "the newest of a most, with the others in the inbox"
+      (let [capped (profile/configure s "feed-a" {:auto-queue? true :auto-queue-max 1 :inbox? true} t0)
+            p      (:profile (profile.queue/refresh capped "https://a/rss" before after t1))]
+        (is (= [["feed-a" "a4"]] (profile.queue/queue p)))
+        (is (= [["feed-a" "a3"]] (profile.queue/inbox p)))
+        (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? true :auto-queue-max 1} t0)
+                                                                        "https://a/rss" before after t1))))
+            "or nowhere without :inbox?")))))
 
 (deftest the-bound-on-new-episodes
   (let [dated  (fn [id day] {:rss/guid {:content id} :rss/title id :rss/pub-date (time/->inst (* day 86400000))})
@@ -218,7 +240,23 @@
     (testing "and an episode played on a device that never had it in the inbox is not there either"
       (let [laptop (profile/mark-played (profile/make "laptop") a t1)]
         (is (not (profile.queue/in-inbox? (profile/merge s laptop) a)))))
-    (is (= s (profile.queue/dismiss s ["feed-x" "none"] t1)) "dismissing what is not there changes nothing")))
+    (is (= s (profile.queue/dismiss s ["feed-x" "none"] t1)) "dismissing what is not there changes nothing")
+    (testing "many at once, with one stamp"
+      (let [s' (profile.queue/dismiss-all s (profile.queue/inbox s) t1)]
+        (is (= [] (profile.queue/inbox s')))
+        (is (= #{t1} (set (map :updated-at (vals (:inbox s'))))))
+        (is (identical? s (profile.queue/dismiss-all s [["feed-x" "none"]] t1)) "and nothing for none")))))
+
+(deftest many-at-once-in-the-queue
+  (let [s (-> (profile/make "phone")
+              (crdt/write [:inbox b] (constantly {:removed? false}) t0)
+              (profile.queue/enqueue a t0))
+        q (profile.queue/enqueue-all s [b c a] t1)]
+    (is (= [a b c] (profile.queue/queue q)) "in order, after what it holds, and once")
+    (is (= #{t1} (set (map :updated-at (vals (dissoc (:queue q) a))))) "with one stamp")
+    (is (= [] (profile.queue/inbox q)) "out of the inbox")
+    (is (= [] (profile.queue/queue (profile.queue/dequeue-all q (profile.queue/queue q) t2))) "and cleared")
+    (is (identical? q (profile.queue/dequeue-all q [["feed-x" "none"]] t2)))))
 
 (deftest playlists-beside-the-queue
   (let [s (-> (profile/make "phone")

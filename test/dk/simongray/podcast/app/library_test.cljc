@@ -133,6 +133,8 @@
     (let [subs (library/subscriptions library)]
       (is (= [guid] (keys subs)))
       (is (= "Podcasting 2.0 Namespace Example" (:title (subs guid))))
+      (is (= "https://example.com/images/show/pci_avatar-massive.png" (:image (subs guid)))
+          "the artwork, for a device that hasn't fetched the feed yet")
       (is (true? (:auto-queue? (:settings (subs guid)))))
       (is (= show (:feed (subs guid))))))
   (testing "a parsed feed in the place of the fetch"
@@ -675,7 +677,24 @@
             spent (library/step (assoc timed :sleep {:episodes 1}) [:ended id])]
         (is (= {:episodes 1} (:sleep (library/step timed [:ended id]))) "one episode less to go")
         (is (= [[:stop id]] (:effects spent)))
-        (is (not (contains? spent :sleep)) "the last episode ended: the timer is gone")))))
+        (is (not (contains? spent :sleep)) "the last episode ended: the timer is gone")))
+    (testing "continuous play goes on with the first unplayed episode of the show, in its listening order"
+      (let [on     (library/update-profile stepped profile/prefer {:continuous? true})
+            order  (remove #{id} (map (fn [[feed item]] (library/episode-id lib feed item))
+                                      (library/episodes lib {:feed-guids [guid] :order :listening})))
+            played (library/update-profile on profile/mark-played (first order))]
+        (is (= 2 (count order)))
+        (is (= [[:play (first order)]] (:effects (library/step on [:ended id]))))
+        (is (= [[:play (second order)]] (:effects (library/step played [:ended id]))) "but for one played already")
+        (is (= [] (:effects (library/step stepped [:ended id]))) "only when the listener wants it")))
+    (testing "a rewind after a pause"
+      (is (= 100 (:position (library/playback stepped id))))
+      (is (= 90 (:position (library/playback stepped id {:at (at 7200)})))))
+    (testing "every episode of a show played at once"
+      (let [caught-up (library/mark-show-played lib guid)]
+        (is (= 3 (count (filter #(profile/played? (:profile caught-up) %)
+                                (map (fn [[feed item]] (library/episode-id lib feed item)) (library/episodes lib))))))
+        (is (= [] (library/episodes caught-up {:where {:status :unplayed}})))))))
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})

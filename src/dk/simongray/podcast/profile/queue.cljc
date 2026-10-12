@@ -8,6 +8,7 @@
   goes out as a list feed of the podcast namespace."
   (:require [dk.simongray.mind-meld :as crdt]
             [dk.simongray.mind-meld.list :as crdt.list]
+            [dk.simongray.mind-meld.rank :as rank]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
@@ -74,6 +75,12 @@
     (crdt/write-each profile writes at)
     profile))
 
+(defn dismiss-all
+  "Take the episodes `ids` out of the inbox of `profile` at `at` with one
+  stamp, e.g. all of the inbox, leaving tombstones."
+  [profile ids at]
+  (profile/written profile (mapcat #(profile/out-of-inbox profile %) ids) at))
+
 (defn ^:no-doc place
   "The `profile` with the episode `id` queued at `rank` at `at`, and out of
   the inbox."
@@ -90,6 +97,17 @@
     profile
     (let [rank (crdt.list/rank-at-end (queue-entries profile))]
       (place profile id rank at))))
+
+(defn enqueue-all
+  "Put the episodes `ids` in order at the end of the queue of `profile` at
+  `at` with one stamp, but for those that it holds, and take them out of
+  the inbox."
+  [profile ids at]
+  (let [queued (crdt.list/appended profile [:queue] (queue-entries profile)
+                                   ids)
+        out    (mapcat #(profile/out-of-inbox profile %)
+                       (map (comp last first) queued))]
+    (profile/written profile (concat queued out) at)))
 
 (defn play-next
   "Put the episode `id` right after the current episode of `profile` at `at`,
@@ -116,6 +134,15 @@
                      (removed-from profile [:queue id] [:queue-moves id])
                      at)
     profile))
+
+(defn dequeue-all
+  "Take the episodes `ids` out of the queue of `profile` at `at` with one
+  stamp, leaving tombstones, e.g. (queue profile) to clear it."
+  [profile ids at]
+  (profile/written profile
+                   (mapcat #(removed-from profile [:queue %] [:queue-moves %])
+                           (filter #(queued? profile %) ids))
+                   at))
 
 (defn move
   "Move the queued episode `id` to position `index` of the queue of `profile`
@@ -276,17 +303,57 @@
                               [id (min-key inst-ms date latest)]))
                           (reverse ids)))))
 
+(defn- after-current
+  "The writes that put the `ids` in order right after the current episode
+  of `profile`, or at the front of an empty queue, but for those that it
+  holds."
+  [profile ids]
+  (let [entries (queue-entries profile)
+        fresh   (remove #(crdt/live? (get entries %)) (distinct ids))
+        [a b]   (take 2 (queue profile))
+        start   (crdt.list/rank-between entries a b)
+        end     (let [r (some-> b entries :rank)]
+                  (when (and r (pos? (compare r start))) r))
+        ranks   (reductions (fn [prev _] (rank/between prev end))
+                            start
+                            (rest fresh))]
+    (map (fn [id r]
+           [[:queue id] (constantly {:rank r :removed? false})])
+         fresh
+         ranks)))
+
+(defn- joining
+  "The writes that put the new episodes `ids` of a feed, oldest first, into
+  the queue or the inbox of `profile`, by the `settings` of its
+  subscription, as refresh describes."
+  [profile ids {:keys [auto-queue? auto-queue-max inbox?] :as settings}]
+  (let [n        (count ids)
+        cut      (if (and auto-queue? (nat-int? auto-queue-max))
+                   (max 0 (- n auto-queue-max))
+                   (if auto-queue? 0 n))
+        [left queued] (split-at cut ids)]
+    (concat (case auto-queue?
+              (nil false) []
+              :next       (after-current profile queued)
+              (crdt.list/appended profile [:queue] (queue-entries profile)
+                                  queued))
+            (when inbox?
+              (for [id left]
+                [[:inbox id] (constantly {:removed? false})])))))
+
 (defn refresh
   "Note in `profile` at `at` a new parse `after` of the feed at `url`, which
   was `before`, with the `opts` of feed/new-episodes. The result is a map
   of the new :profile and the episode ids that feed/new-episodes gives:
   those :added, :backfilled and :renamed.
 
-  The new episodes join the end of the queue with :auto-queue? in the
-  settings of a live subscription, or else the inbox with :inbox?. An
-  episode that's already in the profile stays as the listener left it. A
-  renamed episode takes its state along, as profile/rename-episode moves
-  it, written by this device for the listener."
+  The new episodes join the queue with :auto-queue? in the settings of a
+  live subscription, at its end or right after the current episode, the
+  newest :auto-queue-max of them when it's set. The others join the inbox
+  with :inbox?. An episode that's already in the profile stays as the
+  listener left it. A renamed episode takes its state along, as
+  profile/rename-episode moves it, written by this device for the
+  listener."
   ([profile url before after at]
    (refresh profile url before after at {}))
   ([profile url before after at opts]
@@ -295,28 +362,15 @@
          {:keys [added backfilled renamed]}
          (feed/new-episodes url before after opts)
 
-         {:keys [auto-queue? inbox?]}
-         (when (profile/subscribed? profile feed-guid)
-           (profile/settings profile feed-guid))
+         settings  (when (profile/subscribed? profile feed-guid)
+                     (profile/settings profile feed-guid))
 
          ;; another device can find an episode first
          known?    #(or (profile/played? profile %)
                         (contains? (:queue profile) %)
                         (contains? (:inbox profile) %))
          unknown   (remove known? added)
-         writes    (cond
-                     auto-queue?
-                     (crdt.list/appended profile
-                                         [:queue]
-                                         (queue-entries profile)
-                                         unknown)
-
-                     inbox?
-                     (for [id unknown]
-                       [[:inbox id] (constantly {:removed? false})])
-
-                     :else
-                     [])
+         writes    (joining profile unknown settings)
          ;; the feed is the author of what joins, at the episode's date of
          ;; publication but never after at, so that a device that finds an
          ;; episode late never undoes what the listener did with it

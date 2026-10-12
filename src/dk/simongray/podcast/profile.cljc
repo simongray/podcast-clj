@@ -6,7 +6,8 @@
 
       {:device         \"8f1c9e2a-…\"   ; this device's id
        :clock          #inst \"…\"      ; the latest stamp written or merged
-       :subscriptions  {feed-guid {:url :title :added-at :guid :removed?}}
+       :subscriptions  {feed-guid {:url :title :image :added-at :guid
+                                   :removed?}}
        :remote-items   {id {:feed-url :removed?}}  ; episodes of other shows
        :settings       {feed-guid {:skip-intro 20 ... :stamps {…}}}
        :tags           {feed-guid {\"Tech\" {:removed? false}}}
@@ -88,12 +89,21 @@
 (def default-settings
   "The settings of a subscription until the listener changes them:
 
-  - :auto-queue?, whether new episodes join the queue
-  - :inbox?, whether they join the inbox instead
+  - :auto-queue?, whether new episodes join the queue: true or :back at
+    its end, :next right after the current episode, or false
+  - :auto-queue-max, the most new episodes of one fetch that join the
+    queue, the newest, or nil for all of them
+  - :inbox?, whether they join the inbox instead, and those that the
+    :auto-queue-max leaves out
   - :skip-intro and :skip-outro, the seconds to skip at the start and the
     end
   - :folder, the folder that the show is in"
-  {:auto-queue? false :inbox? false :skip-intro 0 :skip-outro 0 :folder nil})
+  {:auto-queue?    false
+   :auto-queue-max nil
+   :inbox?         false
+   :skip-intro     0
+   :skip-outro     0
+   :folder         nil})
 
 (defn subscribed?
   "Whether `profile` holds a live subscription to `feed-guid`."
@@ -145,27 +155,39 @@
                              :feed-guid k
                              :other-url other}))))
 
-(defn subscribe
-  "Subscribe `profile` to the feed `feed-guid` at `at`, with the :url and
-  :title of the feed in `details`, and its :guid when the feed was fetched
-  or a list named it, which settles the key.
+(declare configure preferences)
 
-  The settings of an earlier subscription to the feed still hold. For a new
+(defn subscribe
+  "Subscribe `profile` to the feed `feed-guid` at `at`, with the :url,
+  :title and :image of the feed in `details`, and its :guid when the feed
+  was fetched or a list named it, which settles the key. The image is the
+  artwork that a device shows before it has fetched the feed.
+
+  The settings of an earlier subscription to the feed still hold, and a
+  feed without any gets the listener's :subscription-defaults. For a new
   subscription, :added-at can give an earlier time of subscribing, e.g.
   from the OPML of another app."
-  [profile feed-guid {:keys [url title added-at guid] :as details} at]
-  (let [known? (subscribed? profile feed-guid)]
-    (crdt/write profile [:subscriptions feed-guid]
-                (fn [sub]
-                  (cond-> (assoc sub
-                                 :url      url
-                                 :title    title
-                                 :removed? false
-                                 :added-at (if known?
-                                             (:added-at sub)
-                                             (time/date (or added-at at))))
-                    guid (assoc :guid guid)))
-                at)))
+  [profile feed-guid {:keys [url title image added-at guid] :as details} at]
+  (let [known?   (subscribed? profile feed-guid)
+        defaults (when-not (get-in profile [:settings feed-guid])
+                   (not-empty (:subscription-defaults (preferences profile))))]
+    (crdt/at-once
+     profile at
+     (fn [p]
+       (cond-> (crdt/write p [:subscriptions feed-guid]
+                           (fn [sub]
+                             (cond-> (assoc sub
+                                            :url      url
+                                            :title    title
+                                            :removed? false
+                                            :added-at (if known?
+                                                        (:added-at sub)
+                                                        (time/date
+                                                         (or added-at at))))
+                               image (assoc :image image)
+                               guid  (assoc :guid guid)))
+                           at)
+         defaults (configure feed-guid defaults at))))))
 
 (defn unsubscribe
   "Unsubscribe `profile` from `feed-guid` at `at`, leaving a tombstone even
@@ -198,10 +220,11 @@
 
 (defn relocate
   "Note in `profile` that the feed `feed-guid` moved to the :url of
-  `details`, with the :title it has there, e.g. after a permanent
-  redirect. Nothing changes without a live subscription."
-  [profile feed-guid {:keys [url title] :as details}]
-  (as-the-feed profile feed-guid #(assoc % :url url :title title)))
+  `details`, with the :title and :image it has there, e.g. after a
+  permanent redirect. Nothing changes without a live subscription."
+  [profile feed-guid {:keys [url title image] :as details}]
+  (as-the-feed profile feed-guid #(cond-> (assoc % :url url :title title)
+                                    image (assoc :image image))))
 
 (defn settle
   "Note in `profile` that the feed of the subscription `feed-guid` gives
@@ -233,7 +256,7 @@
   (if (or (= feed-guid new-guid) (not (subscribed? profile feed-guid)))
     profile
     (let [sub        (get-in profile [:subscriptions feed-guid])
-          kept       (select-keys sub [:url :title :added-at :removed?])
+          kept       (select-keys sub [:url :title :image :added-at :removed?])
           moved      [[[:subscriptions new-guid] (constantly kept)]
                       [[:subscriptions feed-guid] #(assoc % :removed? true)]]
           old        (crdt/fields (get-in profile [:settings feed-guid]))
@@ -380,13 +403,25 @@
   - :notify?, whether the new episodes of a show are announced
   - :track-buttons, what the next and previous buttons of a lock screen or
     headphones go to: :chapters, the episodes of the :queue, or
-    :chapters-first, which goes to the queue once no chapter is left"
-  {:skip-forward  30
-   :skip-back     15
-   :rate          1.0
-   :video?        false
-   :notify?       false
-   :track-buttons :chapters})
+    :chapters-first, which goes to the queue once no chapter is left
+  - :continuous?, whether the next episode of a show plays when one ends
+    and the queue has no other
+  - :rewinds, how far back an episode resumes after a pause, as pairs of
+    the seconds of a pause and the seconds back, the longest pause that
+    was reached counting, e.g. after a call
+  - :subscription-defaults, the settings of a new subscription, as
+    profile/configure takes them. A new subscription gets them when it's
+    made, so a change of them leaves the shows that the listener has as
+    they are."
+  {:skip-forward          30
+   :skip-back             15
+   :rate                  1.0
+   :video?                false
+   :notify?               false
+   :track-buttons         :chapters
+   :continuous?           false
+   :rewinds               [[60 3] [3600 10] [86400 30]]
+   :subscription-defaults {}})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
@@ -709,15 +744,39 @@
   [profile id at]
   (crdt/write-each profile (marked-as profile id true at) at))
 
+(defn- unplayed
+  "The writes that mark the episode `id` of `profile` as not played at `at`,
+  with its position back at the start."
+  [profile id at]
+  (let [restarted #(assoc % :position 0 :reported-at (time/date at))]
+    (into [[[:episodes id] restarted]]
+          (marked-as profile id false at))))
+
 (defn mark-unplayed
   "Mark the episode `id` in `profile` as not played at `at`, with its
   position back at the start."
   [profile id at]
-  (let [restarted #(assoc % :position 0 :reported-at (time/date at))]
-    (crdt/write-each profile
-                     (concat [[[:episodes id] restarted]]
-                             (marked-as profile id false at))
-                     at)))
+  (crdt/write-each profile (unplayed profile id at) at))
+
+(defn ^:no-doc written
+  "The `profile` with the `writes` made at `at` with one stamp, or as it is
+  without any, so that its clock doesn't move."
+  [profile writes at]
+  (if (seq writes)
+    (crdt/write-each profile writes at)
+    profile))
+
+(defn mark-all-played
+  "Mark the episodes `ids` in `profile` as played at `at`, with one stamp,
+  e.g. those of a show or of the inbox."
+  [profile ids at]
+  (written profile (mapcat #(marked-as profile % true at) ids) at))
+
+(defn mark-all-unplayed
+  "Mark the episodes `ids` in `profile` as not played at `at`, with one
+  stamp, as mark-unplayed does."
+  [profile ids at]
+  (written profile (mapcat #(unplayed profile % at) ids) at))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
@@ -748,15 +807,37 @@
     (update-vals (:listened profile)
                  (fn [months] (update-vals months total)))))
 
+(defn- rewind
+  "The seconds to go back after a pause of `pause` seconds, by the pairs of
+  `rewinds`, the seconds of a pause and those to go back: those of the
+  longest pause that `pause` reaches, or 0."
+  [rewinds pause]
+  (or (->> rewinds
+           (filter #(<= (first %) pause))
+           (sort-by first)
+           last
+           second)
+      0))
+
 (defn resume-position
   "Where to start playing the episode `id` of `feed-guid` in `profile`: where
   the listener left it, or after the intro when it hasn't been started or
-  was heard to the end."
-  [profile feed-guid id]
-  (let [{:keys [position played?]} (episode-entry profile id)]
-    (if (and (number? position) (pos? position) (not played?))
-      position
-      (:skip-intro (settings profile feed-guid)))))
+  was heard to the end.
+
+  Given the time `at`, it goes back after a pause by the listener's
+  :rewinds, from the time of the last report of the position, but never
+  before the start."
+  ([profile feed-guid id]
+   (resume-position profile feed-guid id nil))
+  ([profile feed-guid id at]
+   (let [{:keys [position played? reported-at]} (episode-entry profile id)
+         pause (when (and at (inst? reported-at))
+                 (/ (- (inst-ms at) (inst-ms reported-at)) 1000.0))]
+     (if (and (number? position) (pos? position) (not played?))
+       (cond-> position
+         pause (-> (- (rewind (:rewinds (preferences profile)) pause))
+                   (max 0)))
+       (:skip-intro (settings profile feed-guid))))))
 
 (defn outro-start
   "Where the outro of the episode `id` of `feed-guid` starts in `profile`,

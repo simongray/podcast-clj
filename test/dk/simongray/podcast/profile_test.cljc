@@ -165,6 +165,51 @@
                                        "feed-a"))
             "a show's own false stands")))))
 
+(deftest what-a-listener-sets-once
+  (testing "the artwork of a subscription, for a device that hasn't fetched its feed"
+    (let [s (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A" :image "https://a/art.jpg"} t0)]
+      (is (= "https://a/art.jpg" (get-in (profile/subscriptions s) ["feed-a" :image])))
+      (is (= "https://b/art.jpg" (get-in (profile/relocate s "feed-a" {:url "https://b/rss" :title "B" :image "https://b/art.jpg"})
+                                         [:subscriptions "feed-a" :image])))
+      (is (= "https://a/art.jpg" (get-in (profile/relocate s "feed-a" {:url "https://b/rss" :title "B"}) [:subscriptions "feed-a" :image]))
+          "and kept when the feed names none")
+      (is (= "https://a/art.jpg" (get-in (profile/rekey s "feed-a" "declared" t1) [:subscriptions "declared" :image]))
+          "and when the subscription moves")))
+  (testing "the settings of a new subscription"
+    (let [s (profile/prefer (profile/make "phone") {:subscription-defaults {:auto-queue? true :skip-intro 10}} t0)
+          a (profile/subscribe s "feed-a" {:url "https://a/rss" :title "A"} t1)]
+      (is (= [true 10] ((juxt :auto-queue? :skip-intro) (profile/settings a "feed-a"))))
+      (is (= #{(:clock a)} (set (map :updated-at [(get-in a [:subscriptions "feed-a"]) (get-in a [:settings "feed-a"])])))
+          "with one stamp")
+      (is (= profile/default-settings
+             (profile/settings (-> (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
+                                   (profile/prefer {:subscription-defaults {:auto-queue? true}} t1))
+                               "feed-a"))
+          "but not those the listener has already")
+      (let [back (-> (profile/configure a "feed-a" {:skip-intro 30} t2)
+                     (profile/unsubscribe "feed-a" t3)
+                     (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t4))]
+        (is (= 30 (:skip-intro (profile/settings back "feed-a"))) "nor a show that had settings before"))))
+  (testing "a rewind after a pause"
+    (let [s       (profile/progress (profile/make "phone") a 600 3600 t0)
+          after   #(time/->inst (+ (inst-ms t0) (* 1000 %)))
+          resumed #(profile/resume-position %1 "feed-a" a (after %2))]
+      (is (= 600 (resumed s 30)) "none after a short pause")
+      (is (= 597 (resumed s 120)))
+      (is (= 590 (resumed s 7200)))
+      (is (= 570 (resumed s 200000)))
+      (is (= 600 (profile/resume-position s "feed-a" a)) "none without the time")
+      (is (= 600 (resumed (profile/prefer s {:rewinds []} t0) 200000)) "nor without rewinds")
+      (is (= 0 (resumed (profile/progress s a 5 3600 t0) 200000)) "never before the start")))
+  (testing "marks of many episodes at once"
+    (let [s      (-> (profile/make "phone")
+                     (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))
+          played (profile/mark-all-played s [a b c] t1)]
+      (is (every? #(profile/played? played %) [a b c]))
+      (is (= 1 (count (set (map :updated-at (vals (:played played)))))) "with one stamp")
+      (is (not-any? #(profile/played? (profile/mark-all-unplayed played [a b] t2) %) [a b]))
+      (is (identical? s (profile/mark-all-played s [] t1)) "and nothing for none, not even the clock"))))
+
 (deftest preferences-and-settings-field-by-field
   (let [base   (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
         phone  (-> base (profile/prefer {:skip-forward 45} t1) (profile/configure "feed-a" {:skip-intro 20} t1))
