@@ -106,6 +106,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` and `update-file-urls` rewrite the URLs of the media files, or of every file. |
 | `feed.search` | The shows and episodes of feeds as documents for full-text search, with `index` for an index of them that weighs the title most, `with-feed` and `without-feed` to change it a feed at a time, and `located` to give each result its feed and item. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
+| `feed.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations of the specs, and the URIs of the namespaces. |
 | `feed.repair` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails. |
 | `feed.quirks` | The normalisations of the tree, and the variant namespace URIs that feeds use. |
@@ -132,7 +133,6 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
-| `format.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters, artwork, codecs, video size and whether the movie comes first. |

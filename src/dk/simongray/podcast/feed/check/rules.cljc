@@ -190,13 +190,23 @@
                (not (ranged? get)))
       [(diagnostic file chosen :check/ranges :status (:status get))])))
 
+(defn durations-differ?
+  "Whether the `measured` duration of a media file or stream differs from
+  the `declared` one by more than 10 seconds and 2 percent, both in
+  seconds. It's false unless both are numbers."
+  [declared measured]
+  (and (number? declared)
+       (number? measured)
+       (> (abs (- declared measured))
+          (max 10 (* 0.02 declared)))))
+
 (defn ^:no-doc duration-verdict
   "The diagnostic of a media `file` or stream whose `measured` duration
   differs from the one that the feed declares by more than 10 seconds and
   2 percent, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen measured]
   (let [stated (:duration declared)]
-    (when (media/durations-differ? stated measured)
+    (when (durations-differ? stated measured)
       [(diagnostic file chosen :check/duration
                    :declared stated
                    :measured measured)])))

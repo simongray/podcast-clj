@@ -7,6 +7,7 @@
   from a fetch function: an http/fetcher for a file on the web, or a
   fetcher of a local file or a Blob."
   (:require #?(:clj [clojure.java.io :as io])
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
@@ -240,7 +241,7 @@
                         (async/then (fetch-all fetch (:ranges plan) in-time?)
                                     (fn [parts]
                                       (if-let [e (:error parts)]
-                                        {:error (view/unreachable
+                                        {:error (diagnostics/file-failure
                                                  (http/failure e))}
                                         (step (with-parts v parts)
                                               (after-round state need plan
@@ -256,12 +257,14 @@
   The bytes come by the :fetch of the opts, or by an http/fetcher of the
   opts, which sends with client/send! unless they give a :send. The opts
   also give the limits of the reading, with default-limits for those that
-  they don't set. The :error of a file that didn't come names the `url`."
+  they don't set. The :error of a file that didn't come names the `url`,
+  with its secrets masked."
   [url read {:keys [fetch] :as opts}]
   (let [opts  (merge default-limits {:send client/send!} opts)
-        fetch (or fetch (http/fetcher url opts))]
+        fetch (or fetch (http/fetcher url opts))
+        named #(diagnostics/describe (assoc % :url url))]
     (async/then (read! fetch read opts)
-                #(cond-> % (:error %) (assoc-in [:error :url] url)))))
+                #(cond-> % (:error %) (update :error named)))))
 
 (comment
   ;; a reader that needs four bytes at two places, over a file of zeros

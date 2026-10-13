@@ -6,13 +6,13 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
+            [dk.simongray.podcast.feed.check.rules :as rules]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
@@ -199,9 +199,8 @@
   "The diagnostic for the file at `url` that couldn't be fetched, because
   the request failed with `e` or the answer had the `status` of a failure."
   [url e status]
-  (if e
-    (diagnostics/describe (assoc (view/unreachable (http/failure e)) :url url))
-    (diagnostics/describe {:id :file/unreachable :url url :status status})))
+  (diagnostics/file-failure (assoc (if e (http/failure e) {:status status})
+                                   :url url)))
 
 (defn- fetch-text!
   "Fetch the text of the file at `url` with `opts`, asking for the `accept`
@@ -367,7 +366,7 @@
                                    :measured duration}
                          media    (cond-> media
                                     (and whole?
-                                         (media/durations-differ? stated
+                                         (rules/durations-differ? stated
                                                                   duration))
                                     (update :report (fnil conj [])
                                             (diagnostics/describe other)))]

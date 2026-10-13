@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.format.integrity
+(ns dk.simongray.podcast.feed.integrity
   "The podcast:integrity of an alternate enclosure, and a check of a file
   against it.
 
@@ -8,7 +8,6 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
@@ -52,7 +51,7 @@
   "The verdict on the file at `url` that didn't come, by the `failure` of
   its request, as http/failure gives it."
   [url failure]
-  (unverified (assoc (view/unreachable failure) :url url)))
+  (unverified (diagnostics/file-failure (assoc failure :url url))))
 
 (defn- answered
   "The failure of a request for the file at `url` that the server answered

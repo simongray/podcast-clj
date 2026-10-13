@@ -25,7 +25,6 @@
   The reading follows RFC 8216 and never throws on content."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
@@ -198,10 +197,11 @@
        (let [status (:status value)
              failed (cond
                       error
-                      (assoc (view/unreachable (http/failure error)) :url url)
+                      (diagnostics/file-failure
+                       (assoc (http/failure error) :url url))
 
                       (not (<= 200 (long status) 299))
-                      {:id :file/unreachable :url url :status status})
+                      (diagnostics/file-failure {:url url :status status}))
              parsed (when-not failed
                       (parse (str (:body value)) (or (:url value) url)))]
          (cond
@@ -221,9 +221,9 @@
   failure there leaves those out, with the diagnostic under :report.
 
   The `opts` are :send, :allow-pred, :headers, :timeout-seconds,
-  :max-bytes and :user-agent, as for any request. Nothing that the network or the server
-  does throws: a failed request gives :file/unreachable under :error, and
-  a text that isn't a playlist gives :file/malformed."
+  :max-bytes and :user-agent, as for any request. Nothing that the network
+  or the server does throws: a failed request gives :file/unreachable under
+  :error, and a text that isn't a playlist gives :file/malformed."
   ([url]
    (read! url {}))
   ([url opts]

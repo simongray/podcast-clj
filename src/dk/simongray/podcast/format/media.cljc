@@ -22,8 +22,7 @@
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
-            [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.podcast.util.bytes.view :as view]))
 
 ;; IANA Media Types: RFC 3003 for audio/mpeg, RFC 4337 for audio/mp4 and
 ;; video/mp4, RFC 7845, section 9, for .opus; and the spellings of Apple
@@ -83,16 +82,6 @@
         document {:version chapters/version :chapters chapters}]
     (cond-> (assoc (dissoc file :chapters) :format :mp4)
       chapters (assoc :chapters document))))
-
-(defn durations-differ?
-  "Whether the `measured` duration of a media file or stream differs from
-  the `declared` one by more than 10 seconds and 2 percent, both in
-  seconds. It's false unless both are numbers."
-  [declared measured]
-  (and (number? declared)
-       (number? measured)
-       (> (abs (- declared measured))
-          (max 10 (* 0.02 declared)))))
 
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
@@ -161,8 +150,7 @@
    (read! url {}))
   ([url opts]
    (let [read-opts (select-keys opts [:except])]
-     (async/then (ranges/read-url! url #(read % read-opts) opts)
-                 #(cond-> % (:error %) (update :error diagnostics/describe))))))
+     (ranges/read-url! url #(read % read-opts) opts))))
 
 (comment
   ;; an MP3 file of 20 frames of 128 kbit/s, with no tag

@@ -12,10 +12,9 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.format.integrity :as integrity]
+            [dk.simongray.podcast.feed.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.whatwg-mime :as mime]))
@@ -25,7 +24,7 @@
   the :error for an attempt that failed."
   [{:keys [value error] :as attempt}]
   (if error
-    {:error (view/unreachable (http/failure error))}
+    {:error (diagnostics/file-failure (http/failure error))}
     value))
 
 (defn- diagnosed
@@ -33,7 +32,7 @@
   as a diagnostic."
   [facts]
   (cond-> facts
-    (:error facts) (update :error view/unreachable)))
+    (:error facts) (update :error diagnostics/file-failure)))
 
 (defn ^:no-doc read-facts
   "The facts of what a reader gave: the value of the `attempt` with the
@@ -182,7 +181,8 @@
       (let [doc (chapters/parse-json body)]
         {:count (count (:chapters doc)) :report (chapters/report doc)}))
     (catch #?(:clj Exception :cljs :default) e
-      (diagnostics/failed (view/failure e)))))
+      (diagnostics/failed {:id     :file/malformed
+                           :reason (async/explain e)}))))
 
 (defn- probe-text!
   "Probe the transcript or chapters `file` through `send` with `opts`, and

@@ -885,6 +885,15 @@
   [m]
   (describe (assoc m :id (if (:status m) :fetch/status :fetch/unreachable))))
 
+(defn file-failure
+  "The diagnostic of a file that didn't come, described, by the `failure`
+  of its request, as http/failure gives it, or by the :status of an answer
+  that isn't a success. It's :file/unreachable with the :reason, :type,
+  :url and :status of `failure`."
+  [failure]
+  (describe (into {:id :file/unreachable}
+                  (select-keys failure [:reason :type :url :status]))))
+
 (defn failed
   "A map of the `diagnostic`, described, under :error, as a step gives it
   when it fails."

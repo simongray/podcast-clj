@@ -17,8 +17,7 @@
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
-            [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.podcast.util.bytes.view :as view]))
 
 ;; WHATWG MIME Sniffing Standard, section 6.1
 (def ^:no-doc signatures
@@ -373,8 +372,7 @@
   ([url]
    (read! url {}))
   ([url opts]
-   (async/then (ranges/read-url! url read opts)
-               #(cond-> % (:error %) (update :error diagnostics/describe)))))
+   (ranges/read-url! url read opts)))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the

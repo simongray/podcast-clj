@@ -242,14 +242,6 @@
     {:id :file/truncated :level :warning}
     {:id :file/malformed :level :warning :reason (async/explain e)}))
 
-(defn ^:no-doc unreachable
-  "The diagnostic of a file that didn't come, by the `failure` of its
-  request, as http/failure gives it, with its :reason, :type, :url and
-  :status."
-  [failure]
-  (into {:id :file/unreachable :level :warning}
-        (select-keys failure [:reason :type :url :status])))
-
 (defn- guarded
   "What `f` gives when called, or what `failed` gives for the exception
   when the call fails. On the JVM, a call that overflows the stack fails

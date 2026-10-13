@@ -11,8 +11,8 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.feed.integrity :as integrity]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
