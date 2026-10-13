@@ -1112,6 +1112,16 @@ settings `:custom-title` and `:order` of a show replace the title of its
 feed and its listening order, on its page, in `library/episodes` and in
 OPML.
 
+To take an episode out of the lists without marking it played, hide it
+with `profile/hide`. A show's setting `:hide-where` hides those of its
+episodes that meet the criteria, e.g. `{:status :played}` hides the ones
+heard, and `profile/unhide` shows one again. `library/episodes` and the
+download rules leave the hidden episodes out unless the criteria name
+`:hidden?`, e.g. `{:hidden? true}` lists them. To take an episode out of
+the history, `profile/forget` drops its progress and its played mark on
+every device, so it counts as never heard until the listener plays it
+again.
+
 To change many episodes at once, e.g. to clear the inbox or the queue,
 `profile/mark-all-played`, `profile/mark-all-unplayed`,
 `profile.queue/dismiss-all`, `profile.queue/enqueue-all` and

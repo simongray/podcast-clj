@@ -117,6 +117,42 @@
     (is (= [a b] (profile/history (-> s (profile/mark-played a t1) (profile/mark-played b t2) (profile/progress a 5 t3))))
         "an episode heard again comes first again")))
 
+(deftest forgetting-an-episode
+  (let [s      (-> (profile/make "phone")
+                   (profile/progress a 600 1800 t0)
+                   (profile/mark-played b t0))
+        forgot (-> s (profile/forget a t1) (profile/forget b t1))]
+    (is (= [b a] (profile/history s)))
+    (is (= [] (profile/history forgot)) "out of the history")
+    (is (nil? (profile/episode-entry forgot a)))
+    (is (not (profile/played? forgot b)))
+    (is (= 0 (profile/resume-position forgot "feed-a" a)))
+    (testing "on another device, which can't bring it back with an older report"
+      (let [laptop (-> (profile/make "laptop") (profile/progress a 900 1800 t0))]
+        (is (= [] (profile/history (profile/merge forgot laptop))))))
+    (testing "until the listener plays it again"
+      (let [again (profile/progress forgot a 30 1800 t2)]
+        (is (= [a] (profile/history again)))
+        (is (= 30 (:position (profile/episode-entry again a))))
+        (is (not (profile/played? again a)))
+        (is (profile/played? (profile/mark-played forgot b t2) b))))
+    (testing "an archived episode too, and compaction doesn't archive it again"
+      (let [old      (profile/compact s t4 {:archive-after 1000})
+            archived (profile/forget old b t4)]
+        (is (profile/played? old b))
+        (is (not (profile/played? archived b)))
+        (is (nil? (profile/episode-entry archived b)))
+        (is (not (profile/played? (profile/compact archived (time/later t4 3600) {:archive-after 1000}) b)))))
+    (is (nil? (profile/problem forgot)))))
+
+(deftest hiding-episodes
+  (let [s (profile/make "phone")]
+    (is (nil? (profile/hidden s a)) "neither hidden nor shown, so its show decides")
+    (is (true? (profile/hidden (profile/hide s a t0) a)))
+    (is (false? (profile/hidden (-> s (profile/hide a t0) (profile/unhide a t1)) a)))
+    (is (= [true true] (map #(profile/hidden (profile/hide-all s [a b] t0) %) [a b])))
+    (is (true? (profile/hidden (profile/merge (profile/make "laptop") (profile/hide s a t0)) a)) "on every device")))
+
 (deftest skipping
   (let [s (-> (profile/make "phone") (profile/progress a 100 3600 t0))]
     (is (= 130 (:position (profile/episode-entry (profile/skip s a 30 t1) a))))

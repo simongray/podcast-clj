@@ -185,7 +185,11 @@
   has of the episode, changes nothing, so that an action read back does
   no harm."
   [state id {:keys [action position total timestamp device] :as a} author]
-  (let [stamp    (some-> (profile/episode-entry state id) :updated-at inst-ms)
+  (let [forgot   (get-in state [:played id])
+        stamp    (some-> (or (profile/episode-entry state id)
+                             (when (:removed? forgot) forgot))
+                         :updated-at
+                         inst-ms)
         duration (when (and (number? total) (pos? total))
                    total)
         act      (case action
@@ -461,6 +465,18 @@
                    (fn [[subs episodes]]
                      (pulled state cursor subs episodes opts at)))))))
 
+(defn- to-tell
+  "The entries of the episodes of `state` that a push tells: those of
+  profile/episode-entries, and each forgotten episode as one marked not
+  played, with the stamp of its tombstone."
+  [state]
+  (let [unplayed (fn [[id tombstone]]
+                   [id (assoc (select-keys tombstone [:updated-at :device])
+                              :played?  false
+                              :position 0)])]
+    (merge (into {} (map unplayed) (profile/forgotten state))
+           (profile/episode-entries state))))
+
 (defn- pushing
   "What a push of `state` sends for `device`, given the stamps `pushed` of
   the last push and the `names` of the episodes.
@@ -488,7 +504,7 @@
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
-        entries (changed :episodes (profile/episode-entries state))
+        entries (changed :episodes (to-tell state))
         told    (for [[[g _ :as id] e] entries
                       :let [podcast (some-> ((:feed-url-fn names) g) public)
                             media   ((:episode-url-fn names) id)]]
@@ -531,7 +547,7 @@
              (partition-all batch-size actions))
      (fn [rewrites]
        (let [episodes (apply dissoc
-                             (stamps (profile/episode-entries state))
+                             (stamps (to-tell state))
                              unnamed)
              moved    (for [[sent new] rewrites
                             :when (and new (not= sent new))]

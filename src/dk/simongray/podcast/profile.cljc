@@ -15,6 +15,7 @@
        :lists          {url {:title :folder :removed?}}  ; followed OPML lists
        :episodes       {id {:position :duration :reported-at}}
        :played         {id {:played? true :played-at}}
+       :hidden         {id {:hidden? true}}           ; as the listener chose
        :archive        {feed-guid {device-id {:items #{item-guid} :n 1}}}
        :queue          {id {:rank \"V\" :removed? false}}
        :queue-moves    {id {:rank \"W\" :removed? false}}  ; moved ranks
@@ -74,6 +75,7 @@
    :lists          {:depth 1 :compact? true}
    :episodes       {:depth 1}
    :played         {:depth 1}
+   :hidden         {:depth 1}
    ;; each device's set of item guids only grows, so the larger is newer
    :archive        {:depth 2 :count-key :n}
    :queue          {:depth 1 :compact? true :ranked? true}
@@ -107,7 +109,10 @@
   - :order, the order of its episodes, one of criteria/orders, or nil for
     the listening order of the show
   - :custom-title, the listener's own title of the show, or nil for that
-    of its feed"
+    of its feed
+  - :hide-where, the criteria of criteria/where that hide an episode of
+    the show, unless the listener shows it, e.g. {:status :played}, or
+    nil"
   {:auto-queue?    false
    :auto-queue-max nil
    :inbox?         false
@@ -116,7 +121,8 @@
    :skip-outro     0
    :folder         nil
    :order          nil
-   :custom-title   nil})
+   :custom-title   nil
+   :hide-where     nil})
 
 (defn subscribed?
   "Whether `profile` holds a live subscription to `feed-guid`."
@@ -294,10 +300,11 @@
   `at`, e.g. after a host rewrote the guids of its feed.
 
   The places in the queue and the playlists, the inbox, the marks and a
-  remote item move, leaving tombstones, while the progress and the played
-  mark are copied, an archived one too, since their collections keep every
-  tombstone. Nothing is written where `new-id` has an entry already, e.g.
-  from a device that renamed it first."
+  remote item move, leaving tombstones, while the progress, the played
+  mark, an archived one too, and whether it's hidden are copied, since
+  their collections keep every tombstone. Nothing is written where
+  `new-id` has an entry already, e.g. from a device that renamed it
+  first."
   [profile old-id new-id at]
   (let [moves  (concat
                 (for [c [:queue :queue-moves :inbox :stars :ratings
@@ -309,7 +316,7 @@
                 (for [c    [:playlists :playlist-moves]
                       name (keys (get profile c))]
                   [[c name old-id] [c name new-id]]))
-        copies (for [c [:episodes :played]]
+        copies (for [c [:episodes :played :hidden]]
                  [[c old-id] [c new-id]])
         entry  (fn [[c id :as path]]
                  (or (get-in profile path)
@@ -654,35 +661,63 @@
   It has the stamp and the device of the later of the two.
 
   An archived episode counts as played, and without a position, its entry
-  is the mark alone, with the stamp of the archive."
+  is the mark alone, with the stamp of the archive. A forgotten episode
+  has no entry until the listener plays it again."
   [profile id]
   ;; the position and the mark are entries of their own, so that a report
   ;; of the position from another device never undoes a mark
-  (let [e (get-in profile [:episodes id])
-        m (get-in profile [:played id])]
+  (let [e          (get-in profile [:episodes id])
+        e          (when (crdt/live? e) e)
+        m          (get-in profile [:played id])
+        forgotten? (boolean (:removed? m))
+        m          (when-not forgotten? m)]
     (cond
-      m     (clojure.core/merge e
-                                (select-keys m [:played? :played-at])
-                                (select-keys (max-key crdt/stamp-ms m e)
-                                             [:updated-at :device]))
-      e     (cond-> e (archived? profile id) (assoc :played? true))
-      :else (archived-mark profile id))))
+      m          (clojure.core/merge e
+                                     (select-keys m [:played? :played-at])
+                                     (select-keys (max-key crdt/stamp-ms m e)
+                                                  [:updated-at :device]))
+      e          (cond-> e
+                   (and (not forgotten?) (archived? profile id))
+                   (assoc :played? true))
+      forgotten? nil
+      :else      (archived-mark profile id))))
 
 (defn episode-entries
   "The entries of the episodes of `profile` by id, each with its played
-  mark, except those that are only in the archive."
+  mark, except those that are only in the archive, or forgotten."
   [profile]
   (let [ids (distinct (concat (keys (:episodes profile))
                               (keys (:played profile))))]
-    (zipmap ids (map (partial episode-entry profile) ids))))
+    (into {}
+          (keep (fn [id]
+                  (when-let [e (episode-entry profile id)]
+                    [id e])))
+          ids)))
 
 (defn played?
   "Whether the episode `id` counts as played in `profile`, by its mark or
   else by the archive."
   [profile id]
   (if-let [m (get-in profile [:played id])]
-    (boolean (:played? m))
+    (boolean (and (:played? m) (not (:removed? m))))
     (archived? profile id)))
+
+(defn forget
+  "Forget the episode `id` in `profile` at `at`, e.g. to take it out of the
+  history: its progress and its played mark go, leaving tombstones, so
+  that it counts as never heard on every device, even once archived. Its
+  places in the queue, the inbox and the playlists, and its marks, stay."
+  [profile id at]
+  (crdt/write-each profile
+                   [[[:episodes id] (constantly {:removed? true})]
+                    [[:played id] (constantly {:removed? true})]]
+                   at))
+
+(defn ^:no-doc forgotten
+  "The tombstones of the played marks of the forgotten episodes of
+  `profile`, by id."
+  [profile]
+  (into {} (filter (comp :removed? val)) (:played profile)))
 
 (def archive-after
   "How long nothing may change a played episode before compact moves it to
@@ -764,6 +799,12 @@
     (when (crdt/live? e)
       [[[:inbox id] #(assoc % :removed? true)]])))
 
+(defn- afresh
+  "The episode entry `e`, or an empty one in place of the tombstone of a
+  forgotten episode."
+  [e]
+  (if (:removed? e) {} e))
+
 (defn ^:no-doc marked-as
   "The writes that mark the episode `id` of `profile` as `played?` at `at`.
   A played episode leaves the inbox."
@@ -790,8 +831,9 @@
          threshold (:played-threshold opts played-threshold)
          done?     (and (not (played? profile id))
                         (heard-to-the-end? position duration threshold))
-         reported  #(cond-> (assoc % :position    position
-                                     :reported-at (time/date at))
+         reported  #(cond-> (assoc (afresh %)
+                                   :position    position
+                                   :reported-at (time/date at))
                       duration (assoc :duration duration))]
      (crdt/write-each profile
                       (concat [[[:episodes id] reported]]
@@ -808,7 +850,7 @@
   "The writes that mark the episode `id` of `profile` as not played at `at`,
   with its position back at the start."
   [profile id at]
-  (let [restarted #(assoc % :position 0 :reported-at (time/date at))]
+  (let [restarted #(assoc (afresh %) :position 0 :reported-at (time/date at))]
     (into [[[:episodes id] restarted]]
           (marked-as profile id false at))))
 
@@ -837,6 +879,42 @@
   stamp, as mark-unplayed does."
   [profile ids at]
   (written profile (mapcat #(unplayed profile % at) ids) at))
+
+(defn hidden
+  "Whether the listener hid the episode `id` in `profile`: true, false when
+  they unhid it, or nil when they did neither, and the :hide-where of its
+  show decides."
+  [profile id]
+  (:hidden? (get-in profile [:hidden id])))
+
+(defn hide-all
+  "Hide the episodes `ids` in `profile` at `at` with one stamp, e.g. to
+  take them out of the lists without marking them played, even where the
+  :hide-where of their show would show them."
+  [profile ids at]
+  (written profile
+           (for [id ids]
+             [[:hidden id] (constantly {:hidden? true})])
+           at))
+
+(defn hide
+  "Hide the episode `id` in `profile` at `at`, as hide-all does."
+  [profile id at]
+  (hide-all profile [id] at))
+
+(defn unhide-all
+  "Show the episodes `ids` in `profile` again at `at` with one stamp, even
+  where the :hide-where of their show would hide them."
+  [profile ids at]
+  (written profile
+           (for [id ids]
+             [[:hidden id] (constantly {:hidden? false})])
+           at))
+
+(defn unhide
+  "Show the episode `id` in `profile` again at `at`, as unhide-all does."
+  [profile id at]
+  (unhide-all profile [id] at))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
@@ -916,7 +994,8 @@
 
 (defn history
   "The episode ids in `profile`, most recently played or touched first: an
-  episode heard again comes first again."
+  episode heard again comes first again, and a forgotten one is left out
+  until then."
   [profile]
   (let [touched (fn [[_ e]]
                   (or (some-> (crdt/later-inst (:played-at e) (:updated-at e))

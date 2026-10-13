@@ -145,7 +145,41 @@
     (let [[feed-guid] (episode-id ctx feed item)]
       (boolean (some #(in? v %) (f (:profile ctx) feed-guid))))))
 
-(declare where)
+(declare where problem)
+
+(defn- names?
+  "Whether the criteria `where`, or those under its :not, name `k`."
+  [where k]
+  (boolean (and (map? where)
+                (or (contains? where k)
+                    (names? (:not where) k)))))
+
+(defn- hide-rule
+  "The predicate of a feed and an item of the :hide-where of the show
+  `feed-guid` in the profile of `ctx`, or nil without one, or for one that
+  this version doesn't know, names :hidden? itself, or lacks the context
+  it needs."
+  [ctx feed-guid]
+  (let [rule (:hide-where (profile/settings (:profile ctx) feed-guid))]
+    (when (and (map? rule)
+               (not (names? rule :hidden?))
+               (nil? (problem {:where rule})))
+      (try
+        (where rule ctx)
+        (catch #?(:clj Exception :cljs :default) _
+          nil)))))
+
+(defn- hidden?
+  "Whether the listener hid `item` of `feed`, or else the :hide-where of its
+  show does, by the profile in `ctx`, with the `rules` of each show by
+  feed guid."
+  [ctx rules feed item]
+  (let [[feed-guid :as id] (episode-id ctx feed item)
+        own                (profile/hidden (:profile ctx) id)]
+    (if (some? own)
+      own
+      (boolean (when-let [rule (rules feed-guid)]
+                 (rule feed item))))))
 
 (def ^:no-doc criterion
   "The test of each criterion, a function of the criterion's value and the
@@ -219,6 +253,11 @@
                     (let [id (episode-id ctx feed item)]
                       (= (boolean v)
                          (profile.queue/queued? (:profile ctx) id)))))
+   :hidden?     (fn [v ctx]
+                  (let [rules (memoized #(hide-rule ctx %))
+                        v     (if (set? v) v (boolean v))]
+                    (fn [feed item]
+                      (in? v (hidden? ctx rules feed item)))))
    :download    (fn [v ctx]
                   (fn [feed item]
                     (let [id (episode-id ctx feed item)]
@@ -253,6 +292,8 @@
   - :queued?, whether it's in the queue
   - :download, the state of its file on the device, :downloaded,
     :downloading, :failed or :none, or a set of them
+  - :hidden?, whether the listener hid it, or else the :hide-where of its
+    show does, or #{true false} for either
 
   An empty map takes every item. The criteria about the listener need the
   profile as :profile in `ctx`, and :download needs the :files of the
@@ -266,7 +307,7 @@
   ([criteria ctx]
    (let [unknown  (filter #(not (contains? criterion %)) (keys criteria))
          personal #{:status :starred? :inbox? :rating :since-subscription?
-                    :folder :tag :queued?}]
+                    :folder :tag :queued? :hidden?}]
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: "
                             (str/join ", " unknown))
@@ -287,6 +328,14 @@
            tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
          (every? #(% feed item) tests))))))
+
+(defn ^:no-doc visible
+  "The criteria `where` with {:hidden? false}, unless they name :hidden?
+  themselves, for the lists that leave out what's hidden."
+  [where]
+  (if (names? where :hidden?)
+    where
+    (assoc (or where {}) :hidden? false)))
 
 (def orders
   "The orders that order takes, for a UI to offer."

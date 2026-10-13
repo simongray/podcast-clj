@@ -372,6 +372,17 @@
                              (is (= [] (profile.queue/queue (:profile picky))))
                              (is (= [[guid "new"]] (profile.queue/queue (:profile broad))))))))))))
 
+(deftest hidden-episodes-out-of-the-lists
+  (let [id  [guid "https://example.com/ep0003"]
+        lib (library/update-profile library profile/hide id)
+        ids #(set (map (fn [[feed item]] (library/episode-id lib feed item)) %))]
+    (is (= 3 (count (library/episodes library))))
+    (is (= 2 (count (library/episodes lib))))
+    (is (not (contains? (ids (library/episodes lib)) id)))
+    (is (= #{id} (ids (library/episodes lib {:where {:hidden? true}}))))
+    (is (= 3 (count (library/episodes lib {:where {:hidden? #{true false}}}))))
+    (is (= 3 (count (:episodes (library/show lib guid)))) "but the page of the show has them all")))
+
 (deftest the-options-of-one-refresh
   (let [picks-url "https://example.org/picks.opml"
         lib       (library/follow-list library picks-url picks {:title "Picks"})

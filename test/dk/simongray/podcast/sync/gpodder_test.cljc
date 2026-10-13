@@ -326,6 +326,28 @@
             (is (contains? (told) ["https://a.example/3.mp3" 50 3600])
                 "an episode goes out when the app knows its media"))))))))
 
+(deftest a-forgotten-episode
+  (let [clock    (atom t2)
+        [_ send] (serve clock)
+        b        (backend send)
+        id       [g-a "a1"]
+        actions  (fn []
+                   (let [[_ {actions "actions"}] (ask send :get "/api/2/episodes/simon.json?since=0")]
+                     (mapv #(get % "action") actions)))]
+    (run
+     #(async/then
+       (sync/sync! (phone) [b] {:at t2})
+       (fn [{:keys [cursors state]}]
+         (is (= ["play"] (actions)))
+         (reset! clock t3)
+         (async/then
+          (sync/sync! (profile/forget state id t3) [b] {:at t3 :cursors cursors})
+          (fn [{:keys [state] :as step}]
+            (is (nil? (failed step)))
+            (is (= ["new"] (actions)) "goes out as a new episode, as other apps unplay one")
+            (is (nil? (profile/episode-entry state id))
+                "and the older play that the pull brings back leaves it forgotten"))))))))
+
 (deftest the-time-of-an-action
   (let [id     [g-a "a1"]
         ;; a device with a fast clock, which moves the clock of the phone ahead

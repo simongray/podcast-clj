@@ -180,6 +180,29 @@
   (is (thrown? #?(:clj Exception :cljs js/Error) (criteria/order :random)))
   (is (thrown? #?(:clj Exception :cljs js/Error) (criteria/order :recent))))
 
+(deftest hidden-episodes
+  (let [subscribed (-> (profile/make "phone")
+                       (profile/subscribe "feed-guid" {:url "https://x/rss" :title "Test Show"} t0))
+        hidden     #(titles {:where {:hidden? true} :profile %})
+        visible    #(titles {:where (criteria/visible nil) :profile %})]
+    (is (= [] (hidden subscribed)))
+    (is (= ["Trailer"] (hidden (profile/hide subscribed ["feed-guid" "t"] t1))) "as the listener hid it")
+    (testing "by the :hide-where of the show, unless the listener unhid it"
+      (let [rule (-> listened
+                     (profile/subscribe "feed-guid" {:url "https://x/rss" :title "Test Show"} t0)
+                     (profile/configure "feed-guid" {:hide-where {:status :played}} t0))]
+        (is (= ["Season one, episode two"] (hidden rule)))
+        (is (not (some #{"Season one, episode two"} (visible rule))))
+        (is (= [] (hidden (profile/unhide rule ["feed-guid" "s1e2"] t1))))
+        (is (= 5 (count (titles {:where {:hidden? #{true false}} :profile rule}))) "or either")
+        (is (= [] (hidden (profile/configure rule "feed-guid" {:hide-where {:not {:hidden? true}}} t1)))
+            "a rule that names :hidden? itself is left out")
+        (is (= [] (hidden (profile/configure rule "feed-guid" {:hide-where {:mood :happy}} t1)))
+            "and one of a later version")))
+    (testing "the lists leave them out unless the criteria name :hidden?"
+      (is (= {:status :played :hidden? false} (criteria/visible {:status :played})))
+      (is (= {:not {:hidden? true}} (criteria/visible {:not {:hidden? true}}))))))
+
 (deftest a-limit-with-criteria
   (testing "the first items of the selection, in each order"
     (doseq [order (conj (vec criteria/orders) nil)

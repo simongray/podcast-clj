@@ -249,12 +249,14 @@
 
 (defn- selections
   "The ids of the episodes that the rule in `ctx` of each show of `feeds`
-  selects, in order, by feed guid.
+  selects, in order, by feed guid, leaving the hidden ones out unless the
+  rule names :hidden?.
 
   Shows without a feed guid are left out, and so are those whose rule has
   a problem or neither downloads nor trims."
   [{:keys [rules problems] :as ctx} feeds]
-  (let [criteria #(select-keys % [:where :order :limit :scale])]
+  (let [criteria #(-> (select-keys % [:where :order :limit :scale])
+                      (update :where criteria/visible))]
     (into {}
           (for [feed feeds
                 :let  [feed-guid (guid-of ctx feed)

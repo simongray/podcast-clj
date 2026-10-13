@@ -1117,8 +1117,9 @@
 
   The criteria are those of criteria/episodes. They read the profile and
   the downloaded files of the library, and the time of its clock unless
-  the `opts` give :at. With :feed-guids, only the episodes of those shows
-  are read, e.g. for the page of a show."
+  the `opts` give :at. The hidden episodes are left out unless the
+  criteria name :hidden?. With :feed-guids, only the episodes of those
+  shows are read, e.g. for the page of a show."
   ([library]
    (episodes library {}))
   ([library {:keys [feed-guids] :as opts}]
@@ -1127,6 +1128,7 @@
                         (keep #(shown library %) feed-guids)
                         (shown-feeds library))
                       (cond-> (assoc (dissoc opts :feed-guids)
+                                     :where   (criteria/visible (:where opts))
                                      :profile (:profile library)
                                      :files   (:files library {})
                                      :url     (urls library)

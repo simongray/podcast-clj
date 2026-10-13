@@ -115,7 +115,9 @@
       (is (= [["feed-a" "a3"]] (ids (:download (plan (profile/mark-played state ["feed-a" "a4"] (at 23)) {}))))
           "a played episode is one of the two, and no download")
       (is (= [["feed-a" "a3"]] (ids (:download (plan state {["feed-a" "a4"] {:removed? true}}))))
-          "a file that went does not come back")))
+          "a file that went does not come back")
+      (is (= [["feed-a" "a3"] ["feed-a" "a2"]] (ids (:download (plan (profile/hide state ["feed-a" "a4"] (at 23)) {}))))
+          "nor an episode that the listener hid, unless the rule names :hidden?")))
   (testing "each episode, the newest first across the shows"
     (let [state (with-rules subscribed {:default {:download? true}} {})]
       (is (= [["feed-a" "a4"] ["feed-b" "b2"] ["feed-a" "a3"] ["feed-b" "b1"] ["feed-a" "a2"] ["feed-a" "a1"]]
