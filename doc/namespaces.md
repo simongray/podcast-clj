@@ -144,7 +144,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 
 | Namespace | Contents |
 |---|---|
-| `comments` | Comment threads from ActivityPub, the AT Protocol and Nostr, in one shape. Pick the thread of an episode with `thread` and read it with `fetch!`, and a second `fetch!` continues where the first stopped. For display, `tree` arranges the comments, and `parts`, `hiccup` and `text` give the content of a comment. |
+| `comments` | Comment threads from ActivityPub, the AT Protocol and Nostr, in one shape. Pick the thread of an episode with `thread` and read it with `fetch!`, and a second `fetch!` continues where the first stopped. Use `changes` for what's new between two readings. For display, `tree` arranges the comments, and `parts`, `hiccup` and `text` give the content of a comment. |
 | `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
 | `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
 | `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. |

@@ -257,7 +257,8 @@
         (is (= [{"ids" [(id root)]}
                 {"kinds" [1 1111] "#e" [(id root)] "limit" 100}
                 {"kinds" [1111] "#E" [(id root)] "limit" 100}
-                {"kinds" [5] "#e" [(id root)]}]
+                {"kinds" [5] "#e" [(id root)]}
+                {"kinds" [6 7 16] "#e" [(id root)] "limit" 100}]
                (:filters (first sent))))
         (is (= #{relay-a relay-b} (set (map :url sent))))
         (is (= [] (comments/report read opts)))))
@@ -324,6 +325,33 @@
             [read] (read-thread thread send opts)]
         (is (:deleted? (get-in read [:comments (id reply)])))
         (is (= [""  ["A good episode: https://example.org/episode ."]] (assoc (shape (comments/tree read)) 0 "")))))))
+
+(deftest reactions-and-reposts
+  (let [like    (signed ann {:kind 7 :at 150 :content "+" :tags [["e" (id top-comment)] ["p" bob-key] ["k" "1111"]]})
+        again   (signed ann {:kind 7 :at 151 :content "🔥" :tags [["e" (id top-comment)] ["p" bob-key]]})
+        dislike (signed eve {:kind 7 :at 152 :content "-" :tags [["e" (id top-comment)]]})
+        repost  (signed eve {:kind 16 :at 153 :tags [["e" (id top-comment) relay-a] ["k" "1111"] ["p" bob-key]]})
+        quoted  (signed bob {:kind 6 :at 154 :tags [["e" (id reply) relay-a] ["p" bob-key]]})
+        [read]  (read-thread thread (relay {relay-a (conj about-episode like again dislike repost quoted)})
+                             {:relays [relay-a]})]
+    (is (= {:likes 1 :reposts 1} (get-in read [:comments (id top-comment) :counts]))
+        "one like for each author, and no dislike")
+    (is (= {:likes 0 :reposts 1} (get-in read [:comments (id reply) :counts])))
+    (is (nil? (get-in read [:comments (id top-note) :counts])) "none for a comment that nobody reacted to")
+    (is (not (contains? (:comments read) (id like))) "a reaction isn't a comment")))
+
+(deftest what-changed-since-a-reading
+  (let [opts  {:relays [relay-a]}
+        [old] (read-thread thread (relay {relay-a (remove #{reply-to-comment} about-episode)}) opts)
+        gone  (signed bob {:kind 5 :at 200 :tags [["e" (id reply)]]})
+        [new] (read-thread thread (relay {relay-a (conj about-episode gone)}) opts)]
+    (is (= {:added [(id reply-to-comment)] :edited [] :deleted [(id reply)]}
+           (update (comments/changes old new) :added #(mapv :id %)))
+        "a new reply, and a deleted one, from a second reading of the unread thread")
+    (is (= {:added [] :edited [] :deleted []} (comments/changes new new)))
+    (is (= (mapv id [top-note top-comment reply reply-to-reply])
+           (mapv :id (:added (comments/changes {} old))))
+        "everything is new to no reading, in the order of time, but the root")))
 
 (deftest relays-that-fail
   (let [opts {:relays [relay-a relay-b]}]

@@ -686,13 +686,17 @@ To link to the original, use the `:url` of a comment or an author, which
 everything but Nostr has. On Bluesky, it's a page on bsky.app, and
 `atproto/post-url` gives the page on another web app, e.g. `(atproto/post-url
 (:id reply) {:origin "https://deer.social"})`. A comment's `:counts` are its
-replies, reposts, likes and quotes, as far as its server counts them.
+replies, reposts, likes and quotes, as far as its server counts them. On
+Nostr, they're the likes and reposts that the relays gave, one for each
+author.
 
 A fetch reads for a minute at most, and 100 comments at a time. To show
 something sooner, give it `:max-seconds 5`, show what it read, and fetch
 the same thread again to read more. A server that failed for a while is
 asked again on the next fetch. To see new comments, start again from
-`comments/thread`.
+`comments/thread`, and compare the two readings with `comments/changes`,
+which gives the comments `:added`, `:edited` and `:deleted` since, e.g.
+for a notification of new replies.
 
 On Nostr, people also write about episodes that name no thread, and
 `nostr-comments/about` gives the thread of those notes, for an episode or

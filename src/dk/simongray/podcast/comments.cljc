@@ -43,12 +43,13 @@
 
   A deleted post is :deleted?, and a post that podcast-clj didn't get has
   an :error that tells why. The :counts are those that the server of a
-  comment gives with it, which a Nostr relay doesn't. An author is a map
-  of :id, :name, :handle,
-  :url and :avatar. The handle is @name@domain on ActivityPub, @handle on
-  the AT Protocol and npub1… on Nostr. A thread that podcast-clj read
-  through the Mastodon API has :via :mastodon-api. The keys in this
-  namespace, such as ::collection, record how far the reading went."
+  comment gives with it. On Nostr, they're the :likes and :reposts that
+  the relays gave, one for each author. An author is a map of :id, :name,
+  :handle, :url and :avatar. The handle is @name@domain on ActivityPub,
+  @handle on the AT Protocol and npub1… on Nostr. A thread that
+  podcast-clj read through the Mastodon API has :via :mastodon-api. The
+  keys in this namespace, such as ::collection, record how far the
+  reading went."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
@@ -608,6 +609,41 @@
           thread
           round))
 
+(defn changes
+  "What changed between two readings of one thread, the `old` and the
+  `new`, e.g. to tell the listener of new replies:
+
+      {:added   [comment …]  ; the comments that `old` didn't have
+       :edited  [comment …]  ; those with a later :updated
+       :deleted [id …]}      ; those deleted since
+
+  The comments are in the order of their :published time. The root of a
+  thread about an episode, which has no content, isn't added."
+  [old new]
+  (let [before    (:comments old)
+        live?     #(and (:read-at %) (not (:deleted? %)) (not (:error %)))
+        published #(some-> (:published %) inst-ms)
+        later?    (fn [{:keys [id updated]}]
+                    (let [was (:updated (get before id))]
+                      (and updated
+                           (or (nil? was)
+                               (< (inst-ms was) (inst-ms updated))))))
+        comments  (filter live? (vals (:comments new)))]
+    {:added   (->> comments
+                   (remove #(or (contains? before (:id %))
+                                (= (:root new) (:id %))))
+                   (sort-by published)
+                   vec)
+     :edited  (->> comments
+                   (filter #(and (live? (get before (:id %))) (later? %)))
+                   (sort-by published)
+                   vec)
+     :deleted (->> (vals (:comments new))
+                   (filter #(and (:deleted? %) (live? (get before (:id %)))))
+                   (map :id)
+                   sort
+                   vec)}))
+
 (defn fetch!
   "Read `thread` as far as the limits of `opts` allow, and give it with the
   :report of what went wrong. On the JVM it gives the thread, and in
@@ -616,7 +652,8 @@
   The `thread` is an unread thread, or one that an earlier fetch gave. A
   second fetch reads on from where the first stopped, and it asks again
   for what failed for a time. To read what's new, fetch the unread thread
-  again. The `opts` are these, with default-limits for the limits:
+  again, and compare the two readings with changes. The `opts` are these,
+  with default-limits for the limits:
 
   - :appview, to read the threads of the AT Protocol from
   - :status-paths, in place of activitypub/status-paths

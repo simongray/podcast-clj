@@ -117,30 +117,40 @@
    :filters       (vec filters)
    ::comments/for (into [(first part) url] (rest part))})
 
+;; NIP-25 (kind 7); NIP-18 (kinds 6 and 16)
+(def ^:no-doc reaction-kinds
+  "The kinds of the events that react to a comment: a reaction, and the
+  reposts of a note and of another event."
+  [6 7 16])
+
 (defn- root-question
   "The request to the relay at `url` for the `root` of a thread and the
   comments on it, `limit` comments at most for each filter.
 
   For a note, the comments are the replies of NIP-10 and the comments of
-  NIP-22, and an event of NIP-09 can delete the note. For an id of
-  NIP-73, they're the notes and the comments with the id in a tag."
+  NIP-22, and an event of NIP-09 can delete the note. The reactions and
+  reposts of the note count. For an id of NIP-73, they're the notes and
+  the comments with the id in a tag."
   [url {:keys [id external] :as root} limit]
   (question url [:root]
             (if id
               [{"ids" [id]}
                {"kinds" [1 1111] "#e" [id] "limit" limit}
                {"kinds" [1111] "#E" [id] "limit" limit}
-               {"kinds" [5] "#e" [id]}]
+               {"kinds" [5] "#e" [id]}
+               {"kinds" reaction-kinds "#e" [id] "limit" limit}]
               [{"kinds" [1 1111] "#i" [external] "limit" limit}
                {"kinds" [1111] "#I" [external] "limit" limit}])))
 
 (defn- replies-question
   "The request to the relay at `url` for the replies to the comments
-  `ids`, `limit` replies at most, and for the events that delete them."
+  `ids`, `limit` replies at most, for the events that delete them, and for
+  their reactions and reposts."
   [url ids limit]
   (question url [:replies (vec ids)]
             [{"kinds" [1 1111] "#e" (vec ids) "limit" limit}
-             {"kinds" [5] "#e" (vec ids)}]))
+             {"kinds" [5] "#e" (vec ids)}
+             {"kinds" reaction-kinds "#e" (vec ids) "limit" limit}]))
 
 (defn- authors-question
   "The request to the relay at `url` for the authors `public-keys`."
@@ -614,14 +624,43 @@
       :else
       (assoc-in thread [:comments id] c))))
 
+;; NIP-25: the last e tag names the target, and a content of - is a
+;; dislike
+(defn- with-reaction
+  "The `thread` with the reaction or the repost `event`, kept by the
+  comment that its last e tag names, once for each author."
+  [thread event]
+  (let [target   (last (filter nostr/hex-id? (nostr/tag-values event "e")))
+        dislike? (= "-" (str/trim (str (get event "content"))))
+        k        (if (= 7 (long (get event "kind")))
+                   (when-not dislike? :likes)
+                   :reposts)]
+    (cond-> thread
+      (and target k)
+      (update-in [::reactions target k] (fnil conj #{}) (get event "pubkey")))))
+
+(defn- counted
+  "The `thread` with the :counts of each comment that has reactions or
+  reposts, as the relays gave them."
+  [thread]
+  (reduce-kv (fn [t id {:keys [likes reposts]}]
+               (cond-> t
+                 (get-in t [:comments id :read-at])
+                 (assoc-in [:comments id :counts]
+                           (common/counts {:likes   (count likes)
+                                           :reposts (count reposts)}))))
+             thread
+             (::reactions thread)))
+
 (defn- with-event
   "The `thread` with the verified `event` read into it at `at` by its kind,
   in a thread whose root is `root`."
   [thread event root at]
   (case (long (get event "kind"))
-    0        (with-author thread event at)
-    5        (with-deletion thread event at)
-    (1 1111) (with-comment thread event root at)
+    0          (with-author thread event at)
+    5          (with-deletion thread event at)
+    (1 1111)   (with-comment thread event root at)
+    (6 7 16)   (with-reaction thread event)
     thread))
 
 (defn- kept
@@ -714,7 +753,8 @@
       (cond-> t (pos? left-out) (update ::left-out (fnil + 0) left-out))
       (reduce #(with-event %1 %2 root at) t ordered)
       (renamed t (changed t))
-      (with-root t root at))))
+      (with-root t root at)
+      (counted t))))
 
 (comment
   (def note-name
