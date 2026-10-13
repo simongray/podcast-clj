@@ -19,6 +19,7 @@
   element doesn't take is a diagnostic like any other."
   (:require [clojure.string :as str]
             [dk.simongray.langtag :as langtag]
+            [dk.simongray.langtag.registry :as registry]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
@@ -50,12 +51,14 @@
   "Why `v` isn't a language tag such as en or en-US, or nil when it is one.
 
   The reason is a map of the :reason and :subtag that langtag-clj gives,
-  or of :reason :not-iso-639 for a tag without a language of two or three
-  letters, e.g. english."
+  e.g. :unregistered-subtag for the UK of en-UK, which the IANA registry
+  of subtags doesn't have, or of :reason :not-iso-639 for a tag without a
+  language of two or three letters, e.g. english."
   [v]
   (let [v (str/trim v)]
     (if-let [{:keys [language]} (langtag/parse v)]
-      (when-not (<= 2 (count language) 3)
+      (if (<= 2 (count language) 3)
+        (some-> (registry/error v) (select-keys [:reason :subtag]))
         {:reason :not-iso-639})
       (select-keys (langtag/error v) [:reason :subtag]))))
 

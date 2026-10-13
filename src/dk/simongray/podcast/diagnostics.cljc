@@ -555,10 +555,12 @@
     {:id :validate/http-url :level :info
      :doc "A URL uses http where the podcast namespace requires https."}
     {:id :validate/invalid-language :level :warning
-     :doc "A language isn't a language tag such as en or en-US, e.g. en_US or
-           english. The :value is the value, and the :reason says why: a
-           reason from langtag-clj with its :subtag, e.g. :unexpected-subtag,
-           or :not-iso-639 for a language that isn't two or three letters."}
+     :doc "A language isn't a language tag such as en or en-US, e.g. en_US,
+           en-UK or english. The :value is the value, and the :reason says
+           why: a reason from langtag-clj with its :subtag, e.g.
+           :unregistered-subtag for a subtag that the IANA registry doesn't
+           have, or :not-iso-639 for a language that isn't two or three
+           letters."}
     {:id :validate/invalid-email :level :info
      :doc "An email address isn't one, alone or followed by a name in
            parentheses, e.g. an author given by name alone. The :value is the

@@ -193,7 +193,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/invalid-enum` | warning | A value isn't one of those that the spec lists. The :value is the value. |
 | `:validate/invalid-url` | warning | A URL isn't absolute. The :value is the URL. |
 | `:validate/http-url` | info | A URL uses http where the podcast namespace requires https. |
-| `:validate/invalid-language` | warning | A language isn't a language tag such as en or en-US, e.g. en_US or english. The :value is the value, and the :reason says why: a reason from langtag-clj with its :subtag, e.g. :unexpected-subtag, or :not-iso-639 for a language that isn't two or three letters. |
+| `:validate/invalid-language` | warning | A language isn't a language tag such as en or en-US, e.g. en_US, en-UK or english. The :value is the value, and the :reason says why: a reason from langtag-clj with its :subtag, e.g. :unregistered-subtag for a subtag that the IANA registry doesn't have, or :not-iso-639 for a language that isn't two or three letters. |
 | `:validate/invalid-email` | info | An email address isn't one, alone or followed by a name in parentheses, e.g. an author given by name alone. The :value is the value. |
 | `:validate/invalid-media-type` | warning | A media type isn't a type and a subtype such as audio/mpeg. The :value is the value. |
 | `:validate/invalid-guid` | warning | A podcast:guid isn't a UUID, so the library, like the Podcast Index, identifies the feed by the guid derived from its URL. The :value is the guid. |

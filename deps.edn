@@ -23,7 +23,7 @@
          dk.simongray/mind-meld      {:mvn/version "0.3.0"}
          dk.simongray/like-minded    {:mvn/version "0.2.0"}
          dk.simongray/whatwg-mime    {:mvn/version "0.2.0"}
-         dk.simongray/langtag-clj    {:mvn/version "0.1.0"}}
+         dk.simongray/langtag-clj    {:mvn/version "0.2.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

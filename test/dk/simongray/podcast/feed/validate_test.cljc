@@ -78,6 +78,9 @@
     (is (= [:invalid-subtag "en_US"] (problem "en_US")))
     (is (= [:unexpected-subtag "US"] (problem "en-US-US")))
     (is (= [:empty-extension "a"] (problem "en-a")))
+    (is (every? nil? (map problem ["en-GB" "da" "en-US"])))
+    (is (= [[:unregistered-subtag "UK"] [:unregistered-subtag "xx"]] (map problem ["en-UK" "xx"]))
+        "a region or a language that the registry doesn't have, e.g. the UK, which is GB")
     (is (= [:not-iso-639 nil] (problem "english")))
     (is (= [:not-iso-639 nil] (problem "i-klingon")) "a grandfathered tag has no language")))
 
