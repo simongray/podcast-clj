@@ -91,10 +91,11 @@ These block the step they name.
 - **Step 13.** The reorganisation of the media readers was proposed in
   five batches on 10 October and never approved, and parts of two batches
   were done since. Do all five go ahead, or only what the two new readers
-  need?
+  need? (Decided: all five, then the two readers.)
 - **Step 18.** The identity design waits for a library of hundreds of
   feeds to measure feeds on demand on. Build it without one, from a
-  synthetic library, or keep waiting?
+  synthetic library, or keep waiting? (Decided: from a synthetic
+  library.)
 - **Step 19.** The server's README says it's for one listener. Does it
   stay so, in which case this step goes, or should a household be able
   to share one server?
@@ -104,7 +105,8 @@ These block the step they name.
   ([A lenient XML parser](needs-2026.md#a-lenient-xml-parser-for-javascript))
 - **A release of podcast-clj.** No step releases it. Step 4 changes the
   saved library again, and steps 5 to 8 add API, so a first release fits
-  after step 4 or after step 8. When should it go out?
+  after step 4 or after step 8. When should it go out? (Decided on 13
+  October: not yet.)
 
 
 ## The steps
@@ -390,6 +392,8 @@ that the page stitches together. The sink came with the first plan's step
 **Read more.** [Offline episodes for a browser app](needs-2026.md#offline-episodes-for-a-browser-app).
 
 ### 15. Stores over the APIs of cloud services
+
+Skipped on 13 October, until there are accounts to test against.
 
 - A store in like-minded over the files API of Dropbox, and one over
   Google Drive's, each taking a token function, while the OAuth flow stays
