@@ -177,7 +177,8 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `util.client` | The User-Agent of podcast-clj, and `send!`, the `:send` of every function that sends unless you give another. |
 | `util.ring` | The Ring requests that the handlers answer: `body-bytes` and `body-text` read their bodies within a limit, and `credentials` reads their Authorization header. |
 | `util.bytes` | Bytes on both platforms: hex, base64 and base64url, data URLs, text, the digests and HMACs of SHA-1 and SHA-2, and random bytes. |
-| `util.bytes.view` | Views of files whose bytes come in parts, and `read!`, which fetches the byte ranges that a reader asks for until it's done. |
+| `util.bytes.view` | Views of files whose bytes come in parts, which a reader of media files or images reads. |
+| `util.bytes.ranges` | `read!`, which fetches the byte ranges that a reader of a view asks for until it's done, and fetchers of a local file or a Blob. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.entities` | Character and entity references in the text of feeds, HTML's included: `decode-entities` replaces them with the characters they stand for. |
 | `util.names` | The keys of the maps, from camelCase names: `kebab`, and `attr-key` for the attributes of XML. |

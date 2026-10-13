@@ -21,6 +21,7 @@
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -328,7 +329,7 @@
       (when data
         (let [image     (view/slice view (+ (:content data) 8) (:end data))
               data-type (bit-and (view/u32 view (:content data)) 0xFFFFFF)]
-          {:type (or (get image-types data-type) (bytes/image-type image))
+          {:type (or (get image-types data-type) (image/sniff image))
            :data image})))))
 
 (defn- fragment-index

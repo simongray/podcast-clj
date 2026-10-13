@@ -158,8 +158,7 @@
 (defn view
   "A view of all of the bytes `xs`."
   [xs]
-  (let [b (bytes/of xs)]
-    (view/add (view/view (bytes/length b)) 0 b (bytes/length b))))
+  (view/whole (bytes/of xs)))
 
 (defn ranges
   "A sender that serves the bytes of the text `s` by the range that each
@@ -175,8 +174,8 @@
          :content-range {:start start :total (bytes/length b)}}))))
 
 (defn fetch-from
-  "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes.view/read!` takes
-  it, noting each range in `log`."
+  "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes.ranges/read!`
+  takes it, noting each range in `log`."
   [b log]
   (fn [start end]
     (swap! log conj [start end])

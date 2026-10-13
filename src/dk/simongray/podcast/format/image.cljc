@@ -16,21 +16,29 @@
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch.async :as async]))
 
-(defn ^:no-doc unless-broken
-  "What `f` gives when called, or nil when it fails. A failure because the
-  view lacks bytes or the file ends too soon is thrown again, so that a
-  reader can fetch the bytes or report the end."
-  [f]
-  (try
-    (f)
-    (catch #?(:clj Exception :cljs :default) e
-      (when (or (view/missing e)
-                (view/truncated? e))
-        (throw e))
-      nil)))
+;; WHATWG MIME Sniffing Standard, section 6.1
+(def ^:no-doc signatures
+  "The MIME type of an image by the bytes it begins with, nil standing for
+  any byte."
+  [["image/jpeg" [0xFF 0xD8 0xFF]]
+   ["image/png" [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A]]
+   ["image/gif" [0x47 0x49 0x46 0x38]]
+   ["image/webp" [0x52 0x49 0x46 0x46 nil nil nil nil 0x57 0x45 0x42 0x50]]])
+
+(defn sniff
+  "The MIME type of the image whose bytes `b` begin as a JPEG, PNG, GIF or
+  WebP image begins, or nil for other bytes."
+  [b]
+  (some (fn [[type signature]]
+          (when (and (>= (bytes/length b) (count signature))
+                     (every? (fn [[i x]] (or (nil? x) (= x (bytes/at b i))))
+                             (map-indexed vector signature)))
+            type))
+        signatures))
 
 (defn- chunk-type?
   "Whether the four bytes at `p` in `view` can be the type of a PNG chunk,
@@ -54,7 +62,7 @@
   The chunks break off at a type that isn't letters, or at a length beyond
   2^31 - 1, as the PNG specification bounds it."
   [view kind]
-  (unless-broken
+  (view/unless-broken
    (fn []
      (loop [p 33]
        (view/need view p (+ p 8))
@@ -131,7 +139,7 @@
   [view p length]
   (let [end (+ p 2 length)
         t   (+ p 10)]
-    (unless-broken
+    (view/unless-broken
      #(do (view/need view p end)
           (when (and (<= (+ t 8) end)
                      (= "Exif" (view/code view (+ p 4) 4)))
@@ -298,7 +306,7 @@
   [view]
   (view/need view 0 12)
   (let [start   (view/slice view 0 (min 12 (or (:total view) 12)))
-        type    (bytes/image-type start)
+        type    (sniff start)
         header  (case type
                   "image/png"  (png view)
                   "image/jpeg" (jpeg view)
@@ -353,11 +361,11 @@
   these:
 
   - :fetch, a function as http/fetcher makes, or for a local file one
-    that view/file-fetcher or view/blob-fetcher makes, when `url` only
+    that ranges/file-fetcher or ranges/blob-fetcher makes, when `url` only
     names the file in an error
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow-pred and :user-agent, as http/send! takes them
-  - the limits of view/read!, with view/default-limits for those that
+  - the limits of ranges/read!, with ranges/default-limits for those that
     they don't set
 
   Nothing that the network or the server does throws. When a request
@@ -365,7 +373,7 @@
   ([url]
    (read! url {}))
   ([url opts]
-   (async/then (view/read-url! url read opts)
+   (async/then (ranges/read-url! url read opts)
                #(cond-> % (:error %) (update :error diagnostics/describe)))))
 
 (comment

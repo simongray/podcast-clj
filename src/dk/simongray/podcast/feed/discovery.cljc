@@ -13,7 +13,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
@@ -460,14 +460,6 @@
   (async/then (http/try-send! send (document-request url opts) opts)
               #(read-feed url % opts)))
 
-(defn- held
-  "How many bytes the view `v` holds from the start of the file on."
-  [v]
-  (loop [p 0]
-    (if-let [[o b] (view/part-at v p)]
-      (recur (+ o (bytes/length b)))
-      p)))
-
 (defn- item-end
   "Where the end tag of the first item in the `text` ends, or nil when the
   text has none."
@@ -485,7 +477,7 @@
   UTF-16, where the end tag can't be found before decoding."
   [v]
   (view/reading
-   #(let [n (held v)]
+   #(let [n (view/held v)]
       (if (= n (:total v))
         {:text (xml/decode (view/slice v 0 n))}
         (if-let [end (item-end (view/text v 0 n :latin1))]
@@ -527,7 +519,7 @@
          headers (:headers (document-request url opts))
          reading (assoc opts :send send :headers headers)]
      (async/then
-      (view/read-url! url head-reading reading)
+      (ranges/read-url! url head-reading reading)
       (fn [{:keys [text cut? error] :as result}]
         (let [read  (when text (parsed text url opts))
               found (or @moved url)]

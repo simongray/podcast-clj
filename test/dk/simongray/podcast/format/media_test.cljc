@@ -11,6 +11,7 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.media.id3 :as id3]
@@ -19,6 +20,7 @@
             [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
                                                        #?@(:clj [local? with-file-server])]]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.time :as time]
             #?(:clj [dk.simongray.wary-fetch :as http])
@@ -107,11 +109,11 @@
   (is (not (bytes/utf8? (bytes/of [0xC6 0x72 0xF8]) 0 3)))
   (is (not (bytes/utf8? (bytes/of (ascii "plain")) 0 5)) "ASCII says nothing about the encoding")
   (is (= "AQID" (bytes/base64 (bytes/of [1 2 3]))))
-  (is (= "image/jpeg" (bytes/image-type (bytes/of jpeg))))
-  (is (nil? (bytes/image-type (bytes/of [1 2 3 4])))))
+  (is (= "image/jpeg" (image/sniff (bytes/of jpeg))))
+  (is (nil? (image/sniff (bytes/of [1 2 3 4])))))
 
 (defn- zeros
-  "A fetch of a file of `total` zero bytes, as `view/read!` takes it,
+  "A fetch of a file of `total` zero bytes, as `ranges/read!` takes it,
   noting each range in `log`."
   [total log]
   (fn [start end]
@@ -134,7 +136,7 @@
                 [walk 4 "a walk through segments of 64 KB, which reads more ahead each round"]]
         run    (fn [[reader n message]]
                  (let [log (atom [])]
-                   (async/then (view/read! (zeros 4000000 log) reader)
+                   (async/then (ranges/read! (zeros 4000000 log) reader)
                                (fn [r]
                                  (is (:read r) message)
                                  (is (= n (count @log)) message)))))]
@@ -155,7 +157,7 @@
 (deftest the-limits-of-a-reading
   (let [reading (fn [fetch-of reader opts]
                   (let [log (atom [])]
-                    (async/then (view/read! (fetch-of 4000000 log) reader opts)
+                    (async/then (ranges/read! (fetch-of 4000000 log) reader opts)
                                 (fn [r] [(or (:read r) (map :id (view/report r))) @log]))))
         whole   (fn [total log]
                   (fn [start end]
@@ -590,11 +592,11 @@
        (try
          (with-open [out (java.io.FileOutputStream. file)]
            (.write out ^bytes b))
-         (let [r (media/read! (str file) {:fetch (view/file-fetcher file)})]
+         (let [r (media/read! (str file) {:fetch (ranges/file-fetcher file)})]
            (is (= 150.5 (:duration r)))
            (is (= ["Intro" "Talk"] (map :title (:chapters (:chapters r)))))
            (is (= (bytes/length b) (:bytes r))))
-         (is (= 0 (bytes/length (:bytes ((view/file-fetcher file) (+ 10 (bytes/length b)) (+ 20 (bytes/length b))))))
+         (is (= 0 (bytes/length (:bytes ((ranges/file-fetcher file) (+ 10 (bytes/length b)) (+ 20 (bytes/length b))))))
              "no bytes past the end")
          (finally
            (.delete file))))))
@@ -603,7 +605,7 @@
    (deftest media-from-a-blob
      (async done
        (let [b (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))]
-         (-> (media/read! "episode.m4a" {:fetch (view/blob-fetcher (js/Blob. #js [b]))})
+         (-> (media/read! "episode.m4a" {:fetch (ranges/blob-fetcher (js/Blob. #js [b]))})
              (.then (fn [r]
                       (is (= 150.5 (:duration r)))
                       (is (= ["Intro" "Talk"] (map :title (:chapters (:chapters r)))))))
@@ -735,7 +737,7 @@
 
 (defn- hollow
   "A fetch of a file of `total` bytes that holds the bytes `b` at its start
-  and nothing that a reader can use after them, as `view/read!` takes it,
+  and nothing that a reader can use after them, as `ranges/read!` takes it,
   noting each range in `log`."
   [b total log]
   (let [n (bytes/length b)]

@@ -315,26 +315,6 @@
             (continued? i n)  (recur (+ i n 1) true)
             :else             false))))))
 
-;; WHATWG MIME Sniffing Standard, section 6.1
-(def ^:no-doc image-signatures
-  "The MIME type of an image by the bytes it begins with, nil standing for
-  any byte."
-  [["image/jpeg" [0xFF 0xD8 0xFF]]
-   ["image/png" [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A]]
-   ["image/gif" [0x47 0x49 0x46 0x38]]
-   ["image/webp" [0x52 0x49 0x46 0x46 nil nil nil nil 0x57 0x45 0x42 0x50]]])
-
-(defn image-type
-  "The MIME type of the image whose bytes `b` begin as a JPEG, PNG, GIF or
-  WebP image begins, or nil for other bytes."
-  [b]
-  (some (fn [[type signature]]
-          (when (and (>= (length b) (count signature))
-                     (every? (fn [[i x]] (or (nil? x) (= x (at b i))))
-                             (map-indexed vector signature)))
-            type))
-        image-signatures))
-
 (comment
   (def sample
     (of [0x49 0x44 0x33 4 0 0 0 0 0 28]))

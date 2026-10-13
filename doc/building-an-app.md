@@ -900,8 +900,8 @@ keep them as the whole file, or start over.
 
 Once a download has finished, `library/playback` plays the file. To read
 what the file says about itself, e.g. its chapters, give `media/read!` a
-fetcher of the file as `:fetch`: `view/file-fetcher` of its path on the
-JVM, or `view/blob-fetcher` of a File or a Blob in a browser. A file that
+fetcher of the file as `:fetch`: `ranges/file-fetcher` of its path on the
+JVM, or `ranges/blob-fetcher` of a File or a Blob in a browser. A file that
 the listener marks with `library/keep-file` stays whatever the rules
 say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes
 of each show on the device, e.g. for a storage screen. The record is
@@ -1808,7 +1808,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]

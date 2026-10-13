@@ -29,6 +29,7 @@
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -51,11 +52,6 @@
   "A reading context for `opts`, with an empty report."
   [{:keys [except] :as opts}]
   {:except (set except) :report (volatile! [])})
-
-(defn ^:no-doc view-of
-  "A view that holds all of the bytes `b`."
-  [b]
-  (view/add (view/view (bytes/length b)) 0 b (bytes/length b)))
 
 (defn ^:no-doc syncsafe
   "The 28-bit number of the four syncsafe bytes at `p` in `view`, or nil
@@ -222,7 +218,7 @@
                          (not= "image/jpg" t)))]
     (if-let [sniffed (and loose?
                           (quirk? ctx :id3/image-type)
-                          (bytes/image-type data))]
+                          (image/sniff data))]
       (do (note! ctx (diagnostic :id3/image-type :info :declared declared))
           sniffed)
       (if (str/blank? t) declared t))))
@@ -465,7 +461,7 @@
   kind, and the report says so, with the offset `p` of the frame."
   [ctx data version id p]
   (try
-    ((reader ctx id) ctx (view-of data) version id)
+    ((reader ctx id) ctx (view/whole data) version id)
     (catch #?(:clj Exception :cljs :default) _
       (note! ctx (diagnostic :id3/malformed :warning :offset p :frame id))
       nil)))
@@ -527,7 +523,7 @@
         body-end  (- end (if footer? 10 0))
         body      (cond-> (view/slice view (+ start 10) body-end)
                     (and (#{2 3} version) unsync?) resync)
-        body      (view-of body)
+        body      (view/whole body)
         extended  (fn []
                     (cond
                       (not (bit-test flags 6)) 0
@@ -704,7 +700,7 @@
     (let [header [0x49 0x44 0x33 4 0 0 0 0 0 28]
           tit2   [0x54 0x49 0x54 0x32 0 0 0 3 0 0 3 0x48 0x69]
           tlen   [0x54 0x4C 0x45 0x4E 0 0 0 5 0 0 0 0x31 0x35 0x30 0x30]]
-      (view-of (bytes/of (concat header tit2 tlen)))))
+      (view/whole (bytes/of (concat header tit2 tlen)))))
 
   (header sample 0)
   (read sample 0)
@@ -715,7 +711,7 @@
   (def loose
     (let [header [0x49 0x44 0x33 4 0 0 0 0 0 13]
           tit2   [0x54 0x49 0x54 0x32 0 0 0 3 0 0 9 0x48 0x69]]
-      (view-of (bytes/of (concat header tit2)))))
+      (view/whole (bytes/of (concat header tit2)))))
 
   (map :id (report (read loose 0)))
   (map :id (report (read loose 0 {:except #{:id3/text-encoding}})))

@@ -214,7 +214,7 @@
     (concat [0xFF 0xFB 0x90 0x00] (repeat 413 0)))
 
   (def sample
-    (id3/view-of (bytes/of (apply concat (repeat 20 frame)))))
+    (view/whole (bytes/of (apply concat (repeat 20 frame)))))
 
   (frame-header sample 0)
   (read sample)
@@ -224,7 +224,7 @@
   (def padded
     (let [junk  (repeat 10 0)
           audio (apply concat (repeat 20 frame))]
-      (id3/view-of (bytes/of (concat junk audio)))))
+      (view/whole (bytes/of (concat junk audio)))))
 
   (map :id (report (read padded)))
   (map :id (report (read padded {:except #{:mp3/junk-before-audio}})))

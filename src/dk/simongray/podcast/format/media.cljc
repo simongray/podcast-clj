@@ -21,6 +21,7 @@
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -141,12 +142,12 @@
   The `opts` are these:
 
   - :fetch, a function as http/fetcher makes, to fetch your own way, or
-    for a local file one that view/file-fetcher or view/blob-fetcher
+    for a local file one that ranges/file-fetcher or ranges/blob-fetcher
     makes, when `url` only names the file in an error
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow-pred and :user-agent, as http/send! takes them
   - :except, as read takes it
-  - the limits of view/read!, with view/default-limits for those that
+  - the limits of ranges/read!, with ranges/default-limits for those that
     they don't set
 
   When the ranges don't come, or the file asks for more than the limits
@@ -160,7 +161,7 @@
    (read! url {}))
   ([url opts]
    (let [read-opts (select-keys opts [:except])]
-     (async/then (view/read-url! url #(read % read-opts) opts)
+     (async/then (ranges/read-url! url #(read % read-opts) opts)
                  #(cond-> % (:error %) (update :error diagnostics/describe))))))
 
 (comment
