@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.util.ring-test
-  "The Ring requests that the handlers answer: their bodies within a
-  limit, and their credentials."
+  "The Ring requests that the handlers answer and their responses: the
+  bodies within a limit, the credentials, the conditions and the hosts of
+  the requests."
   (:require [clojure.test :refer [deftest is]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.ring :as ring]
@@ -55,3 +56,20 @@
     (is (false? (asked {"if-none-match"     "\"v1\""
                         "if-modified-since" "Tue, 13 Oct 2026 12:00:00 GMT"}))
         "If-None-Match decides alone")))
+
+(deftest the-host-of-a-ring-request
+  (let [asked (fn [host names] (ring/addressed-to? {:headers {"host" host}} names))]
+    (is (= "example.org" (ring/host-name "Example.ORG:8080")))
+    (is (asked "LocalHost:3000" []) "the machine itself, in any case, with a port")
+    (is (asked "[::1]:8300" []))
+    (is (asked nil []) "no Host header, as HTTP/1.0 allows")
+    (is (asked "pod.example.org" ["Pod.example.org:443"]) "one of the names")
+    (is (not (asked "evil.example" ["pod.example.org"])) "a name of a web page's own")))
+
+(deftest a-ring-response
+  (is (= {:status 200 :headers {"Content-Type" "text/html"} :body "<p>"}
+         (ring/response 200 "text/html" "<p>")))
+  (is (= {:status  429
+          :headers {"Content-Type" "text/plain; charset=utf-8" "Retry-After" "5"}
+          :body    "Wait."}
+         (ring/text-response 429 "Wait." {"Retry-After" "5"}))))

@@ -676,45 +676,55 @@
       (seq codecs) (assoc :codecs (str/join "," codecs))
       w            (assoc :width w :height h))))
 
+(defn- movie-duration
+  "The duration in seconds of the movie in `view` whose moov box is `moov`,
+  with the `tracks`, read in the context `ctx`, as a part: the duration
+  and the report of reading it.
+
+  A fragmented movie lasts as long as its fragments. Any other lasts as
+  long as its header says, or by the quirk as long as its longest track,
+  when the header says 0."
+  [view moov tracks ctx]
+  (let [[scale d] (some->> (child view moov "mvhd") (timing view))
+        mvex      (child view moov "mvex")
+        stated?   (and d (pos? d))
+        longest   (longest-track tracks)]
+    (cond
+      mvex
+      (let [fragments (view/part :fragments
+                                 #(fragmented-duration view mvex scale tracks))]
+        (when-not (:value fragments)
+          (view/note! ctx (view/diagnostic :mp4/fragments-unread :info)))
+        fragments)
+
+      (and (not stated?) longest (view/quirk? ctx :mp4/zero-duration))
+      (do (view/note! ctx (view/diagnostic :mp4/zero-duration :info))
+          {:value longest})
+
+      (and stated? scale (pos? scale))
+      {:value (/ d (double scale))})))
+
 (defn- read-movie
   "What the file in `view` whose moov box is `moov` says about itself, read
   in the context `ctx`."
   [view moov ctx]
   (view/need view (:start moov) (:end moov))
-  (let [[scale d] (some->> (child view moov "mvhd") (timing view))
-        boxes     (children view (:content moov) (:end moov))
-        tracks    (mapv #(track view %) (filter #(= "trak" (:type %)) boxes))
-        mvex      (child view moov "mvex")
-        udta      (child view moov "udta")
-        fragments (view/part :fragments
-                             #(when mvex
-                                (fragmented-duration view mvex scale tracks)))
-        chapters  (view/part :chapters #(movie-chapters view tracks udta))
-        art       (view/part :artwork #(when udta (artwork view udta)))
-        tags      (view/part :tags #(if udta (tags-of view udta) {}))
-        played    (view/part :codecs #(playing-tracks view tracks))
-        longest   (longest-track tracks)
-        stated?   (and d (pos? d))
-        longest?  (and (not mvex)
-                       (not stated?)
-                       longest
-                       (view/quirk? ctx :mp4/zero-duration))
-        unread?   (and mvex (not (:value fragments)))
-        duration  (cond mvex                             (:value fragments)
-                        longest?                         longest
-                        (and stated? scale (pos? scale)) (/ d (double scale)))]
-    (when longest?
-      (view/note! ctx (view/diagnostic :mp4/zero-duration :info)))
-    (when unread?
-      (view/note! ctx (view/diagnostic :mp4/fragments-unread :info)))
+  (let [boxes    (children view (:content moov) (:end moov))
+        tracks   (mapv #(track view %) (filter #(= "trak" (:type %)) boxes))
+        udta     (child view moov "udta")
+        duration (movie-duration view moov tracks ctx)
+        chapters (view/part :chapters #(movie-chapters view tracks udta))
+        art      (view/part :artwork #(when udta (artwork view udta)))
+        tags     (view/part :tags #(if udta (tags-of view udta) {}))
+        played   (view/part :codecs #(playing-tracks view tracks))]
     (view/reported
      (cond-> (merge {:movie-first? (not (:after-media? moov))
                      :tags         (:value tags {})}
                     (:value played))
-       duration                (assoc :duration duration)
+       (:value duration)       (assoc :duration (:value duration))
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
-     (into (into [] (mapcat :report) [fragments chapters art tags played])
+     (into (into [] (mapcat :report) [duration chapters art tags played])
            (view/noted ctx)))))
 
 (defn report

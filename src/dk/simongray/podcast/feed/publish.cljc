@@ -483,6 +483,4 @@
                     link     (assoc "Link" link))]
      (if (ring/not-modified? headers etag modified)
        {:status 304 :headers common :body nil}
-       {:status  200
-        :headers (assoc common "Content-Type" content-type)
-        :body    body}))))
+       (ring/response 200 content-type body common)))))

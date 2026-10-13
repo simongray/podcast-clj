@@ -149,9 +149,7 @@
 (defn refused
   "The answer to a request that the server refuses, with `message`."
   [message]
-  {:status  403
-   :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    message})
+  (ring/text-response 403 message))
 
 (def hidden-credentials
   "An interceptor that hides the Authorization header of a request, so that
@@ -165,34 +163,23 @@
                           secret/hide)
                context))}))
 
-(defn- without-port
-  "The `host` of a Host header or of a server name, without its port."
-  [host]
-  (str/replace host #":\d+$" ""))
-
 (defn known-names
   "An interceptor that answers only requests to localhost or one of the
   `names`, with or without a port.
 
   A web page that points a name of its own at this server's address gets
   a 403, since without a password the server checks no credentials (DNS
-  rebinding). The check is against web pages: a client that isn't a
-  browser can send any name, or none, as HTTP/1.0 allows."
+  rebinding), as ring/addressed-to? checks it."
   [names]
-  (let [known (into #{"localhost" "127.0.0.1" "[::1]"}
-                    (map without-port)
-                    names)]
-    (interceptor/interceptor
-     {:name  ::known-names
-      :enter (fn [{:keys [request] :as context}]
-               (let [host (some-> (get-in request [:headers "host"])
-                                  str/lower-case
-                                  without-port)]
-                 (if (and host (not (known host)))
-                   (let [message (str "The server doesn't answer to the name "
-                                      host ".")]
-                     (assoc context :response (refused message)))
-                   context)))})))
+  (interceptor/interceptor
+   {:name  ::known-names
+    :enter (fn [{:keys [request] :as context}]
+             (if (ring/addressed-to? request names)
+               context
+               (let [host    (ring/host-name (get-in request [:headers "host"]))
+                     message (str "The server doesn't answer to the name "
+                                  host ".")]
+                 (assoc context :response (refused message)))))}))
 
 ;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
 ;; and sets it on the requests that Funnel brings, as of October 2026
@@ -298,11 +285,9 @@
                      wait  (- until (now-ms-fn))]
                  (if (pos? wait)
                    (assoc context :response
-                          {:status  429
-                           :headers {"Retry-After"  (str (quot (+ wait 999)
-                                                               1000))
-                                     "Content-Type" "text/plain; charset=utf-8"}
-                           :body    "Wait before you try the password again."})
+                          (ring/text-response
+                           429 "Wait before you try the password again."
+                           {"Retry-After" (str (quot (+ wait 999) 1000))}))
                    context)))
       :leave (fn [{:keys [request response] :as context}]
                (let [given? (get-in request [:headers "authorization"])
@@ -325,10 +310,8 @@
   once and then send a cookie."
   [password]
   (let [realm     "Basic realm=\"Podcast server\", charset=\"UTF-8\""
-        challenge {:status  401
-                   :headers {"WWW-Authenticate" realm
-                             "Content-Type"     "text/plain; charset=utf-8"}
-                   :body    "The server asks for its password."}]
+        challenge (ring/text-response 401 "The server asks for its password."
+                                      {"WWW-Authenticate" realm})]
     (interceptor/interceptor
      {:name  ::login
       :enter (fn [{:keys [request] :as context}]
@@ -422,10 +405,9 @@
           (handler request)
           (finally
             (.release turns)))
-        {:status  503
-         :headers {"Retry-After"  "5"
-                   "Content-Type" "text/plain; charset=utf-8"}
-         :body    "The server is busy. Try again in a few seconds."}))))
+        (ring/text-response
+         503 "The server is busy. Try again in a few seconds."
+         {"Retry-After" "5"})))))
 
 (defn proxy-send
   "The :send of the proxy, which signs the requests to the Podcast Index

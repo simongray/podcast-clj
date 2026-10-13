@@ -27,6 +27,7 @@
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
+            [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
@@ -156,17 +157,12 @@
 
 (defn- html
   [hiccup]
-  {:status  200
-   :headers {"Content-Type" "text/html; charset=utf-8"}
-   ;; Replicant 2026.06.2 and later write a double quote as &#39;, which is
-   ;; an apostrophe. They write an apostrophe as &apos; and an ampersand as
-   ;; &amp;, so every &#39; stands for a double quote.
-   :body    (->> (str/replace (replicant/render hiccup) "&#39;" "&quot;")
-                 (str "<!DOCTYPE html>\n"))})
-
-(defn- text
-  [content-type s]
-  {:status 200 :headers {"Content-Type" content-type} :body s})
+  ;; Replicant 2026.06.2 and later write a double quote as &#39;, which is
+  ;; an apostrophe. They write an apostrophe as &apos; and an ampersand as
+  ;; &amp;, so every &#39; stands for a double quote.
+  (ring/response 200 "text/html; charset=utf-8"
+                 (->> (str/replace (replicant/render hiccup) "&#39;" "&quot;")
+                      (str "<!DOCTYPE html>\n"))))
 
 (defn- failure
   "The error page, with the status 502, for the failure `e` of what
@@ -303,20 +299,22 @@
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
-      (text "text/plain; charset=utf-8"
-            ;; pretty-printing takes about two seconds per hundred items
-            (if (<= (count (:rss/items feed)) 100)
-              (with-out-str (pprint/pprint feed))
-              (str ";; on one line, since pretty-printing more than a "
-                   "hundred items takes too long\n"
-                   (pr-str feed)))))))
+      (ring/text-response
+       200
+       ;; pretty-printing takes about two seconds per hundred items
+       (if (<= (count (:rss/items feed)) 100)
+         (with-out-str (pprint/pprint feed))
+         (str ";; on one line, since pretty-printing more than a "
+              "hundred items takes too long\n"
+              (pr-str feed)))))))
 
 (defn feed-xml
   "The feed that `request` names, written back out canonically."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
-      (text "application/rss+xml; charset=utf-8" (rss/emit feed)))))
+      (ring/response 200 "application/rss+xml; charset=utf-8"
+                     (rss/emit feed)))))
 
 (defn corpus-page
   "The inspection of the corpus feed that `request` names by its file
@@ -787,19 +785,18 @@
             item      (item-in feed guid)
             enclosure (some-> item resolve/enclosure)]
         (if item
-          (text "application/edn; charset=utf-8"
-                (pr-str {:id         (feed.guid/episode-id feed feed-url item)
-                         :title      (resolve/title item)
-                         :feed-title (resolve/title feed)
-                         :artwork    (resolve/artwork feed item)
-                         :enclosure  (:url enclosure)
-                         :video?     (true? (resolve/video? enclosure))
-                         :duration   (resolve/duration item)
-                         :url        url
-                         :guid       guid}))
-          {:status  404
-           :headers {"Content-Type" "text/plain"}
-           :body    (str "No item with guid " guid)})))))
+          (ring/response
+           200 "application/edn; charset=utf-8"
+           (pr-str {:id         (feed.guid/episode-id feed feed-url item)
+                    :title      (resolve/title item)
+                    :feed-title (resolve/title feed)
+                    :artwork    (resolve/artwork feed item)
+                    :enclosure  (:url enclosure)
+                    :video?     (true? (resolve/video? enclosure))
+                    :duration   (resolve/duration item)
+                    :url        url
+                    :guid       guid}))
+          (ring/text-response 404 (str "No item with guid " guid)))))))
 
 (def player-js-dir
   "Where shadow-cljs puts the compiled browser player."
@@ -821,12 +818,11 @@
                        "application/javascript; charset=utf-8")]
     (cond
       (nil? built)
-      {:status  404
-       :headers {"Content-Type" "text/plain"}
-       :body    (if (.isFile (io/file player-js-dir "player.js"))
-                  (str "No file " path " in the player")
-                  (str "The browser player is not compiled; run: "
-                       "clojure -M:cljs compile player"))}
+      (ring/text-response 404
+                          (if (.isFile (io/file player-js-dir "player.js"))
+                            (str "No file " path " in the player")
+                            (str "The browser player is not compiled; run: "
+                                 "clojure -M:cljs compile player")))
 
       (= built (get-in request [:headers "if-modified-since"]))
       {:status 304 :headers {"Last-Modified" built} :body ""}
@@ -954,19 +950,13 @@
   name of its own at 127.0.0.1 gets a 403 (DNS rebinding)."
   (interceptor/interceptor
    {:name  ::local-only
-    :enter (fn [context]
-             (let [host      (some-> (get-in context [:request :headers "host"])
-                                     str/lower-case
-                                     (str/replace #":\d+$" ""))
-                   local?    (or (nil? host)
-                                 (#{"localhost" "127.0.0.1" "[::1]"} host))
-                   forbidden {:status  403
-                              :headers {"Content-Type" "text/plain"}
-                              :body    (str "The inspector answers requests "
-                                            "to localhost only.")}]
-               (if local?
-                 context
-                 (assoc context :response forbidden))))}))
+    :enter (fn [{:keys [request] :as context}]
+             (if (ring/addressed-to? request [])
+               context
+               (assoc context :response
+                      (ring/text-response 403 (str "The inspector answers "
+                                                   "requests to localhost "
+                                                   "only.")))))}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server

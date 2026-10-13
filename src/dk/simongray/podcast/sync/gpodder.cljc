@@ -293,6 +293,21 @@
                            :count   (count named)
                            :seconds (quot (- latest (inst-ms at)) 1000)})))
 
+(defn- pull-report
+  "The report of a pull at `at`: the devices of the actions that are
+  `ahead`, with `author` as the device of one that names none, and the
+  counts of the actions that wait for their episodes, `more` of them new,
+  and of the `broken` ones."
+  [ahead author at more broken]
+  (let [counted (fn [d n] (diagnostics/describe (assoc d :count n)))]
+    (cond-> (vec (ahead-report ahead author at))
+      (pos? more)
+      (conj (counted {:id :gpodder/unknown-episodes :level :info} more))
+
+      (pos? broken)
+      (conj (counted {:id :gpodder/malformed-actions :level :warning}
+                     broken)))))
+
 (defn- pulled
   "What a pull for `state` gives at `at`, from the subscription changes
   `subs` and the `episodes` actions since `cursor`, with the `opts` of the
@@ -336,22 +351,14 @@
         pending (vec (take-last max-pending unnamed))
         more    (- (count pending) (count (:pending cursor)))
         broken  (count (remove whole? told-of))
-        latest  (or (:timestamp episodes) (:episodes cursor))
-        counted (fn [d n] (diagnostics/describe (assoc d :count n)))]
+        latest  (or (:timestamp episodes) (:episodes cursor))]
     {:states   [(crdt/changes-since s state)]
      :partial? true
      :cursor   (cond-> (-> cursor
                            (dissoc :pending)
                            (assoc :subscriptions told :episodes latest))
                  (seq pending) (assoc :pending pending))
-     :report   (cond-> (vec (ahead-report ahead name at))
-                 (pos? more)
-                 (conj (counted {:id :gpodder/unknown-episodes :level :info}
-                                more))
-
-                 (pos? broken)
-                 (conj (counted {:id :gpodder/malformed-actions :level :warning}
-                                broken)))}))
+     :report   (pull-report ahead name at more broken)}))
 
 (defn- caller
   "A function of a call and its parameters that sends it to the server at

@@ -79,16 +79,20 @@
                  (inc j)))))))
 
 (def ^:no-doc encodings
-  "The text encoding of each encoding byte, and the width of its terminator."
-  {0 [:latin1 1]
-   1 [:utf16 2]
-   2 [:utf16be 2]
-   3 [:utf8 1]})
+  "The text encoding of each encoding byte."
+  {0 :latin1
+   1 :utf16
+   2 :utf16be
+   3 :utf8})
+
+(defn- width
+  "The width in bytes of the terminator of a text in `encoding`."
+  [encoding]
+  (if (#{:utf16 :utf16be} encoding) 2 1))
 
 (defn ^:no-doc text-encoding
-  "The text encoding that the first byte of the frame in `view` names, and
-  the width of its terminator, as a pair, read in the context `ctx`. It's
-  nil for a frame without bytes.
+  "The text encoding that the first byte of the frame in `view` names, read
+  in the context `ctx`. It's nil for a frame without bytes.
 
   By the quirk, a byte that names no encoding of ID3 stands for
   ISO-8859-1. Without the quirk, the reading throws."
@@ -102,7 +106,7 @@
         (view/quirk? ctx :id3/text-encoding)
         (do (view/note! ctx (view/diagnostic :id3/text-encoding :info
                                              :encoding b))
-            [:latin1 1])
+            :latin1)
 
         :else
         (throw (ex-info "A text encoding that ID3 does not define"
@@ -170,20 +174,21 @@
 (defn ^:no-doc text-at
   "The text in `view` from `start` up to its terminator or `end`, read in
   the context `ctx`, and where what follows it starts, as a pair. The text
-  is in `encoding`, with terminators of `width` bytes."
-  [ctx view start end encoding width]
-  (let [stop (terminator view start end width)]
-    [(decoded ctx view start stop encoding) (min end (+ stop width))]))
+  is in `encoding`."
+  [ctx view start end encoding]
+  (let [n    (width encoding)
+        stop (terminator view start end n)]
+    [(decoded ctx view start stop encoding) (min end (+ stop n))]))
 
 (defn- texts
-  "The texts in `view` from `start` to `end` in `encoding`, with
-  terminators of `width` bytes, read in the context `ctx`. The last
-  terminator can be missing, and the empty texts are left out."
-  [ctx view start end encoding width]
+  "The texts in `view` from `start` to `end` in `encoding`, read in the
+  context `ctx`. The last terminator can be missing, and the empty texts
+  are left out."
+  [ctx view start end encoding]
   (loop [p start acc []]
     (if (>= p end)
       acc
-      (let [[s next] (text-at ctx view p end encoding width)]
+      (let [[s next] (text-at ctx view p end encoding)]
         (recur (max next (inc p))
                (cond-> acc
                  (not (str/blank? s)) (conj s)))))))
@@ -209,9 +214,9 @@
   then a text."
   [ctx view _ id]
   (let [end                (:total view)
-        [encoding width]   (text-encoding ctx view)
-        [description next] (text-at ctx view 1 end encoding width)
-        [text _]           (text-at ctx view next end encoding width)]
+        encoding           (text-encoding ctx view)
+        [description next] (text-at ctx view 1 end encoding)
+        [text _]           (text-at ctx view next end encoding)]
     {:id id :description description :text text}))
 
 (defn- user-url
@@ -219,9 +224,9 @@
   then a URL."
   [ctx view _ id]
   (let [end                (:total view)
-        [encoding width]   (text-encoding ctx view)
-        [description next] (text-at ctx view 1 end encoding width)
-        [url _]            (text-at ctx view next end :latin1 1)]
+        encoding           (text-encoding ctx view)
+        [description next] (text-at ctx view 1 end encoding)
+        [url _]            (text-at ctx view next end :latin1)]
     {:id id :description description :url (str/trim url)}))
 
 (defn- remark
@@ -229,12 +234,12 @@
   language, a description and a text."
   [ctx view _ id]
   (let [end                (:total view)
-        [encoding width]   (text-encoding ctx view)
-        [description next] (text-at ctx view 4 end encoding width)]
+        encoding           (text-encoding ctx view)
+        [description next] (text-at ctx view 4 end encoding)]
     {:id          id
      :language    (view/code view 1 3)
      :description description
-     :text        (first (text-at ctx view next end encoding width))}))
+     :text        (first (text-at ctx view next end encoding))}))
 
 (def ^:no-doc picture-formats
   "The MIME type of each image format that a PIC frame of ID3v2.2 names."
@@ -247,16 +252,16 @@
   or a link to it."
   [ctx view _ id]
   (let [end              (:total view)
-        [encoding width] (text-encoding ctx view)
+        encoding         (text-encoding ctx view)
         [declared next]  (if (= "PIC" id)
                            (let [image-format (view/code view 1 3)
                                  mime-type    (get picture-formats
                                                    (str/upper-case image-format)
                                                    image-format)]
                              [mime-type 4])
-                           (text-at ctx view 1 end :latin1 1))
+                           (text-at ctx view 1 end :latin1))
         picture-type     (view/u8 view next)
-        [description p]  (text-at ctx view (inc next) end encoding width)]
+        [description p]  (text-at ctx view (inc next) end encoding)]
     (if (= "-->" declared)
       {:id           id
        :picture-type picture-type
@@ -321,15 +326,15 @@
   "The text frame `id` in `view`, read in the context `ctx`: one text, or
   more for ID3v2.4."
   [ctx view _ id]
-  (let [[encoding width] (text-encoding ctx view)
-        values           (texts ctx view 1 (:total view) encoding width)]
+  (let [encoding (text-encoding ctx view)
+        values   (texts ctx view 1 (:total view) encoding)]
     (cond-> {:id id :text (first values)}
       (next values) (assoc :values values))))
 
 (defn- url-frame
   "The URL frame `id` in `view`, read in the context `ctx`."
   [ctx view _ id]
-  (let [[url _] (text-at ctx view 0 (:total view) :latin1 1)]
+  (let [[url _] (text-at ctx view 0 (:total view) :latin1)]
     {:id id :url (str/trim url)}))
 
 (defn- unread

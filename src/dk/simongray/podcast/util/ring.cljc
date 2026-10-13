@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.util.ring
-  "The Ring requests that the handlers of podcast-clj answer: their bodies,
-  their credentials and their conditions."
+  "The Ring requests that the handlers of podcast-clj answer and the
+  responses they give: the bodies, credentials, hosts and conditions of
+  the requests."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
@@ -33,6 +34,50 @@
   [body max-bytes]
   (when-let [b (body-bytes body max-bytes)]
     (bytes/decode b :utf8)))
+
+(defn response
+  "The Ring response of `status` with the `body` of `content-type`, and the
+  headers `more`."
+  ([status content-type body]
+   (response status content-type body nil))
+  ([status content-type body more]
+   {:status  status
+    :headers (merge {"Content-Type" content-type} more)
+    :body    body}))
+
+(defn text-response
+  "The Ring response of `status` with the plain text `message`, and the
+  headers `more`, e.g. a refusal."
+  ([status message]
+   (text-response status message nil))
+  ([status message more]
+   (response status "text/plain; charset=utf-8" message more)))
+
+(defn host-name
+  "The `host` of a Host header or of a server name, in lower case and
+  without its port."
+  [host]
+  (some-> host str/lower-case (str/replace #":\d+$" "")))
+
+(def local-names
+  "The names of the machine itself that a Host header can give."
+  #{"localhost" "127.0.0.1" "[::1]"})
+
+;; RFC 9110, section 7.2. The check is against DNS rebinding: a web page
+;; that points a name of its own at the machine's address gets past no
+;; other check of a server without a password.
+(defn addressed-to?
+  "Whether the Host header of the Ring `request` names the machine itself
+  or one of the host `names`, with or without a port.
+
+  A request without a Host header is too, as HTTP/1.0 allows, since the
+  check is against web pages, and a client that isn't a browser can send
+  any name."
+  [request names]
+  (let [host (host-name (get-in request [:headers "host"]))]
+    (boolean (or (nil? host)
+                 (local-names host)
+                 (some #(= host (host-name %)) names)))))
 
 (defn https?
   "Whether the Ring `request` came over https: by its scheme, or by the

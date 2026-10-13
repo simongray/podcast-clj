@@ -280,12 +280,10 @@
   ([status body]
    (ring status body nil))
   ([status body more]
-   (let [type (if (string? body)
-                "text/plain; charset=utf-8"
-                "application/json; charset=utf-8")]
-     {:status  status
-      :headers (merge {"Content-Type" type} more)
-      :body    (if (string? body) body (json/write-str body))})))
+   (if (string? body)
+     (ring/text-response status body more)
+     (ring/response status "application/json; charset=utf-8"
+                    (json/write-str body) more))))
 
 (defn- asker
   "Who sends a request with `headers` at `at` to the server `env`, as a map
