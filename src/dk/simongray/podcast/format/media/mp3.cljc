@@ -132,6 +132,22 @@
       (= "VBRI" (view/code view v 4))
       (view/u32 view (+ v 14)))))
 
+;; LAME writes a Xing header for a variable bitrate and an Info header for
+;; a constant one, and the Fraunhofer encoder its VBRI for a variable one
+(defn- variable?
+  "Whether the first frame, at `p` in `view` with the header `h`, says that
+  the bitrate varies: true by a Xing or VBRI header, false by an Info
+  header, and nil without either."
+  [view p h]
+  (let [x (+ p 4 (side-info h))
+        v (+ p 36)]
+    (view/need view p (+ v 18))
+    (case (view/code view x 4)
+      "Xing" true
+      "Info" false
+      (when (= "VBRI" (view/code view v 4))
+        true))))
+
 (def ^:no-doc estimate-window
   "How many bytes of frames from the first the estimate of the bitrate of a
   file without a Xing, Info or VBRI header averages."
@@ -183,8 +199,12 @@
   "The MP3 file in `view`, read with `opts`, as a map of the keys below,
   each absent when the file doesn't have it, as mp4/read gives them.
 
-  - :tags are the ID3v2 tags
+  - :id3 are the ID3v2 tags, and :tags what they say, as id3/named gives
+    it
   - :media-start is where the first frame starts
+  - :sample-rate and :channels of the first frame, and :vbr?, whether a
+    Xing or VBRI header says that the bitrate varies, or false when an
+    Info header says that it doesn't
   - :duration is in seconds, from a Xing, Info or VBRI header, else
     estimated from the frames and the size of the file, else from the TLEN
     frame of a tag
@@ -202,10 +222,14 @@
          ctx      (view/context opts)
          [p h]    (first-frame ctx view (:end front))
          seconds  (or (duration ctx view p h) (:duration front))
+         vbr?     (when h (variable? view p h))
          no-audio (view/diagnostic :mp3/no-audio :warning)]
      (view/reported (cond-> (dissoc front :end :duration)
-                      p       (assoc :media-start p)
-                      seconds (assoc :duration seconds))
+                      p           (assoc :media-start p)
+                      h           (assoc :sample-rate (:sample-rate h)
+                                         :channels (if (:mono? h) 1 2))
+                      (some? vbr?) (assoc :vbr? vbr?)
+                      seconds     (assoc :duration seconds))
                     (cond-> (into (view/report front) (view/noted ctx))
                       (nil? h) (conj no-audio))))))
 

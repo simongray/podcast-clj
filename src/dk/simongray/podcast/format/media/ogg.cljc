@@ -169,19 +169,22 @@
 ;; RFC 7845, section 5.1: a version up to 15 is one that a reader of
 ;; version 1 reads
 (defn- opus-head
-  "The pre-skip of the Opus identification header `b`, in samples."
+  "The pre-skip in samples and the channels of the Opus identification
+  header `b`, which plays at 48 kHz."
   [b]
   (let [v (view/whole b)]
     (when (or (< (bytes/length b) 19)
               (> (view/u8 v 8) 15)
               (zero? (view/u8 v 9)))
       (throw (malformed "OpusHead")))
-    {:pre-skip (view/u16le v 10)}))
+    {:pre-skip    (view/u16le v 10)
+     :channels    (view/u8 v 9)
+     :sample-rate 48000}))
 
 ;; Vorbis I, section 4.2.2
 (defn- vorbis-head
-  "The sample rate and the long block of the Vorbis identification header
-  `b`, the most samples that a packet can add."
+  "The sample rate, the channels and the long block of the Vorbis
+  identification header `b`, the most samples that a packet can add."
   [b]
   (let [v      (view/whole b)
         long?  (>= (bytes/length b) 30)
@@ -197,6 +200,7 @@
                    (bit-test (view/u8 v 29) 0))
       (throw (malformed "Vorbis identification")))
     {:sample-rate rate
+     :channels    (view/u8 v 11)
      :long-block  (bit-shift-left 1 long)}))
 
 ;; Vorbis I, section 5.2, and RFC 7845, section 5.2: field names are
@@ -228,6 +232,22 @@
   "The value of the first comment of each name in `comments`."
   [comments]
   (reduce (fn [m [k v]] (if (contains? m k) m (assoc m k v))) {} comments))
+
+;; Vorbis I, section 5.2.2: the field names that it proposes
+(defn named
+  "The tags of the `comments` of a stream as one map of :title, :artist,
+  :album, :date, :genre and :description, each absent when the comments
+  don't have it. The description is the comment when it has none."
+  [comments]
+  (let [values (first-values comments)
+        text   #(some-> (some values %&) str/trim not-empty)
+        named  {:title       (text "TITLE")
+                :artist      (text "ARTIST")
+                :album       (text "ALBUM")
+                :date        (text "DATE")
+                :genre       (text "GENRE")
+                :description (text "DESCRIPTION" "COMMENT")}]
+    (into {} (filter val) named)))
 
 ;; Xiph's chapter extension of VorbisComment, revision 15985 of 2015: a
 ;; chapter is CHAPTERxxx, its start as HH:MM:SS.SSS, with CHAPTERxxxNAME
@@ -419,7 +439,10 @@
         duration (:value seconds)]
     (view/reported
      (cond-> {:comments    tags
+              :tags        (named tags)
               :codecs      (name codec)
+              :sample-rate (:sample-rate head)
+              :channels    (:channels head)
               :media-start (:end (first (peek headers)))}
        (number? duration)     (assoc :duration duration)
        (seq (:value chs))     (assoc :chapters (:value chs))
@@ -436,8 +459,9 @@
   each absent when the file doesn't have it, as mp4/read gives them.
 
   - :comments are the comments of the stream, as pairs of a name in upper
-    case and a value
+    case and a value, and :tags what they say, as named gives it
   - :codecs is \"opus\" or \"vorbis\"
+  - :sample-rate and :channels, where Opus plays at 48 kHz
   - :media-start is where the first page of audio starts
   - :duration is in seconds
   - :chapters, each with :start-time, and with :title and :url when the

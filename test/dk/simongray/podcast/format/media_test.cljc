@@ -59,6 +59,12 @@
   (is (= {"audio/ogg" :ogg "audio/opus" :ogg "audio/aac" :aac}
          (select-keys media/formats ["audio/ogg" "audio/opus" "audio/aac"]))))
 
+(deftest the-bitrate-and-the-tags
+  (let [r (media/read (view (concat (tag 3 (text 3 "TIT2" "Episode 1")) (apply concat (repeat 20 (audio-frame))))))]
+    (is (< 127000 (:bitrate r) 129000) "the media over the duration, when the reader gives none")
+    (is (= {:title "Episode 1"} (:tags r)))
+    (is (not (contains? r :id3)) "without the ID3 tags themselves")))
+
 #?(:clj
    (deftest reading-media-in-rounds
      (let [b   (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))

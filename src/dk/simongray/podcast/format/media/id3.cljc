@@ -597,6 +597,27 @@
     (some-> (or front (first pictures))
             (select-keys [:type :data :description]))))
 
+;; ID3v2.4 native frames, section 4.2, with the TYER of ID3v2.3, the
+;; three-letter ids of ID3v2.2, and the TDES of Apple Podcasts
+(defn named
+  "The tags of `frames` as one map of :title, :artist, :album, :date,
+  :genre and :description, each absent when the frames don't have it. The
+  description is that of a podcast's episode, or else the comment."
+  [frames]
+  (let [text    #(some-> (apply frame frames %&) :text str/trim not-empty)
+        ;; iTunes writes comments such as iTunNORM with a description
+        comment (some #(when (and (#{"COMM" "COM"} (:id %))
+                                  (str/blank? (:description %)))
+                         (some-> (:text %) str/trim not-empty))
+                      frames)
+        named   {:title       (text "TIT2" "TT2")
+                 :artist      (text "TPE1" "TP1")
+                 :album       (text "TALB" "TAL")
+                 :date        (text "TDRC" "TYER" "TYE")
+                 :genre       (text "TCON" "TCO")
+                 :description (or (text "TDES") comment)}]
+    (into {} (filter val) named)))
+
 (defn duration
   "The duration of the audio in seconds, from the TLEN frame in `frames`,
   or nil when no TLEN frame gives a number. The frame gives the length in
@@ -696,9 +717,10 @@
   "Read the ID3v2 tags at the front of the file in `view` with `opts`, and
   what their frames say about the file.
 
-  It's a map of the :tags and where they :end, and of the :duration of a
-  TLEN frame, the :chapters and the :artwork, each absent when the frames
-  don't have it. Its report is that of the tags and of the chapters."
+  It's a map of the tags as :id3, where they :end, the :tags that named
+  gives, and the :duration of a TLEN frame, the :chapters and the
+  :artwork, each absent when the frames don't have it. Its report is that
+  of the tags and of the chapters."
   [view opts]
   (let [tags    (read-all view 0 opts)
         frames  (mapcat :frames tags)
@@ -706,7 +728,9 @@
         chs     (chapters frames opts)
         art     (artwork frames)]
     (view/reported
-     (cond-> {:tags tags :end (or (:end (peek tags)) 0)}
+     (cond-> {:id3  tags
+              :tags (named frames)
+              :end  (or (:end (peek tags)) 0)}
        seconds   (assoc :duration seconds)
        (seq chs) (assoc :chapters chs)
        art       (assoc :artwork art))

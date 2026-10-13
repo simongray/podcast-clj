@@ -7,7 +7,7 @@
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.test-support :refer [ascii be view]]
             [dk.simongray.podcast.test-support.media
-             :refer [about= audio-frame header-128k tag text xing-frame]]))
+             :refer [about= audio-frame frame header-128k tag text xing-frame]]))
 
 (deftest mpeg-frames
   (is (= {:version 1 :layer 3 :bitrate 128000 :sample-rate 44100 :samples 1152 :length 417 :mono? false :crc? false}
@@ -30,4 +30,20 @@
       (is (= [:mp3/junk-before-audio] (map :id (mp3/report (mp3/read (view xs))))))
       (is (about= (/ (* 1000 1152) 44100.0) (:duration (mp3/read (view xs)))))
       (is (= [:mp3/no-audio] (map :id (mp3/report (mp3/read (view xs) {:except #{:mp3/junk-before-audio}})))))))
-  (is (= [:mp3/no-audio] (map :id (mp3/report (mp3/read (view (repeat 3000 7))))))))
+  (is (= [:mp3/no-audio] (map :id (mp3/report (mp3/read (view (repeat 3000 7)))))))
+  (testing "the sample rate and channels of the first frame, and whether its header says the bitrate varies"
+    (let [info (audio-frame (concat (repeat 32 0) (ascii "Info") [0 0 0 1] (be 4 10)))
+          read #(select-keys (mp3/read (view (concat % (audio-frame)))) [:sample-rate :channels :vbr?])]
+      (is (= {:sample-rate 44100 :channels 2 :vbr? true} (read (xing-frame 10))))
+      (is (= {:sample-rate 44100 :channels 2 :vbr? false} (read info)))
+      (is (= {:sample-rate 44100 :channels 2} (read (audio-frame))) "or neither, without a header"))))
+
+(deftest the-tags-as-one-map
+  (let [comm (fn [description text]
+               (frame 3 "COMM" (concat [0] (ascii "eng") (ascii description) [0] (ascii text))))
+        r    (mp3/read (view (concat (tag 3 (text 3 "TIT2" "Episode 1") (text 3 "TPE1" "A Host") (text 3 "TYER" "2026")
+                                          (comm "iTunNORM" " 0000") (comm "" "About the episode"))
+                                     (audio-frame))))]
+    (is (= {:title "Episode 1" :artist "A Host" :date "2026" :description "About the episode"} (:tags r))
+        "but the comments of iTunes that have a description")
+    (is (= 1 (count (:id3 r))) "and the tags themselves")))

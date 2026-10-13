@@ -916,7 +916,10 @@ keep them as the whole file, or start over.
 Once a download has finished, `library/playback` plays the file. To read
 what the file says about itself, e.g. its chapters, give `media/read!` a
 fetcher of the file as `:fetch`: `ranges/file-fetcher` of its path on the
-JVM, or `ranges/blob-fetcher` of a File or a Blob in a browser. A file that
+JVM, or `ranges/blob-fetcher` of a File or a Blob in a browser. Besides
+the chapters, the duration and the artwork, the result has the file's
+`:tags`, e.g. its title and artist, and the `:bitrate`, `:sample-rate`
+and `:channels` of its audio. A file that
 the listener marks with `library/keep-file` stays whatever the rules
 say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes
 of each show on the device, e.g. for a storage screen. The record is

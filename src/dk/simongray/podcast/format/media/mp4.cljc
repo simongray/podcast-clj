@@ -83,19 +83,24 @@
   (let [[o b] (view/part-at view p)]
     (boolean (and o (<= (+ p n) (+ o (bytes/length b)))))))
 
-(defn ^:no-doc media-start
-  "Where the media data of the file in `view` starts, the content of its
-  first mdat box at the top level, as far as the bytes at hand go, or nil.
-  It asks for no more bytes, since a reading that comes by the movie
-  first may not have the box after it."
+(defn- media-data
+  "The first mdat box at the top level of the file in `view`, as far as the
+  bytes at hand go, or nil. It asks for no more bytes, since a reading
+  that comes by the movie first may not have the box after it."
   [view]
   (let [limit (or (:total view) ##Inf)]
     (loop [p 0]
       (when (and (< (+ p 8) limit) (held? view p 16))
-        (when-let [{:keys [type end content]} (box view p limit)]
+        (when-let [{:keys [type end] :as b} (box view p limit)]
           (if (= "mdat" type)
-            content
+            b
             (recur end)))))))
+
+(defn ^:no-doc media-start
+  "Where the media data of the file in `view` starts, the content of its
+  first mdat box at the top level, as far as the bytes at hand go, or nil."
+  [view]
+  (:content (media-data view)))
 
 (defn ^:no-doc flags
   "The flags of the full box `b` in `view`."
@@ -314,22 +319,64 @@
    14 "image/png"
    27 "image/bmp"})
 
-(defn- artwork
-  "The artwork of the covr item of the iTunes metadata in the `udta` box in
-  `view`, as a map of :type and :data, or nil when there's none.
+(defn- items
+  "The ilst box of the iTunes metadata in the `udta` box in `view`, or nil.
 
   The meta box is a full box in ISO files and a plain one in QuickTime
   files, so its children start where the hdlr box is."
   [view udta]
   (when-let [meta (child view udta "meta")]
-    (let [skip (if (= "hdlr" (view/code view (+ (:content meta) 4) 4)) 0 4)
-          data (when-let [ilst (child view meta "ilst" skip)]
-                 (at-path view ilst "covr" "data"))]
-      (when data
-        (let [image     (view/slice view (+ (:content data) 8) (:end data))
-              data-type (bit-and (view/u32 view (:content data)) 0xFFFFFF)]
-          {:type (or (get image-types data-type) (image/sniff image))
-           :data image})))))
+    (let [skip (if (= "hdlr" (view/code view (+ (:content meta) 4) 4)) 0 4)]
+      (child view meta "ilst" skip))))
+
+(defn- artwork
+  "The artwork of the covr item of the iTunes metadata in the `udta` box in
+  `view`, as a map of :type and :data, or nil when there's none."
+  [view udta]
+  (when-let [data (some-> (items view udta) (#(at-path view % "covr" "data")))]
+    (let [image     (view/slice view (+ (:content data) 8) (:end data))
+          data-type (bit-and (view/u32 view (:content data)) 0xFFFFFF)]
+      {:type (or (get image-types data-type) (image/sniff image))
+       :data image})))
+
+;; The items of iTunes metadata, as AtomicParsley documents them: the data
+;; box of each holds its type in 24 bits, 1 for UTF-8 text, a locale, and
+;; the value
+(def ^:no-doc tag-items
+  "The key in the tags of read of each text item of the iTunes metadata,
+  in order of preference."
+  (let [c (str (char 0xA9))]
+    [[(str c "nam") :title]
+     [(str c "ART") :artist]
+     [(str c "alb") :album]
+     [(str c "day") :date]
+     [(str c "gen") :genre]
+     ["ldes" :description]
+     ["desc" :description]
+     [(str c "cmt") :description]]))
+
+(defn- tags-of
+  "The tags of the iTunes metadata in the `udta` box in `view`, as a map of
+  :title, :artist, :album, :date, :genre and :description, each absent
+  when the metadata doesn't have it."
+  [view udta]
+  (let [ilst  (items view udta)
+        text? #(= 1 (bit-and (view/u32 view (:content %)) 0xFFFFFF))
+        found (into {}
+                    (for [item  (when ilst
+                                  (children view (:content ilst) (:end ilst)))
+                          :let  [data (child view item "data")]
+                          :when (and data (text? data))]
+                      [(:type item)
+                       (view/text view (+ (:content data) 8) (:end data)
+                                  :utf8)]))
+        text  #(some-> (get found %) str/trim not-empty)]
+    (reduce (fn [acc [code k]]
+              (if-let [v (and (not (contains? acc k)) (text code))]
+                (assoc acc k v)
+                acc))
+            {}
+            tag-items)))
 
 (defn- fragment-index
   "The mfra box at the end of the file in `view`, whose size the mfro box
@@ -592,10 +639,27 @@
             nil)
           (str/lower-case type)))))
 
+;; ISO/IEC 14496-12, section 12.2.3: the channelcount, and the samplerate in
+;; 16.16 fixed point, of an AudioSampleEntry, as in the sound descriptions of
+;; QuickTime versions 0 and 1
+(defn- audio-of
+  "The :channels and the :sample-rate of the audio track `t` in `view`, as
+  its sample entry gives them, or nil."
+  [view {:keys [stbl] :as t}]
+  (when-let [{:keys [content]} (when-let [stsd (when stbl
+                                                  (child view stbl "stsd"))]
+                                 (box view (+ (:content stsd) 8) (:end stsd)))]
+    (when (#{0 1} (view/u16 view (+ content 8)))
+      (let [channels (view/u16 view (+ content 16))
+            rate     (view/u16 view (+ content 24))]
+        (cond-> {}
+          (pos? channels) (assoc :channels channels)
+          (pos? rate)     (assoc :sample-rate rate))))))
+
 (defn- playing-tracks
   "The codecs, width and height of the tracks of `tracks` in `view` that
-  play: the enabled video and audio tracks that hold no chapters, video
-  first."
+  play, and the channels and sample rate of the first of audio: the
+  enabled video and audio tracks that hold no chapters, video first."
   [view tracks]
   (let [chapters (set (mapcat :chapters tracks))
         order    {"vide" 0 "soun" 1}
@@ -605,8 +669,10 @@
                                     (not (chapters (:id %)))))
                       (sort-by (comp order :handler)))
         codecs   (keep #(codecs-of view %) playing)
-        [w h]    (some #(when (= "vide" (:handler %)) (:size %)) playing)]
-    (cond-> {}
+        [w h]    (some #(when (= "vide" (:handler %)) (:size %)) playing)
+        audio    (some #(when (= "soun" (:handler %)) (audio-of view %))
+                       playing)]
+    (cond-> (or audio {})
       (seq codecs) (assoc :codecs (str/join "," codecs))
       w            (assoc :width w :height h))))
 
@@ -625,6 +691,7 @@
                                 (fragmented-duration view mvex scale tracks)))
         chapters  (view/part :chapters #(movie-chapters view tracks udta))
         art       (view/part :artwork #(when udta (artwork view udta)))
+        tags      (view/part :tags #(if udta (tags-of view udta) {}))
         played    (view/part :codecs #(playing-tracks view tracks))
         longest   (longest-track tracks)
         stated?   (and d (pos? d))
@@ -641,12 +708,13 @@
     (when unread?
       (view/note! ctx (view/diagnostic :mp4/fragments-unread :info)))
     (view/reported
-     (cond-> (merge {:movie-first? (not (:after-media? moov))}
+     (cond-> (merge {:movie-first? (not (:after-media? moov))
+                     :tags         (:value tags {})}
                     (:value played))
        duration                (assoc :duration duration)
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
-     (into (into [] (mapcat :report) [fragments chapters art played])
+     (into (into [] (mapcat :report) [fragments chapters art tags played])
            (view/noted ctx)))))
 
 (defn report
@@ -664,26 +732,38 @@
   - :codecs, the RFC 6381 codecs string of the tracks that play, e.g.
     \"avc1.64001F,mp4a.40.2\"
   - :width and :height of the video, in pixels
+  - :channels and :sample-rate of the audio
+  - :tags, the :title, :artist, :album, :date, :genre and :description of
+    the iTunes metadata
   - :movie-first?, whether the movie comes before the media data, so that
     a player can start before it has the end of the file
-  - :media-start, where the media data starts, when the bytes at hand
-    reach it
+  - :media-start, where the media data starts, and :bitrate, in bit/s,
+    that of the media data over the duration, when the bytes at hand reach
+    it, unless the file is in fragments
 
   The :except of `opts` is the ids of the quirks to leave out. When the
   view lacks bytes, the reading throws an exception that holds their
   ranges.
 
-  The chapters, the artwork and the index of the fragments are parts that
-  the rest can do without. A part that doesn't read is left out, and the
-  report names it."
+  The chapters, the artwork, the tags and the index of the fragments are
+  parts that the rest can do without. A part that doesn't read is left
+  out, and the report names it."
   ([view]
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
    (if-let [moov (movie view)]
-     (let [start (media-start view)]
-       (cond-> (read-movie view moov (view/context opts))
-         start (assoc :media-start start)))
+     (let [{:keys [content end] :as data} (media-data view)
+           {:keys [duration] :as file}    (read-movie view moov
+                                                      (view/context opts))
+           ;; a file in fragments has its media in many mdat boxes
+           whole?                         (nil? (child view moov "mvex"))]
+       (cond-> file
+         data
+         (assoc :media-start content)
+
+         (and data whole? (number? duration) (pos? duration))
+         (assoc :bitrate (long (/ (* 8 (- end content)) duration)))))
      (view/reported {} [(view/diagnostic :mp4/no-movie :warning)]))))
 
 (comment

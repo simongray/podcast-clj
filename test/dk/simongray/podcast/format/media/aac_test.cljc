@@ -12,8 +12,11 @@
             [dk.simongray.podcast.util.bytes.view :as view]))
 
 (deftest adts-frames
-  (is (= {:mpeg 4 :profile 1 :sample-rate 44100 :channels 2 :samples 1024 :length 371 :crc? false}
-         (aac/frame-header (view (adts-frame)) 0)))
+  (is (= {:mpeg 4 :profile 1 :sample-rate 44100 :channels 2 :samples 1024 :length 371 :crc? false :vbr? true}
+         (aac/frame-header (view (adts-frame)) 0))
+      "a buffer fullness of 0x7FF, which marks a variable bitrate")
+  (is (= {:sample-rate 44100 :channels 2 :vbr? true}
+         (select-keys (aac/read (view (apply concat (repeat 3 (adts-frame))))) [:sample-rate :channels :vbr?])))
   (is (nil? (aac/frame-header (view (concat header-128k [0 0 0])) 0)) "an MPEG audio frame, whose layer isn't 0")
   (testing "the duration of a file that the view holds whole, from the samples of every frame"
     (let [r (aac/read (view (apply concat (repeat 20 (adts-frame)))))]

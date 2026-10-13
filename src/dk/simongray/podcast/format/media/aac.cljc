@@ -29,18 +29,23 @@
   header is there.
 
   The header is a map of :mpeg, which is 2 or 4, :profile, :sample-rate,
-  :channels, :samples, :length and :crc?. The length of the frame is in
-  bytes, with the header."
+  :channels, :samples, :length, :crc? and :vbr?. The length of the frame
+  is in bytes, with the header. The channels are 0 when the audio itself
+  says how many, and :vbr? is whether the buffer fullness is 0x7FF, which
+  marks a variable bitrate."
   [view p]
   (view/need view p (+ p 7))
-  (let [b1     (view/u8 view (inc p))
-        b2     (view/u8 view (+ p 2))
-        b3     (view/u8 view (+ p 3))
-        rate-i (bit-and (bit-shift-right b2 2) 0x0F)
-        crc?   (not (bit-test b1 0))
-        length (+ (* 2048 (bit-and b3 3))
-                  (* 8 (view/u8 view (+ p 4)))
-                  (bit-shift-right (view/u8 view (+ p 5)) 5))]
+  (let [b1       (view/u8 view (inc p))
+        b2       (view/u8 view (+ p 2))
+        b3       (view/u8 view (+ p 3))
+        b5       (view/u8 view (+ p 5))
+        rate-i   (bit-and (bit-shift-right b2 2) 0x0F)
+        crc?     (not (bit-test b1 0))
+        length   (+ (* 2048 (bit-and b3 3))
+                    (* 8 (view/u8 view (+ p 4)))
+                    (bit-shift-right b5 5))
+        fullness (+ (* 64 (bit-and b5 0x1F))
+                    (bit-shift-right (view/u8 view (+ p 6)) 2))]
     (when (and (= 0xFF (view/u8 view p))
                (= 0xF0 (bit-and b1 0xF6))
                (< rate-i 13)
@@ -51,7 +56,8 @@
        :channels    (+ (* 4 (bit-and b2 1)) (bit-shift-right b3 6))
        :samples     (* 1024 (inc (bit-and (view/u8 view (+ p 6)) 3)))
        :length      length
-       :crc?        crc?})))
+       :crc?        crc?
+       :vbr?        (= 0x7FF fullness)})))
 
 (defn- frame-at?
   "The header of the frame at `p` in `view` when another frame follows it,
@@ -120,9 +126,14 @@
   "The AAC file in `view`, read with `opts`, as a map of the keys below,
   each absent when the file doesn't have it, as mp4/read gives them.
 
-  - :tags are the ID3v2 tags
+  - :id3 are the ID3v2 tags, and :tags what they say, as id3/named gives
+    it
   - :codecs is the RFC 6381 codecs string, e.g. \"mp4a.40.2\"
   - :media-start is where the first frame starts
+  - :sample-rate, :channels and :vbr? of the first frame, as
+    frame-header gives them, without channels when the audio says them.
+    Of HE-AAC, they're those of its core, which plays at twice the rate,
+    and in stereo with parametric stereo, as the audio alone tells.
   - :duration is in seconds
   - :chapters, from the CHAP and CTOC frames, as id3/chapters gives them
   - :artwork, a map of :type, :data and :description
@@ -142,7 +153,10 @@
          codecs   (some-> h codecs)
          no-audio (view/diagnostic :aac/no-audio :warning)]
      (view/reported (cond-> (dissoc front :end :duration)
-                      h       (assoc :media-start p)
+                      h       (assoc :media-start p
+                                     :sample-rate (:sample-rate h)
+                                     :vbr? (:vbr? h))
+                      (pos? (:channels h 0)) (assoc :channels (:channels h))
                       codecs  (assoc :codecs codecs)
                       seconds (assoc :duration seconds))
                     (cond-> (into (view/report front) (view/noted ctx))

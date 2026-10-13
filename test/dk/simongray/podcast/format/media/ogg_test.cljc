@@ -22,6 +22,7 @@
   (let [r (ogg/read (view (opus-file :pages 3)))]
     (is (= {:codecs "opus" :duration (- 3 (/ 312 48000.0))} (select-keys r [:codecs :duration]))
         "three seconds of packets less the pre-skip")
+    (is (= {:sample-rate 48000 :channels 2} (select-keys r [:sample-rate :channels])) "at the 48 kHz of Opus")
     (is (= (count (concat (packets-page 2 0 1 0 [(opus-head 312)]) (packets-page 0 0 1 1 [(opus-tags)])))
            (:media-start r))
         "the audio starts after the page that the comment header finishes")
@@ -43,8 +44,11 @@
           "unless the page ends the stream, whose end the granule position trims"))))
 
 (deftest vorbis-files
-  (let [r (ogg/read (view (vorbis-file [] 1024 (+ 1024 441000))))]
-    (is (= {:codecs "vorbis" :duration (/ 442024 44100.0)} (select-keys r [:codecs :duration])))
+  (let [r (ogg/read (view (vorbis-file ["title=Episode 1" "ARTIST=A Host" "COMMENT=About it"] 1024 (+ 1024 441000))))]
+    (is (= {:codecs "vorbis" :duration (/ 442024 44100.0) :sample-rate 44100 :channels 2}
+           (select-keys r [:codecs :duration :sample-rate :channels])))
+    (is (= {:title "Episode 1" :artist "A Host" :description "About it"} (:tags r))
+        "the comments as tags, whatever the case of their names, and the comment as the description")
     (is (= [] (ids r))))
   (testing "audio that starts after zero, right to within a long block"
     (let [r (ogg/read (view (vorbis-file [] (+ 441000 1500) (+ 441000 1500 441000))))]

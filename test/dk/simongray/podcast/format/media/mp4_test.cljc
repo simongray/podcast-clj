@@ -32,6 +32,21 @@
       (is (= 150.0 (:duration r)))
       (is (= [{:start-time 0.0 :title "Intro"} {:start-time 60.0 :title "Talk"}] (:chapters r)))
       (is (= "image/jpeg" (:type (:artwork r))))))
+  (testing "the tags of the iTunes metadata, the long description before the short"
+    (let [c    (str (char 0xA9))
+          item (fn [k data-type value] (box k (box "data" (be 4 data-type) (be 4 0) value)))
+          meta (box "meta" [0 0 0 0]
+                    (box "hdlr" [0 0 0 0] (be 4 0) (ascii "mdir") (repeat 12 0) [0])
+                    (box "ilst"
+                         (item (str c "nam") 1 (ascii "Episode 1"))
+                         (item (str c "ART") 1 (ascii "A Host"))
+                         (item "desc" 1 (ascii "Short"))
+                         (item "ldes" 1 (ascii "Long"))
+                         (item (str c "day") 21 (be 4 2026))
+                         (item "covr" 13 jpeg)))
+          r    (mp4/read (view (concat (box "ftyp" (ascii "M4A ") (be 4 0))
+                                       (box "moov" (mvhd 600 90000) (box "udta" meta)))))]
+      (is (= {:title "Episode 1" :artist "A Host" :description "Long"} (:tags r)) "and only items of text")))
   (testing "a movie header without a duration"
     (let [xs (concat (box "ftyp" (ascii "M4A ") (be 4 0))
                      (box "moov" (mvhd 1000 0) (trak 1 44100 (* 44100 90) "soun")))]
@@ -67,6 +82,12 @@
       (is (= "avc1" (codecs (video-entry "avc1" []))) "the type alone without a configuration")
       (is (= "opus" (:codecs (mp4/read (view (movie-file false (playing-trak 1 "soun" (box "Opus" (repeat 28 0))))))))
           "the type of another codec, in lower case")))
+  (testing "the channels and sample rate of the audio, and the bitrate of the media data"
+    (let [entry (box "mp4a" (repeat 16 0) (be 2 2) (be 2 16) [0 0 0 0] (be 2 44100) [0 0]
+                     (box "esds" [0 0 0 0] [3 25 0 1 0] [4 17 0x40 0x15] (repeat 11 0) [5 2 0x12 0x10] [6 1 2]))
+          r     (mp4/read (view (movie-file false (playing-trak 1 "soun" entry))))]
+      (is (= {:channels 2 :sample-rate 44100 :bitrate 2} (select-keys r [:channels :sample-rate :bitrate]))
+          "16 bytes of media data in 60 seconds")))
   (testing "a movie after the media data starts late"
     (is (false? (:movie-first? (mp4/read (view (movie-file true (playing-trak 1 "soun" aac-entry))))))))
   (testing "where the media data starts, after the movie or before it"

@@ -104,13 +104,27 @@
 
 (defn- result
   "What the `file` of `format` says about itself, as its reader gave it:
-  without the tags or the comments, and with its chapters as a chapters
-  document."
+  with the tags as one map, without the ID3 tags or the comments they came
+  from, and with its chapters as a chapters document."
   [format {:keys [chapters] :as file}]
   (let [document {:version  chapters/version
                   :chapters (mapv with-image chapters)}]
-    (cond-> (assoc (dissoc file :tags :comments :chapters) :format format)
+    (cond-> (assoc (dissoc file :id3 :comments :chapters) :format format)
       (seq chapters) (assoc :chapters document))))
+
+(defn- with-bitrate
+  "The `file` with its :bitrate when its reader gave none: the bits of its
+  media over its duration, when it has its :bytes, :media-start and
+  :duration."
+  [{:keys [bitrate bytes media-start duration] :as file}]
+  (if (and (nil? bitrate)
+           (number? bytes)
+           (number? media-start)
+           (number? duration)
+           (pos? duration)
+           (> bytes media-start))
+    (assoc file :bitrate (long (/ (* 8 (- bytes media-start)) duration)))
+    file))
 
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
@@ -125,7 +139,13 @@
 
   - :format is :mp3, :mp4, :ogg or :aac
   - :codecs is the RFC 6381 codecs string of an MP4, Ogg or AAC file
+  - :tags is a map of the :title, :artist, :album, :date, :genre and
+    :description that the file gives in its ID3 tags, iTunes metadata or
+    Vorbis comments, e.g. for an upload or a local file
   - :duration is in seconds
+  - :bitrate is in bit/s, that of the media over the duration
+  - :sample-rate and :channels of the audio, and for an MP3 or AAC file
+    :vbr?, whether the bitrate varies, as its headers say
   - :chapters is a chapters document of dk.simongray.podcast.format.chapters,
     and the images of an MP3 file's chapters are data URLs, which a host
     serves as files with update-image-urls of that namespace
@@ -148,10 +168,11 @@
    {:pre [(map? opts)]}
    (let [unknown (view/diagnostic :file/unknown-format :warning)
          total   (:total view)]
-     (view/reading #(cond-> (if-let [format (sniff view)]
-                              (result format ((readers format) view opts))
-                              (view/reported {} [unknown]))
-                      (number? total) (assoc :bytes total))))))
+     (view/reading #(with-bitrate
+                      (cond-> (if-let [format (sniff view)]
+                                (result format ((readers format) view opts))
+                                (view/reported {} [unknown]))
+                        (number? total) (assoc :bytes total)))))))
 
 (defn read!
   "Read what the media file at `url` says about itself, fetched with
