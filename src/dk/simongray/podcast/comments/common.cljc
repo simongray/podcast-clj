@@ -41,6 +41,16 @@
   (when-let [n (json/whole x)]
     (when (pos? n) n)))
 
+(defn ^:no-doc counts
+  "The map `m` of names to the counts that a server gave, with the counts
+  that are whole numbers of zero or more, or nil when there are none."
+  [m]
+  (not-empty (into {}
+                   (keep (fn [[k v]]
+                           (when-let [n (json/whole v)]
+                             (when (<= 0 n) [k n]))))
+                   m)))
+
 (defn ^:no-doc values
   "The values of the JSON property `k` of `o` as a sequence: none, one, or
   those of the list it holds."

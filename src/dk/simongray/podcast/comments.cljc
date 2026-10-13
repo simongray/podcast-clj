@@ -37,11 +37,14 @@
                       :aspect-ratio [1200 800]}]
        :poll        {:choices [{:name \"Yes\" :votes 3}] :multiple? true
                      :ends #inst \"2026-09-20T00:00:00Z\"}
+       :counts      {:replies 2 :reposts 1 :likes 5 :quotes 0}
        :hidden?     true        ; hidden by the author of the root post
        :read-at     #inst \"2026-09-28T12:00:00Z\"}
 
   A deleted post is :deleted?, and a post that podcast-clj didn't get has
-  an :error that tells why. An author is a map of :id, :name, :handle,
+  an :error that tells why. The :counts are those that the server of a
+  comment gives with it, which a Nostr relay doesn't. An author is a map
+  of :id, :name, :handle,
   :url and :avatar. The handle is @name@domain on ActivityPub, @handle on
   the AT Protocol and npub1… on Nostr. A thread that podcast-clj read
   through the Mastodon API has :via :mastodon-api. The keys in this
@@ -74,7 +77,7 @@
 ;; - util.client, util.json, util.time and util.bytes would become its own
 ;;   User-Agent and small copies.
 ;; - A blog would soon miss two things: Nostr comments on a web page by its
-;;   NIP-73 URL, and counts of likes and reposts.
+;;   NIP-73 URL, and the counts of reactions and reposts on Nostr.
 ;; - ActivityPub is the fediverse, but Bluesky and Nostr aren't, which the
 ;;   name should allow for.
 

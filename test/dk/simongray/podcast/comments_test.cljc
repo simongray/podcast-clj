@@ -694,6 +694,51 @@
            (map #(select-keys (get-in read [:comments (uri %)]) [:sensitive? :labels]) ["y" "z" "n"]))
         "a warning that a moderation service put on the account, not one of the author, and not a label that is taken back")))
 
+(deftest the-counts-of-a-comment
+  (let [at     #inst "2026-09-28T12:00:00Z"
+        post   "at://did:plc:x/app.bsky.feed.post/1"
+        view   {"thread" {"$type"   "app.bsky.feed.defs#threadViewPost"
+                          "replies" []
+                          "post"    {"uri" post "author" {"did" "did:plc:x"} "record" {"text" "hello"}
+                                     "replyCount" 2 "repostCount" 1 "likeCount" 5 "quoteCount" 0}}}
+        url    "https://appview.example/xrpc/app.bsky.feed.getPostThread?uri=x"
+        top    "https://a.example/0"
+        thread {:protocol "activitypub" :uri top}
+        note   {"id"      top
+                "type"    "Note"
+                "content" "x"
+                "to"      ["https://www.w3.org/ns/activitystreams#Public"]
+                "replies" {"type" "Collection" "totalItems" 2 "items" []}
+                "shares"  {"type" "Collection" "totalItems" 1}
+                "likes"   "https://a.example/0/likes"}
+        read   (fn [thread request doc]
+                 (comments/with-exchanges thread
+                                          [{:request  request
+                                            :response {:status 200 :url (:url request) :body (json/write-str doc)}}]
+                                          at))]
+    (is (= {:replies 2 :reposts 1 :likes 5 :quotes 0}
+           (:counts (get-in (read {:protocol "atproto" :uri post} {:url url ::comments/for [:thread post]} view)
+                            [:comments post])))
+        "as the AppView counts them")
+    (is (= {:replies 2 :reposts 1}
+           (:counts (get-in (read thread (first (comments/requests thread)) note) [:comments top])))
+        "the totals of the collections that an object holds itself, and none of a collection that it only names")
+    (let [page   "https://a.example/@ann/1"
+          api    "https://a.example/api/v1/statuses/1"
+          status {"id" "1" "uri" "https://a.example/users/ann/statuses/1" "content" "<p>root</p>" "visibility" "public"
+                  "account" {"acct" "ann" "uri" "https://a.example/users/ann"}
+                  "replies_count" 0 "reblogs_count" 3 "favourites_count" 7 "quotes_count" -1}
+          send   (fn [{:keys [url]}]
+                   (condp = url
+                     page                 {:status 401 :url url}
+                     api                  {:status 200 :url url :body (json/write-str status)}
+                     (str api "/context") {:status 200 :url url :body (json/write-str {"ancestors" [] "descendants" []})}))]
+      (run #(async/then
+             (comments/fetch! {:protocol "activitypub" :uri page} {:send send})
+             (fn [thread]
+               (is (= {:replies 0 :reposts 3 :likes 7} (:counts (get-in thread [:comments (:root thread)])))
+                   "and those of the Mastodon API, without a count that is no count")))))))
+
 (deftest an-answer-that-exhausts-a-reader
   (let [deep (str (apply str (repeat 100000 "[")) (apply str (repeat 100000 "]")))
         long (str "[" (apply str (repeat 2000 "7")) "]")]

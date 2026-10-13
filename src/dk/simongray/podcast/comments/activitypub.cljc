@@ -488,6 +488,17 @@
                      :multiple? (boolean (seq several))
                      :ends      ends})))
 
+;; ActivityPub, sections 5.7 and 5.8: the likes and the shares of an object,
+;; and the totalItems of a collection in Activity Streams
+(defn- object-counts
+  "The counts of the replies, the shares and the likes of the ActivityPub
+  object `o`, from its collections that it holds itself with their totals."
+  [o]
+  (let [total #(when (map? %) (get % "totalItems"))]
+    (common/counts {:replies (total (get o "replies"))
+                    :reposts (total (get o "shares"))
+                    :likes   (total (get o "likes"))})))
+
 (defn- object-comment
   "The ActivityPub object `o` as a comment read at `at`."
   [o at]
@@ -510,6 +521,7 @@
                      :sensitive?  (true? (get o "sensitive"))
                      :attachments (object-attachments o)
                      :poll        (when (seq (:choices poll)) poll)
+                     :counts      (object-counts o)
                      :deleted?    (= "Tombstone" (get o "type"))
                      :read-at     at})))
 
@@ -922,6 +934,11 @@
              :sensitive?  (true? (get status "sensitive"))
              :attachments (status-attachments status)
              :poll        (when (seq (:choices poll)) poll)
+             :counts      (common/counts
+                           {:replies (get status "replies_count")
+                            :reposts (get status "reblogs_count")
+                            :likes   (get status "favourites_count")
+                            :quotes  (get status "quotes_count")})
              :read-at     at}
             {::comments/collection {:read-at at}}))))
 

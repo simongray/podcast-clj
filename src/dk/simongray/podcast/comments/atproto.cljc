@@ -315,6 +315,11 @@
              :sensitive?  (boolean (seq labels))
              :labels      labels
              :attachments (embed-attachments (get view "embed"))
+             ;; the post view of app.bsky.feed.defs
+             :counts      (common/counts {:replies (get view "replyCount")
+                                          :reposts (get view "repostCount")
+                                          :likes   (get view "likeCount")
+                                          :quotes  (get view "quoteCount")})
              :hidden?     (contains? hidden (get view "uri"))
              :read-at     at}
             {::comments/reply-count (common/dimension (get view "replyCount"))

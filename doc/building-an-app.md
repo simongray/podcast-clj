@@ -633,7 +633,8 @@ can hide replies, and `tree` only shows those with `{:hidden? true}`.
 To link to the original, use the `:url` of a comment or an author, which
 everything but Nostr has. On Bluesky, it's a page on bsky.app, and
 `atproto/post-url` gives the page on another web app, e.g. `(atproto/post-url
-(:id reply) {:origin "https://deer.social"})`.
+(:id reply) {:origin "https://deer.social"})`. A comment's `:counts` are its
+replies, reposts, likes and quotes, as far as its server counts them.
 
 A fetch reads for a minute at most, and 100 comments at a time. To show
 something sooner, give it `:max-seconds 5`, show what it read, and fetch
