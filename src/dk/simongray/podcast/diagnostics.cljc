@@ -23,7 +23,7 @@
   - podping, a poll of the Hive chain
   - comments, reading a thread of comments
   - value, the records of payments
-  - analytics, the list of user agents
+  - analytics, the list of user agents and the lines of server logs
 
   The level says how much a diagnostic matters:
 
@@ -814,10 +814,14 @@
            amount, so keysend can't pay it and nothing was sent. Pay a Lightning
            address with an invoice."}
 
-    ;; analytics: reading the list of user agents, and the downloads of OP3
+    ;; analytics: reading the list of user agents and server logs, and the
+    ;; downloads of OP3
     {:id :analytics/unreadable-pattern :level :warning
      :doc "A pattern in the list of user agents doesn't compile on this
            platform, so its entry was left out."}
+    {:id :analytics/unreadable-line :level :warning
+     :doc "A line of a server log doesn't read as a request in the format of
+           the log, so it counts as no download."}
     {:id :analytics/unreachable :level :warning
      :doc "OP3 gave no page of downloads: the request failed, or OP3 answered
            with an error. The result has the downloads of the pages before it,

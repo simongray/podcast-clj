@@ -264,6 +264,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/below-one-sat` | warning | WebLN counts a keysend payment in whole sats, and this payment is below 1 sat, so nothing was sent. |
 | `:value/not-a-node` | warning | The recipient isn't a node with a public key, or the payment has no amount, so keysend can't pay it and nothing was sent. Pay a Lightning address with an invoice. |
 | `:analytics/unreadable-pattern` | warning | A pattern in the list of user agents doesn't compile on this platform, so its entry was left out. |
+| `:analytics/unreadable-line` | warning | A line of a server log doesn't read as a request in the format of the log, so it counts as no download. |
 | `:analytics/unreachable` | warning | OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before it, and its continuation token names that page. |
 | `:sync/backend-failed` | warning | A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why. |
 | `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |

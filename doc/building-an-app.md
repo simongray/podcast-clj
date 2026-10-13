@@ -1506,7 +1506,20 @@ size of an episode before downloading it.
 ## Count the downloads of a show
 
 As a host, you count the downloads of your episodes from your server logs,
-by the rules of the IAB. Turn each log line into a request map:
+by the rules of the IAB. Read the lines of a log in the combined format of
+Apache and nginx, or the extended format of the W3C, with `logs/requests`:
+
+```clojure
+(def requests
+  (with-open [r (io/reader "access.log")]
+    (doall (logs/requests (line-seq r)
+                          {:base-url "https://cdn.example.com/"}))))
+```
+
+The `:base-url` turns the paths in the log into the URLs of the files. A
+line that doesn't read gives a map with an `:error`. If nginx writes
+X-Forwarded-For after the user agent, give `:extra [:forwarded-for]`. For
+a log in another format, turn each line into a request map yourself:
 
 ```clojure
 {:time       #inst "2026-09-26T08:15:02Z"
@@ -1741,6 +1754,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
+            [dk.simongray.podcast.analytics.logs :as logs]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]

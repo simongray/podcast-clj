@@ -164,6 +164,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | Namespace | Contents |
 |---|---|
 | `analytics` | Download counts from the request logs of a host, by the rules of the IAB, with `downloads`. Also `threshold`, for the bytes of a minute of a file, and `user-agents` and `identify`, which name apps and bots from the OPAWG list. |
+| `analytics.logs` | The lines of a server log as the requests that `downloads` takes, from the combined format of Apache and nginx or the extended format of the W3C, with `requests`. |
 | `analytics.op3` | OP3: `with-prefix` puts its prefix on the enclosures of a feed, and `call!` and `fetch-downloads!` read its API. |
 
 ## Utilities
