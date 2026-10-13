@@ -18,8 +18,7 @@
   that the size of a tag leaves out. The :except option leaves out the
   quirks that it names, those of the tags too."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.format.media.id3 :as id3]
+  (:require [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -99,15 +98,15 @@
   (view/need view start (+ start 4096))
   (if-let [h (frame-at? view start)]
     [start h]
-    (when (id3/quirk? ctx :mp3/junk-before-audio)
+    (when (view/quirk? ctx :mp3/junk-before-audio)
       (let [end (min (+ start search-limit) (or (:total view) ##Inf))]
         (view/need view start (+ end 4096))
         (loop [p (inc start)]
           (when (< (+ p 4) end)
             (if-let [h (and (= 0xFF (view/u8 view p))
                             (frame-at? view p))]
-              (do (id3/note! ctx (id3/diagnostic :mp3/junk-before-audio :info
-                                                 :skipped (- p start)))
+              (do (view/note! ctx (view/diagnostic :mp3/junk-before-audio :info
+                                                   :skipped (- p start)))
                   [p h])
               (recur (inc p)))))))))
 
@@ -171,14 +170,14 @@
       (/ (* frames (:samples h)) (double (:sample-rate h)))
 
       (and h total)
-      (do (id3/note! ctx (id3/diagnostic :mp3/estimated-duration :info))
+      (do (view/note! ctx (view/diagnostic :mp3/estimated-duration :info))
           (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
 
 (defn report
   "The diagnostics of the read `file`, with those of its tags. Each
   diagnostic has its message."
   [file]
-  (mapv diagnostics/describe (view/report file)))
+  (view/report file))
 
 (defn read
   "The MP3 file in `view`, read with `opts`, as a map of :tags,
@@ -198,15 +197,16 @@
    {:pre [(map? opts)]}
    (let [tags        (id3/read-all view 0 opts)
          start       (or (:end (peek tags)) 0)
-         ctx         (id3/context opts)
+         ctx         (view/context opts)
          [p h]       (first-frame ctx view start)
          result      {:tags        tags
                       :audio-start p
                       :duration    (duration ctx view p h)}
-         diagnostics (into (vec (mapcat id3/report tags)) @(:report ctx))]
+         diagnostics (into (vec (mapcat id3/report tags)) (view/noted ctx))]
      (view/reported result
                     (cond-> diagnostics
-                      (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
+                      (nil? h) (conj (view/diagnostic :mp3/no-audio
+                                                      :warning)))))))
 
 (comment
   ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes

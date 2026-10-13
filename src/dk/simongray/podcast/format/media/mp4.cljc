@@ -20,7 +20,6 @@
   option leaves it out."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
@@ -612,9 +611,9 @@
       w            (assoc :width w :height h))))
 
 (defn- read-movie
-  "What the file in `view` whose moov box is `moov` says about itself, with
-  the quirks of `except` left out."
-  [view moov except]
+  "What the file in `view` whose moov box is `moov` says about itself, read
+  in the context `ctx`."
+  [view moov ctx]
   (view/need view (:start moov) (:end moov))
   (let [[scale d] (some->> (child view moov "mvhd") (timing view))
         boxes     (children view (:content moov) (:end moov))
@@ -632,25 +631,28 @@
         longest?  (and (not mvex)
                        (not stated?)
                        longest
-                       (not (contains? (set except) :mp4/zero-duration)))
+                       (view/quirk? ctx :mp4/zero-duration))
         unread?   (and mvex (not (:value fragments)))
         duration  (cond mvex                             (:value fragments)
                         longest?                         longest
                         (and stated? scale (pos? scale)) (/ d (double scale)))]
+    (when longest?
+      (view/note! ctx (view/diagnostic :mp4/zero-duration :info)))
+    (when unread?
+      (view/note! ctx (view/diagnostic :mp4/fragments-unread :info)))
     (view/reported
      (cond-> (merge {:movie-first? (not (:after-media? moov))}
                     (:value played))
        duration                (assoc :duration duration)
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
-     (cond-> (into [] (mapcat :report) [fragments chapters art played])
-       longest? (conj {:id :mp4/zero-duration :level :info})
-       unread?  (conj {:id :mp4/fragments-unread :level :info})))))
+     (into (into [] (mapcat :report) [fragments chapters art played])
+           (view/noted ctx)))))
 
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
   [file]
-  (mapv diagnostics/describe (view/report file)))
+  (view/report file))
 
 (defn read
   "The MP4 file in `view`, read with `opts`, as a map of the keys below,
@@ -676,13 +678,13 @@
   report names it."
   ([view]
    (read view {}))
-  ([view {:keys [except] :as opts}]
+  ([view opts]
    {:pre [(map? opts)]}
    (if-let [moov (movie view)]
      (let [start (media-start view)]
-       (cond-> (read-movie view moov except)
+       (cond-> (read-movie view moov (view/context opts))
          start (assoc :media-start start)))
-     (view/reported {} [{:id :mp4/no-movie :level :warning}]))))
+     (view/reported {} [(view/diagnostic :mp4/no-movie :warning)]))))
 
 (comment
   ;; a movie of 90 seconds: an ftyp box, then a moov box with its mvhd box

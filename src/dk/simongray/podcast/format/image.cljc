@@ -14,8 +14,7 @@
   dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
   that it still needs."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
+  (:require [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -322,7 +321,7 @@
 (defn report
   "The diagnostics of the read `image`. Each diagnostic has its message."
   [image]
-  (mapv diagnostics/describe (view/report image)))
+  (view/report image))
 
 (defn read
   "The header of the image whose parts `view` holds, as a map of :type,

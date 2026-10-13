@@ -28,30 +28,9 @@
       :id3/second-tag    a second tag right after the first"
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]))
-
-(defn ^:no-doc diagnostic
-  "The diagnostic `id` at `level`, with the `details`."
-  [id level & {:as details}]
-  (merge {:id id :level level} details))
-
-(defn ^:no-doc note!
-  "Record the diagnostic `d` in the report of the reading context `ctx`."
-  [ctx d]
-  (vswap! (:report ctx) conj d))
-
-(defn ^:no-doc quirk?
-  "Whether the reading context `ctx` makes the quirk `id`."
-  [ctx id]
-  (not (contains? (:except ctx) id)))
-
-(defn ^:no-doc context
-  "A reading context for `opts`, with an empty report."
-  [{:keys [except] :as opts}]
-  {:except (set except) :report (volatile! [])})
 
 (defn ^:no-doc syncsafe
   "The 28-bit number of the four syncsafe bytes at `p` in `view`, or nil
@@ -120,8 +99,8 @@
         (contains? encodings b)
         (encodings b)
 
-        (quirk? ctx :id3/text-encoding)
-        (do (note! ctx (diagnostic :id3/text-encoding :info :encoding b))
+        (view/quirk? ctx :id3/text-encoding)
+        (do (view/note! ctx (view/diagnostic :id3/text-encoding :info :encoding b))
             [:latin1 1])
 
         :else
@@ -166,11 +145,11 @@
       [:utf16be (+ start 2)]
 
       (or (>= start end)
-          (not (quirk? ctx :id3/utf16-bom)))
+          (not (view/quirk? ctx :id3/utf16-bom)))
       [:utf16be start]
 
       :else
-      (do (note! ctx (diagnostic :id3/utf16-bom :info))
+      (do (view/note! ctx (view/diagnostic :id3/utf16-bom :info))
           [(if (> (zeros 1) (zeros 0)) :utf16le :utf16be) start]))))
 
 (defn- decoded
@@ -178,9 +157,9 @@
   the context `ctx`."
   [ctx view start end encoding]
   (case encoding
-    :latin1 (if (and (quirk? ctx :id3/utf8-latin1)
+    :latin1 (if (and (view/quirk? ctx :id3/utf8-latin1)
                      (bytes/utf8? (view/slice view start end) 0 (- end start)))
-              (do (note! ctx (diagnostic :id3/utf8-latin1 :info))
+              (do (view/note! ctx (view/diagnostic :id3/utf8-latin1 :info))
                   (view/text view start end :utf8))
               (view/text view start end :latin1))
     :utf16  (let [[order start] (utf16-order ctx view start end)]
@@ -217,9 +196,9 @@
         loose? (not (and (re-matches #"image/[a-z0-9.+-]+" t)
                          (not= "image/jpg" t)))]
     (if-let [sniffed (and loose?
-                          (quirk? ctx :id3/image-type)
+                          (view/quirk? ctx :id3/image-type)
                           (image/sniff data))]
-      (do (note! ctx (diagnostic :id3/image-type :info :declared declared))
+      (do (view/note! ctx (view/diagnostic :id3/image-type :info :declared declared))
           sniffed)
       (if (str/blank? t) declared t))))
 
@@ -421,8 +400,8 @@
       (fits? own)
       own
 
-      (and (quirk? ctx :id3/frame-size) (fits? other))
-      (do (note! ctx (diagnostic :id3/frame-size :info))
+      (and (view/quirk? ctx :id3/frame-size) (fits? other))
+      (do (view/note! ctx (view/diagnostic :id3/frame-size :info))
           other)
 
       (and own (<= (+ p 10 own) end))
@@ -463,7 +442,7 @@
   (try
     ((reader ctx id) ctx (view/whole data) version id)
     (catch #?(:clj Exception :cljs :default) _
-      (note! ctx (diagnostic :id3/malformed :warning :offset p :frame id))
+      (view/note! ctx (view/diagnostic :id3/malformed :warning :offset p :frame id))
       nil)))
 
 (defn- frame-header
@@ -497,19 +476,19 @@
               (> (+ p header) end))
         (do (when (and (< p end)
                        (not (plausible-end? view version p end)))
-              (note! ctx (diagnostic :id3/padding-junk :info :offset p)))
+              (view/note! ctx (view/diagnostic :id3/padding-junk :info :offset p)))
             acc)
         (if-let [{:keys [id flags start stop]}
                  (frame-header ctx view version p end)]
           (let [{:keys [compressed? encrypted? unsync?]} flags]
             (if (or compressed? encrypted? (> start stop))
-              (do (note! ctx (diagnostic :id3/skipped-frame :info :frame id))
+              (do (view/note! ctx (view/diagnostic :id3/skipped-frame :info :frame id))
                   (recur stop acc))
               (let [data  (cond-> (view/slice view start stop)
                             unsync? resync)
                     frame (frame-body ctx data version id p)]
                 (recur stop (cond-> acc frame (conj frame))))))
-          (do (note! ctx (diagnostic :id3/malformed :warning :offset p))
+          (do (view/note! ctx (view/diagnostic :id3/malformed :warning :offset p))
               acc))))))
 
 (defn- tag
@@ -531,19 +510,19 @@
                       (= 3 version)            (+ 4 (view/u32 body 0))
                       :else                    0))
         ctx       (assoc ctx :unsync-all? (and (= 4 version) unsync?))
-        malformed (diagnostic :id3/malformed :warning :offset start)]
+        malformed (view/diagnostic :id3/malformed :warning :offset start)]
     (assoc (select-keys h [:version :start :end])
            :frames (try
                      (frames ctx body version (extended) (:total body))
                      (catch #?(:clj Exception :cljs :default) _
-                       (note! ctx malformed)
+                       (view/note! ctx malformed)
                        [])))))
 
 (defn report
   "The diagnostics of `x`, a read tag or chapters. Each diagnostic has its
   message."
   [x]
-  (mapv diagnostics/describe (view/report x)))
+  (view/report x))
 
 (defn read
   "The ID3v2 tag at `p` in `view`, read with `opts`, or nil when no tag
@@ -557,9 +536,9 @@
   ([view p opts]
    {:pre [(map? opts)]}
    (when-let [h (header view p)]
-     (let [ctx    (context opts)
+     (let [ctx    (view/context opts)
            result (tag ctx view h)]
-       (view/reported result @(:report ctx))))))
+       (view/reported result (view/noted ctx))))))
 
 (defn read-all
   "The ID3v2 tags in `view` from `p` on, each read with `opts`, or an
@@ -580,7 +559,7 @@
                                (catch #?(:clj Exception :cljs :default) e
                                  (when (view/missing e) (throw e))
                                  nil)))]
-         (let [quirk (diagnostic :id3/second-tag :info :offset p)
+         (let [quirk (view/diagnostic :id3/second-tag :info :offset p)
                noted (vary-meta more update :podcast/report conj quirk)]
            (recur (conj acc noted) (:end more)))
          acc)))))
@@ -659,10 +638,10 @@
         url       (some #(when (link? %) (:url %)) frames)
         picture   (artwork frames)
         drop?     (and (<= end-ms start-ms)
-                       (quirk? ctx :id3/chapter-end))
+                       (view/quirk? ctx :id3/chapter-end))
         unlisted? (and places (not (contains? places element-id)))]
     (when drop?
-      (note! ctx (diagnostic :id3/chapter-end :info :element-id element-id)))
+      (view/note! ctx (view/diagnostic :id3/chapter-end :info :element-id element-id)))
     (cond-> {:start-time (/ start-ms 1000.0)}
       (not drop?) (assoc :end-time (/ end-ms 1000.0))
       title       (assoc :title title)
@@ -685,14 +664,14 @@
   ([frames]
    (chapters frames {}))
   ([frames opts]
-   (let [ctx    (context opts)
+   (let [ctx    (view/context opts)
          places (toc-places frames)
          order  (fn [{:keys [element-id start-ms]}]
                   [(get places element-id ##Inf) start-ms])
          result (->> (filter #(= "CHAP" (:id %)) frames)
                      (sort-by order)
                      (mapv #(chapter-of ctx % places)))]
-     (view/reported result @(:report ctx)))))
+     (view/reported result (view/noted ctx)))))
 
 (comment
   ;; a tag of ID3v2.4 with a title, TIT2, and a length in milliseconds, TLEN

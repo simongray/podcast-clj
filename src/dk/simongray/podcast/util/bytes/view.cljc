@@ -7,7 +7,8 @@
   A range that the view doesn't hold throws an exception that holds the
   ranges, so that the caller can fetch them and read again. A range past
   the end of the file throws too. The fetching is in util.bytes.ranges."
-  (:require [dk.simongray.podcast.util.bytes :as bytes]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.async :as async]))
 
 (defn view
@@ -225,14 +226,42 @@
 
 (defn report
   "The diagnostics of `result`, which a reader of a view gave, as maps of
-  an :id, a :level and details."
+  an :id, a :level, a :message and details."
   [result]
-  (vec (:podcast/report (meta result))))
+  (mapv diagnostics/describe (:podcast/report (meta result))))
 
 (defn ^:no-doc reported
   "The `result` with the `diagnostics` as its report."
   [result diagnostics]
   (vary-meta result assoc :podcast/report (vec diagnostics)))
+
+(defn ^:no-doc context
+  "A reading context for the `opts` of a reader, which notes the
+  diagnostics of a reading, and knows the quirks that the :except of
+  `opts` leaves out."
+  [{:keys [except] :as opts}]
+  {:except (set except) :report (volatile! [])})
+
+(defn ^:no-doc diagnostic
+  "The diagnostic `id` at `level`, with the `details`."
+  [id level & {:as details}]
+  (merge {:id id :level level} details))
+
+(defn ^:no-doc note!
+  "Note the diagnostic `d` in the reading context `ctx`."
+  [ctx d]
+  (vswap! (:report ctx) conj d))
+
+(defn ^:no-doc noted
+  "The diagnostics that the reading context `ctx` noted, in order."
+  [ctx]
+  @(:report ctx))
+
+(defn ^:no-doc quirk?
+  "Whether the reading context `ctx` makes the quirk `id`, which its
+  :except doesn't leave out."
+  [ctx id]
+  (not (contains? (:except ctx) id)))
 
 (defn ^:no-doc failure
   "The diagnostic of a reading that failed with `e`: :file/truncated when

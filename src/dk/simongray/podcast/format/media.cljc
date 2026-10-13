@@ -15,8 +15,7 @@
   The readers are strict, and their namespaces name their quirks. The
   :except option leaves out the quirks that it names."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.format.chapters :as chapters]
+  (:require [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
@@ -86,7 +85,7 @@
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
   [file]
-  (mapv diagnostics/describe (view/report file)))
+  (view/report file))
 
 (defn read
   "What the media file whose parts `view` holds says about itself, read

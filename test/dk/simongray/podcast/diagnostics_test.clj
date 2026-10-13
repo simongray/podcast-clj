@@ -41,7 +41,7 @@
   []
   (concat (for [[_ id level] (re-seq #"\{:id\s+(:[a-z][a-z0-9]*/[a-z0-9-]+)\s+:level\s+(:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
-          (for [[_ id level] (re-seq #"\(diagnostic\s+(:[a-z][a-z0-9]*/[a-z0-9-]+)\s+(:[a-z]+)" source)]
+          (for [[_ id level] (re-seq #"\((?:[a-z]+/)?diagnostic\s+(:[a-z][a-z0-9]*/[a-z0-9-]+)\s+(:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
           (for [[_ level id] (re-seq #"\(missing-diagnostics\s+(:[a-z]+)\s+(:validate/[a-z-]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])))
