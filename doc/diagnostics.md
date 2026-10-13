@@ -251,6 +251,15 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/no-metadata` | warning | The comment names no URL of metadata, or the URL answered without the x-rss-payment header. |
 | `:value/custom-record` | error | The records of the payment leave out the custom key and value of the recipient, because the key isn't a number, it's a type that the Lightning protocol reserves, or the value is missing. The payment would reach the node but not the wallet of the recipient, so don't send it. |
 | `:value/remote-unresolved` | warning | The value block of the remote item of a time split couldn't be fetched, so only the fees of that split are paid until a later fetch finds it. The Podcast Index or the remote feed didn't answer, refused the request or answered with an error, or there were neither credentials for the index nor a feed URL to ask. |
+| `:value/no-recipients` | error | The value block names no recipient, so outside its time splits a payment goes to nobody. |
+| `:value/fees-over` | error | The fees of the recipients add up to more than 100 percent, so they take the whole of each payment, and the last of them less than it asks. |
+| `:value/no-shares` | error | No recipient but those of the fees has a split, so after the fees a payment goes nowhere. |
+| `:value/same-recipient` | warning | Two recipients have the same address and custom record, so one wallet gets both shares, which is likely a mistake. |
+| `:value/recipient-address` | error | The address of the recipient doesn't have the form of its :type: the public key of a node, hexadecimal text of 33 bytes that starts with 02 or 03, or a Lightning address of the form user@domain on the public internet. No payment can reach it. |
+| `:value/empty-time-split` | error | The time split names neither a remote item nor a recipient, so during it a payment goes to the fees alone. |
+| `:value/mixed-time-split` | warning | The time split names a remote item and recipients too, which the podcast namespace doesn't allow, and an app pays the remote item. |
+| `:value/time-splits-overlap` | warning | The time split starts before the one before it ends, so an app pays the recipients of the earlier one until it ends. |
+| `:value/no-method` | warning | The app gave no way to pay a recipient of this :type, so it wasn't paid. |
 | `:value/not-an-address` | warning | The text isn't a Lightning address of the form user@domain. |
 | `:value/unreachable` | warning | The request failed, because the server didn't answer. |
 | `:value/lnurl-error` | warning | The service of the Lightning address answered with an error, and said why. |

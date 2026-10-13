@@ -772,6 +772,38 @@
            the request or answered with an error, or there were neither
            credentials for the index nor a feed URL to ask."}
 
+    ;; value: the recipients of the value blocks of a feed
+    {:id :value/no-recipients :level :error
+     :doc "The value block names no recipient, so outside its time splits a
+           payment goes to nobody."}
+    {:id :value/fees-over :level :error
+     :doc "The fees of the recipients add up to more than 100 percent, so they
+           take the whole of each payment, and the last of them less than it
+           asks."}
+    {:id :value/no-shares :level :error
+     :doc "No recipient but those of the fees has a split, so after the fees a
+           payment goes nowhere."}
+    {:id :value/same-recipient :level :warning
+     :doc "Two recipients have the same address and custom record, so one
+           wallet gets both shares, which is likely a mistake."}
+    {:id :value/recipient-address :level :error
+     :doc "The address of the recipient doesn't have the form of its :type: the
+           public key of a node, hexadecimal text of 33 bytes that starts with
+           02 or 03, or a Lightning address of the form user@domain on the
+           public internet. No payment can reach it."}
+    {:id :value/empty-time-split :level :error
+     :doc "The time split names neither a remote item nor a recipient, so during
+           it a payment goes to the fees alone."}
+    {:id :value/mixed-time-split :level :warning
+     :doc "The time split names a remote item and recipients too, which the
+           podcast namespace doesn't allow, and an app pays the remote item."}
+    {:id :value/time-splits-overlap :level :warning
+     :doc "The time split starts before the one before it ends, so an app pays
+           the recipients of the earlier one until it ends."}
+    {:id :value/no-method :level :warning
+     :doc "The app gave no way to pay a recipient of this :type, so it wasn't
+           paid."}
+
     ;; value: paying a Lightning address
     {:id :value/not-an-address :level :warning
      :doc "The text isn't a Lightning address of the form user@domain."}

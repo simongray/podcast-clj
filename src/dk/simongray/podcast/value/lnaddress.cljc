@@ -526,6 +526,20 @@
                                  #(if (:error %) % (verification invoice %)))
                      (diagnostics/failed {:id :value/unverifiable})))))))
 
+(defn fetch-terms!
+  "Fetch the terms on which the Lightning `address` takes a payment, with
+  `opts`. On the JVM it gives the terms, and in ClojureScript a promise of
+  them.
+
+  A failure gives a map with a diagnostic under :error. The `opts` are
+  those of request-invoice!, except the comment and the payer."
+  ([address]
+   (fetch-terms! address {}))
+  ([address opts]
+   (let [defaults {:send client/send! :allow-pred url/public?}
+         opts     (merge default-limits defaults opts)]
+     (ask! (lnurlp-request address) address terms opts))))
+
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with
   `opts`. On the JVM it gives the node, and in ClojureScript a promise of

@@ -17,6 +17,8 @@
     "as request"
     dk.simongray.podcast.value.nwc/request-event
     "it reads no clock and makes no random bytes, so the options give them"
+    dk.simongray.podcast.value.recipients/pay!
+    "it pays through the listener's wallet, whose functions the options give"
     dk.simongray.podcast.sync.gpodder.api/request
     "a call names the listener and the device, which the options give"
     dk.simongray.podcast.sync.gpodder.server/handler

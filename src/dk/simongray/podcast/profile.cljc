@@ -28,6 +28,7 @@
        :ratings        {id {:rating 4 :worst 1 :best 5 :removed?}}
        :filters        {name {:criteria {:where {:status :unplayed}} :removed?}}
        :listened       {feed-guid {\"2026-09\" {device-id {:seconds 5400.0}}}}
+       :payments       {id {:status :paid :sats 50 :address :removed?}}
        :preferences    {:skip-forward {:value 30} ...}
        :devices        {device-id {:name :platform ... :seen {…}}}
        :retired        {device-id {}}}
@@ -46,7 +47,8 @@
   - profile.queue, the queue, the inbox and the playlists
   - profile.marks, the stars, bookmarks, clips and ratings
   - profile.opml, the followed lists, and the subscriptions as OPML
-  - profile.player, the events of a player"
+  - profile.player, the events of a player
+  - profile.payments, the record of the listener's payments"
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -89,6 +91,7 @@
    :ratings        {:depth 1 :compact? true}
    :filters        {:depth 1 :compact? true}
    :listened       {:depth 3 :count-key :seconds}
+   :payments       {:depth 1 :compact? true}
    :preferences    {:depth 1}})
 
 (def default-settings

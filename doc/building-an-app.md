@@ -1511,6 +1511,35 @@ payments in whole sats:
 ;; => a promise of {:preimage "…" :proven? true}
 ```
 
+### Pay all the recipients at once
+
+To pay a boost to every recipient, give `recipients/pay!` the wallet's
+functions. It divides the amount as `value/payments` does, pays a node
+with keysend and a Lightning address with an invoice, one at a time, and
+gives an entry for each recipient:
+
+```clojure
+(defn record!
+  "Record the `entry` of a payment in the profile of the library."
+  [entry]
+  (swap! lib library/update-profile profile.payments/record entry))
+
+(recipients/pay! (:recipients paid) 1000 (assoc payment :group (str (random-uuid)))
+                 {:keysend-fn webln/pay-keysend!
+                  :invoice-fn webln/pay-invoice!
+                  :sending-fn record!})
+;; => [{:id "b7e1…/0" :recipient {…} :sats 990 :status :paid :preimage "…"}
+;;     {:id "b7e1…/1" :recipient {…} :sats 10 :status :skipped :error {…}}]
+```
+
+The `:sending-fn` records each payment just before it goes to the wallet,
+so record the entries of the result too. A payment that
+`profile.payments/unsettled` still lists after a crash, or on another
+device after a sync, may be paid, so ask the wallet about it rather than
+paying it again. With NWC, the functions are `nwc/ask!` of the commands
+above, and `:invoice-opts` holds the options of
+`lnaddress/request-invoice!`, e.g. the `:comment` with the metadata.
+
 
 ## Read the payments that a show receives
 
@@ -1575,6 +1604,12 @@ To validate a feed that you've built rather than fetched, e.g. before you
 publish it, give the map to `validate/validate`. The files that a feed
 links to are the next section's matter. Add the `:report` of
 `check/check-files!` to the diagnostics for a verdict on both.
+
+The value blocks have checks of their own. Of these,
+`recipients/problems` reports what would send a payment where the
+podcaster doesn't mean it to go, e.g. fees of more than 100 percent or an
+address of the wrong form, and `recipients/check!` asks each Lightning
+address for its terms and its node for keysend.
 
 
 ## Check the files that a feed links to
@@ -1962,6 +1997,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
+            [dk.simongray.podcast.profile.payments :as profile.payments]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
@@ -1975,6 +2011,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.podcast.value.recipients :as recipients]
             [dk.simongray.podcast.value.webln :as webln]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.proxy :as proxy]

@@ -72,6 +72,7 @@ option replaces the function that sends.
 | `profile` | The listener's profile, a CRDT that syncs between their devices: the subscriptions and their settings, the preferences, single episodes of other shows, progress, saved filters, listening counts and devices. Use `merge` to combine two profiles, and `compact` to drop old tombstones and archive old played episodes. |
 | `profile.queue` | The queue, the inbox and the playlists of the profile, with `to-list-feed` for a playlist as a list feed, and `refresh` for the new episodes of a feed. |
 | `profile.marks` | The stars, bookmarks, clips and ratings of the profile. |
+| `profile.payments` | The record of the listener's payments in the profile, with `unsettled` for those that went to the wallet with no answer, which mustn't be sent again. |
 | `profile.opml` | The OPML lists that the listener follows, and the subscriptions as OPML with `to-opml` and `from-opml`. |
 | `profile.player` | The events of a player, with `step`, which gives the new profile and the effects for the UI. |
 | `criteria` | Criteria as data that select and order episodes, with `episodes`, for saved filters and download rules. Use `problem` to check criteria from another device. |
@@ -154,7 +155,8 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | Namespace | Contents |
 |---|---|
 | `value` | Splits, fees and time splits, and one shape for a payment, with `boostagram` and `parse-boostagram` for the bLIP-10 record, `records` for the custom records of a keysend payment, and `as-received` to check a record against what the node received. |
-| `value.lnaddress` | Lightning addresses: `request-invoice!` gets an invoice with LNURL-pay and checks its amount, and `fetch-node!` gets the node for keysend. |
+| `value.lnaddress` | Lightning addresses: `request-invoice!` gets an invoice with LNURL-pay and checks its amount, `fetch-terms!` gets the terms, and `fetch-node!` gets the node for keysend. |
+| `value.recipients` | The recipients of the value blocks of a feed: `problems` in a feed, `check!` of their Lightning addresses, and `pay!`, which pays them all through the listener's wallet. |
 | `value.bolt11` | The invoices of BOLT 11: `invoice-amount`, `payment-hash`, and `proves?`, which checks a preimage against an invoice. |
 | `value.payment` | The JSON fields of the payment map, which the bLIP-10 record and the RSS Payment Metadata share. Apps don't call it. |
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the `x-rss-payment` header that `fetch!` reads. |
