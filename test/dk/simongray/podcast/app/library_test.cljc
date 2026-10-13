@@ -14,6 +14,7 @@
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
@@ -22,7 +23,7 @@
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.test-support :refer [fixture ranges run]]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
@@ -488,6 +489,26 @@
                       (fn [{{:keys [report]} :refresh :as lib'}]
                         (is (= [] report))
                         (is (= [guid] (keys (:feeds lib'))) "fetch! by default, through the :send, without a :fetch"))))))
+
+(deftest subscribing-to-the-start-of-a-feed
+  (let [items  (apply str (repeat 2000 "<item><title>An episode</title><guid>g</guid></item>"))
+        xml    #(str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+                     "<channel><title>Head</title>" % items "</channel></rss>")
+        id     "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"
+        head!  #(discovery/fetch-head! other-url {:send (ranges (xml %) (atom []))})]
+    (run #(async/then
+           (async/all [(head! (str "<podcast:guid>" id "</podcast:guid>")) (head! "")])
+           (fn [[declared plain]]
+             (is (every? (comp discovery/head? :feed) [declared plain]))
+             (let [lib (library/subscribe (library/make "phone") other-url declared)]
+               (is (= {} (:feeds lib)) "the feed itself comes at the next refresh")
+               (is (= ["Head" id] ((juxt :title :guid) (get (library/subscriptions lib) id)))
+                   "with the title and the guid of the start"))
+             (let [lib (library/subscribe (library/make "phone") other-url plain)
+                   of  (feed.guid/feed-guid nil other-url)]
+               (is (= [of] (keys (library/subscriptions lib))))
+               (is (nil? (:guid (get (library/subscriptions lib) of)))
+                   "a guid that the start doesn't declare comes from the first fetch, as without one")))))))
 
 (deftest subscribing-without-a-fetch
   (let [lib   (library/subscribe (library/make "phone") other-url)

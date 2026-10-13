@@ -13,8 +13,11 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.headers :as headers]
@@ -428,26 +431,125 @@
     (not (<= 200 (long (:status value)) 299))
     (diagnostics/fetch-failure {:url url :status (:status value)})))
 
+(defn- parsed
+  "The feed in the text `s` from `url`, parsed with the options of
+  rss/parse in `opts`, as a map of the :feed, or of the diagnostic as
+  :error when it isn't a feed. A platform without an XML parser throws."
+  [s url opts]
+  (if (feed-document? s)
+    (rss/try-parse s (-> (select-keys opts [:quirks? :registry :except])
+                         (assoc :url url)))
+    (diagnostics/failed {:id     :fetch/malformed
+                         :url    url
+                         :reason "The answer isn't a feed"})))
+
 (defn- read-feed
-  "The candidate in the `attempt` at the feed at `url`, found where
-  `where` says and parsed with `opts`, or the diagnostic as :error when
-  the request failed or the answer isn't a feed. A platform without an
-  XML parser throws."
-  [url where {response :value :as attempt} opts]
+  "The feed in the `attempt` at `url`, parsed with `opts`, as a map of the
+  :url that it was found at and the :feed, or of the diagnostic as :error
+  when the request failed or the answer isn't a feed."
+  [url {response :value :as attempt} opts]
   (if-let [e (failure url attempt)]
     {:error e}
-    (let [body     (str (:body response))
-          found-at (or (:permanent-url response) url)
-          rss-opts (-> (select-keys opts [:quirks? :registry :except])
-                       (assoc :url url))]
-      (if-not (feed-document? body)
-        (diagnostics/failed {:id     :fetch/malformed
-                             :url    url
-                             :reason "The answer isn't a feed"})
-        (let [{:keys [feed error]} (rss/try-parse body rss-opts)]
-          (if error
-            {:error error}
-            {:candidate (candidate found-at where feed)}))))))
+    (assoc (parsed (str (:body response)) url opts)
+           :url (or (:permanent-url response) url))))
+
+(defn- fetch-feed!
+  "Fetch the whole feed at `url` with `opts`, and give it as read-feed
+  does. Deferred."
+  [url {:keys [send] :as opts}]
+  (async/then (http/try-send! send (document-request url opts) opts)
+              #(read-feed url % opts)))
+
+(defn- held
+  "How many bytes the view `v` holds from the start of the file on."
+  [v]
+  (loop [p 0]
+    (if-let [[o b] (view/part-at v p)]
+      (recur (+ o (bytes/length b)))
+      p)))
+
+(defn- item-end
+  "Where the end tag of the first item in the `text` ends, or nil when the
+  text has none."
+  [text]
+  (when-let [i (str/index-of text "</item")]
+    (when-let [j (str/index-of text ">" i)]
+      (when (str/blank? (subs text (+ i 6) j))
+        (inc j)))))
+
+(defn- head-reading
+  "A reading of the view `v` of a feed: the text of the feed up to the end
+  of its first item and then closed, as :text and :cut?, or the bytes that
+  it needs to find that end. A feed that the view holds whole is read
+  whole, and so is a feed without an item, or in an encoding such as
+  UTF-16, where the end tag can't be found before decoding."
+  [v]
+  (view/reading
+   #(let [n (held v)]
+      (if (= n (:total v))
+        {:text (xml/decode (view/slice v 0 n))}
+        (if-let [end (item-end (view/text v 0 n :latin1))]
+          {:text (str (xml/decode (view/slice v 0 end)) "</channel></rss>")
+           :cut? true}
+          (view/need v n (inc n)))))))
+
+(defn head?
+  "Whether `feed` is the start of a feed that fetch-head! gave, rather than
+  the whole feed."
+  [feed]
+  (boolean (::head? (meta feed))))
+
+(defn fetch-head!
+  "Fetch the start of the feed at `url` with the `opts` of find-feeds!, as
+  far as the end of its first item, and give a map of the :url that it was
+  found at and the :feed, or of an :error. Deferred.
+
+  The start is enough to preview a show, or to check its guid before
+  subscribing, and most often it's the first 64 KB of a feed of megabytes.
+  RSS lets channel elements come after the items, so a start can lack
+  some, and head? tells it from a whole feed. When the start doesn't read
+  as a feed with a title, the whole feed is fetched, and a short feed comes
+  whole too. The :credentials of `opts` go with the requests."
+  ([url]
+   (fetch-head! url {}))
+  ([url opts]
+   {:pre [(map? opts)]}
+   (let [opts    (merge default-limits
+                        {:send client/send! :allow-pred url/public?}
+                        opts)
+         moved   (volatile! nil)
+         send    (fn [request]
+                   (async/then ((:send opts) request)
+                               (fn [response]
+                                 (some->> (:permanent-url response)
+                                          (vreset! moved))
+                                 response)))
+         headers (:headers (document-request url opts))
+         reading (assoc opts :send send :headers headers)]
+     (async/then
+      (view/read-url! url head-reading reading)
+      (fn [{:keys [text cut? error] :as result}]
+        (let [read  (when text (parsed text url opts))
+              found (or @moved url)]
+          (cond
+            error
+            {:url   url
+             :error (diagnostics/fetch-failure
+                     (assoc (select-keys error [:status :reason :type])
+                            :url url))}
+
+            (and cut? (resolve/title (:feed read)))
+            {:url found :feed (vary-meta (:feed read) assoc ::head? true)}
+
+            cut?
+            (fetch-feed! url opts)
+
+            read
+            (assoc read :url found)
+
+            :else
+            (diagnostics/failed
+             (assoc (first (view/report result)) :url url)))))))))
 
 (defn- podcast-found?
   "Whether the state `acc` of a search has a podcast among its candidates,
@@ -461,18 +563,22 @@
 
   The `urls` can be a delay, which is forced only when `acc` has no
   podcast yet. At most :max-candidates are fetched, and none that was
-  tried. The failure of a place that claims a feed goes in the report."
-  [acc where urls {:keys [send max-candidates] :as opts}]
+  tried, each whole or, when `opts` are :heads?, its start alone. The
+  failure of a place that claims a feed goes in the report."
+  [acc where urls {:keys [max-candidates heads?] :as opts}]
   (let [urls    (when-not (podcast-found? acc)
                   (into []
                         (comp (remove (:tried acc))
                               (distinct)
                               (take max-candidates))
                         (force urls)))
-        request #(document-request % (dissoc opts :credentials))
+        fetch!  (if heads? fetch-head! fetch-feed!)
         fetch   (fn [url]
-                  (async/then (http/try-send! send (request url) opts)
-                              #(read-feed url where % opts)))]
+                  (async/then (fetch! url (dissoc opts :credentials))
+                              (fn [{:keys [feed error] :as read}]
+                                (if feed
+                                  {:candidate (candidate (:url read) where feed)}
+                                  {:error error}))))]
     (if (empty? urls)
       acc
       (async/then (async/all fetch urls)
@@ -658,11 +764,11 @@
          (if-let [e (failure asked attempt)]
            (assoc acc :error e)
            (if (feed-document? body)
-             (async/then (read-feed asked :input attempt opts)
-                         (fn [{:keys [candidate error]}]
-                           (cond-> acc
-                             candidate (update :candidates conj candidate)
-                             error     (assoc :error error))))
+             (let [{:keys [feed error] :as read} (read-feed asked attempt opts)]
+               (cond-> acc
+                 feed  (update :candidates conj
+                               (candidate (:url read) :input feed))
+                 error (assoc :error error)))
              (fetch-named-feeds! acc asked page body response opts))))))))
 
 (defn- result
@@ -711,6 +817,9 @@
     default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
     :max-candidates, over default-limits
+  - :heads?, to fetch only the start of each feed that a page names, as
+    fetch-head! does, e.g. to show the candidates before the listener
+    chooses one
   - :user-agent, and the options of rss/parse"
   ([s]
    (find-feeds! s {}))

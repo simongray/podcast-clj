@@ -98,7 +98,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `feed` | Hiccup to feed maps and back, and `diff` between two parses. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order and `blocked?`. |
 | `feed.schedule` | When a feed says that it changes, with `next-episode` from its update frequency and `next-check` for when to fetch it again. |
-| `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
+| `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`, and the start of a feed for a preview with `fetch-head!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files` and `report` are pure. |
 | `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and Apple Podcasts, with `verdicts` for one file. |
 | `feed.check.facts` | The facts of the files of a check, gathered over the network for `check-files!`. |

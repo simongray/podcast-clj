@@ -2,17 +2,13 @@
   "Everything a show page needs, in one map."
   (:require [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def default-limits
@@ -100,74 +96,15 @@
                     {:feed feed}
                     {:error error})))))
 
-(defn- held
-  "How many bytes the view `v` holds from the start of the file on."
-  [v]
-  (loop [p 0]
-    (if-let [[o b] (view/part-at v p)]
-      (recur (+ o (bytes/length b)))
-      p)))
-
-(defn- channel-head
-  "A reading of the view `v` of a feed: the text of the feed cut before its
-  first item and closed, or the bytes that it needs to find that item."
-  [v]
-  (view/reading
-   #(let [n          (held v)
-          head       (view/text v 0 n :latin1)
-          [_ before] (re-find #"(?s)^(.*?)<item[\s/>]" head)]
-      (cond
-        before
-        {:text (str (xml/decode (view/slice v 0 (count before)))
-                    "</channel></rss>")}
-
-        (= n (:total v))
-        {:text (xml/decode (view/slice v 0 n))}
-
-        :else
-        (view/need v n (inc n))))))
-
-;; TODO: Reconsider the design of these fetches. The podroll reads only the
-;; start of each feed, tens of KB instead of the MB of a whole feed.
-;; find-feeds!, OPML previews and the guid check before subscribing fetch
-;; whole feeds for a title or a guid, and could do the same. The trade-offs:
-;; - RSS lets channel elements come after the episodes, so the start of a
-;;   feed can miss some. It's enough for a title and artwork, but not for
-;;   deciding anything about the show.
-;; - Stored as a feed, it would look like a show without episodes.
-;; - It only works for encodings like UTF-8, where the first <item> can be
-;;   found before decoding.
-;; - Made public, it needs a name and a mark that tells it from a feed.
-(defn- read-head!
-  "Read the feed at `url` with `opts` up to its first item, most often
-  from the first 64 KB alone, and give a map of the :feed without its
-  items, or of an :error, in a future or a promise."
-  [url opts]
-  (async/then (view/read-url! url channel-head opts)
-              (fn [{:keys [text error] :as result}]
-                (cond
-                  text
-                  (rss/try-parse text {:url url})
-
-                  error
-                  {:error (diagnostics/fetch-failure
-                           (assoc (select-keys error [:status :reason :type])
-                                  :url url))}
-
-                  :else
-                  (diagnostics/failed
-                   (assoc (first (view/report result)) :url url))))))
-
 (defn- find-podroll-show!
   "Give the remote `item` of a podroll with its :show, in a future or a
   promise: from the Podcast Index with the :index of `opts`, or else from
-  the head of the feed at its URL, without the items. An item that names
-  no URL stays as it is without the :index, and one whose feed fails has
-  an :error."
+  the start of the feed at its URL. An item that names no URL stays as it
+  is without the :index, and one whose feed fails has an :error."
   [item opts]
   (cond
     (:index opts)    (look-up-show! item opts)
-    (:feed-url item) (async/then (read-head! (:feed-url item) opts)
+    (:feed-url item) (async/then (discovery/fetch-head! (:feed-url item) opts)
                                  (fn [{:keys [feed error]}]
                                    (if error
                                      (assoc item :error error)
@@ -197,10 +134,10 @@
   "Fetch the shows that the `view` of a show links to, with the `opts`
   below. Returns a map, in ClojureScript as a promise:
 
-  - :podroll has each recommended show with its :show, the feed without
-    its items. It comes from the Podcast Index when `opts` give the :index
-    credentials, or else from the start of the feed at the URL that the
-    podroll names, as far as its first item.
+  - :podroll has each recommended show with its :show. It comes from the
+    Podcast Index when `opts` give the :index credentials, without its
+    items, or else from the start of the feed at the URL that the podroll
+    names, as discovery/fetch-head! gives it.
   - :publisher has the :feed of the publisher, its :shows, and
     :confirmed?, which says whether the publisher feed lists this show.
     The podcast namespace asks apps to show the other shows of a publisher

@@ -260,6 +260,12 @@ The podcasts come first, so you can subscribe to a single one at once and
 let the listener choose among several. Each comes with its parsed `:feed`,
 which `library/subscribe` takes in place of the result of `fetch!`. Give
 `:known (library/urls @lib)` to put the shows that the listener has first.
+
+A page can name several feeds of megabytes each, as Freak Show's does, and
+`:heads? true` fetches only the start of each, most often 64 KB. For one
+feed, `discovery/fetch-head!` does the same. A start is enough to show a
+show, and `library/subscribe` takes it for the title, the artwork and the
+guid, while `refresh!` fetches the whole feed.
 When the page names no podcast feed, `:search [:apple]` also asks a
 directory for the shows whose website is on that domain. It's off by
 default, since it sends the name of the page to the directory.
@@ -454,6 +460,9 @@ as `fetch!` does:
 (swap! lib library/follow-list list-url (:list fetched)
        {:title "Picks" :folder "Picks" :etag (:etag fetched)})
 ```
+
+To show the shows of a list before the listener follows it, fetch the
+start of each feed with `discovery/fetch-head!`.
 
 The `:etag` makes the next fetch of the list conditional. After that,
 `refresh!` fetches the list again once a day. A show that leaves the list

@@ -8,6 +8,7 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [run]]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -52,6 +53,25 @@
       (= :late (get answers url)) (throw (ex-info (str "No answer in time from " url) {:type ::http/timeout :url url}))
       (contains? answers url)     (merge {:status 200 :url url :headers {}} (get answers url))
       :else                       (throw (ex-info (str "No route to " url) {:url url})))))
+
+(defn- ranged-network
+  "A sender that answers each URL with the text that `bodies` has for it,
+  by the range that a request asks for or whole, and 404 for any other URL.
+  It notes each URL and range in `log`."
+  [bodies log]
+  (fn [{:keys [url range]}]
+    (swap! log conj [url range])
+    (if-let [body (get bodies url)]
+      (let [b (bytes/encode body)
+            n (bytes/length b)]
+        (if-let [[start end] range]
+          {:status        206
+           :url           url
+           :headers       {}
+           :body          (bytes/copy b start (min (inc end) n))
+           :content-range {:start start :total n}}
+          {:status 200 :url url :headers {} :body body}))
+      {:status 404 :url url :headers {} :body ""})))
 
 (defn- found
   "The :url and :found-by of each of the `feeds` that find-feeds! gives."
@@ -371,6 +391,45 @@
                        (is (empty? feeds))
                        (is (= :discovery/unreadable (:id error)))
                        (is (empty? @log)))))))))
+
+(deftest the-start-of-a-feed
+  (let [items  (apply str (repeat 2000 (str "<item><title>An episode</title><guid>g</guid>"
+                                            "<enclosure url=\"https://media.example/1.mp3\" length=\"1\" type=\"audio/mpeg\"/>"
+                                            "</item>")))
+        rss    #(str "<rss version=\"2.0\"><channel>" %1 items %2 "</channel></rss>")
+        bodies {"https://a.example/long"  (rss "<title>Long</title>" "")
+                "https://a.example/short" (feed-xml "Short" {:episode? true})
+                "https://a.example/late"  (rss "" "<title>Late</title>")
+                "https://a.example/page"  (page (alternate "/long") (alternate "/late"))}
+        log    (atom [])
+        opts   {:send (ranged-network bodies log) :allow-pred (constantly true)}
+        head!  (fn [url] (reset! log []) (discovery/fetch-head! url opts))]
+    (run
+     #(async/then (head! "https://a.example/long")
+                  (fn [{:keys [url feed]}]
+                    (is (= "https://a.example/long" url))
+                    (is (discovery/head? feed))
+                    (is (= ["Long" 1] [(:rss/title feed) (count (:rss/items feed))]) "as far as its first item")
+                    (is (= 1 (count @log)) "in one request of 64 KB, from a feed of more")))
+     #(async/then (head! "https://a.example/short")
+                  (fn [{:keys [feed]}]
+                    (is (not (discovery/head? feed)) "a short feed comes whole")
+                    (is (= "Short" (:rss/title feed)))))
+     #(async/then (head! "https://a.example/late")
+                  (fn [{:keys [feed]}]
+                    (is (= "Late" (:rss/title feed)))
+                    (is (not (discovery/head? feed)))
+                    (is (= [true false] (map (comp some? second) @log))
+                        "the whole feed, when the start has no title")))
+     #(async/then (async/all [(head! "https://a.example/page") (head! "https://a.example/gone")])
+                  (fn [[page gone]]
+                    (is (= :fetch/malformed (:id (:error page))) "a web page is no feed")
+                    (is (= [:fetch/status 404] ((juxt :id :status) (:error gone))))))
+     #(async/then (discovery/find-feeds! "https://a.example/page" (assoc opts :heads? true))
+                  (fn [{:keys [feeds]}]
+                    (is (= [["Long" true true] ["Late" false true]]
+                           (map (juxt :title (comp discovery/head? :feed) :podcast?) feeds))
+                        "the start of each candidate, which is a podcast by its first item"))))))
 
 #?(:cljs
    (deftest finding-feeds-without-a-dom-parser

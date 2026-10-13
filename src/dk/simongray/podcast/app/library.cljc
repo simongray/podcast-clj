@@ -60,6 +60,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.downloads :as downloads]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.search :as feed.search]
@@ -329,7 +330,9 @@
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
   feed, and the `opts` are as profile/configure takes them, besides :at.
   Without `fetched`, or with nil, the feed is fetched at the next refresh,
-  and the subscription has the guid of the URL until then. The key of a
+  and the subscription has the guid of the URL until then. The start of a
+  feed that discovery/fetch-head! gave counts as no feed, but for the
+  title, the artwork and the guid that it declares. The key of a
   subscription is the guid that its feed gives itself when it's first
   fetched, on any device, and stays when the feed gives itself another.
 
@@ -349,11 +352,14 @@
          result    (some-> fetched fetch-result)
          feed      (when result
                      (feed-of url result "subscribe to"))
+         head?     (discovery/head? feed)
          feed-guid (guid/feed-guid feed url)
          image     (resolve/artwork feed)
+         settled?  (and feed
+                        (or (not head?) (guid/guid? (:podcast/guid feed))))
          details   (cond-> {:url url :title (resolve/title feed)}
-                     feed  (assoc :guid feed-guid)
-                     image (assoc :image image))
+                     settled? (assoc :guid feed-guid)
+                     image    (assoc :image image))
          cadence   (:cadence (:config library) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
@@ -363,9 +369,9 @@
      (-> library
          (update :profile profile/subscribe feed-guid details at)
          (cond->
-           (seq settings) (update :profile profile/configure feed-guid
-                                  settings at)
-           feed           with-feed)))))
+           (seq settings)        (update :profile profile/configure feed-guid
+                                         settings at)
+           (and feed (not head?)) with-feed)))))
 
 (defn unsubscribe
   "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The

@@ -161,6 +161,19 @@
   (let [b (bytes/of xs)]
     (view/add (view/view (bytes/length b)) 0 b (bytes/length b))))
 
+(defn ranges
+  "A sender that serves the bytes of the text `s` by the range that each
+  request asks for, noting each range in `asked`."
+  [s asked]
+  (let [b (bytes/encode s)]
+    (fn [{:keys [range]}]
+      (swap! asked conj range)
+      (let [[start end] range]
+        {:status        206
+         :headers       {}
+         :body          (bytes/copy b start (min (inc end) (bytes/length b)))
+         :content-range {:start start :total (bytes/length b)}}))))
+
 (defn fetch-from
   "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes.view/read!` takes
   it, noting each range in `log`."
