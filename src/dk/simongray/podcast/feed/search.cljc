@@ -167,14 +167,43 @@
                  :item (get (items feed-guid) item-guid)))
         (assoc result :feed (get feeds id))))))
 
+(def snippet-fields
+  "The fields whose text a snippet shows, in order, the first that matches:
+  those that a list of results doesn't show already come first."
+  [:description :chapters :people :keywords :categories :author :show :title])
+
+(defn snippet
+  "A window of the text of the `result` of a query `q` of `index` around
+  the words that match, with the `opts` below, or nil when no field of the
+  result matches.
+
+  The result has its :feed, and for an episode its :item, as located
+  gives them. The window is a map of the :field that the text is from, the
+  first of snippet-fields that matches, and its :parts, each a map of
+  :text, with :match? on the words that match. The `opts` are those of
+  dk.simongray.drop-in-search/snippet, e.g. :width."
+  ([index result q]
+   (snippet index result q {}))
+  ([index {:keys [feed item stored] :as result} q opts]
+   (let [doc-opts {:url (:url stored)}
+         fields   (:fields (if item
+                             (item-document feed item doc-opts)
+                             (feed-document feed doc-opts)))]
+     (some (fn [field]
+             (let [text   (get fields field)
+                   within (assoc opts :field field)]
+               (when (and text (search/matches? index text q within))
+                 {:field field
+                  :parts (search/snippet index text q within)})))
+           snippet-fields))))
+
 #?(:clj
    (comment
-     (require '[dk.simongray.podcast.feed.rss :as rss]
-              '[dk.simongray.drop-in-search.queries :as search.queries])
+     (require '[dk.simongray.podcast.feed.rss :as rss])
      (def f (rss/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (def idx (index (feed-documents f "https://example.com/feed.xml")))
      (search/query idx "futu")
      (search/query idx "title:future -present")
-     (def first-notes (html/text (resolve/description (first (:rss/items f)))))
-     (search.queries/snippet first-notes "future" (search/query-opts idx))
+     (def locate (located {(guid/feed-key f "https://example.com/feed.xml") f}))
+     (snippet idx (locate (first (search/query idx "future"))) "future")
      #_.))

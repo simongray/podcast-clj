@@ -211,10 +211,12 @@ every show that the state doesn't know, so a new device needs the tombstone
 to know that the listener left a show.
 
 A device that stops syncing blocks compaction until it's retired, and
-`crdt/lagging` lists such devices. A profile restored from a backup can
-bring back what the others forgot, so rather than restore one, make a new
-library with a new device id, which gets everything from the other
-devices at its first sync, and retire the old id.
+`crdt/lagging` lists such devices. When the listener turns sync off on a
+device, `library/leave!` retires it and tells the others. A profile
+restored from a backup can bring back what the others forgot, so rather
+than restore one, make a new library with a new device id, which gets
+everything from the other devices at its first sync, and retire the old
+id.
 
 ### What stays out
 

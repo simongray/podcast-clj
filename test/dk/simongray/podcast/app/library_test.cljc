@@ -217,6 +217,17 @@
       (let [[episode] (library/search lib "future")]
         (is (= "Episode 3 - The Future" (:rss/title (:item episode))))
         (is (= guid (feed.guid/feed-key (:feed episode) url)))))
+    (testing "a snippet of the text of a result around the words that match, the notes before the title"
+      (let [[episode] (library/search lib "future")]
+        (is (= {:field :description
+                :parts [{:text "A look into the "} {:text "future" :match? true}
+                        {:text " of podcasting and how we get to Podcasting 2.0!"}]}
+               (library/snippet lib episode "future")))
+        (is (= {:field :title :parts [{:text "Episode 3 - The "} {:text "Future" :match? true}]}
+               (library/snippet lib episode "title:future"))
+            "the field of a query")
+        (is (= "…" (:text (peek (:parts (library/snippet lib episode "future" {:width 30}))))))
+        (is (nil? (library/snippet lib episode "present")))))
     (testing "the words that matched with typos"
       (let [found (library/search lib "futrue ")]
         (is (= ["future"] (get-in (meta found) [:typos "futrue"])))
@@ -736,6 +747,41 @@
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
+
+(deftest leaving-the-sync-and-coming-back
+  (let [documents (atom {})
+        backend   (sync/backend (store/memory documents) {:app "test"})
+        laptop    (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
+        devices   #(set (keys (crdt/devices (:profile %))))]
+    (run
+     (fn []
+       (-> (library/sync! library [backend] {:at (at 10)})
+           (async/then
+            (fn [phone]
+              (-> (library/sync! laptop [backend] {:at (at 20)})
+                  (async/then #(library/leave! % [backend] {:at (at 30)}))
+                  (async/then
+                   (fn [left]
+                     (is (crdt/retired? (:profile left) "laptop"))
+                     (is (= [] (get-in left [:sync :report])))
+                     (-> (library/sync! phone [backend] {:at (at 40)})
+                         (async/then
+                          (fn [phone]
+                            (is (= #{"phone"} (devices phone)) "the phone learns that the laptop left")
+                            (is (= 1 (count @documents)) "and deletes its document")
+                            (library/sync! left [backend] {:at (at 50)})))
+                         (async/then
+                          (fn [again]
+                            (is (= [:sync/retired-device] (map :id (get-in again [:sync :report])))
+                                "a device that left can't sync again")
+                            (library/sync! (library/with-device left "laptop-2" {:name "Laptop"}) [backend]
+                                           {:at (at 60)})))
+                         (async/then
+                          (fn [back]
+                            (is (= "laptop-2" (:device back) (get-in back [:profile :device])))
+                            (is (= [] (get-in back [:sync :report])))
+                            (is (= #{"phone" "laptop-2"} (devices back)) "but a new device of it can")
+                            (is (contains? (library/subscriptions back) guid) "with what the old one held"))))))))))))))
 
 (deftest archiving-by-the-config
   (let [id      [guid "old"]

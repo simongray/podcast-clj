@@ -98,7 +98,8 @@
   :cljs  {:extra-paths   ["test" "test/resources" "web"]
           :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
           :extra-deps    {thheller/shadow-cljs     {:mvn/version "3.5.3"}
-                          no.cjohansen/replicant {:mvn/version "2026.07.1"}}
+                          no.cjohansen/replicant {:mvn/version "2026.07.1"}
+                          dk.simongray/play-nice {:mvn/version "0.1.0"}}
           :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
 
   ;; clojure -T:build jar | install | deploy  (see build.clj)

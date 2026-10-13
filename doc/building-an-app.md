@@ -1022,14 +1022,19 @@ To search only some episodes, give the criteria of `library/episodes` as
 (library/search @lib "podcasting" {:where {:status :unplayed}})
 ```
 
-To mark the matches in a result, cut a snippet of its notes:
+To show the matches of a result, cut a snippet of its text with
+`library/snippet`. It takes the notes when they match, since a list of
+results shows the title anyway, and `:width` sets the number of
+characters, 160 by default:
 
 ```clojure
-(search.queries/snippet (html/text (resolve/description item))
-                        "\"podcasting 2.0\"")
-;; => [{:text "A look into the future of podcasting and how we get to "}
-;;     {:text "Podcasting 2.0" :match? true}
-;;     {:text "!"}]
+(def q "\"podcasting 2.0\"")
+
+(library/snippet @lib (first (library/search @lib q)) q)
+;; => {:field :description
+;;     :parts [{:text "A look into the future of podcasting and how we get to "}
+;;             {:text "Podcasting 2.0" :match? true}
+;;             {:text "!"}]}
 ```
 
 To find where words are said in a transcript, use `transcript/matches`.
@@ -1190,6 +1195,19 @@ To keep the documents encrypted on the server, wrap the store with
 Each sync removes the tombstones that every device has seen, once they're
 30 days old. A device that stopped syncing blocks this. Such devices are
 listed by `crdt/lagging` of mind-meld, and `crdt/retire` removes one.
+
+When the listener turns sync off on a device, call `library/leave!`
+with the backends. It retires the device and writes that through each
+backend, so the other devices stop waiting for it and delete its
+document. A device that left can't sync under its id again, so to turn
+sync back on, give the library a new id with `library/with-device`:
+
+```clojure
+(swap! lib library/merge (library/leave! @lib backends))
+
+;; later, to sync again
+(swap! lib library/with-device (str (random-uuid)) {:name "Phone"})
+```
 
 To share the subscriptions and the progress of episodes with AntennaPod,
 Kasts and other apps of the gpodder API, add a gpodder server as a backend.

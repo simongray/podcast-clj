@@ -85,6 +85,16 @@
   ([state backends opts]
    (like-minded/sync! state backends (merge defaults opts))))
 
+(defn leave!
+  "Retire the device of `state` and write that through `backends` once
+  more with `opts`, as like-minded/leave! does, e.g. when the listener
+  turns sync off. It gives what sync! gives, with the state retired, in
+  ClojureScript as a promise."
+  ([state backends]
+   (leave! state backends {}))
+  ([state backends opts]
+   (like-minded/leave! state backends (merge defaults opts))))
+
 (defn stepper
   "A function of a state that syncs it through `backends` with `opts`, as
   sync! does, and gives the state that results, in ClojureScript as a

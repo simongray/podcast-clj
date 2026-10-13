@@ -802,10 +802,13 @@
   every 30 seconds while an episode plays, since a longer gap can count as
   a pause."
   [profile]
-  (let [total (fn [devices]
-                (reduce + 0 (keep :seconds (vals devices))))]
-    (update-vals (:listened profile)
-                 (fn [months] (update-vals months total)))))
+  (let [total (fn [feed-guid month]
+                (crdt/sum collections profile [:listened feed-guid month]))]
+    (into {}
+          (for [[feed-guid months] (:listened profile)]
+            [feed-guid (into {}
+                             (for [month (keys months)]
+                               [month (total feed-guid month)]))]))))
 
 (defn- rewind
   "The seconds to go back after a pause of `pause` seconds, by the pairs of

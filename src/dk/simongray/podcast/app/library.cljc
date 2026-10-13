@@ -1092,6 +1092,22 @@
            found  (search/query index q opts)]
        (with-meta (mapv locate found) (meta found))))))
 
+(defn snippet
+  "A window of the text of the `result` that search gave for the query `q`
+  in `library`, around the words that match, with the `opts` of
+  feed.search/snippet, or nil when no field of the result matches or the
+  library keeps no index.
+
+      (snippet library result \"value for va\")
+      ;; => {:field :description
+      ;;     :parts [{:text \"…on \"} {:text \"value\" :match? true} …]}"
+  ([library result q]
+   (snippet library result q {}))
+  ([library result q opts]
+   {:pre [(map? opts)]}
+   (when-let [index (:index library)]
+     (feed.search/snippet index result q opts))))
+
 (defn- next-of-show
   "The first episode of the show of the episode `id` in `library` that
   isn't played, in its listening order, but for `id` itself, or nil."
@@ -1186,6 +1202,49 @@
                             :profile profile
                             :sync    (-> (dissoc step :state)
                                          (assoc :clock (:clock profile))))))))))
+
+(defn leave!
+  "Retire this device of `library` from the listener's sync through
+  `backends`, with the `opts` of sync/leave! except :cursors and
+  :failures, e.g. when the listener turns sync off.
+
+  It writes the retirement through each backend once more, so that the
+  other devices stop waiting for this one before they compact. It returns
+  the library with the retired profile and the result under :sync, as
+  sync! does, in ClojureScript as a promise. A retired device can't sync
+  again, so to sync later, give the library a new device with
+  with-device."
+  ([library backends]
+   (leave! library backends {}))
+  ([library backends opts]
+   {:pre [(map? opts)]}
+   (let [sync-opts (clojure.core/merge
+                    opts
+                    {:at (time-of library opts)}
+                    (select-keys (:sync library) [:cursors :failures]))]
+     (async/then (sync/leave! (:profile library) backends sync-opts)
+                 (fn [{:keys [state] :as step}]
+                   (assoc library
+                          :profile state
+                          :sync    (-> (dissoc step :state)
+                                       (assoc :clock (:clock state)))))))))
+
+(defn with-device
+  "The `library` as that of the new `device`, described for the other
+  devices by the `opts` that make takes, e.g. to sync again after leave!.
+
+  The profile keeps what it holds, and the next sync starts afresh, as the
+  first sync of a new device does."
+  ([library device]
+   (with-device library device {}))
+  ([library device opts]
+   {:pre [(map? opts)]}
+   (let [description (dissoc opts :config :at)
+         at          (time-of library opts)]
+     (cond-> (-> library
+                 (assoc :device device :sync {})
+                 (assoc-in [:profile :device] device))
+       (seq description) (update :profile crdt/identify description at)))))
 
 (defn- newer
   "Of `a` and `b`, two maps with an instant under `k`, the newer one, or

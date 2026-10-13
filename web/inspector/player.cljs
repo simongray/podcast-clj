@@ -11,13 +11,19 @@
   at a time: when the page opens, when it's hidden, when it's due while
   nothing plays, and on request. Where the browser can pick a folder, it
   also syncs through one that the listener picks, whose handle is stored
-  in IndexedDB for the next visit."
+  in IndexedDB for the next visit.
+
+  The episode that plays is on the lock screen, through the Media Session
+  of play-nice, and its buttons and those of the headphones go through
+  the library as app.media-session has them."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
@@ -344,6 +350,39 @@
   (let [state (swap! app update :library library/step event)]
     (perform! (get-in state [:library :effects]))))
 
+(defonce ^{:doc "The function that hands the Media Session back to the
+  browser, while it follows the audio element of an episode."}
+  detach-session
+  (atom nil))
+
+(defn- on-lock-screen!
+  "Put the episode `id`, which the audio element `el` plays, on the lock
+  screen, with buttons that go through the library."
+  [id el]
+  ;; the library of the player holds no feeds, so the metadata is what
+  ;; /episode.edn served rather than what library/playback gives
+  (let [{:keys [title feed-title artwork]} (get-in @app [:titles id])
+        press (fn [details]
+                (run! dispatch! (media-session/events (:library @app) id
+                                                      (.-currentTime el)
+                                                      details)))]
+    (reset! detach-session (session/attach! el))
+    (session/metadata! (cond-> {:title  (or title "")
+                                :artist (or feed-title "")
+                                :album  (or feed-title "")}
+                         artwork (assoc :artwork [{:src artwork}])))
+    (session/actions! (merge (session/element-actions el)
+                             (zipmap (media-session/actions (:library @app) id)
+                                     (repeat press))))))
+
+(defn- off-lock-screen!
+  "Take the episode off the lock screen, once nothing is queued."
+  []
+  (when-let [detach! @detach-session]
+    (reset! detach-session nil)
+    (detach!)
+    (session/metadata! nil)))
+
 (defn- timed
   "The `library` with its sleep timer set to `n` episodes, or without one
   when `n` is nil."
@@ -420,8 +459,9 @@
                      (operate! crdt/retire (first args)))
     :document/save (save-document!)
     :document/load (load-folder! (.-target e))
-    :audio/loaded  (let [[_ position] args
+    :audio/loaded  (let [[id position] args
                          el (.-target e)]
+                     (on-lock-screen! id el)
                      (when (and (pos? position) (< position (.-duration el)))
                        (set! (.-currentTime el) position)))
     :audio/time    (time-update! (first args) (.-target e))
@@ -610,6 +650,9 @@
                (let [kept [:library :titles]]
                  (when (not= (select-keys old kept) (select-keys new kept))
                    (save! new)))
+               (when-not (profile.queue/current
+                          (get-in new [:library :profile]))
+                 (off-lock-screen!))
                ;; the audio reports its time four times a second, and only
                ;; the bar shows it
                (render! (not= (dissoc old :readout :reported)
