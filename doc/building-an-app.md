@@ -106,7 +106,13 @@ podcast-clj. It depends on them, so they come with it:
   of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
 - **In a desktop app on Electron**, the main process is Node and the
   window is a browser, and **in a PWA or a Capacitor app**, the page is a
-  browser.
+  browser. Rather than a proxy, give the `:send` of wary-fetch's
+  `electron/sender`, which sends through the main process, or of
+  `capacitor/sender`, which sends through the native HTTP of Capacitor.
+- **In React Native**, give the stores of like-minded's `store.kv` and
+  `store.folder` the functions of your key-value store and file system,
+  e.g. MMKV and expo-file-system, since there's no IndexedDB or folder
+  of its own.
 
 In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
 it with `:deps true`. A browser needs no npm packages, and Node only the
