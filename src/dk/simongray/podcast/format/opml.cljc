@@ -24,6 +24,9 @@
   - the time it was created becomes an instant, as do the dates of the
     head
   - any other attribute stays a string
+  - the episodes inside it, as Overcast's extended export writes them,
+    become its :episodes, maps of their attributes, e.g.
+    {:enclosure-url \"…\" :played \"1\" :progress \"754\"}
 
   An outline that includes another OPML list becomes one of the :includes,
   with the :path of its folders. It has the type include, or the type link
@@ -68,18 +71,33 @@
                  :when (not (namespace k))]
              [(outline-key k) v])))
 
+;; Overcast's extended export, as of October 2026: the episodes that the
+;; listener played, started or deleted, as outlines of the type
+;; podcast-episode inside the outline of their feed
+(defn- episodes
+  "The attributes of the episode outlines inside the `outline` of a feed,
+  as Overcast exports them."
+  [outline]
+  (into []
+        (comp (map attributes)
+              (filter #(= "podcast-episode" (some-> (:type %) str/lower-case))))
+        (xml/elements outline :outline)))
+
 (defn- subscription
-  "The subscription of an outline with an xmlUrl, under `path`, from its
+  "The subscription of an `outline` with an xmlUrl, under `path`, from its
   attributes `m`. It has the attributes by key, the categories as a vector,
-  and the time it was created as an instant when it reads as one."
-  [path m]
+  the time it was created as an instant when it reads as one, and the
+  :episodes inside it."
+  [path outline m]
   (let [categories (when (string? (:category m))
                      (->> (str/split (:category m) #",")
                           (into [] (comp (map str/trim) (remove str/blank?)))
-                          not-empty))]
+                          not-empty))
+        inside     (episodes outline)]
     (cond-> (dissoc m :category)
       (seq path)             (assoc :path path)
       categories             (assoc :category categories)
+      (seq inside)           (assoc :episodes inside)
       (string? (:created m)) (update :created #(or (time/parse-rfc2822 %) %)))))
 
 (defn- inclusion
@@ -108,7 +126,7 @@
                   included (inclusion m)]
               (cond
                 (not (str/blank? xml-url))
-                [(subscription path m)]
+                [(subscription path outline m)]
 
                 included
                 [(cond-> (assoc included ::include true)
@@ -181,16 +199,25 @@
     (sequential? v) (str/join "," (map #(str/replace (str %) "," "_") v))
     :else           (str v)))
 
+(defn- attrs-of
+  "The OPML attributes of the map `m`, the camelCase names of its keys
+  with the text of each value that isn't nil."
+  [m]
+  (into {}
+        (for [[k v] m
+              :when (some? v)]
+          [(get attr-names k (keyword (names/camel (name k)))) (text-of v)])))
+
 (defn- outline
-  "The outline element of `entry`: a subscription, or an inclusion when
-  it's marked ::include."
-  [{:keys [url text] :as entry}]
+  "The outline element of `entry`: a subscription, with the outlines of
+  its :episodes inside, or an inclusion when it's marked ::include."
+  [{:keys [url text episodes] :as entry}]
   (if (::include entry)
     [:outline {:type "include" :text (or text url) :url url}]
-    [:outline (into {:type "rss"}
-                    (for [[k v] (dissoc entry :path)
-                          :when (some? v)]
-                      [(get attr-names k (keyword (name k))) (text-of v)]))]))
+    (into [:outline (merge {:type "rss"}
+                           (attrs-of (dissoc entry :path :episodes)))]
+          (for [episode episodes]
+            [:outline (merge {:type "podcast-episode"} (attrs-of episode))]))))
 
 (defn- folders
   "The `entries` nested into outline folders by their :path, in order.

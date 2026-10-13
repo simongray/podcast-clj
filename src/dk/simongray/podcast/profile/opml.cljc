@@ -9,7 +9,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.feed.guid :as guid]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn lists
   "The OPML lists that the listener follows in `profile`, as a map from URL
@@ -124,36 +125,86 @@
                       (guids before))})
     {:profile profile :added [] :left []}))
 
+(defn- overcast-episodes
+  "The episodes of `profile` that the listener played, started or hid, as
+  the episode outlines of Overcast's extended export by feed guid, each
+  with the URL of its media that `media-url-fn` gives for its id, and
+  without those that it gives none for."
+  [profile media-url-fn]
+  (let [entries (profile/episode-entries profile)
+        hidden  (keep (fn [[id e]] (when (:hidden? e) id)) (:hidden profile))
+        outline (fn [id]
+                  (let [{:keys [played? position played-at reported-at
+                                updated-at]} (get entries id)
+                        started? (and (not played?)
+                                      (number? position)
+                                      (pos? position))
+                        hid?     (true? (profile/hidden profile id))
+                        ;; when the listener acted, rather than the stamp
+                        stamp    (or (some->> [played-at reported-at]
+                                              (filter inst?)
+                                              seq
+                                              (apply max-key inst-ms))
+                                     updated-at
+                                     (get-in profile [:hidden id :updated-at]))
+                        url      (when (or played? started? hid?)
+                                   (media-url-fn id))]
+                    (when url
+                      (cond-> {:enclosure-url url}
+                        played?       (assoc :played "1")
+                        started?      (assoc :progress (long position))
+                        hid?          (assoc :user-deleted "1")
+                        (inst? stamp) (assoc :user-updated-date
+                                             (time/format-iso8601 stamp))))))]
+    (reduce (fn [acc id]
+              (if-let [o (outline id)]
+                (update acc (first id) (fnil conj []) o)
+                acc))
+            {}
+            (sort-by pr-str (distinct (concat (keys entries) hidden))))))
+
 (defn to-opml
   "The live subscriptions of `profile` as an OPML subscription list.
 
   The folders come first, then the shows in no folder, each in the
   listener's order, and the followed lists are includes. Each outline has
   the listener's title of the show as its text, the guid of its feed, the
-  tags as categories, and the time of subscribing as its creation time."
-  [profile]
-  (let [subs    (profile/subscriptions profile)
-        ls      (lists profile)
-        ordered (sort-by (fn [[folder _]] [(nil? folder) (str folder)])
-                         (profile/folders profile))
-        outline (fn [folder feed-guid]
-                  (let [{:keys [url title added-at]} (get subs feed-guid)
-                        text (or (profile/title profile feed-guid) url)
-                        ts   (profile/tags profile feed-guid)]
-                    (cond-> {:text text :xml-url url :guid feed-guid}
-                      title            (assoc :title title)
-                      folder           (assoc :path [folder])
-                      (seq ts)         (assoc :category (vec ts))
-                      (inst? added-at) (assoc :created added-at))))
-        include (fn [[url {:keys [title folder]}]]
-                  (cond-> {:url url}
-                    title  (assoc :text title)
-                    folder (assoc :path [folder])))]
-    (cond-> {:title         "Subscriptions"
-             :subscriptions (vec (for [[folder feed-guids] ordered
-                                       feed-guid           feed-guids]
-                                   (outline folder feed-guid)))}
-      (seq ls) (assoc :includes (mapv include (sort-by key ls))))))
+  tags as categories, and the time of subscribing as its creation time.
+
+  With the :media-url-fn of `opts`, a function of an episode id that
+  gives the URL of its media or nil, each outline also has the :episodes
+  that the listener played, started or hid, as Overcast's extended export
+  writes them."
+  ([profile]
+   (to-opml profile {}))
+  ([profile {:keys [media-url-fn] :as opts}]
+   {:pre [(map? opts)]}
+   (let [subs    (profile/subscriptions profile)
+         ls      (lists profile)
+         ordered (sort-by (fn [[folder _]] [(nil? folder) (str folder)])
+                          (profile/folders profile))
+         touched (when media-url-fn
+                   (overcast-episodes profile media-url-fn))
+         outline (fn [folder feed-guid]
+                   (let [{:keys [url title added-at]} (get subs feed-guid)
+                         text (or (profile/title profile feed-guid) url)
+                         ts   (profile/tags profile feed-guid)
+                         eps  (get touched feed-guid)]
+                     (cond-> {:text text :xml-url url :guid feed-guid}
+                       title            (assoc :title title)
+                       folder           (assoc :path [folder])
+                       (seq ts)         (assoc :category (vec ts))
+                       (inst? added-at) (assoc :created added-at)
+                       (seq eps)        (assoc :episodes eps))))
+         include (fn [[url {:keys [title folder]}]]
+                   (cond-> {:url url}
+                     title  (assoc :text title)
+                     folder (assoc :path [folder])))]
+     (cond-> {:title         "Subscriptions"
+              :subscriptions (vec (for [[folder feed-guids] ordered
+                                        feed-guid           feed-guids]
+                                    (outline folder feed-guid)))}
+       (seq ls) (assoc :includes (mapv include (sort-by key ls)))))))
 
 ;; Pocket Casts and Overcast write <outline text="feeds"> around the feeds.
 ;; Seen in September 2026, in an export file of each app:
@@ -206,27 +257,78 @@
 
   A folder around every feed counts as no folder when its name in lower
   case is one of the :wrappers of `opts`, a set or a predicate, by default
-  \"feeds\"."
+  \"feeds\". An outline with subscribed=\"0\", as Overcast writes for a
+  show that the listener left, is left out unless `opts` have
+  :unsubscribed? true."
   ([profile list at]
    (from-opml profile list at {}))
-  ([profile list at opts]
+  ([profile list at {:keys [unsubscribed?] :as opts}]
    {:pre [(map? opts)]}
    (let [around  (wrapper list (:wrappers opts wrappers))
          folder  (fn [path]
                    (last (if (and around (= around (first path)))
                            (rest path)
                            path)))
+         left?   #(and (not unsubscribed?) (= "0" (:subscribed %)))
          feeds   (fn [profile]
                    (:profile (reduce #(imported %1 %2 (folder (:path %2)) at)
                                      {:profile profile
                                       :names   (profile/by-url profile)}
-                                     (outlines list))))
+                                     (remove left? (outlines list)))))
          include (fn [profile {:keys [url text path]}]
                    (if (contains? (lists profile) url)
                      profile
                      (let [details {:title text :folder (folder path)}]
                        (follow-list profile url details at))))]
      (crdt/at-once profile at #(reduce include (feeds %) (:includes list))))))
+
+;; Overcast's extended export, as of October 2026: played=\"1\", progress in
+;; whole seconds, userDeleted=\"1\", and userUpdatedDate in ISO 8601
+(defn- marked
+  "The `profile` with the state of the Overcast `episode`, at the time it
+  was last updated or else at `at`, under the episode `id`, unless the
+  profile has an entry of the episode already, or the listener hid or
+  unhid it."
+  [profile id {:keys [played progress user-deleted user-updated-date]
+               :as episode}
+   at]
+  (let [then     (or (some-> user-updated-date time/parse-iso8601) at)
+        position (some-> progress parse-long)]
+    (if (or (nil? id)
+            (profile/episode-entry profile id)
+            (some? (profile/hidden profile id)))
+      profile
+      (cond-> profile
+        (= "1" played)
+        (profile/mark-played id then)
+
+        (and (not= "1" played) position (pos? position))
+        (profile/progress id position then)
+
+        (= "1" user-deleted)
+        (profile/hide id then)))))
+
+(defn episodes-from-opml
+  "The `profile` with the progress, the played marks and the deleted
+  episodes that the OPML subscription `list` holds, as Overcast's extended
+  export writes them, at `at`.
+
+  The `id-fn` gives the episode id of the media URL of an episode of the
+  feed at a URL, or nil when it doesn't know the episode. An episode that
+  the profile has an entry for stays as it is, and a deleted one is
+  hidden. app.library/episodes-from-opml gives the ids by the feeds of a
+  library."
+  [profile list id-fn at]
+  (let [show (fn [p {:keys [xml-url episodes]}]
+               (reduce (fn [p {:keys [enclosure-url] :as episode}]
+                         (marked p
+                                 (when enclosure-url
+                                   (id-fn xml-url enclosure-url))
+                                 episode
+                                 at))
+                       p
+                       episodes))]
+    (crdt/at-once profile at #(reduce show % (outlines list)))))
 
 (comment
   (def sample

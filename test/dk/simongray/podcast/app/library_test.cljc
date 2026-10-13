@@ -383,6 +383,19 @@
     (is (= 3 (count (library/episodes lib {:where {:hidden? #{true false}}}))))
     (is (= 3 (count (:episodes (library/show lib guid)))) "but the page of the show has them all")))
 
+(deftest the-episodes-of-overcasts-export
+  (let [list {:subscriptions [{:xml-url url :text "S" :subscribed "1"
+                               :episodes [{:enclosure-url "https://example.com/file-03.mp3?tracking=1" :played "1"}
+                                          {:enclosure-url "http://example.com/file-02.mp3" :progress "754"}
+                                          {:enclosure-url "https://elsewhere.example/x.mp3" :played "1"}]}]}
+        lib  (library/episodes-from-opml library list)]
+    (is (= {[guid "https://example.com/ep0003"] {:played? true}
+            [guid "https://example.com/ep0002"] {:position 754}}
+           (update-vals (profile/episode-entries (:profile lib)) #(select-keys % [:played? :position])))
+        "by the media of the feeds that the library has, whatever its query and its scheme")
+    (is (= [["https://example.com/file-02.mp3" 754] ["https://example.com/file-03.mp3" nil]]
+           (map (juxt :enclosure-url :progress) (:episodes (first (:subscriptions (library/to-opml lib)))))))))
+
 (deftest the-options-of-one-refresh
   (let [picks-url "https://example.org/picks.opml"
         lib       (library/follow-list library picks-url picks {:title "Picks"})

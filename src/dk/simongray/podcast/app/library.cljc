@@ -494,6 +494,66 @@
                        #(reduce gone % ids))
                (distinct (map first ids)))))))
 
+(defn- media-ids
+  "A function of the guid of a feed of `library` that gives the ids of its
+  episodes by the URL of each of their media files, as guid/normal-url
+  writes it, with and without its query, worked out once for each feed."
+  [library]
+  (memoize
+   (fn [feed-guid]
+     (let [bare  #(first (str/split % #"[?#]" 2))
+           items (get-in library [:feeds feed-guid :feed :rss/items])]
+       (into {}
+             (for [item         items
+                   :let         [item-guid (guid/item-guid item)]
+                   :when        item-guid
+                   {media :url} (resolve/enclosures item)
+                   :when        (string? media)
+                   k            (distinct [media (bare media)])]
+               [(guid/normal-url k) [feed-guid item-guid]]))))))
+
+;; Overcast's extended export, as of October 2026
+(defn episodes-from-opml
+  "The `library` with the progress, the played marks and the deleted
+  episodes of the OPML subscription `list`, as Overcast's extended export
+  writes them, at the :at of `opts`, as profile.opml/episodes-from-opml
+  applies them.
+
+  An episode is found by the URL of its media among the feeds that the
+  library has, so subscribe to the list and refresh first. Its feed is
+  found by the URL in the list."
+  ([library list]
+   (episodes-from-opml library list {}))
+  ([library list opts]
+   {:pre [(map? opts)]}
+   (let [by-url (profile/by-url (:profile library))
+         ids    (media-ids library)
+         bare   #(first (str/split % #"[?#]" 2))
+         id-fn  (fn [xml-url media-url]
+                  (when-let [feed-guid (by-url (guid/normal-url xml-url))]
+                    (let [found (ids feed-guid)]
+                      (or (found (guid/normal-url media-url))
+                          (found (guid/normal-url (bare media-url)))))))]
+     (update library :profile profile.opml/episodes-from-opml list id-fn
+             (time-of library opts)))))
+
+(defn to-opml
+  "The subscriptions of `library` as an OPML subscription list, as
+  profile.opml/to-opml gives it, with the episodes that the listener
+  played, started or hid, as Overcast's extended export writes them, by
+  the media of the feeds that the library has."
+  [library]
+  (let [items (memoize
+               (fn [feed-guid]
+                 (into {}
+                       (map (juxt guid/item-guid identity))
+                       (get-in library [:feeds feed-guid :feed :rss/items]))))
+        media (fn [[feed-guid item-guid]]
+                (when-let [item (get (items feed-guid) item-guid)]
+                  (or (:url (:rss/enclosure item))
+                      (:url (resolve/enclosure item)))))]
+    (profile.opml/to-opml (:profile library) {:media-url-fn media})))
+
 (defn subscriptions
   "The live subscriptions of `library` by guid, each with its :settings,
   defaults included, and its :feed once it's fetched."

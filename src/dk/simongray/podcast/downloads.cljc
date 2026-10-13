@@ -65,6 +65,9 @@
   - :shows, the rules of the shows by feed guid
   - :queue, how many episodes at the front of the queue to download, or
     true for all of them
+  - :filters, the saved filters of the profile whose episodes to download
+    across all shows, as a map from the name of each to the most of its
+    episodes, or nil for as many as its own :limit
   - :max-episodes and :max-bytes, the most files and bytes on the device
   - :max-file-bytes, the most bytes of one file, e.g. to keep a video of
     several gigabytes from a phone
@@ -76,6 +79,7 @@
   {:default              {}
    :shows                {}
    :queue                nil
+   :filters              {}
    :max-episodes         nil
    :max-bytes            nil
    :max-file-bytes       nil
@@ -153,6 +157,9 @@
 (def ^:no-doc checks
   "The tests of the values of the rules, by key."
   {:queue                #(or (nil? %) (boolean? %) (amount? %))
+   :filters              #(or (nil? %)
+                              (and (map? %)
+                                   (every? (some-fn nil? amount?) (vals %))))
    :max-episodes         #(or (nil? %) (amount? %))
    :max-bytes            #(or (nil? %) (amount? %))
    :max-file-bytes       #(or (nil? %) (amount? %))
@@ -473,21 +480,46 @@
     (number? queue) (vec (take queue (profile.queue/queue profile)))
     :else           []))
 
+(defn- filtered
+  "The episode ids of `feeds` that the saved filters named in the rules of
+  `ctx` select, filter by filter in order of name, each in its own order
+  and up to the most that the rules give it, leaving the hidden ones out
+  unless it names :hidden?. A filter that the profile lacks, or that has
+  a problem, selects none."
+  [{:keys [profile rules] :as ctx} feeds]
+  (let [saved (profile/filters profile)
+        ids   (fn [[name most]]
+                (let [criteria (get saved name)
+                      limit    (->> [most (:limit criteria)]
+                                    (filter number?)
+                                    (apply min ##Inf))]
+                  (when (and criteria (nil? (criteria/problem criteria)))
+                    (for [[feed item] (criteria/episodes
+                                       feeds
+                                       (-> (merge ctx criteria)
+                                           (update :where criteria/visible)
+                                           (cond-> (< limit ##Inf)
+                                             (assoc :limit limit))))]
+                      [(guid-of ctx feed) (guid/item-guid item)]))))]
+    (mapcat ids (sort-by (comp str key) (:filters rules)))))
+
 (defn- downloads
   "The downloads that the rules of `ctx` ask for, the most wanted first,
   given the `selected` ids by feed guid and the `feeds` of the episodes.
 
-  These are the front of the queue, in order, and then the episodes that
-  the shows' rules select, the newest first."
+  These are the front of the queue, in order, then the episodes of the
+  saved filters, and then the episodes that the shows' rules select, the
+  newest first."
   [{:keys [profile rules] :as ctx} selected feeds]
   (let [queued     (front profile (:queue rules))
+        by-filter  (remove (set queued) (distinct (filtered ctx feeds)))
         downloads? (fn [[feed-guid _]] (:download? (rule rules feed-guid)))
         chosen     (->> selected
                         (filter downloads?)
                         (mapcat val)
-                        (remove (set queued))
+                        (remove (set (concat queued by-filter)))
                         distinct)
-        items      (catalogue ctx feeds (concat queued chosen))
+        items      (catalogue ctx feeds (concat queued by-filter chosen))
         newest     (fn [id]
                      (let [ms (some-> (get items id) resolve/published inst-ms)]
                        [(- (or ms 0)) (pr-str id)]))
@@ -495,6 +527,7 @@
                      (when (wanted? ctx id)
                        (download ctx id (get items id) reason)))]
     (concat (keep #(entry :queue %) queued)
+            (keep #(entry :filter %) by-filter)
             (keep #(entry :rule %) (criteria/sorted-by newest chosen)))))
 
 (defn- over
@@ -610,6 +643,8 @@
   The downloads come in this order, with these reasons:
 
   - :queue, the front of the queue
+  - :filter, what the saved filters in the rules select, across all
+    shows
   - :rule, what the rules of the shows select, newest first
 
   Played or dismissed episodes aren't downloaded, and downloads without

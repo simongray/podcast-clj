@@ -158,6 +158,19 @@
       (is (= #{["feed-a" "a2"] ["feed-a" "a3"]}
              (set (ids (:download (downloads/plan state [serial] {} now)))))))))
 
+(deftest the-saved-filters-across-the-shows
+  (let [saved (profile/save-filter subscribed "New" {:where {:status :unplayed} :order :newest :limit 3} (at 0))
+        state #(with-rules saved % {})
+        wants #(map (juxt :id :reason) (:download (plan % {})))]
+    (is (= [[["feed-a" "a4"] :filter] [["feed-b" "b2"] :filter]] (wants (state {:filters {"New" 2}})))
+        "the newest of all shows, up to the most that the rules give")
+    (is (= 3 (count (wants (state {:filters {"New" nil}})))) "or the limit of the filter")
+    (is (= [[["feed-a" "a1"] :queue] [["feed-a" "a4"] :filter]]
+           (wants (profile.queue/enqueue (state {:queue true :filters {"New" 1}}) ["feed-a" "a1"] (at 1))))
+        "after the front of the queue")
+    (is (= [] (wants (state {:filters {"Gone" 2}}))) "a filter that the profile lacks selects none")
+    (is (= {:filters "the value of :filters is {\"New\" -1}"} (downloads/problems {:filters {"New" -1}})))))
+
 (deftest the-front-of-the-queue
   (let [state (-> (with-rules subscribed {:queue 2} {})
                   (profile.queue/enqueue ["feed-b" "b1"] (at 11))

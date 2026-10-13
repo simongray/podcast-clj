@@ -879,7 +879,9 @@ of `criteria/episodes`:
 Here a played file goes after a day, the first three episodes of the queue
 are downloaded, and the show gets its three newest episodes of ten minutes
 or more. Every key is in `downloads/default-rules`, and those of a show's
-rule in `downloads/default-rule`.
+rule in `downloads/default-rule`. To download across all shows, name
+saved filters of the profile in `:filters`, with the most episodes of
+each, e.g. `{"Unplayed" 5}`, and their episodes come after the queue.
 
 To follow the plan:
 
@@ -1141,6 +1143,11 @@ To mark every episode of a show as heard, use `library/mark-show-played`.
 - A show is in one folder at most, but it can have many tags. Both go into
   OPML with `profile.opml/to-opml`, and `profile.opml/from-opml` reads
   them back, including the OPML of other apps.
+- Overcast's extended export also holds the episodes that the listener
+  played, started or deleted. Import its shows with `from-opml`, which
+  leaves out those marked as left, refresh, and then
+  `library/episodes-from-opml` takes the episodes over by the URLs of
+  their media. `library/to-opml` writes them out in the same form.
 - Ratings are from 1 to 5 by default, and `:scale` takes another one, such
   as `{:worst 0 :best 1}` for thumbs. Each rating keeps its scale, so
   `profile.marks/rating` can give it in yours.

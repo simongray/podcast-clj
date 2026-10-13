@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.profile.opml-test
   "The followed lists of a profile, and its subscriptions as OPML."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -76,6 +77,45 @@
         (is (re-find #"<outline text=\"Picks\">\s*<outline type=\"rss\"[^>]*/>\s*<outline type=\"include\" text=\"Picks\" url=\"https://lists.example/picks.opml\"/>" xml))
         (is (= {url {:title "Picks" :folder "Picks"}}
                (profile.opml/lists (profile.opml/from-opml (profile/make "laptop") (opml/parse xml) t2))))))))
+
+(def overcast
+  "An extended export of Overcast, with the episodes that the listener
+  played, started and deleted, and a show that the listener left."
+  "<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<opml version=\"1.0\"><head><title>Overcast Podcast Subscriptions</title></head><body>
+<outline text=\"playlists\"><outline type=\"podcast-playlist\" title=\"All Episodes\" smart=\"1\" sorting=\"chronological\"/></outline>
+<outline text=\"feeds\">
+<outline type=\"rss\" overcastId=\"1\" text=\"A\" title=\"A\" xmlUrl=\"https://a.example/rss\" subscribed=\"1\" notifications=\"0\">
+<outline type=\"podcast-episode\" overcastId=\"11\" title=\"One\" enclosureUrl=\"https://a.example/1.mp3?t=9\" userUpdatedDate=\"2026-01-01T03:00:00-05:00\" played=\"1\"/>
+<outline type=\"podcast-episode\" overcastId=\"12\" title=\"Two\" enclosureUrl=\"https://a.example/2.mp3\" progress=\"754\"/>
+<outline type=\"podcast-episode\" overcastId=\"13\" title=\"Three\" enclosureUrl=\"https://a.example/3.mp3\" userDeleted=\"1\"/>
+</outline>
+<outline type=\"rss\" overcastId=\"2\" text=\"B\" title=\"B\" xmlUrl=\"https://b.example/rss\" subscribed=\"0\"/>
+</outline></body></opml>")
+
+(deftest overcasts-extended-export
+  (let [list  (opml/parse overcast)
+        a     (guid/from-url "https://a.example/rss")
+        media {"https://a.example/1.mp3" "a1" "https://a.example/2.mp3" "a2" "https://a.example/3.mp3" "a3"}
+        id-fn (fn [_ url] (some->> (get media (first (str/split url #"\?"))) (vector a)))
+        s     (profile.opml/from-opml (profile/make "x") list t0)
+        s'    (profile.opml/episodes-from-opml s list id-fn t1)]
+    (is (= [["One" "1"] ["Two" nil] ["Three" nil]] (map (juxt :title :played) (:episodes (first (:subscriptions list))))))
+    (is (= [a] (keys (profile/subscriptions s))) "without the show that the listener left")
+    (is (= 2 (count (profile/subscriptions (profile.opml/from-opml (profile/make "x") list t0 {:unsubscribed? true})))))
+    (testing "the episodes by their media"
+      (is (profile/played? s' [a "a1"]))
+      (is (= #inst "2026-01-01T08:00:00Z" (:played-at (profile/episode-entry s' [a "a1"]))) "at the time in the export")
+      (is (= 754 (:position (profile/episode-entry s' [a "a2"]))))
+      (is (true? (profile/hidden s' [a "a3"])) "a deleted one hidden")
+      (is (= s' (profile.opml/episodes-from-opml s' list id-fn t2)) "and none that the profile has already"))
+    (testing "and back, with the URLs of their media"
+      (let [out (profile.opml/to-opml s' {:media-url-fn (fn [[_ i]] (str "https://a.example/" (subs i 1) ".mp3"))})]
+        (is (= [["https://a.example/1.mp3" "1" nil nil] ["https://a.example/2.mp3" nil 754 nil] ["https://a.example/3.mp3" nil nil "1"]]
+               (map (juxt :enclosure-url :played :progress :user-deleted) (:episodes (first (:subscriptions out))))))
+        (is (= (profile/episode-entries s')
+               (profile/episode-entries (profile.opml/episodes-from-opml s (opml/parse (opml/emit out)) id-fn t1)))
+            "as another device reads them")))))
 
 (deftest opml-round-trip
   (let [s    (-> (profile/make "phone")
