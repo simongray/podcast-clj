@@ -306,7 +306,23 @@
 (deftest podping
   (let [other (feeds/add feeds "https://example.org/other.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)]
     (is (= ["b1"] (feeds/affected other [{:iris ["https://example.org/other.xml"]}])))
-    (is (= [] (feeds/affected other [{:iris ["https://example.net/none.xml"]}])))))
+    (is (= [] (feeds/affected other [{:iris ["https://example.net/none.xml"]}])))
+    (is (= {"b1" #{["live" "podcast"] ["update" "podcast"]}}
+           (feeds/pinged other [{:reason "live" :medium "podcast" :iris ["https://example.org/other.xml"]}
+                                {:reason "update" :medium "podcast" :iris ["http://example.org/other.xml" "https://example.net/none.xml"]}]))
+        "why each ping named a feed, by any form of its URL")))
+
+(deftest the-check-before-a-live-item
+  (let [live  (fn [status start end]
+                (cond-> {:status status :rss/guid {:content (str status start)} :rss/title "Live"}
+                  start (assoc :start start)
+                  end   (assoc :end end)))
+        added #(:next-check (get (feeds/add {} url (assoc fresh :feed (assoc show :podcast/live-items %)) now) guid))
+        plain (added [])]
+    (is (= (at 3600) (added [(live "pending" (at 3600) (at 7200))])) "its start, when it comes first")
+    (is (= (at 1800) (added [(live "live" (at -600) (at 1800))])) "or its end, while it's on air")
+    (is (= plain (added [(live "ended" (at 3600) (at 7200))])) "but not when it's over")
+    (is (= plain (added [(live "pending" (at -7200) (at -3600))])) "nor when both have passed")))
 
 (deftest the-step
   (let [three  (-> feeds

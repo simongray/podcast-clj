@@ -64,10 +64,23 @@
   "How many feeds are fetched at once, by default."
   8)
 
+;; The podcast namespace, podcast:liveItem: a status of pending, live or
+;; ended, and a start and an end
+(defn- live-due
+  "The first start or end of a live item of `feed` after `at` that isn't
+  over, or nil, when the feed most likely changes."
+  [feed at]
+  (->> (:podcast/live-items feed)
+       (remove #(= "ended" (some-> (:status %) str/lower-case)))
+       (mapcat (juxt :start :end))
+       (filter #(and (inst? %) (> (inst-ms %) (inst-ms at))))
+       (apply time/earliest)))
+
 (defn- check-at
   "When to fetch `feed` again, at `at`: when the feed says, or else after
   the wait of `cadence`, but within its :max-wait unless the feed is
-  complete, and no earlier than the server's `not-before`."
+  complete, and no earlier than the server's `not-before`. The start and
+  the end of a live item to come bring it forward."
   [feed at not-before cadence]
   (let [complete? (resolve/complete? feed)
         wait      (if complete? (:complete cadence) (:silent cadence))
@@ -75,7 +88,8 @@
                     (some->> (:max-wait cadence) (time/later at)))]
     (time/latest (time/earliest (or (schedule/next-check feed at)
                                     (time/later at wait))
-                                ceiling)
+                                ceiling
+                                (live-due feed at))
                  not-before)))
 
 (defn- oldest
@@ -248,6 +262,28 @@
                      (map (fn [[feed-guid {:keys [url]}]] [url feed-guid]))
                      feeds)]
     (mapv by-url (podping/affected pings (keys by-url)))))
+
+(defn pinged
+  "Why the Podping `pings` name each feed of `feeds` that they name, by
+  guid, as the distinct pairs of the :reason and the :medium of its pings,
+  e.g. {feed-guid #{[\"live\" \"podcast\"]}} for a live stream that
+  started."
+  [feeds pings]
+  ;; a ping names a feed by any URL with the podcast:guid of its own, as
+  ;; podping/affected matches them
+  (let [by-guid (into {}
+                      (keep (fn [[feed-guid {:keys [url]}]]
+                              (when url
+                                [(guid/from-url url) feed-guid])))
+                      feeds)
+        note    (fn [why acc iri]
+                  (if-let [feed-guid (by-guid (guid/from-url iri))]
+                    (update acc feed-guid (fnil conj #{}) why)
+                    acc))]
+    (reduce (fn [acc {:keys [reason medium iris]}]
+              (reduce (partial note [reason medium]) acc iris))
+            {}
+            pings)))
 
 (defn refresh
   "The `feeds` with `result`, the result of fetching the feed `feed-guid`,

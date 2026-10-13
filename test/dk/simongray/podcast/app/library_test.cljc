@@ -624,7 +624,9 @@
       (is (= (search/query (:index lib) "other")
              (search/query (library/index lib) "other"))
           "an index built again from the feeds finds the same")
-      (is (= "Other two" (:title (library/episode lib ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]))) "the whole feed for its pages"))
+      (is (= ["Other one"] (map :rss/title (get-in lib [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :feed :rss/items])))
+          "the feed kept with that episode alone")
+      (is (nil? (library/episode lib ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]))))
     (testing "it throws without a feed or the episode"
       (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url {:status 404 :url other-url} "o1")))
       (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url fetched "nope"))))
@@ -640,11 +642,63 @@
         (is (= 5 (count (ids both))))
         (is (= (ids lib) (ids left)))
         (is (= [id] (mapv :id (library/search left "other"))))))
-    (testing "a merge keeps the feed, and indexes a remote item that came with it"
-      (let [two    (library/update-profile lib profile/add-remote-item ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"] {:feed-url other-url})
-            merged (library/merge lib {:profile (:profile two)})]
+    (testing "a merge keeps the feed, and a remote item that came with it fetches the feed whole once"
+      (let [o2     ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]
+            two    (library/update-profile lib profile/add-remote-item o2 {:feed-url other-url})
+            merged (library/merge lib {:profile (:profile two)})
+            asked  (atom [])
+            fetch  (fn [u opts]
+                     (swap! asked conj [u (:etag opts)])
+                     {:status 200 :url u :feed others})]
         (is (contains? (:feeds merged) "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"))
-        (is (= #{id ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o2"]} (set (map :id (library/search merged "other")))))))))
+        (is (= #{id} (set (map :id (library/search merged "other")))))
+        (is (= now (library/next-refresh merged {:at now})) "due at once")
+        (run (fn []
+               (async/then (library/refresh! merged {:at now :fetch fetch :send (fn [_] {:status 304 :headers {} :body ""})})
+                           (fn [lib']
+                             (is (= [[other-url nil]] @asked) "without the validators of the part it held")
+                             (is (= #{id o2} (set (map :id (library/search lib' "other")))))
+                             (is (= ["Other one" "Other two"]
+                                    (sort (map :rss/title (get-in lib' [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :feed :rss/items])))))
+                             (reset! asked [])
+                             (async/then (library/refresh! lib' {:at (at (* 90 86400)) :fetch fetch
+                                                                 :send (fn [_] {:status 304 :headers {} :body ""})})
+                                         (fn [_]
+                                           (is (not-any? #{other-url} (map first @asked))
+                                               "and then never checked again, as the show has no subscription")))))))))))
+
+(deftest the-played-episodes-of-other-shows
+  (let [other-guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"
+        [o1 o2]    [[other-guid "o1"] [other-guid "o2"]]
+        fetched    {:status 200 :url other-url :feed others}
+        lib        (-> library
+                       (library/add-episode other-url fetched "o1")
+                       (library/add-episode other-url fetched "o2")
+                       (library/update-profile profile.queue/enqueue o1)
+                       (library/update-profile profile.queue/add-to-playlist "Road trip" o1)
+                       (library/update-profile profile/mark-played o1)
+                       (library/update-profile profile/mark-played o2)
+                       (library/update-profile profile.marks/star o2))
+        tidy       (library/remove-played-episodes lib)]
+    (is (= [o2] (keys (profile/remote-items (:profile tidy)))) "but a starred one")
+    (is (not (profile.queue/queued? (:profile tidy) o1)))
+    (is (= {} (profile.queue/playlists (:profile tidy))))
+    (is (= ["Other two"] (map :rss/title (get-in tidy [:feeds other-guid :feed :rss/items]))))
+    (is (not (contains? (:feeds (library/remove-played-episodes (library/update-profile lib profile.marks/unstar o2)))
+                        other-guid))
+        "and the feed goes with the last of them")
+    (is (= library (library/remove-played-episodes library)) "nothing changes without one")))
+
+(deftest live-items-across-the-shows
+  (let [live   (fn [guid status start]
+                 {:podcast/guid guid :rss/guid {:content guid} :rss/title guid :status status :start start
+                  :rss/enclosure {:url (str "https://example.com/" guid ".mp3") :type "audio/mpeg"}})
+        lives  [(live "over" "ended" (at -86400)) (live "soon" "pending" (at 3600))
+                (live "now" "live" (at -600)) (live "later" "pending" (at 7200))]
+        lib    (library/subscribe library url (assoc fresh :feed (assoc show :podcast/live-items lives)))]
+    (is (= ["now" "soon" "later" "over"] (map (comp :rss/title second) (library/live-items lib {:at now}))))
+    (is (= "https://example.com/now.mp3" (:src (library/playback lib [guid "now"]))) "and one plays by its id")
+    (is (= [] (library/live-items (library/unsubscribe lib guid))) "the subscriptions' alone")))
 
 (deftest an-episode-of-another-show-on-another-device
   (let [id     ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" "o1"]

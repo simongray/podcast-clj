@@ -426,6 +426,8 @@ every few seconds:
 (def polled (podping/poll!))  ; starts at the head of the chain
 ```
 
+To tell the listener why, `feeds/pinged` gives the reasons of the pings
+of each feed, e.g. `#{["live" "podcast"]}` when a live stream started.
 When no node answers, the result has an `:error` and the block it got to,
 so the next poll continues from there. ClojureScript has no `poll!`, but
 the nodes answer a web page, so read the blocks with `podping/call!` and
@@ -808,9 +810,17 @@ from a search or a link, add it to the library first:
 
 The profile keeps the episode as a remote item with the URL of its feed,
 as `podcast:remoteItem` names an episode, so `refresh!` fetches that feed
-on every device. The library lists only that episode of the show, and
-the show's later episodes never count as new. To take it out again, use
-`library/remove-episode`, which leaves the queue as it is.
+on every device. The library keeps only that episode of the show, and
+doesn't check the feed again, so the show's later episodes never count
+as new. To take it out again, use `library/remove-episode`, which leaves
+the queue as it is. `library/remove-played-episodes` takes out every
+such episode that the listener played, from the queue and the playlists
+too, but keeps those with a star or another mark.
+
+A show's live streams, its `podcast:liveItem`s, play by their ids as its
+episodes do. `library/live-items` lists those of the subscriptions, the
+ones on air first, then the ones to come, and a feed is checked again at
+the start and the end of each one to come.
 
 Some settings and events change what `step` does:
 

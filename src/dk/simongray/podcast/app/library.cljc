@@ -213,15 +213,41 @@
                                  (documents library feed-guid)))
     library))
 
+(defn- alone?
+  "Whether `library` holds the feed `feed-guid` for its remote items
+  alone, without a subscription."
+  [library feed-guid]
+  (and (contains? (:feeds library) feed-guid)
+       (not (profile/subscribed? (:profile library) feed-guid))))
+
+(defn- named
+  "The feeds `entry` of `feed-guid` with only the items that the remote
+  items of `profile` name, and their retained facts."
+  [entry feed-guid profile]
+  (let [guids  (remote-guids profile feed-guid)
+        named? #(contains? guids (guid/item-guid %))]
+    (cond-> entry
+      (:feed entry)     (update-in [:feed :rss/items] #(filterv named? %))
+      (:retained entry) (update :retained select-keys guids))))
+
 (defn- tidied
   "The `library` with the feed `feed-guid` indexed again while a
-  subscription or a remote item needs it, and else without the feed."
+  subscription or a remote item needs it, and else without the feed. A
+  feed held for remote items alone keeps the items they name."
   [library feed-guid]
-  (if (or (profile/subscribed? (:profile library) feed-guid)
-          (seq (remote-guids (:profile library) feed-guid)))
-    (reindexed library feed-guid)
-    (cond-> (update library :feeds dissoc feed-guid)
-      (:index library) (update :index feed.search/without-feed feed-guid))))
+  (let [profile (:profile library)]
+    (cond
+      (profile/subscribed? profile feed-guid)
+      (reindexed library feed-guid)
+
+      (seq (remote-guids profile feed-guid))
+      (cond-> (reindexed library feed-guid)
+        (contains? (:feeds library) feed-guid)
+        (update-in [:feeds feed-guid] named feed-guid profile))
+
+      :else
+      (cond-> (update library :feeds dissoc feed-guid)
+        (:index library) (update :index feed.search/without-feed feed-guid)))))
 
 (defn- held
   "The ids of the episodes that `profile` holds anything for: progress or
@@ -272,10 +298,14 @@
 (defn- kept
   "The `library` with the feed `feed-guid` cut down to the :max-items of
   `opts`, as far as capped allows, and to what their :keep-fn gives of it,
-  once nothing else needs the whole feed."
+  once nothing else needs the whole feed. A feed held for remote items
+  alone keeps the items they name."
   [library feed-guid {:keys [keep-fn max-items] :as opts}]
   (let [feed? (some? (get-in library [:feeds feed-guid :feed]))]
     (cond-> library
+      (and feed? (alone? library feed-guid))
+      (update-in [:feeds feed-guid] named feed-guid (:profile library))
+
       (and max-items feed?)
       (update-in [:feeds feed-guid] capped feed-guid (:profile library)
                  max-items)
@@ -404,16 +434,18 @@
          feed      (feed-of url result "take the episode from")
          feed-guid (key-of library (guid/feed-guid feed url))
          cadence   (:cadence (:config library) {})
-         new?      (not (contains? (:feeds library) feed-guid))]
+         ;; a feed held for remote items alone lacks the other episodes
+         fresh?    (or (not (contains? (:feeds library) feed-guid))
+                       (alone? library feed-guid))]
      (when-not (some #(= item-guid (guid/item-guid %)) (:rss/items feed))
        (throw (ex-info (str "No episode " item-guid " in the feed at " url)
                        {:url url :item-guid item-guid})))
      (-> library
          (update :profile profile/add-remote-item [feed-guid item-guid]
                  {:feed-url url} at)
-         (cond-> new? (update :feeds feeds/add url result at cadence))
+         (cond-> fresh? (update :feeds feeds/add url result at cadence))
          (reindexed feed-guid)
-         (cond-> new? (kept feed-guid (:config library)))))))
+         (cond-> fresh? (kept feed-guid (:config library)))))))
 
 (defn remove-episode
   "The `library` without the remote item `id`, with the :at of `opts`. The
@@ -426,6 +458,41 @@
    (-> library
        (update :profile profile/remove-remote-item id (time-of library opts))
        (tidied feed-guid))))
+
+(defn remove-played-episodes
+  "The `library` without the remote items that the listener played, with
+  the :at of `opts`, e.g. to tidy up the episodes that the listener took
+  from other shows.
+
+  They leave the queue and the playlists too, and their feeds go when
+  nothing else needs them. One that the listener starred, bookmarked,
+  clipped or rated stays."
+  ([library]
+   (remove-played-episodes library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [profile (:profile library)
+         marked  (-> (set (profile.marks/starred profile))
+                     (into (map :id) (profile.marks/bookmarks profile))
+                     (into (map :id) (profile.marks/clips profile))
+                     (into (map :id) (profile.marks/rated profile)))
+         ids     (filter #(and (profile/played? profile %) (not (marked %)))
+                         (keys (profile/remote-items profile)))
+         lists   (keys (profile.queue/playlists profile))
+         at      (time-of library opts)
+         gone    (fn [p id]
+                   (as-> p p
+                     (profile/remove-remote-item p id at)
+                     (profile.queue/dequeue p id at)
+                     (reduce #(profile.queue/remove-from-playlist %1 %2 id at)
+                             p
+                             lists)))]
+     (if (empty? ids)
+       library
+       (reduce tidied
+               (update library :profile crdt/at-once at
+                       #(reduce gone % ids))
+               (distinct (map first ids)))))))
 
 (defn subscriptions
   "The live subscriptions of `library` by guid, each with its :settings,
@@ -548,17 +615,26 @@
 
 (defn- pending
   "The feeds of the live subscriptions and remote items of `library` that
-  it has no feed of yet, as feed entries to fetch for the first time. A
-  subscription names the URL before a remote item does."
+  it has no feed of yet, or holds for remote items alone but without an
+  item that one names, e.g. one that came by sync, as feed entries to
+  fetch whole. A subscription names the URL before a remote item does."
   [library]
   (let [{:keys [profile feeds]} library
-        absent? #(not (contains? feeds %))
+        lacking? (fn [feed-guid]
+                   (let [{:keys [feed]} (get feeds feed-guid)
+                         items           (into #{}
+                                               (map guid/item-guid)
+                                               (:rss/items feed))]
+                     (or (nil? feed)
+                         (and (alone? library feed-guid)
+                              (not-every? items
+                                          (remote-guids profile feed-guid))))))
         remote  (for [[[feed-guid] {:keys [feed-url]}]
                       (profile/remote-items profile)
-                      :when (absent? feed-guid)]
-                  [feed-guid {:url feed-url}])
+                      :when (lacking? feed-guid)]
+                  [feed-guid {:url (get-in feeds [feed-guid :url] feed-url)}])
         subs    (for [[feed-guid {:keys [url]}] (profile/subscriptions profile)
-                      :when (and url (absent? feed-guid))]
+                      :when (and url (not (contains? feeds feed-guid)))]
                   [feed-guid {:url url}])]
     (into {} (concat remote subs))))
 
@@ -715,9 +791,11 @@
   "Fetch and apply whatever `library` is due to fetch, with the `opts`
   below.
 
-  It fetches the followed lists, the feeds of new subscriptions, and the
-  feeds whose next check has come. It returns the library with the result
-  under :refresh, in ClojureScript as a promise:
+  It fetches the followed lists, the feeds of new subscriptions and remote
+  items, and the feeds of subscriptions whose next check has come. A feed
+  held for remote items alone isn't fetched again, unless :feed-guids
+  names it. It returns the library with the result under :refresh, in
+  ClojureScript as a promise:
 
       {:at         #inst \"…\"
        :added      [[feed-guid item-guid] …]  ; the new episodes
@@ -769,15 +847,26 @@
       (refresh-lists! library at opts)
       (fn [{listed :library report :report}]
         (let [unfetched  (pending listed)
+              ;; a feed held for remote items alone isn't checked again
+              held       (remove (set (concat (:feed-guids opts)
+                                              (keys unfetched)))
+                                 (filter #(alone? listed %)
+                                         (keys (:feeds listed))))
               feeds-opts (cond-> feeds-opts
                            (:feed-guids opts)
                            (update :feed-guids
                                    #(distinct (concat (keys unfetched) %))))]
           (async/then
-           (feeds/refresh! (clojure.core/merge unfetched (:feeds listed))
+           ;; a pending feed is fetched whole, without the validators of
+           ;; the part of it that the library holds
+           (feeds/refresh! (clojure.core/merge (apply dissoc (:feeds listed)
+                                                      held)
+                                               unfetched)
                            feeds-opts)
            (fn [step]
-             (let [offline?        (some (comp #{:refresh/offline} :id)
+             (let [step            (update step :feeds clojure.core/merge
+                                           (select-keys (:feeds listed) held))
+                   offline?        (some (comp #{:refresh/offline} :id)
                                          (:report step))
                    [listed report] (if offline?
                                      (offline-lists listed library report)
@@ -802,8 +891,9 @@
   result is never before the time of the call.
 
   The feed of a subscription that was never fetched is due at once, and a
-  feed that's gone is never due. After a refresh that found the device
-  offline, the next waits the :offline-seconds of the config."
+  feed that's gone or held for remote items alone is never due. After a
+  refresh that found the device offline, the next waits the
+  :offline-seconds of the config."
   ([library]
    (next-refresh library {}))
   ([library opts]
@@ -812,7 +902,10 @@
          {:keys [offline-seconds]} (options library opts)
          {:keys [report] last-at :at} (:refresh library)
          check    #(or (:next-check %) at)
-         checks   (concat (map check (remove :gone? (vals (:feeds library))))
+         checked? (fn [[feed-guid entry]]
+                    (not (or (:gone? entry) (alone? library feed-guid))))
+         checks   (concat (map (comp check val)
+                               (filter checked? (:feeds library)))
                           (map check (vals (:fetched-lists library)))
                           (when (seq (pending library))
                             [at]))
@@ -870,12 +963,47 @@
 
 (defn- item-of
   "The entry of the feed `feed-guid` in `library` and its item
-  `item-guid`, with its :retained fact, as a pair, or nil."
+  `item-guid`, an episode or a live item, with its :retained fact, as a
+  pair, or nil."
   [library [feed-guid item-guid]]
   (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
     (when-let [item (some #(when (= item-guid (guid/item-guid %)) %)
-                          (:rss/items feed))]
+                          (concat (:rss/items feed)
+                                  (:podcast/live-items feed)))]
       [entry (with-fact entry item)])))
+
+;; The podcast namespace, podcast:liveItem: a status of pending, live or
+;; ended, and a start and an end
+(defn live-items
+  "The live items of the subscriptions of `library`, as [feed item] pairs,
+  at the :at of `opts` or the time of its clock: those on air first, then
+  those to come, the soonest first, then those over, the latest first.
+
+  A live item plays by its id, [feed-guid item-guid], as an episode does,
+  e.g. with playback."
+  ([library]
+   (live-items library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [at        (time-of library opts)
+         ms        #(if (inst? %) (inst-ms %) 0)
+         status    #(some-> (:status %) str/lower-case)
+         upcoming? (fn [{:keys [start] :as item}]
+                     (and (not= "ended" (status item))
+                          (if (inst? start)
+                            (> (ms start) (inst-ms at))
+                            (= "pending" (status item)))))
+         order     (fn [[_ {:keys [start] :as item}]]
+                     (cond
+                       (resolve/live? item at) [0 (ms start)]
+                       (upcoming? item)        [1 (ms start)]
+                       :else                   [2 (- (ms start))]))]
+     (->> (for [[feed-guid {:keys [feed]}] (:feeds library)
+                :when (profile/subscribed? (:profile library) feed-guid)
+                item  (:podcast/live-items feed)]
+            [feed item])
+          (sort-by order)
+          vec))))
 
 (defn notifications
   "The new episodes that the last refresh of `library` found in the shows
