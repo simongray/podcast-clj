@@ -3,6 +3,7 @@
   read through a stand-in for the sender."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.like-minded.store :as store]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
@@ -190,6 +191,43 @@
      (fn []
        (async/then (source item gone)
                    #(is (= [:file [] :file/unreachable] %) "nothing else: the file, with its error"))))))
+
+(deftest a-cache-of-the-companion-files
+  (let [url    "https://example.com/ep3_chapters.json"
+        cache  (store/memory (atom {}))
+        asked  (atom [])
+        server (atom (fn [_] {:status 200 :body chapters-json :headers {"etag" ["\"v1\""]}}))
+        send   (fn [{:keys [headers] :as request}]
+                 (swap! asked conj (get headers "If-None-Match"))
+                 (@server request))
+        titles (fn []
+                 (async/then (episode/read-files! (episode/view show item) {:send send :cache cache :except #{:media :transcript}})
+                             #(map :title (:chapters (:document (:chapters %))))))]
+    (run
+     (fn []
+       (async/then
+        (titles)
+        (fn [first-titles]
+          (is (seq first-titles))
+          (reset! server (fn [{:keys [headers]}]
+                           (if (= "\"v1\"" (get headers "If-None-Match"))
+                             {:status 304 :body "" :headers {}}
+                             {:status 200 :body "{}" :headers {}})))
+          (async/then
+           (titles)
+           (fn [again]
+             (is (= first-titles again) "a 304 gives the kept copy")
+             (is (= [nil "\"v1\""] @asked) "asked for again with its ETag")
+             (reset! server (fn [_] (throw (ex-info "offline" {}))))
+             (async/then
+              (titles)
+              (fn [offline]
+                (is (= first-titles offline) "and so does a request that fails")
+                (reset! server (fn [_] {:status 200 :body chapters-json :headers {"cache-control" ["no-store"]}}))
+                (let [fresh (store/memory (atom {}))]
+                  (async/then (episode/read-files! (episode/view show item) {:send send :cache fresh :except #{:media}})
+                              (fn [_]
+                                (is (nil? ((:fetch fresh) (episode/cache-name url) {})) "but none that says no-store"))))))))))))))
 
 (def album
   "The feed of an album with a block of its own and one for its first song."

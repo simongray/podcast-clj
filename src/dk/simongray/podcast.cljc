@@ -40,7 +40,7 @@
   (let [http-opts (->> (select-keys opts [:etag :last-modified :credentials
                                           :timeout-seconds :max-bytes
                                           :user-agent :allow-pred :send
-                                          :max-wait-seconds])
+                                          :max-wait-seconds :signal])
                        (merge {:send             client/send!
                                :accept           accept
                                :max-wait-seconds 3600}))]

@@ -38,6 +38,7 @@
        :only-newer?    false          ; older episodes that appear are new too
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
        :local-file-fn  f              ; the downloaded file of an episode id
+       :cache          store          ; for companion files, see read-files!
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
@@ -877,10 +878,10 @@
     those that a Podping names
   - :online?, false when the device has no network, so that nothing is
     fetched
-  - :max-feeds, :max-seconds and :on-feed-fn, to fetch fewer feeds or
-    within a deadline, and to hear of each fetch as it ends, as
-    app.feeds/refresh! takes them. The feeds left out stay due, and the
-    :left of the :counts says how many there are.
+  - :max-feeds, :max-seconds, :on-feed-fn and :signal, to fetch fewer
+    feeds or within a deadline, to hear of each fetch as it ends, and to
+    stop, as app.feeds/refresh! takes them. The feeds left out stay due,
+    and the :left of the :counts says how many there are.
 
   A refresh in which every fetch of a feed failed before a server
   answered, at more than one host, counts as offline too. Offline, no feed
@@ -901,7 +902,7 @@
                                       :timeout-seconds :max-bytes
                                       :user-agent :allow-pred :online?
                                       :max-feeds :max-seconds :on-feed-fn
-                                      :now-fn])
+                                      :now-fn :signal])
                         (assoc :at at))]
      (async/then
       (refresh-lists! library at opts)

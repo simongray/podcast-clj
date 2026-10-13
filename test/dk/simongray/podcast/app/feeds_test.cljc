@@ -292,7 +292,20 @@
                         (is (= [["g0" "g1"] ["g2" "g3" "g4"]] [checked left]) "the earliest due first")))
          #(async/then (feeds/refresh! five (assoc opts :online? false))
                       (fn [{:keys [checked left]}]
-                        (is (= [[] ["g0" "g1" "g2" "g3" "g4"]] [checked left]) "and offline, all of them"))))))
+                        (is (= [[] ["g0" "g1" "g2" "g3" "g4"]] [checked left]) "and offline, all of them")))
+         ;; a stand-in for the :signal of wary-fetch, which a fetch reads
+         #(let [signal  (atom false)
+                fetch   (fn [u {stop :signal}]
+                          (if @stop
+                            {:url u :error {:id :fetch/unreachable :type ::http/aborted}}
+                            (do (when (= u "https://x.example/1") (reset! stop true))
+                                {:status 304 :url u})))]
+            (async/then (feeds/refresh! five (assoc opts :fetch fetch :signal signal))
+                        (fn [{:keys [checked left report] :as result}]
+                          (is (= [["g0" "g1"] ["g2" "g3" "g4"]] [checked left])
+                              "a fetch that the signal stopped, and none after it")
+                          (is (= [:refresh/stopped] (map :id report)))
+                          (is (= (get five "g2") (get-in result [:feeds "g2"])) "with no failure counted")))))))
 
 (deftest the-pages-of-a-first-fetch
   (let [asked (atom {})

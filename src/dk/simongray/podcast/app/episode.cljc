@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.app.episode
   "Everything an episode page needs, in one map."
-  (:require [clojure.string :as str]
+  (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -13,10 +14,12 @@
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.headers :as headers]))
 
 (def default-limits
   "The limits of the requests for the files and value blocks of an episode
@@ -202,22 +205,83 @@
   (diagnostics/file-failure (assoc (if e (http/failure e) {:status status})
                                    :url url)))
 
+(defn ^:no-doc cache-name
+  "The name of the document of a store that keeps the file at `url`, a
+  hash of the URL."
+  [url]
+  (str "file-" (bytes/hex (bytes/sha256 (bytes/encode url)))))
+
+(defn- copy-of
+  "The copy of the file at `url` in the `text` of a document of a cache, as
+  a map of its :body, :etag and :last-modified, or nil when the text holds
+  none."
+  [url text]
+  (let [copy (try
+               (edn/read-string (str text))
+               (catch #?(:clj Exception :cljs :default) _
+                 nil))]
+    (when (and (map? copy) (= url (:url copy)) (string? (:body copy)))
+      copy)))
+
+(defn- kept!
+  "The copy of the file at `url` that the store `cache` keeps, as copy-of
+  gives it, in a future or a promise. A store that fails keeps none."
+  [cache url]
+  (async/then (async/attempt #((:fetch cache) (cache-name url) {}))
+              (fn [{:keys [value]}]
+                (some->> (:body value) (copy-of url)))))
+
+;; RFC 9111, section 5.2.2.5: no-store
+(defn- keep!
+  "Keep the `response` of a request for the file at `url` in the store
+  `cache`, with its validators, unless it says no-store, in a future or a
+  promise. A store that fails or can't be written keeps nothing."
+  [cache url {:keys [headers body] :as response}]
+  (let [no-store? (re-find #"(?i)(?:^|,)\s*no-store\s*(?:,|$)"
+                           (str/join "," (get headers "cache-control")))
+        etag      (headers/header headers "etag")
+        modified  (headers/header headers "last-modified")
+        copy      (cond-> {:url url :body (str body)}
+                    etag     (assoc :etag etag)
+                    modified (assoc :last-modified modified))]
+    (when (and (:put cache) (not no-store?))
+      (async/attempt #((:put cache) (cache-name url) (pr-str copy) {})))))
+
+;; RFC 9110, sections 13.1.2 and 13.1.3: a copy is asked for again with
+;; its validators, and a 304 says it's still the file
 (defn- fetch-text!
   "Fetch the text of the file at `url` with `opts`, asking for the `accept`
   types, in a future or a promise. The text is the :value, or else a
-  diagnostic is the :error."
-  [url accept {:keys [send] :as opts}]
-  (async/then (http/try-send! send {:url url :headers {"Accept" accept}} opts)
-              (fn [{:keys [value error]}]
-                (cond
-                  error
-                  {:error (unreachable url error nil)}
+  diagnostic is the :error.
 
-                  (not (<= 200 (long (:status value)) 299))
-                  {:error (unreachable url nil (:status value))}
+  With a store as the :cache of `opts`, the copy that it keeps is asked
+  for again with its validators, and given when the server says it's
+  unchanged or the request fails, e.g. offline."
+  [url accept {:keys [send cache] :as opts}]
+  (async/then
+   (if cache (kept! cache url) nil)
+   (fn [copy]
+     (let [asked (cond-> {"Accept" accept}
+                   (:etag copy)          (assoc "If-None-Match" (:etag copy))
+                   (:last-modified copy) (assoc "If-Modified-Since"
+                                                (:last-modified copy)))]
+       (async/then
+        (http/try-send! send {:url url :headers asked} opts)
+        (fn [{:keys [value error]}]
+          (let [status (some-> (:status value) long)]
+            (cond
+              (and copy (or error (= 304 status)))
+              {:value (:body copy)}
 
-                  :else
-                  {:value (str (:body value))}))))
+              error
+              {:error (unreachable url error nil)}
+
+              (not (<= 200 status 299))
+              {:error (unreachable url nil status)}
+
+              :else
+              (async/then (when cache (keep! cache url value))
+                          (fn [_] {:value (str (:body value))}))))))))))
 
 (defn- read-chapters-file!
   "Read the chapters file at `url` with `opts`, in a future or a promise.
@@ -330,7 +394,10 @@
 
   - :send, :allow-pred and :headers, as for any request
   - :timeout-seconds and :max-bytes, over default-limits
-  - :except, a set of the parts to leave unread"
+  - :except, a set of the parts to leave unread
+  - :cache, a document store of like-minded that keeps the chapters files
+    and the transcripts, asked for again with their validators, and read
+    when a request fails, e.g. offline"
   ([view]
    (read-files! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]

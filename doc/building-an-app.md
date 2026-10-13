@@ -343,6 +343,9 @@ minute. Give `refresh!` that budget as `:max-seconds`, or a most number
 of feeds as `:max-feeds`, and the feeds that it doesn't reach stay due
 for the next refresh, as the `:left` of the counts says. To show
 progress, give it `:on-feed-fn`, which hears of each fetch as it ends.
+To let the listener cancel it, give it a `:signal`: an AbortSignal in
+ClojureScript, or an atom that you set to true on the JVM. The feeds that
+it stops or keeps from starting stay due, with no failure counted.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -548,6 +551,12 @@ add what the episode's chapters file, transcript and media file say:
 An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.
+
+To keep the chapters files and transcripts on the device, set `:cache`
+in the config to a document store of like-minded, e.g. one in IndexedDB.
+A file it keeps is asked for again with its ETag, so an unchanged one
+costs next to nothing, and it's read from the store when the request
+fails, e.g. offline.
 
 The chapters come from the first place that has them: the chapters file,
 Podlove chapters in the feed, the media file, or timestamps in the show

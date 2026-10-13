@@ -65,6 +65,10 @@
            the refresh failed before a server answered, at more than one
            host. No feed counts it as a failure, and each stays due, so the
            next refresh fetches it."}
+    {:id :refresh/stopped :level :info
+     :doc "The :signal of the refresh stopped it, e.g. as the listener
+           cancelled it. The feeds whose fetch it stopped or kept from
+           starting count no failure, and stay due."}
     {:id :fetch/malformed :level :warning
      :doc "The document isn't an RSS feed, or for a list, an OPML document:
            it isn't XML, or its root element isn't rss or opml."}

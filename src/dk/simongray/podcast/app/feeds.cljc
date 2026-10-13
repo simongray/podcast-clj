@@ -403,6 +403,12 @@
   (contains? #{::http/unresolved ::http/unreachable ::http/tls}
              (get-in result [:error :type])))
 
+(defn- aborted?
+  "Whether the fetch `result` failed since the :signal of the refresh
+  stopped it."
+  [result]
+  (= ::http/aborted (get-in result [:error :type])))
+
 (defn- offline?
   "Whether the `results` of a round of fetches, pairs of a feed guid and a
   result, say that the device is offline: each failed before any server
@@ -436,11 +442,11 @@
 (defn- in-time
   "The results of `f` on each of `xs` as a vector, `n` calls at a time, in
   a future or a promise, as async/in-groups gives them, but starting no
-  group once `over?` says that the time is up."
+  group once `over?`, a function of the results so far, says to stop."
   [f n xs over?]
   (reduce (fn [acc group]
             (async/then acc (fn [done]
-                              (if (over?)
+                              (if (over? done)
                                 done
                                 (async/then (async/all f group)
                                             #(into done %))))))
@@ -479,11 +485,16 @@
     :feed-guid, its :status or the :error, and how many fetches are :done
     of the :total, e.g. to show progress. On the JVM, fetches that run at
     once can call it at once.
+  - :signal, to stop the refresh, e.g. when the listener cancels it, as
+    http/send! takes it: an AbortSignal in ClojureScript, and on the JVM
+    an atom that turns true
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
     fetch! takes them
 
   The feeds that :max-feeds or :max-seconds leave out stay due, for the
-  next refresh. A round in which every fetch failed before a server
+  next refresh. So do those that the :signal stopped, or kept from
+  starting, with no failure counted, and the report has
+  :refresh/stopped. A round in which every fetch failed before a server
   answered, at more than one host, counts as offline too. Offline, every
   feed stays as it was, so that none counts it as a failure and each is
   due at the next refresh, and the report has :refresh/offline.
@@ -506,12 +517,15 @@
          wanted (vec (or feed-guids (due feeds at)))
          guids  (cond-> wanted
                   max-feeds (subvec 0 (min max-feeds (count wanted))))
-         over?  #(and max-seconds
-                      (<= (* 1000 max-seconds)
-                          (- (inst-ms (now-fn)) (inst-ms start))))
+         ;; a fetch that the :signal stopped says to start no more
+         over?  (fn [results]
+                  (or (some (comp aborted? second) results)
+                      (and max-seconds
+                           (<= (* 1000 max-seconds)
+                               (- (inst-ms (now-fn)) (inst-ms start))))))
          done   (atom 0)
          common (select-keys opts [:send :timeout-seconds :max-bytes
-                                   :user-agent :allow-pred])
+                                   :user-agent :allow-pred :signal])
          private (fn [url]
                    (let [credentials (when credentials-of (credentials-of url))]
                      (cond-> common
@@ -556,17 +570,22 @@
          step   (fn [acc [feed-guid result]]
                   (->> (refresh (:feeds acc) feed-guid result at cadence)
                        (merged acc)))
-         round  (fn [results]
-                  (if (offline? results)
-                    (offline feeds (get-in (first results) [1 :error :reason]))
-                    (reduce step
-                            {:feeds   feeds
-                             :checked (mapv first results)
-                             :changed []
-                             :failed  []
-                             :moved   {}
-                             :report  []}
-                            results)))
+         stop   (diagnostics/describe {:id :refresh/stopped})
+         round  (fn [all]
+                  (let [results (remove (comp aborted? second) all)
+                        stopped (not= (count results) (count all))]
+                    (cond-> (if (and (seq results) (offline? results))
+                              (offline feeds (get-in (first results)
+                                                     [1 :error :reason]))
+                              (reduce step
+                                      {:feeds   feeds
+                                       :checked (mapv first results)
+                                       :changed []
+                                       :failed  []
+                                       :moved   {}
+                                       :report  []}
+                                      results))
+                      stopped (update :report conj stop))))
          left   #(assoc % :left (vec (remove (set (:checked %)) wanted)))]
      (if (false? online?)
        (async/then nil (fn [_] (left (offline feeds nil))))
