@@ -37,3 +37,21 @@
     (is (= "{:username \"ann\", :password #<secret>}" (pr-str (ring/credentials "Basic YW5uOnNlY3JldA=="))))
     (doseq [header [nil "" "Basic" "Basic !!!" "Basic YW5u" "Digest username=\"ann\""]]
       (is (nil? (ring/credentials header)) (pr-str header)))))
+
+(deftest the-conditions-of-a-ring-request
+  (let [etag    "\"v2\""
+        changed #inst "2026-10-13T12:00:00.400Z"
+        asked   (fn [headers] (ring/not-modified? headers etag changed))]
+    (is (false? (asked {})) "no conditions")
+    (is (asked {"if-none-match" "\"v1\", W/\"v2\""}) "a weak match in a list")
+    (is (asked {"if-none-match" "*"}))
+    (is (false? (asked {"if-none-match" "\"v1\""})))
+    (is (false? (ring/not-modified? {"if-none-match" "\"a,b\""} "\"a\"" nil))
+        "a comma within a tag")
+    (is (asked {"if-modified-since" "Tue, 13 Oct 2026 12:00:00 GMT"})
+        "a change within the same second")
+    (is (false? (asked {"if-modified-since" "Tue, 13 Oct 2026 11:59:59 GMT"})))
+    (is (false? (asked {"if-modified-since" "yesterday"})))
+    (is (false? (asked {"if-none-match"     "\"v1\""
+                        "if-modified-since" "Tue, 13 Oct 2026 12:00:00 GMT"}))
+        "If-None-Match decides alone")))

@@ -1,8 +1,15 @@
 (ns dk.simongray.podcast.feed.publish
-  "What a host does to a feed before serving it: the pages of a long feed,
-  the private feed of a subscriber, and the URLs of its files."
+  "What a host does to a feed: fill in what a producer leaves out, import
+  it from another host or move it away, split a long feed into pages, make
+  the private feed of a subscriber, rewrite the URLs of its files, and
+  serve it."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.ring :as ring]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -259,3 +266,223 @@
        block?             (assoc :podcast/blocks [{:content true}]
                                  :itunes/block true
                                  :googleplay/block true)))))
+
+(def generator
+  "What with-defaults names as the generator of a feed, unless its options
+  give another :generator."
+  "podcast-clj")
+
+;; IANA Media Types, as format.media/types has them, with RFC 4337's
+;; audio/mp4 for .m4a
+(def ^:no-doc extension-types
+  "The media type of an enclosure by the extension of its file."
+  {"mp3"  "audio/mpeg"
+   "m4a"  "audio/mp4"
+   "mp4"  "video/mp4"
+   "m4v"  "video/x-m4v"
+   "mov"  "video/quicktime"
+   "aac"  "audio/aac"
+   "ogg"  "audio/ogg"
+   "opus" "audio/opus"
+   "flac" "audio/flac"
+   "wav"  "audio/wav"})
+
+(defn- extension
+  "The extension of the file of `url`, in lower case, or nil."
+  [url]
+  (some->> (:path (url/parts url))
+           (re-find #"\.([A-Za-z0-9]{1,5})$")
+           second
+           str/lower-case))
+
+(defn- with-guid
+  "The `item` with the URL of its enclosure as its guid, when it has no
+  guid, since apps know such an item by that URL."
+  [item]
+  (let [url (get-in item [:rss/enclosure :url])]
+    (cond-> item
+      (and url (nil? (:rss/guid item)))
+      (assoc :rss/guid {:content url :is-perma-link false}))))
+
+(defn- item-defaults
+  "The `item` with a guid, the media type of its enclosure by the
+  extension of its file, and the length and duration that `media-fn`
+  gives for the file, where it has none of them."
+  [item media-fn]
+  (let [{:keys [url type length]} (:rss/enclosure item)
+        file  (when (and url media-fn) (media-fn url))
+        type' (when (and url (nil? type)) (extension-types (extension url)))]
+    (cond-> (with-guid item)
+      type'
+      (assoc-in [:rss/enclosure :type] type')
+
+      (and (not (pos-int? length)) (pos-int? (:bytes file)))
+      (assoc-in [:rss/enclosure :length] (:bytes file))
+
+      (and (nil? (:itunes/duration item)) (number? (:duration file)))
+      (assoc :itunes/duration (long (+ 0.5 (:duration file)))))))
+
+(defn- link-of?
+  "Whether the atom:link `link` has one of the relations `rels`."
+  [rels link]
+  (contains? rels (some-> (:rel link) str/lower-case)))
+
+;; The podcast namespace, podcast:guid, for the guid of the URL
+(defn with-defaults
+  "The `feed` that a producer writes from plain data, with what it leaves
+  out filled in, as the `opts` below say. Nothing that the feed has is
+  replaced:
+
+  - the atom:link rel=self, with the :url that the feed is served at
+  - the podcast:guid of that URL, or of the self link, which must never
+    change once the feed is out
+  - lastBuildDate, at the :at of the options, the time of the clock by
+    default
+  - generator, the :generator of the options, generator by default
+  - the guid of an item, the URL of its enclosure
+  - the media type of an enclosure, by the extension of its file
+  - the length of an enclosure and the itunes:duration of the item, by
+    the :media-fn of the options, a function of the URL of an enclosure
+    that gives what media/read gave for the file, or nil"
+  ([feed]
+   (with-defaults feed {}))
+  ([feed {:keys [url at media-fn] made-by :generator
+          :or   {made-by generator}
+          :as   opts}]
+   {:pre [(map? opts)]}
+   (let [self? (some (partial link-of? #{"self"}) (:atom/links feed))
+         url'  (or url (resolve/self-url feed))]
+     (cond-> feed
+       (:rss/items feed)
+       (update :rss/items (partial mapv #(item-defaults % media-fn)))
+
+       (and url (not self?))
+       (update :atom/links (fnil conj []) {:rel  "self"
+                                           :href url
+                                           :type "application/rss+xml"})
+
+       (and url' (nil? (:podcast/guid feed)))
+       (assoc :podcast/guid (guid/from-url url'))
+
+       (nil? (:rss/last-build-date feed))
+       (assoc :rss/last-build-date (or at (time/now)))
+
+       (nil? (:rss/generator feed))
+       (assoc :rss/generator made-by)))))
+
+;; The podcast namespace, podcast:locked and podcast:guid
+(defn imported
+  "The `feed` of a show that moves from another host to yours, with the URL
+  of each file that it links to replaced by what `f` gives for it, e.g.
+  the URL of your copy.
+
+  It throws when the feed is locked, since podcast:locked tells other
+  platforms not to import it, and the owner unlocks it at the old host
+  first. The episodes keep their guids, and one without a guid gets the
+  URL of its enclosure from before the rewrite, which apps know it by. A
+  show without a podcast:guid gets that of the URL in its self link, so
+  that the apps keep knowing it after the move.
+
+  The links of the old host go: the self link, the links between the
+  documents of its pages, the WebSub hubs, and a move that the feed
+  declares. Give the result to with-defaults with your URL, and to moved,
+  as the guide shows."
+  [feed f]
+  (when (resolve/locked? feed)
+    (throw (ex-info (str "The feed is locked, so its owner has to unlock it"
+                         " at the old host before another host imports it")
+                    {:type  ::locked
+                     :owner (get-in feed [:podcast/locked :owner])})))
+  (let [old-url (resolve/self-url feed)
+        own?    (partial link-of? (conj document-rels "hub"))]
+    (cond-> (-> feed
+                (dissoc :itunes/new-feed-url :googleplay/new-feed-url)
+                (cond-> (:rss/items feed)
+                  (update :rss/items (partial mapv with-guid)))
+                (update-file-urls f))
+      (and old-url (nil? (:podcast/guid feed)))
+      (assoc :podcast/guid (guid/from-url old-url))
+
+      (:atom/links feed)
+      (update :atom/links #(into [] (remove own?) %)))))
+
+;; Apple Podcasts for Creators, Change the RSS feed URL, as of October 2026
+(defn moved
+  "The `feed` with an itunes:new-feed-url that names `url` as its new URL.
+
+  Apple asks for it in the feed at the new URL, while the old URL answers
+  with a 301 redirect there, both for at least four weeks. A host that
+  can't redirect serves the old feed with it instead, which the other apps
+  follow. A googleplay:new-feed-url goes, since Google Podcasts closed in
+  2024 and no app reads it any more but to follow a move."
+  [feed url]
+  (-> feed
+      (dissoc :googleplay/new-feed-url)
+      (assoc :itunes/new-feed-url url)))
+
+(def max-age
+  "How many seconds a client or a cache may use the feed of a response
+  before asking again, unless its options give another :max-age."
+  300)
+
+(defn- last-change
+  "The time of the last change of `feed`: its lastBuildDate, or else the
+  pubDate of its newest item, or nil."
+  [feed]
+  (or (:rss/last-build-date feed)
+      (apply time/latest (keep :rss/pub-date (:rss/items feed)))))
+
+;; WebSub, W3C Recommendation of 23 January 2018, section 4; RFC 8288 for
+;; the form of the header
+(defn- link-header
+  "The value of the Link header of `feed`, which names its WebSub hubs and
+  its self link, or nil when it has neither."
+  [feed]
+  (let [links (concat (for [hub (resolve/hubs feed)]
+                        (str "<" hub ">; rel=\"hub\""))
+                      (when-let [self (resolve/self-url feed)]
+                        [(str "<" self ">; rel=\"self\"")]))]
+    (when (seq links)
+      (str/join ", " links))))
+
+;; RFC 9110, sections 8.8, 13.1 and 15.4.5; RFC 9111, section 5.2.2.1
+(defn response
+  "A Ring response to the GET or HEAD `request` for `feed`, with the `opts`
+  below: the XML of the feed with its validators, or a 304 when the
+  request names the copy that it has.
+
+  - :body, the XML of the feed, when you have it already, e.g. from a
+    cache, and else rss/emit writes it
+  - :last-modified, the time of the last change, by default the
+    lastBuildDate of the feed, or the pubDate of its newest item
+  - :max-age, the seconds of its Cache-Control, max-age by default
+  - :content-type, application/rss+xml in UTF-8 by default
+
+  The ETag is a digest of the XML, so it changes with the feed. The Link
+  header names the WebSub hubs of the feed and its self link, as WebSub
+  has a publisher do, so a subscriber finds the hub without reading the
+  feed. A 304 has the same headers but the Content-Type."
+  ([request feed]
+   (response request feed {}))
+  ([{:keys [headers] :as request} feed
+    {:keys [body last-modified content-type]
+     age   :max-age
+     :or   {age          max-age
+            content-type "application/rss+xml; charset=utf-8"}
+     :as   opts}]
+   {:pre [(map? opts)]}
+   (let [body     (or body (rss/emit feed))
+         digest   (bytes/hex (bytes/sha256 (bytes/encode body)))
+         etag     (str "\"" (subs digest 0 32) "\"")
+         modified (or last-modified (last-change feed))
+         link     (link-header feed)
+         common   (cond-> {"ETag"          etag
+                           "Cache-Control" (str "max-age=" age)}
+                    modified (assoc "Last-Modified" (time/format-rfc2822
+                                                     modified))
+                    link     (assoc "Link" link))]
+     (if (ring/not-modified? headers etag modified)
+       {:status 304 :headers common :body nil}
+       {:status  200
+        :headers (assoc common "Content-Type" content-type)
+        :body    body}))))

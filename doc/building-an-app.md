@@ -1713,9 +1713,29 @@ sample token in [Services](services.md#op3). If a page fails,
 
 ## Serve the feed of a show
 
-This section is for hosts. Write a feed with `rss/emit`. A long feed is
-slow to fetch, so split it with `publish/pages` into documents linked as RFC
-5005 describes:
+This section is for hosts. A feed that you build from your own data lacks
+a few things that apps rely on, so fill them in with
+`publish/with-defaults`, e.g. the self link, the `podcast:guid`, and a guid
+and a media type for each episode. Serve it with `publish/response`:
+
+```clojure
+(def feed
+  (publish/with-defaults show {:url "https://example.org/feed.xml"}))
+
+(defn feed-handler
+  "The Ring response to the `request` for the feed."
+  [request]
+  (publish/response request feed))
+```
+
+The response has an ETag, a Last-Modified and a Cache-Control, and it's a
+304 when the app has the feed already, so a check of an unchanged feed
+costs next to nothing. It names the feed's WebSub hubs in a Link header
+too. With `:media-fn`, a lookup of what `media/read!` gave for each file,
+`with-defaults` fills in the length and the duration of the episodes.
+
+A long feed is slow to fetch, so split it with `publish/pages` into
+documents linked as RFC 5005 describes:
 
 ```clojure
 (def documents
@@ -1768,7 +1788,7 @@ Apply `op3/with-prefix` after `for-subscriber`, since the prefix goes in
 front of the whole URL.
 
 To import a show from another host, copy each file that `check/files`
-lists, and point the feed at the copies with `publish/update-file-urls`:
+lists, and point the feed at the copies with `publish/imported`:
 
 ```clojure
 (def copies
@@ -1776,11 +1796,21 @@ lists, and point the feed at the copies with `publish/update-file-urls`:
         (for [{:keys [url]} (check/files feed {:max-items :all})]
           [url (copy-file! url)])))
 
-(publish/update-file-urls feed #(get copies % %))
+(def imported
+  (-> (publish/imported feed #(get copies % %))
+      (publish/with-defaults {:url "https://example.org/feed.xml"})
+      (publish/moved "https://example.org/feed.xml")))
 ```
 
 Here `copy-file!` is your own function, which copies a file to your server
-and returns its new URL.
+and returns its new URL. The episodes and the show keep their guids, so
+the apps don't list them twice, and the links of the old host go. A feed
+that `resolve/locked?` says is locked throws, since its owner has to
+unlock it at the old host first. Then have the old host answer the old
+URL with a 301 redirect to yours, and keep the redirect and the
+`itunes:new-feed-url` of `moved` for at least four weeks, as Apple asks.
+To move a show away from a host that can't redirect, serve the old feed
+with `moved` instead.
 
 An MP3 file can hold its chapters with an image for each, and
 `media/read!` gives the images as data URLs. JSON Chapters says that an
@@ -1837,11 +1867,11 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 ## Test your app
 
-A test of your app can run a library with no network and no clock.
-`testing/sender` answers each request from a map of URLs to responses,
-with a 304 when the request names the ETag of its response, and
-`testing/feed` writes the XML of a feed with as many episodes as you ask
-for. Give the sender as the `:send` of the config, and a clock that
+A test of your app can run a library with no network and no clock. The
+sender of `testing/sender` answers each request from a map of URLs to
+responses, with a 304 when the request names the ETag of its response,
+and `testing/feed` writes the XML of a feed with as many episodes as you
+ask for. Give the sender as the `:send` of the config, and a clock that
 stands still as its `:now-fn`:
 
 ```clojure

@@ -1,8 +1,9 @@
 (ns dk.simongray.podcast.util.ring
-  "The Ring requests that the handlers of podcast-clj answer: their bodies
-  and their credentials."
+  "The Ring requests that the handlers of podcast-clj answer: their bodies,
+  their credentials and their conditions."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.secret :as secret])
   #?(:clj (:import [java.io InputStream])))
 
@@ -61,3 +62,35 @@
                     :password (secret/hide (subs decoded (inc i)))}))
       "bearer" {:token (secret/hide value)}
       nil)))
+
+;; RFC 9110, section 8.8.3.2, the weak comparison
+(defn- tags
+  "The entity tags in the header value `s`, without the W/ of the weak
+  ones."
+  [s]
+  (map second (re-seq #"(?:W/)?(\"[^\"]*\")" (str s))))
+
+;; RFC 9110, sections 13.1.2, 13.1.3 and 13.2.2
+(defn not-modified?
+  "Whether a GET or a HEAD with the lower-case `headers` gets a 304 for the
+  representation with the entity tag `etag` and the instant
+  `last-modified`, either of which can be nil.
+
+  An If-None-Match decides alone: a 304 when it names the tag, or is *.
+  Otherwise an If-Modified-Since gives a 304 when the representation
+  changed at most then, to the second."
+  [headers etag last-modified]
+  (let [match (get headers "if-none-match")
+        since (some-> (get headers "if-modified-since") time/parse-rfc2822)]
+    (cond
+      match
+      (or (= "*" (str/trim match))
+          (boolean (and etag
+                        (some (set (tags etag)) (tags match)))))
+
+      (and since last-modified)
+      (<= (quot (inst-ms last-modified) 1000)
+          (quot (inst-ms since) 1000))
+
+      :else
+      false)))

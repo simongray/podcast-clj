@@ -191,3 +191,87 @@
         (is (= "https://media.example/abc/7.mp3" (get-in path [:rss/items 0 :rss/enclosure :url])))
         (is (= "https://a.example/abc/feed.xml" (:href (first (:atom/links path)))))
         (is (= "token" publish/token-param))))))
+
+(def plain
+  "A feed as a producer writes it from plain data."
+  {:rss/title       "A show"
+   :rss/link        "https://example.org/"
+   :rss/description "About things."
+   :rss/items       [{:rss/title     "One"
+                      :rss/enclosure {:url "https://media.example.org/1.mp3"}}
+                     {:rss/title     "Two"
+                      :rss/guid      "two"
+                      :rss/enclosure {:url    "https://media.example.org/2.M4A?x=1"
+                                      :length 0}}]})
+
+(def at #inst "2026-10-13T12:00:00Z")
+
+(deftest the-defaults-of-a-feed
+  (let [read  {"https://media.example.org/1.mp3" {:bytes 1234 :duration 61.6}}
+        done  (publish/with-defaults plain {:url "https://example.org/feed.xml" :at at :media-fn read})
+        [one two] (:rss/items done)]
+    (is (= [{:rel "self" :href "https://example.org/feed.xml" :type "application/rss+xml"}] (:atom/links done)))
+    (is (= "bab2ba12-9757-5da6-a770-0e70e6bcf214" (:podcast/guid done)) "the podcast:guid of the URL")
+    (is (= [at "podcast-clj"] [(:rss/last-build-date done) (:rss/generator done)]))
+    (is (= {:content "https://media.example.org/1.mp3" :is-perma-link false} (:rss/guid one))
+        "the enclosure URL as the guid of an item without one")
+    (is (= [{:url "https://media.example.org/1.mp3" :type "audio/mpeg" :length 1234} 62]
+           [(:rss/enclosure one) (:itunes/duration one)])
+        "from what media/read gave")
+    (is (= ["two" "audio/mp4" 0] [(:rss/guid two) (get-in two [:rss/enclosure :type]) (get-in two [:rss/enclosure :length])])
+        "the type by an extension in any case, and nothing that the app didn't read")
+    (is (re-find #"<guid isPermaLink=\"false\">https://media.example.org/1.mp3</guid>" (rss/emit done)))
+    (is (= done (publish/with-defaults done {:url "https://other.example/feed.xml" :generator "x"}))
+        "nothing that the feed has is replaced")))
+
+(deftest a-show-that-moves
+  (let [old (-> (publish/with-defaults plain {:url "https://example.org/feed.xml" :at at})
+                (dissoc :podcast/guid)
+                (update :atom/links conj {:rel "hub" :href "https://hub.example.org/"} {:rel "next" :href "https://example.org/2"}
+                        {:rel "payment" :href "https://example.org/pay"})
+                (assoc :itunes/new-feed-url "https://example.org/feed.xml"))
+        new (publish/imported old #(str/replace % "media.example.org" "cdn.new.example"))]
+    (testing "the import"
+      (is (= ["https://cdn.new.example/1.mp3" "https://cdn.new.example/2.M4A?x=1"]
+             (map (comp :url :rss/enclosure) (:rss/items new))))
+      (is (= [{:content "https://media.example.org/1.mp3" :is-perma-link false} "two"]
+             (map :rss/guid (:rss/items new)))
+          "the guids from before the rewrite")
+      (is (= "bab2ba12-9757-5da6-a770-0e70e6bcf214" (:podcast/guid new)) "the podcast:guid of the old URL")
+      (is (= [{:rel "payment" :href "https://example.org/pay"}] (:atom/links new)) "the old host's links gone")
+      (is (nil? (:itunes/new-feed-url new)))
+      (is (= ::publish/locked
+             (try (publish/imported (assoc old :podcast/locked {:content true :owner "host@example.org"}) identity)
+                  (catch #?(:clj Exception :cljs :default) e (:type (ex-data e)))))
+          "but not a locked feed"))
+    (testing "the move"
+      (let [served (-> new
+                       (publish/with-defaults {:url "https://new.example/feed.xml"})
+                       (publish/moved "https://new.example/feed.xml"))]
+        (is (= ["https://new.example/feed.xml" "bab2ba12-9757-5da6-a770-0e70e6bcf214"]
+               [(:itunes/new-feed-url served) (:podcast/guid served)]))
+        (is (nil? (:googleplay/new-feed-url (publish/moved (assoc old :googleplay/new-feed-url "x") "y"))))))))
+
+(deftest serving-a-feed
+  (let [feed   (-> (publish/with-defaults plain {:url "https://example.org/feed.xml" :at at})
+                   (update :atom/links conj {:rel "hub" :href "https://hub.example.org/"}))
+        ask    (fn [headers] (publish/response {:request-method :get :headers headers} feed))
+        {:keys [status headers body]} (ask {})
+        etag   (get headers "ETag")]
+    (is (= 200 status))
+    (is (= (rss/emit feed) body))
+    (is (re-matches #"\"[0-9a-f]{32}\"" etag))
+    (is (= {"Content-Type"  "application/rss+xml; charset=utf-8"
+            "Cache-Control" "max-age=300"
+            "Last-Modified" "Tue, 13 Oct 2026 12:00:00 GMT"
+            "Link"          "<https://hub.example.org/>; rel=\"hub\", <https://example.org/feed.xml>; rel=\"self\""}
+           (dissoc headers "ETag")))
+    (is (= [304 nil] ((juxt :status :body) (ask {"if-none-match" (str "W/" etag)}))))
+    (is (= 304 (:status (ask {"if-modified-since" "Tue, 13 Oct 2026 12:00:00 GMT"}))))
+    (is (not (contains? (:headers (ask {"if-none-match" etag})) "Content-Type")))
+    (is (not= etag (get-in (publish/response {:headers {}} (assoc feed :rss/title "B")) [:headers "ETag"]))
+        "a new tag for a change")
+    (let [cached (publish/response {:headers {}} {:rss/title "x"} {:body "<rss/>" :max-age 60})]
+      (is (= ["<rss/>" "max-age=60" nil]
+             [(:body cached) (get-in cached [:headers "Cache-Control"]) (get-in cached [:headers "Last-Modified"])])
+          "the XML of a cache, and a feed without dates"))))

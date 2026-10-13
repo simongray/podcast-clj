@@ -103,7 +103,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and the directories, with `verdicts` for one file. |
 | `feed.check.facts` | The facts of the files of a check, gathered over the network for `check-files!`. |
 | `feed.validate` | Validation against the registry, with the requirements of PSP-1 and the directories. |
-| `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` and `update-file-urls` rewrite the URLs of the media files, or of every file. |
+| `feed.publish` | What a host does to a feed: `with-defaults` fills in what a producer leaves out, `imported` and `moved` take a show from another host or away, `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, `update-media-urls` and `update-file-urls` rewrite the URLs of the media files, or of every file, and `response` serves it to a Ring request. |
 | `feed.search` | The shows and episodes of feeds as documents for full-text search, with `index` for an index of them that weighs the title most, `with-feed` and `without-feed` to change it a feed at a time, and `located` to give each result its feed and item. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
 | `feed.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |

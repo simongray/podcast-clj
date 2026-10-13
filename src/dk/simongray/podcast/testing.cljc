@@ -9,6 +9,7 @@
   shows."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn- lower-case-keys
@@ -20,19 +21,14 @@
                 (if (sequential? v) (mapv str v) [(str v)])]))
         m))
 
-;; RFC 9110, section 13.1.3: If-Modified-Since counts only without
-;; If-None-Match
 (defn- unchanged?
   "Whether the request with the lower-case headers `asked` names the copy
   of the response with the lower-case headers `has` by its validators."
   [asked has]
-  (let [etag     (first (get has "etag"))
-        modified (first (get has "last-modified"))
-        match    (first (get asked "if-none-match"))]
-    (boolean (if match
-               (and etag (= etag match))
-               (and modified
-                    (= modified (first (get asked "if-modified-since"))))))))
+  (ring/not-modified? (update-vals asked first)
+                      (first (get has "etag"))
+                      (some-> (first (get has "last-modified"))
+                              time/parse-rfc2822)))
 
 (defn sender
   "A function to give as :send, which answers each request by its URL from
