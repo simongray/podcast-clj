@@ -14,7 +14,8 @@
   dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
   that it still needs."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.util.bytes :as bytes]
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
@@ -37,6 +38,14 @@
                              (map-indexed vector signature)))
             type))
         signatures))
+
+(defn ^:no-doc loose?
+  "Whether `declared`, the MIME type that a file gives for an image that it
+  holds, is loose, such as JPG or image/jpg, or missing."
+  [declared]
+  (let [t (str/lower-case (str/trim (str declared)))]
+    (not (and (re-matches #"image/[a-z0-9.+-]+" t)
+              (not= "image/jpg" t)))))
 
 (defn- chunk-type?
   "Whether the four bytes at `p` in `view` can be the type of a PNG chunk,

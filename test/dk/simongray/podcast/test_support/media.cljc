@@ -1,9 +1,11 @@
 (ns dk.simongray.podcast.test-support.media
   "The media files that the tests build byte by byte: ID3v2 tags with their
-  frames, MPEG audio frames with a Xing header, and MP4 files with their
-  boxes, chapters, fragments and tracks. Each builder gives a sequence of
-  numbers from 0 to 255, for test-support/view."
-  (:require [dk.simongray.podcast.test-support :refer [ascii be code]]))
+  frames, MPEG audio frames with a Xing header, MP4 files with their boxes,
+  chapters, fragments and tracks, Ogg pages of Opus and Vorbis, and ADTS
+  frames. Each builder gives a sequence of numbers from 0 to 255, for
+  test-support/view."
+  (:require [dk.simongray.podcast.test-support :refer [ascii be code le]]
+            [dk.simongray.podcast.util.bytes :as bytes]))
 
 (defn syncsafe
   "The four syncsafe bytes of the number `x`, as ID3 writes a size."
@@ -258,3 +260,129 @@
                        (box "minf" stbl)))]
     (concat (box "ftyp" (ascii "M4A ") (be 4 0))
             (box "moov" (mvhd 1000 n) (trak 1 1000 n "soun" (box "tref" (box "chap" (be 4 2)))) text))))
+
+;; Ogg
+
+(defn- u32
+  "The number `x` cut to its low 32 bits, as an unsigned number on both
+  platforms."
+  [x]
+  (unsigned-bit-shift-right (bit-and x 0xFFFFFFFF) 0))
+
+(defn ogg-crc
+  "The CRC of the bytes `xs` of an Ogg page, by RFC 3533, section 6, bit by
+  bit, apart from the table of the reader."
+  [xs]
+  (reduce (fn [c x]
+            (reduce (fn [c _]
+                      (if (>= c 0x80000000)
+                        (u32 (bit-xor (u32 (* 2 c)) 0x04C11DB7))
+                        (* 2 c)))
+                    (u32 (bit-xor c (* x 16777216)))
+                    (range 8)))
+          0
+          xs))
+
+(defn lacing
+  "The lacing values of the `packets`, each the bytes of a packet that ends
+  on the page."
+  [packets]
+  (mapcat #(concat (repeat (quot (count %) 255) 255) [(mod (count %) 255)]) packets))
+
+(defn ogg-page
+  "An Ogg page of the stream `serial` with the `flags`, the `granule`
+  position, -1 when no packet ends on it, and the sequence number `n`, whose
+  segments are the `lacing` values over the bytes `body`."
+  [flags granule serial n lacing body]
+  (let [head (concat (ascii "OggS") [0 flags] (if (neg? granule) (repeat 8 0xFF) (le 8 granule)) (le 4 serial) (le 4 n))
+        tail (concat [(count lacing)] lacing body)]
+    (concat head (le 4 (ogg-crc (concat head [0 0 0 0] tail))) tail)))
+
+(defn packets-page
+  "An Ogg page of the stream `serial` with the `flags`, the `granule`
+  position and the sequence number `n`, on which the `packets` end."
+  [flags granule serial n packets]
+  (ogg-page flags granule serial n (lacing packets) (apply concat packets)))
+
+(defn packet-pages
+  "The pages of the stream `serial` that hold the one `packet`, from the
+  sequence number `n` on, each of 255 segments but the last."
+  [serial n packet]
+  (let [pieces (partition-all (* 255 255) packet)]
+    (apply concat (map-indexed (fn [i piece]
+                                 (let [last? (= i (dec (count pieces)))]
+                                   (ogg-page (if (pos? i) 1 0) (if last? 0 -1) serial (+ n i)
+                                             (if last? (lacing [piece]) (repeat 255 255)) piece)))
+                               pieces))))
+
+(defn comment-fields
+  "The vendor and the `comments` of a comment header, each a NAME=value
+  text."
+  [comments]
+  (concat (le 4 4) (ascii "test") (le 4 (count comments))
+          (mapcat #(let [b (utf8 %)] (concat (le 4 (count b)) b)) comments)))
+
+(defn opus-head
+  "An OpusHead packet of two channels with the `pre-skip`."
+  [pre-skip]
+  (concat (ascii "OpusHead") [1 2] (le 2 pre-skip) (le 4 48000) [0 0 0]))
+
+(defn opus-tags
+  "An OpusTags packet with the `comments`."
+  [& comments]
+  (concat (ascii "OpusTags") (comment-fields comments)))
+
+(def opus-packet
+  "An Opus packet of one CELT frame of 20 ms, 960 samples."
+  [0xF8 0])
+
+(defn opus-file
+  "An Ogg Opus file of the stream `serial` with the `pre-skip` and the
+  `comments`, and `pages` pages of audio of a second each, of 50 packets,
+  from the granule position `start`."
+  [& {:keys [serial pre-skip comments pages start] :or {serial 1 pre-skip 312 pages 3 start 0}}]
+  (concat (packets-page 2 0 serial 0 [(opus-head pre-skip)])
+          (packet-pages serial 1 (apply opus-tags comments))
+          (apply concat (for [i (range pages)]
+                          (packets-page (if (= i (dec pages)) 4 0) (+ start (* 48000 (inc i))) serial (+ 100 i)
+                                        (repeat 50 opus-packet))))))
+
+(defn vorbis-id
+  "A Vorbis identification header of two channels at the sample `rate`,
+  with blocks of 256 and 2048 samples."
+  [rate]
+  (concat [1] (ascii "vorbis") (le 4 0) [2] (le 4 rate) (le 4 0) (le 4 128000) (le 4 0) [0xB8 1]))
+
+(defn vorbis-file
+  "An Ogg Vorbis file at 44.1 kHz with the `comments`, whose pages of audio
+  end at the granule positions `ends`: the first of two packets, as Vorbis
+  I, section A.2, has it for audio that starts after zero, and each other
+  of 20 packets."
+  [comments & ends]
+  (concat (packets-page 2 0 1 0 [(vorbis-id 44100)])
+          (packets-page 0 0 1 1 [(concat [3] (ascii "vorbis") (comment-fields comments) [1])
+                                 (concat [5] (ascii "vorbis") (repeat 20 0))])
+          (apply concat (map-indexed (fn [i end]
+                                       (packets-page (if (= i (dec (count ends))) 4 0) end 1 (+ 2 i)
+                                                     (repeat (if (zero? i) 2 20) [0 1 2])))
+                                     ends))))
+
+(defn picture-comment
+  "A METADATA_BLOCK_PICTURE comment of a picture of the `picture-type`,
+  with the `mime` type and the bytes `data`, a picture block of RFC 9639,
+  section 8.8, in base64."
+  [picture-type mime data]
+  (let [text  (ascii "Cover")
+        block (concat (be 4 picture-type) (be 4 (count mime)) (ascii mime) (be 4 (count text)) text
+                      (be 4 64) (be 4 64) (be 4 24) (be 4 0) (be 4 (count data)) data)]
+    (str "METADATA_BLOCK_PICTURE=" (bytes/base64 (bytes/of block)))))
+
+;; ADTS
+
+(defn adts-frame
+  "An ADTS frame of AAC-LC at 44.1 kHz in stereo, 371 bytes long, of 1024
+  samples, of MPEG-2 when `mpeg-2?` and of MPEG-4 otherwise."
+  ([]
+   (adts-frame false))
+  ([mpeg-2?]
+   (concat [0xFF (if mpeg-2? 0xF9 0xF1) 0x50 0x80 0x2E 0x7F 0xFC] (repeat 364 0))))

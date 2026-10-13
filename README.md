@@ -28,8 +28,8 @@ Current status
   as do [Media RSS](https://www.rssboard.org/media-rss), Google Play and the other
   vocabularies of podcast feeds.
 - **Formats.** Support for chapters, transcripts, [OPML](https://opml.org/spec2.opml),
-  show notes as Hiccup or text, and the MP3/M4A files themselves: their chapters,
-  duration and art.
+  show notes as Hiccup or text, and the MP3, M4A, Ogg and AAC files themselves:
+  their chapters, duration and art.
 - **Directories and updates.** [Apple Podcasts](https://podcasts.apple.com),
   [fyyd](https://fyyd.de), [gpodder.net](https://gpodder.net) and the
   [Podcast Index](https://podcastindex.org) are all supported.

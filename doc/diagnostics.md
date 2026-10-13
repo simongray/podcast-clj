@@ -132,7 +132,14 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:mp4/zero-duration` | info | The movie header of the MP4 file gives no duration, so the duration of the longest track was used. |
 | `:mp4/fragments-unread` | info | The MP4 file is in fragments, with no mehd box and no index at its end that gives the duration of all of them, so the file has no duration. |
 | `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives no duration and no chapters. |
-| `:file/unknown-format` | warning | The file isn't in a format that its reader knows, so nothing was read from it. Media files can be MP3 or MP4, and images PNG, JPEG, GIF or WebP, while AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO images are only recognised by their type. |
+| `:ogg/unknown-codec` | warning | The Ogg file has no Opus or Vorbis stream, e.g. it holds FLAC or Speex, so nothing was read from it. |
+| `:ogg/no-audio` | warning | The Opus or Vorbis stream has no audio after its headers, so the file has no duration. |
+| `:ogg/no-end` | info | No page of the audio stream ends a packet in the last 64 KB of the file, e.g. because other streams follow it, so the file has no duration. |
+| `:ogg/chapter-start` | warning | A CHAPTERxxx comment doesn't give the start of its chapter as a time, such as 00:05:00.000, so the chapter was left out. |
+| `:ogg/image-type` | info | A METADATA_BLOCK_PICTURE gave the type of its picture loosely, such as JPG or image/jpg, or gave none, so the type was taken from the bytes of the image. |
+| `:aac/estimated-duration` | info | The duration of the AAC file was estimated from the average length of its first frames and the size of the file, since the whole file wasn't read. |
+| `:aac/no-audio` | warning | No ADTS frame was found after the tags, so the file has no duration. |
+| `:file/unknown-format` | warning | The file isn't in a format that its reader knows, so nothing was read from it. Media files can be MP3, MP4, Ogg with Opus or Vorbis, or AAC in ADTS frames, and images PNG, JPEG, GIF or WebP, while AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO images are only recognised by their type. |
 | `:file/truncated` | warning | The file ends before its structures say it does. |
 | `:file/malformed` | warning | The file doesn't read as its format says. |
 | `:file/duration` | info | The duration of the media file or stream differs from the one that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it, but then a position in this file may not be the same moment in another file of the episode, such as its video. |

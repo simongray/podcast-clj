@@ -1,5 +1,5 @@
 (ns dk.simongray.podcast.format.media.id3
-  "ID3v2 tags, the metadata at the start of an MP3 file.
+  "ID3v2 tags, the metadata at the start of an MP3 or AAC file.
 
   The versions are 2.2, 2.3 and 2.4, as id3.org specifies them, with the
   chapters of the ID3v2 Chapter Frame Addendum.
@@ -193,10 +193,8 @@
   from the image `data`, read in the context `ctx`. The quirk applies
   when the declared type is loose, such as JPG or image/jpg, or missing."
   [ctx declared data]
-  (let [t      (str/lower-case (str/trim (str declared)))
-        loose? (not (and (re-matches #"image/[a-z0-9.+-]+" t)
-                         (not= "image/jpg" t)))]
-    (if-let [sniffed (and loose?
+  (let [t (str/lower-case (str/trim (str declared)))]
+    (if-let [sniffed (and (image/loose? declared)
                           (view/quirk? ctx :id3/image-type)
                           (image/sniff data))]
       (do (view/note! ctx (view/diagnostic :id3/image-type :info
@@ -570,6 +568,20 @@
            (recur (conj acc noted) (:end more)))
          acc)))))
 
+(defn ^:no-doc skip
+  "Where the ID3v2 tags in a row from `p` in `view` end, or `p` when no
+  tag begins there. It needs each whole tag with the ten bytes after it,
+  as a reader of the tags would, so that they come at once."
+  [view p]
+  (let [total (or (:total view) ##Inf)]
+    (loop [p p]
+      (if-let [h (and (<= (+ p 10) total)
+                      (= "ID3" (view/code view p 3))
+                      (header view p))]
+        (do (view/need view p (+ (:end h) 10))
+            (recur (:end h)))
+        p))))
+
 (defn ^:no-doc frame
   "The first of `frames` with one of the `ids`."
   [frames & ids]
@@ -679,6 +691,26 @@
                      (sort-by order)
                      (mapv #(chapter-of ctx % places)))]
      (view/reported result (view/noted ctx)))))
+
+(defn ^:no-doc read-front
+  "Read the ID3v2 tags at the front of the file in `view` with `opts`, and
+  what their frames say about the file.
+
+  It's a map of the :tags and where they :end, and of the :duration of a
+  TLEN frame, the :chapters and the :artwork, each absent when the frames
+  don't have it. Its report is that of the tags and of the chapters."
+  [view opts]
+  (let [tags    (read-all view 0 opts)
+        frames  (mapcat :frames tags)
+        seconds (duration frames)
+        chs     (chapters frames opts)
+        art     (artwork frames)]
+    (view/reported
+     (cond-> {:tags tags :end (or (:end (peek tags)) 0)}
+       seconds   (assoc :duration seconds)
+       (seq chs) (assoc :chapters chs)
+       art       (assoc :artwork art))
+     (concat (mapcat report tags) (report chs)))))
 
 (comment
   ;; a tag of ID3v2.4 with a title, TIT2, and a length in milliseconds, TLEN

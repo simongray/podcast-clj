@@ -2,7 +2,8 @@
   "What a media file says about itself, apart from the feed.
 
   A media file gives its duration, its chapters and its artwork. It's an
-  MP3 file, or an MP4 or M4A file.
+  MP3 file, an MP4 or M4A file, an Ogg file of Opus or Vorbis, or an AAC
+  file of ADTS frames.
 
   A reading takes a view of the parts of the file at hand, as in
   dk.simongray.podcast.util.bytes.view, and gives what they say, or the
@@ -16,15 +17,18 @@
   :except option leaves out the quirks that it names."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.media.aac :as aac]
+            [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
+            [dk.simongray.podcast.format.media.ogg :as ogg]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]))
 
 ;; IANA Media Types: RFC 3003 for audio/mpeg, RFC 4337 for audio/mp4 and
-;; video/mp4, RFC 7845, section 9, for .opus; and the spellings of Apple
-;; Podcasts, which PSP-1 lists beside them
+;; video/mp4, RFC 5334 for audio/ogg, RFC 7845, section 9, for .opus; and
+;; the spellings of Apple Podcasts, which PSP-1 lists beside them
 (def types
   "What each media type of an enclosure says of its files: the :extension
   of a file name, and the :format that read finds in them, for those it
@@ -37,9 +41,9 @@
    "video/m4v"       {:extension "m4v" :format :mp4}
    "video/x-m4v"     {:extension "m4v" :format :mp4}
    "video/quicktime" {:extension "mov" :format :mp4}
-   "audio/aac"       {:extension "aac"}
-   "audio/ogg"       {:extension "ogg"}
-   "audio/opus"      {:extension "opus"}
+   "audio/aac"       {:extension "aac" :format :aac}
+   "audio/ogg"       {:extension "ogg" :format :ogg}
+   "audio/opus"      {:extension "opus" :format :ogg}
    "audio/flac"      {:extension "flac"}
    "audio/wav"       {:extension "wav"}
    "audio/x-wav"     {:extension "wav"}
@@ -56,23 +60,40 @@
         types))
 
 (def ^:no-doc signatures
-  "How the start of a file tells its format, in order, as pairs of the
-  format and a predicate of the view: an ID3 tag for :mp3, an ftyp box for
-  :mp4, and an MPEG audio frame for :mp3."
-  [[:mp3 #(= "ID3" (view/code % 0 3))]
-   [:mp4 #(= "ftyp" (view/code % 4 4))]
-   [:mp3 #(mp3/frame-header % 0)]])
+  "How the bytes at the start of a file tell its format, in order, as pairs
+  of the format and a predicate of the view and the place: an ftyp box for
+  :mp4, a page for :ogg, an ADTS or an MPEG audio frame for :aac or :mp3,
+  and an ID3 tag whose header doesn't read for :mp3."
+  [[:mp4 #(= "ftyp" (view/code %1 (+ %2 4) 4))]
+   [:ogg #(= "OggS" (view/code %1 %2 4))]
+   [:aac aac/frame-header]
+   [:mp3 mp3/frame-header]
+   [:mp3 #(= "ID3" (view/code %1 %2 3))]])
 
 (def ^:no-doc readers
   "The reader of each format, which gives the keys of read."
   {:mp3 mp3/read
-   :mp4 mp4/read})
+   :mp4 mp4/read
+   :ogg ogg/read
+   :aac aac/read})
 
 (defn- sniff
-  "The format of the file whose start `view` holds, by signatures, or nil."
+  "The format of the file whose start `view` holds, by signatures, or nil.
+  After ID3 tags, the file is :aac when an ADTS frame follows them, and
+  :mp3 otherwise."
   [view]
   (view/need view 0 12)
-  (some (fn [[format matches?]] (when (matches? view) format)) signatures))
+  (let [start (id3/skip view 0)
+        total (or (:total view) ##Inf)]
+    (cond
+      (zero? start)
+      (some (fn [[format matches?]] (when (matches? view 0) format)) signatures)
+
+      (and (< start total) (aac/frame-header view start))
+      :aac
+
+      :else
+      :mp3)))
 
 (defn- with-image
   "The `chapter` with the image of its :artwork as the data URL of its
@@ -83,12 +104,12 @@
 
 (defn- result
   "What the `file` of `format` says about itself, as its reader gave it:
-  without the tags of an MP3 file, and with its chapters as a chapters
+  without the tags or the comments, and with its chapters as a chapters
   document."
   [format {:keys [chapters] :as file}]
   (let [document {:version  chapters/version
                   :chapters (mapv with-image chapters)}]
-    (cond-> (assoc (dissoc file :tags :chapters) :format format)
+    (cond-> (assoc (dissoc file :tags :comments :chapters) :format format)
       (seq chapters) (assoc :chapters document))))
 
 (defn report
@@ -99,19 +120,21 @@
 (defn read
   "What the media file whose parts `view` holds says about itself, read
   with `opts`. It's a map of the keys below, and for an MP4 file the
-  :codecs, :width, :height and :movie-first? that format.media.mp4/read
-  gives, each absent when the file doesn't have it.
+  :width, :height and :movie-first? that format.media.mp4/read gives, each
+  absent when the file doesn't have it.
 
-  - :format is :mp3 or :mp4
+  - :format is :mp3, :mp4, :ogg or :aac
+  - :codecs is the RFC 6381 codecs string of an MP4, Ogg or AAC file
   - :duration is in seconds
   - :chapters is a chapters document of dk.simongray.podcast.format.chapters,
     and the images of an MP3 file's chapters are data URLs, which a host
     serves as files with update-image-urls of that namespace
   - :artwork is a map of :type and :data
   - :bytes is the size of the file, when the view knows it
-  - :media-start is where the audio or video starts, after the ID3 tag of
-    an MP3 file or the boxes before the media data of an MP4 file. With
-    :bytes, it's the :header and the :size of analytics/threshold.
+  - :media-start is where the audio or video starts, after the ID3 tags of
+    an MP3 or AAC file, the boxes before the media data of an MP4 file, or
+    the pages of the headers of an Ogg file. With :bytes, it's the :header
+    and the :size of analytics/threshold.
 
   When the view lacks bytes, the result has the ranges that the reading
   needs under :need, as pairs of start and end, end excluded.

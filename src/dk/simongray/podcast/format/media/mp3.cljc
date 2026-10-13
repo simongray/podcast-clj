@@ -198,24 +198,16 @@
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
-   (let [tags        (id3/read-all view 0 opts)
-         frames      (mapcat :frames tags)
-         start       (or (:end (peek tags)) 0)
-         ctx         (view/context opts)
-         [p h]       (first-frame ctx view start)
-         seconds     (or (duration ctx view p h) (id3/duration frames))
-         chs         (id3/chapters frames opts)
-         artwork     (id3/artwork frames)
-         result      (cond-> {:tags tags}
-                       p         (assoc :media-start p)
-                       seconds   (assoc :duration seconds)
-                       (seq chs) (assoc :chapters chs)
-                       artwork   (assoc :artwork artwork))
-         no-audio    (view/diagnostic :mp3/no-audio :warning)
-         diagnostics (cond-> (into (vec (mapcat id3/report tags))
-                                   (view/noted ctx))
-                       (nil? h) (conj no-audio))]
-     (view/reported result (into diagnostics (id3/report chs))))))
+   (let [front    (id3/read-front view opts)
+         ctx      (view/context opts)
+         [p h]    (first-frame ctx view (:end front))
+         seconds  (or (duration ctx view p h) (:duration front))
+         no-audio (view/diagnostic :mp3/no-audio :warning)]
+     (view/reported (cond-> (dissoc front :end :duration)
+                      p       (assoc :media-start p)
+                      seconds (assoc :duration seconds))
+                    (cond-> (into (view/report front) (view/noted ctx))
+                      (nil? h) (conj no-audio))))))
 
 (comment
   ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes

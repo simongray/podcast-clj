@@ -32,6 +32,7 @@
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.image" 3
    "format.hls" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
+   "format.media.ogg" 3 "format.media.aac" 3
    "value" 3 "value.bolt11" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3
    "value.payment" 3 "value.webln" 3
    "profile" 3 "profile.queue" 3 "profile.marks" 3 "profile.opml" 3
@@ -111,7 +112,7 @@
   (testing "the companion formats stand on the primitives and each other alone"
     (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.image"
                 "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4"
-                "feed.integrity" "format.hls" "value" "value.payment"
+                "format.media.ogg" "format.media.aac" "feed.integrity" "format.hls" "value" "value.payment"
                 "value.bolt11"]]
       (is (every? #(or (zero? (get layers %))
                        (str/starts-with? % "format.")

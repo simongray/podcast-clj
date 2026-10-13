@@ -136,6 +136,8 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration, chapters and artwork, in the shape that `format.media.mp4` gives them. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters, artwork, codecs, video size and whether the movie comes first. |
+| `format.media.ogg` | The pages of an Ogg file of Opus or Vorbis: its duration and codec, and the chapters and artwork of its comments. |
+| `format.media.aac` | The ADTS frames of an AAC file, after its ID3v2 tags: its duration, codecs, chapters and artwork. |
 
 ## Comments
 

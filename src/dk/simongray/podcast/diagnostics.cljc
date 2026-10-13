@@ -284,7 +284,7 @@
      :doc "Chapters that aren't JSON objects in a list were left out."}
 
     ;; media files and images: the ID3v2 tags, the MPEG audio frames, the MP4
-    ;; boxes and the headers of images
+    ;; boxes, the Ogg pages, the ADTS frames and the headers of images
     {:id :id3/frame-size :level :info
      :doc "An ID3v2 frame gave its size in the form of the other version, a
            plain number in ID3v2.4 or a syncsafe number in ID3v2.3, and the size
@@ -336,11 +336,36 @@
     {:id :mp4/no-movie :level :warning
      :doc "The MP4 file has no movie box, so it gives no duration and no
            chapters."}
+    {:id :ogg/unknown-codec :level :warning
+     :doc "The Ogg file has no Opus or Vorbis stream, e.g. it holds FLAC or
+           Speex, so nothing was read from it."}
+    {:id :ogg/no-audio :level :warning
+     :doc "The Opus or Vorbis stream has no audio after its headers, so the file
+           has no duration."}
+    {:id :ogg/no-end :level :info
+     :doc "No page of the audio stream ends a packet in the last 64 KB of the
+           file, e.g. because other streams follow it, so the file has no
+           duration."}
+    {:id :ogg/chapter-start :level :warning
+     :doc "A CHAPTERxxx comment doesn't give the start of its chapter as a time,
+           such as 00:05:00.000, so the chapter was left out."}
+    {:id :ogg/image-type :level :info
+     :doc "A METADATA_BLOCK_PICTURE gave the type of its picture loosely, such
+           as JPG or image/jpg, or gave none, so the type was taken from the
+           bytes of the image."}
+    {:id :aac/estimated-duration :level :info
+     :doc "The duration of the AAC file was estimated from the average length of
+           its first frames and the size of the file, since the whole file
+           wasn't read."}
+    {:id :aac/no-audio :level :warning
+     :doc "No ADTS frame was found after the tags, so the file has no
+           duration."}
     {:id :file/unknown-format :level :warning
      :doc "The file isn't in a format that its reader knows, so nothing was read
-           from it. Media files can be MP3 or MP4, and images PNG, JPEG, GIF or
-           WebP, while AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO images are only
-           recognised by their type."}
+           from it. Media files can be MP3, MP4, Ogg with Opus or Vorbis, or AAC
+           in ADTS frames, and images PNG, JPEG, GIF or WebP, while AVIF, HEIC,
+           HEIF, SVG, BMP, TIFF and ICO images are only recognised by their
+           type."}
     {:id :file/truncated :level :warning
      :doc "The file ends before its structures say it does."}
     {:id :file/malformed :level :warning

@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.format.media-test
   "What a media file says about itself, read whole or by ranges: the format
-  and the duration, the chapters as a chapters document, a file in memory,
+  by the first bytes, after the ID3 tags too, and the duration, the
+  chapters as a chapters document, a file in memory,
   on disk, in a Blob or over HTTP, parts that don't read, sizes that lie,
   and a file that doesn't come. On the JVM also random bytes and mangled
   files, which the reader must answer with a report, never an exception."
@@ -13,8 +14,8 @@
             [dk.simongray.podcast.test-support :refer [ascii be fetch-from run view
                                                        #?@(:clj [local? with-file-server])]]
             [dk.simongray.podcast.test-support.media
-             :refer [about= audio-frame box chap chapter-file chapter-track-file ctoc mvhd syncsafe tag text xing-frame
-                     #?(:clj fragmented-file)]]
+             :refer [about= adts-frame audio-frame box chap chapter-file chapter-track-file ctoc mvhd opus-file syncsafe tag
+                     text xing-frame #?(:clj fragmented-file)]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
@@ -41,6 +42,22 @@
                                       (xing-frame 10) (audio-frame))))]
       (is (= {:version "1.2.0" :chapters [{:start-time 0.0 :end-time 5.0 :title "A"}]} (:chapters r)))))
   (is (every? :message (media/report (media/read (view (ascii "not audio at all"))))) "every diagnostic with its message"))
+
+(deftest the-format-by-the-first-bytes
+  (let [tagged (tag 3 (text 3 "TIT2" "T"))
+        adts   (apply concat (repeat 3 (adts-frame)))]
+    (is (= :ogg (:format (media/read (view (opus-file))))))
+    (is (= :aac (:format (media/read (view adts)))))
+    (is (= :aac (:format (media/read (view (concat tagged adts))))) "after the ID3 tags that often come first")
+    (is (= :mp3 (:format (media/read (view (concat tagged tagged (xing-frame 10) (audio-frame)))))) "after two tags")
+    (is (= :mp3 (:format (media/read (view (concat (ascii "ID3") [9 0 0 0 0 0 0] (audio-frame))))))
+        "after a tag whose header doesn't read"))
+  (is (= {:codecs "opus" :chapters {:version "1.2.0" :chapters [{:start-time 0 :title "Intro"}]}}
+         (select-keys (media/read (view (opus-file :comments ["CHAPTER001=00:00:00.000" "CHAPTER001NAME=Intro"])))
+                      [:codecs :chapters :comments]))
+      "the chapters of an Ogg file as a chapters document, without the comments")
+  (is (= {"audio/ogg" :ogg "audio/opus" :ogg "audio/aac" :aac}
+         (select-keys media/formats ["audio/ogg" "audio/opus" "audio/aac"]))))
 
 #?(:clj
    (deftest reading-media-in-rounds
