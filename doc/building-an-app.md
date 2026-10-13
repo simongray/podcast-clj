@@ -924,6 +924,16 @@ It gives a name that every file system takes, from the letters of the
 title, a digest of the episode's id and the extension of the file, e.g.
 `Episode-274-Vibe-Cloning-c71b5f4a.mp3`.
 
+In a browser, a host rarely lets a page read an episode, so save it
+through your server. Mount wary-fetch's `proxy/stream-handler`, which
+passes the file on as it arrives, and send the request through it with
+`(proxy/sender "/media")` as `:send` and a `:sink` that writes the file,
+e.g. to the origin private file system. The podcast server serves such a
+route at `/media`, for the files of the listener's episodes alone. In
+Chromium, Background Fetch goes on after the page closes: give
+`registration.backgroundFetch.fetch` the URL of the route, e.g.
+`/media?url=…`, and store the response in the service worker.
+
 
 ## Share a show or an episode
 

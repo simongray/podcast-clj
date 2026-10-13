@@ -49,6 +49,11 @@ Here `proxy` is `dk.simongray.wary-fetch.proxy` of
 [like-minded](https://github.com/simongray/like-minded), two libraries that
 come with podcast-clj.
 
+To save an episode on the device, fetch it through `/media`, e.g.
+`/media?url=…` with the URL of its file. It streams the files of the
+episodes of the listener's feeds as they arrive, and passes a Range on so
+that a download can resume, but refuses any other URL.
+
 [How to build a podcast app](../doc/building-an-app.md#sync-the-listeners-of-a-website)
 says what else a page needs, e.g. where to keep the library. The
 client's pages can only run scripts from the server's own files, so an
@@ -180,5 +185,6 @@ from the public internet.
 Whoever has the password is the listener, so the server limits what a
 leaked one can cost: the sync folder holds no more than its settings
 allow, the proxy fetches four files at once and makes the others wait,
-and a gpodder app adds at most 1000 subscriptions at a time, of feeds on
+`/media` streams only the files of the listener's episodes, and a gpodder
+app adds at most 1000 subscriptions at a time, of feeds on
 the public internet only.

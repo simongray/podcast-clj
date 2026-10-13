@@ -8,10 +8,11 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.webdav :as webdav]
-            [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [with-server with-temp-dir]]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.wary-fetch.url :as url]
             [io.pedestal.connector.test :refer [response-for]]
             [podcast-server.device :as device]
             [podcast-server.service :as service]))
@@ -156,6 +157,33 @@
         (is (= 405 (:status (response-for c :post url))))
         (is (= 403 (:status (response-for c :get url :headers {"sec-fetch-site" "cross-site"})))
             "a page of another site")))))
+
+(deftest the-media-files
+  (let [episode (byte-array (map unchecked-byte (range 1000)))]
+    (with-server {"/ep.mp3" {:body episode :headers {"Content-Type" "audio/mpeg"}}}
+      (fn [base]
+        (let [known   (str base "/ep.mp3")
+              lib     (atom {:feeds {"g" {:feed {:rss/items [{:rss/guid      {:content "1"}
+                                                              :rss/enclosure {:url known :type "audio/mpeg"}}]}}}})
+              media   (service/media-handler lib {:allow-pred (constantly true)})
+              fetch   (fn [url headers]
+                        (let [response (media {:request-method :get
+                                               :query-string   (str "url=" (url/percent-encode url))
+                                               :headers        headers})]
+                          (update response :body #(if (instance? java.io.InputStream %)
+                                                    (with-open [in ^java.io.InputStream %] (vec (.readAllBytes in)))
+                                                    %))))
+              whole   (fetch known {})
+              part    (fetch known {"range" "bytes=100-109"})]
+          (is (= [200 "audio/mpeg" (vec episode)]
+                 [(:status whole) (get-in whole [:headers "Content-Type"]) (:body whole)]))
+          (is (= [206 (vec (range 100 110))] [(:status part) (:body part)]) "a range, to resume a download")
+          (is (= 403 (:status (fetch (str base "/other.mp3") {})))
+              "a URL that no episode of the feeds names, so the server is no open relay")
+          (is (= 403 (:status ((service/media-handler lib) {:request-method :get
+                                                            :query-string   (str "url=" (url/percent-encode known))
+                                                            :headers        {}})))
+              "and a known file on this machine, which url/public? refuses by default"))))))
 
 (deftest writes-of-other-sites
   (with-temp-dir

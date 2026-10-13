@@ -6,6 +6,8 @@
 
   - /proxy, through which the client fetches feeds and the other files
     that sites don't let a page read
+  - /media, through which the client saves the media files of the
+    episodes of the listener's feeds
   - /dav/, a folder of sync documents over WebDAV
   - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
@@ -21,6 +23,7 @@
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.ring :as ring]
@@ -436,16 +439,55 @@
       podcastindex-key
       (as-> send (podcastindex/sender index {:send send})))))
 
+(defn media-urls
+  "The URLs of the media files of the episodes of the feeds in `library`,
+  as resolve/enclosures gives them."
+  [library]
+  (into #{}
+        (for [[_ {:keys [feed]}] (:feeds library)
+              item               (:rss/items feed)
+              {:keys [url]}      (resolve/enclosures item)
+              :when              url]
+          url)))
+
+(defn media-handler
+  "A Ring handler that streams the media file at the url parameter as
+  proxy/stream-handler does, when it's a file of an episode of the feeds in
+  `lib`, an atom of the server's library, and refuses any other URL.
+
+  So a page can save an episode, which a host rarely lets a page read,
+  while the server streams nothing else for whoever passes its login. The
+  `opts` are those of proxy/stream-handler."
+  ([lib]
+   (media-handler lib {}))
+  ([lib opts]
+   (let [stream (proxy/stream-handler
+                 (merge {:user-agent client/user-agent} opts))
+         cache  (atom nil)
+         known  (fn [library]
+                  (let [[feeds urls] @cache]
+                    (if (identical? feeds (:feeds library))
+                      urls
+                      (second (reset! cache [(:feeds library)
+                                             (media-urls library)])))))]
+     (fn [request]
+       (let [url (get (url/query-params (:query-string request)) "url")]
+         (if (contains? (known @lib) url)
+           (stream request)
+           (refused (str "The server streams the media files of the "
+                         "episodes of its feeds alone."))))))))
+
 (defn routes
-  "The routes of the proxy, the sync folder `sync-store` and the gpodder
-  API, in Pedestal's set syntax. The gpodder API names episodes by the
-  feeds in `lib`, an atom of the server's library.
+  "The routes of the proxy, the media files, the sync folder `sync-store`
+  and the gpodder API, in Pedestal's set syntax. The gpodder API names
+  episodes by the feeds in `lib`, an atom of the server's library, and
+  the media files are those of its episodes.
 
   The :password of `settings` lets in the apps of the gpodder API, or any
   app when it's nil, and the sync folder holds no more than their
   :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
   once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
-  with proxy-send."
+  with proxy-send. The media files pass through as they arrive."
   [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
                    :as   settings}]
   (let [dav         (within-quota (sync-dir settings)
@@ -461,6 +503,7 @@
         proxy       (at-most 4 30 (proxy/handler {:user-agent client/user-agent
                                                   :send (proxy-send settings)}))]
     #{["/proxy" :any proxy :route-name ::proxy]
+      ["/media" :any (media-handler lib) :route-name ::media]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
       ["/api/2/*path" :any gpodder :route-name ::gpodder]}))
