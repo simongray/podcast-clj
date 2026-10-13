@@ -1151,6 +1151,78 @@
                             (is (= [:library/malformed-profile] (map :id (:report (:restore lib)))))
                             (is (= (:profile (made)) (:profile lib)) "the profile it had")))))))
 
+(deftest feeds-on-demand
+  (let [documents (atom {})
+        s         (store/memory documents)
+        made      #(library/make "phone" {:config {:now-fn (constantly now)}})
+        two       (library/subscribe library other-url {:status 200 :url other-url :feed other})
+        other-key (feed.guid/feed-guid other other-url)
+        fetched   (atom [])
+        fetch     (fn [u _] (swap! fetched conj u) {:status 200 :url u :feed newer})]
+    (run #(library/save! two s)
+         #(async/then (library/restore! (made) s {:load :none})
+                      (fn [lib]
+                        (is (= #{guid other-key} (set (library/unloaded lib))))
+                        (is (not (library/loaded? lib guid)))
+                        (is (= {:url other-url :unloaded? true :title "Other"}
+                               (select-keys (library/show lib other-key) [:url :unloaded? :title]))
+                            "a show with what the profile knows of it")
+                        (is (every? :unloaded? (library/shows lib)))
+                        (is (= [] (library/episodes lib)))
+                        (is (nil? (library/episode lib [other-key "o1"])))
+                        (is (seq (library/search lib "Other one")) "the search index still has it")
+                        (async/then (library/save! lib s)
+                                    (fn [{:keys [put delete]}]
+                                      (is (not-any? (fn [n] (re-find #"^feed-" n)) put))
+                                      (is (= [] delete) "the documents of the feeds stay")))))
+         #(async/then (library/restore! (made) s {:load [guid]})
+                      (fn [lib]
+                        (is (= [true false] (map (partial library/loaded? lib) [guid other-key])))
+                        (async/then (library/load! lib s [other-key])
+                                    (fn [loaded]
+                                      (is (= [] (:report (:load loaded))))
+                                      (is (= (get-in two [:feeds other-key]) (get-in loaded [:feeds other-key]))
+                                          "as it was")))))
+         #(async/then (library/unload! two s [guid])
+                      (fn [lib]
+                        (is (= [] (:report (:unload lib))))
+                        (is (= [guid] (library/unloaded lib)))
+                        (is (contains? @documents (get-in lib [:feeds guid :document])) "written first")
+                        (is (= [guid] (library/unloaded (library/merge two lib))) "a merge keeps it unloaded")
+                        (is (seq (library/search (library/merge two lib) "Other one")))))
+         (fn []
+           (let [failing (assoc s :put (fn [_ _ _] (throw (ex-info "Disk full" {}))))]
+             (async/then (library/unload! two failing [guid])
+                         (fn [lib]
+                           (is (= [:library/save-failed] (map :id (:report (:unload lib)))))
+                           (is (library/loaded? lib guid) "a feed that couldn't be written stays")))))
+         (fn []
+           (async/then (library/restore! (made) s {:load :none})
+                       (fn [lib]
+                         (let [opts {:at (at 86400) :feed-guids [guid] :fetch fetch}]
+                           (async/then (library/refresh! lib opts)
+                                       (fn [lib]
+                                         (is (= [:library/not-loaded] (map :id (:report (:refresh lib)))))
+                                         (is (= [] @fetched) "nothing fetched without the store")
+                                         (async/then (library/refresh! lib (assoc opts :store s))
+                                                     (fn [lib]
+                                                       (is (= [[guid "new"]] (:added (:refresh lib)))
+                                                           "loaded first, so the new episode is new")
+                                                       (is (library/loaded? lib guid))
+                                                       (is (not (library/loaded? lib other-key)))))))))))
+         (fn []
+           (let [id     [guid "https://example.com/ep0003"]
+                 played (-> library
+                            (update :profile profile/prefer {:downloads {:default {:played 0}}} now)
+                            (update :files assoc id {:url "https://example.com/file-03.mp3" :bytes 8800
+                                                     :at now :finished-at now :path "/ep3.mp3"})
+                            (library/update-profile profile/mark-played id))]
+             (is (= [id] (map :id (:delete (library/plan played)))))
+             (async/then (library/unload! played s [guid])
+                         (fn [lib]
+                           (is (= [] (:delete (library/plan lib)))
+                               "no file of a feed that the plan can't see"))))))))
+
 (deftest the-episodes-that-a-fetch-no-longer-brings-back
   (let [[ep3 ep2 ep1] (:rss/items show)
         id        (fn [item] [guid (feed.guid/item-guid item)])

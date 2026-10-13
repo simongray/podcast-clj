@@ -176,6 +176,27 @@
   [library]
   (keep #(shown library %) (keys (:feeds library))))
 
+(defn- unloaded?
+  "Whether the feeds `entry` names the document of its feed rather than
+  holding the feed."
+  [entry]
+  (boolean (and (:document entry) (not (:feed entry)))))
+
+(defn loaded?
+  "Whether `library` holds the feed `feed-guid` in memory, rather than only
+  in the document that a save wrote, as after restore! with :load or after
+  unload!."
+  [library feed-guid]
+  (some? (get-in library [:feeds feed-guid :feed])))
+
+(defn unloaded
+  "The guids of the feeds that `library` keeps in their documents alone,
+  for load! to read back."
+  [library]
+  (vec (for [[feed-guid entry] (:feeds library)
+             :when (unloaded? entry)]
+         feed-guid)))
+
 (defn urls
   "A map from each feed of `library`, with the episodes that it lists, to
   its URL."
@@ -206,13 +227,14 @@
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
-  index."
+  index. A feed that isn't loaded keeps what the index has of it."
   [library feed-guid]
-  (if-let [index (:index library)]
-    (assoc library :index (apply search/add
-                                 (feed.search/without-feed index feed-guid)
-                                 (documents library feed-guid)))
-    library))
+  (let [index (:index library)]
+    (if (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
+      (assoc library :index (apply search/add
+                                   (feed.search/without-feed index feed-guid)
+                                   (documents library feed-guid)))
+      library)))
 
 (defn- alone?
   "Whether `library` holds the feed `feed-guid` for its remote items
@@ -782,10 +804,11 @@
   A feed fetched for the first time is that of a new subscription, so its
   episodes aren't new ones, and neither are those of a feed of remote
   items. A feed that's still not fetched is left out, and fetched next
-  time."
+  time. A feed that isn't loaded stays in its document."
   [library {:keys [feeds changed moved] :as result} at opts]
   (let [before   (:feeds library)
-        library  (assoc library :feeds (into {} (filter (comp :feed val))
+        kept?    #(or (:feed %) (unloaded? %))
+        library  (assoc library :feeds (into {} (filter (comp kept? val))
                                              feeds))
         noted    (fn [acc feed-guid]
                    (update acc :library settled feed-guid opts))
@@ -848,6 +871,33 @@
      :failed    (count failed)
      :left      (count left)}))
 
+(declare load!)
+
+(defn- loaded-for-refresh
+  "The `step` of a refresh at `at`, a map of the :library and the :report,
+  with the feeds that the refresh fetches loaded from the :store of
+  `opts`, when the library doesn't hold them. Without a store, the report
+  has :library/not-loaded for those that are due."
+  [{:keys [library report] :as step} at {:keys [store feed-guids] :as opts}]
+  (let [due    (set (or feed-guids (feeds/due (:feeds library) at)))
+        asleep (filter #(and (contains? due %)
+                             (unloaded? (get-in library [:feeds %])))
+                       (keys (:feeds library)))]
+    (cond
+      (empty? asleep)
+      step
+
+      store
+      (async/then (load! library store asleep)
+                  (fn [loaded]
+                    {:library (dissoc loaded :load)
+                     :report  (into report (get-in loaded [:load :report]))}))
+
+      :else
+      (update step :report conj
+              (diagnostics/describe {:id         :library/not-loaded
+                                     :feed-guids (vec asleep)})))))
+
 (defn refresh!
   "Fetch and apply whatever `library` is due to fetch, with the `opts`
   below.
@@ -882,6 +932,9 @@
     feeds or within a deadline, to hear of each fetch as it ends, and to
     stop, as app.feeds/refresh! takes them. The feeds left out stay due,
     and the :left of the :counts says how many there are.
+  - :store, the store that the library is saved to, from which it loads
+    the feeds that it fetches and doesn't hold, as load! does. Without
+    it, such a feed isn't fetched, and the report has :library/not-loaded.
 
   A refresh in which every fetch of a feed failed before a server
   answered, at more than one host, counts as offline too. Offline, no feed
@@ -905,18 +958,24 @@
                                       :now-fn :signal])
                         (assoc :at at))]
      (async/then
-      (refresh-lists! library at opts)
+      (async/then (refresh-lists! library at opts)
+                  #(loaded-for-refresh % at opts))
       (fn [{listed :library report :report}]
         (let [unfetched  (pending listed)
-              ;; a feed held for remote items alone isn't checked again
+              ;; a feed held for remote items alone isn't checked again, and
+              ;; one that isn't loaded can't be merged with what it held
               held       (remove (set (concat (:feed-guids opts)
                                               (keys unfetched)))
                                  (filter #(alone? listed %)
                                          (keys (:feeds listed))))
+              asleep     (set (unloaded listed))
+              held       (into (vec held) asleep)
               feeds-opts (cond-> feeds-opts
                            (:feed-guids opts)
                            (update :feed-guids
-                                   #(distinct (concat (keys unfetched) %))))]
+                                   #(->> (concat (keys unfetched) %)
+                                         (remove asleep)
+                                         distinct)))]
           (async/then
            ;; a pending feed is fetched whole, without the validators of
            ;; the part of it that the library holds
@@ -1120,22 +1179,34 @@
 
   The :title is the listener's :custom-title of the show, and the
   :episodes are in the :order that the listener chose for it, as
-  profile/default-settings has them."
+  profile/default-settings has them.
+
+  A feed that the library doesn't hold in memory gives only its :url,
+  its :title and its :artwork, as the profile knows them, and
+  :unloaded? true. Read it back with load!."
   ([library feed-guid]
    (show library feed-guid {}))
   ([library feed-guid opts]
    (when-let [{:keys [url] :as entry} (get-in library [:feeds feed-guid])]
      (let [profile (:profile library)
            feed    (marked entry)
-           view    (show/view feed (assoc opts :url url))
-           own     (profile/settings profile feed-guid)]
-       (cond-> view
-         (:custom-title own)
-         (assoc :title (:custom-title own))
+           own     (profile/settings profile feed-guid)
+           image   (get-in profile [:subscriptions feed-guid :image])]
+       (if (unloaded? entry)
+         (cond-> {:url url :unloaded? true}
+           (profile/title profile feed-guid)
+           (assoc :title (profile/title profile feed-guid))
 
-         (and (:order own) (contains? view :episodes))
-         (assoc :episodes (criteria/episodes feed {:profile profile
-                                                   :url     url})))))))
+           image
+           (assoc :artwork image))
+         (let [view (show/view feed (assoc opts :url url))]
+           (cond-> view
+             (:custom-title own)
+             (assoc :title (:custom-title own))
+
+             (and (:order own) (contains? view :episodes))
+             (assoc :episodes (criteria/episodes feed {:profile profile
+                                                       :url     url})))))))))
 
 (defn shows
   "The subscriptions of `library` in the listener's order, as profile/shows
@@ -1150,7 +1221,8 @@
 
   The counts are of the episodes that the library keeps of each show, and
   of those of its episodes in the inbox and the queue. A show whose feed
-  isn't fetched yet counts only the inbox and the queue."
+  isn't fetched yet counts only the inbox and the queue, and so does one
+  whose feed isn't loaded, which has :unloaded? true."
   [library]
   (let [profile (:profile library)
         inbox   (frequencies (map first (profile.queue/inbox profile)))
@@ -1177,7 +1249,9 @@
             (cond-> {:feed-guid feed-guid :counts counts}
               title   (assoc :title title)
               artwork (assoc :artwork artwork)
-              dates   (assoc :newest (apply max-key inst-ms dates)))))]
+              dates   (assoc :newest (apply max-key inst-ms dates))
+              (unloaded? (get-in library [:feeds feed-guid]))
+              (assoc :unloaded? true))))]
     (mapv summary (profile/shows profile))))
 
 (defn fetch-linked-shows!
@@ -1196,7 +1270,8 @@
 (defn episode
   "The view of the episode `id`, [feed-guid item-guid], of `library`, with
   the `opts` of app.episode/view over the config, e.g. its :languages, or
-  nil when the library has no such episode. Unless the `opts` say, the
+  nil when the library has no such episode, or doesn't hold its feed in
+  memory, as loaded? tells. Unless the `opts` say, the
   :video? of the view is whether the listener watches the show. The view
   has the :retained fact of an episode that the feed no longer brings
   back."
@@ -1680,6 +1755,12 @@
             *print-namespace-maps* false]
     (pr-str x)))
 
+(defn- feed-body
+  "The EDN of the document of the feeds `entry`: its feed and the facts of
+  the items that it retains."
+  [entry]
+  (printed (select-keys entry [:feed :retained])))
+
 (defn- saved-map
   "The parts of `library` that `keys` names, as library.edn holds them:
   with the :version, and each feeds entry with the name of the document
@@ -1707,13 +1788,18 @@
         wanted (into {}
                      (for [[feed-guid entry] feeds
                            :when (:feed entry)]
-                       [(entry-document feed-guid entry) entry]))]
+                       [(entry-document feed-guid entry) entry]))
+        asleep (into #{}
+                     (keep #(when (unloaded? %) (:document %)))
+                     (vals feeds))]
     {:put    (for [[name entry] wanted
                    :when (not (contains? held name))]
                {:name name
-                :body (printed (select-keys entry [:feed :retained]))})
+                :body (feed-body entry)})
      :delete (->> held
-                  (filter #(and (feed-document? %) (not (contains? wanted %))))
+                  (filter #(and (feed-document? %)
+                                (not (contains? wanted %))
+                                (not (contains? asleep %))))
                   sort
                   vec)}))
 
@@ -1872,15 +1958,16 @@
 
 (defn- with-feeds
   "The `library` and its `report`, a pair, with the feed and the retained
-  facts of each feeds entry that names a document read from `store`, in a
-  future or a promise. Each feed has its key, as guid/with-key gives it.
+  facts of each feeds entry that names a document read from `store`, of
+  the feeds that `wanted?` holds for, in a future or a promise. Each feed
+  has its key, as guid/with-key gives it.
 
   An entry whose document is missing or doesn't read keeps only its URL,
   so that the next refresh fetches it again, with
   :library/unreadable-document in the report."
-  [[library report] store]
-  (let [outlined (for [[feed-guid {:keys [document feed]}] (:feeds library)
-                       :when (and document (not feed))]
+  [[library report] store wanted?]
+  (let [outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
+                       :when (and (unloaded? entry) (wanted? feed-guid))]
                    [feed-guid document])
         loaded   (fn [{:keys [value error]}]
                    (let [{:keys [feed retained]} (when-not error
@@ -1960,12 +2047,22 @@
                        ; :library/malformed-profile, :library/newer-format
 
   A store without the documents gives the library as it is, and so does a
-  library saved by a newer version, which save! then won't write over."
+  library saved by a newer version, which save! then won't write over.
+
+  The :load of `opts` says which feeds to read: :all by default, :none, or
+  the guids of some. The others stay in their documents until load!
+  reads them, e.g. the feeds of the shows on the screen, and the views
+  mark them as not loaded."
   ([library store]
    (restore! library store {}))
-  ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
+  ([library store {:keys [keys load] :or {keys saved-keys load :all}
+                   :as   opts}]
    {:pre [(map? opts)]}
-   (let [not-index? #(or (= saved-name %) (feed-document? %))
+   (let [wanted?    (case load
+                      :all  (constantly true)
+                      :none (constantly false)
+                      (set load))
+         not-index? #(or (= saved-name %) (feed-document? %))
          fetched    #(store/fetch-all! store {:as :bytes :except not-index?})
          indexed    (fn [[library :as step]]
                       (if (:index library)
@@ -1981,26 +2078,81 @@
                    (let [step (with-saved library keys attempt)]
                      (if (newer? step)
                        (done step)
-                       (-> (with-feeds step store)
+                       (-> (with-feeds step store wanted?)
                            (async/then indexed)
                            (async/then done)))))))))
+
+(defn load!
+  "The `library` with the feeds `feed-guids` read back from their
+  documents in `store`, those that it doesn't hold in memory, in
+  ClojureScript as a promise. With :all for `feed-guids`, it's every feed.
+
+  The result has the :report of what didn't read under :load. A feed
+  whose document is missing or doesn't read keeps only its URL, so that
+  the next refresh fetches it again, with :library/unreadable-document in
+  the report."
+  [library store feed-guids]
+  (let [wanted? (if (= :all feed-guids) (constantly true) (set feed-guids))]
+    (async/then (with-feeds [library []] store wanted?)
+                (fn [[library report]]
+                  (assoc library :load {:report report})))))
+
+(defn unload!
+  "The `library` without the feeds `feed-guids` in memory, each written to
+  its document in `store` first, in ClojureScript as a promise. With :all
+  for `feed-guids`, it's every feed.
+
+  The entry of each feed keeps the name of its document, and load! or a
+  refresh with the store reads it back. The views show the feed as not
+  loaded meanwhile, e.g. on a server, which needs no feed between its
+  refreshes, or on a phone, which needs only those on the screen.
+
+  The result has the :report under :unload. When the store fails, the
+  feeds stay in memory, and the report has :library/save-failed."
+  [library store feed-guids]
+  (let [wanted?  (if (= :all feed-guids) (constantly true) (set feed-guids))
+        chosen   (for [[feed-guid entry] (:feeds library)
+                       :when (and (:feed entry) (wanted? feed-guid))]
+                   [feed-guid entry (entry-document feed-guid entry)])
+        outlined (fn [library [feed-guid _ name]]
+                   (update-in library [:feeds feed-guid]
+                              #(-> (dissoc % :feed :retained)
+                                   (assoc :document name))))]
+    (async/then
+     (async/attempt
+      #(store/put-all! store (for [[_ entry name] chosen]
+                               {:name name :body (feed-body entry)})))
+     (fn [{:keys [error]}]
+       (if error
+         (assoc library :unload {:report [(diagnostics/describe
+                                           {:id     :library/save-failed
+                                            :reason (async/explain error)})]})
+         (assoc (reduce outlined library chosen) :unload {:report []}))))))
 
 (defn plan
   "The episodes to download and the files to delete on this device with
   `files`, for the profile and feeds of `library`, with the `opts` of
   downloads/plan. Without `files`, it's the record of the files in the
-  library."
+  library.
+
+  It plans with the feeds that the library holds in memory. The files of
+  the episodes of a feed that it doesn't hold are kept, so load! every
+  feed first for a plan of them all."
   ([library]
    (plan library nil {}))
   ([library files]
    (plan library files {}))
   ([library files opts]
    {:pre [(map? opts)]}
-   (downloads/plan (:profile library)
-                   (shown-feeds library)
-                   (or files (:files library))
-                   (time-of library opts)
-                   (assoc opts :url (urls library)))))
+   (let [asleep (set (unloaded library))
+         kept   #(if (contains? asleep (first (key %)))
+                   [(key %) (assoc (val %) :keep? true)]
+                   %)]
+     (downloads/plan (:profile library)
+                     (shown-feeds library)
+                     (into {} (map kept) (or files (:files library)))
+                     (time-of library opts)
+                     (assoc opts :url (urls library))))))
 
 (defn start-download
   "The `library` with the download of `entry`, one of the :download of

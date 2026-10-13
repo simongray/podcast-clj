@@ -545,6 +545,29 @@ document is missing is fetched again at the next refresh. A document
 that didn't read is in the `:report` under `:restore`. In ClojureScript,
 both functions return promises.
 
+A library of hundreds of shows needn't hold every feed in memory. Restore
+it with `{:load :none}`, or with the guids of the shows on the screen,
+and read others back with `library/load!` when the listener opens them:
+
+```clojure
+(reset! lib (library/restore! (library/make device-id {:config {:store data}})
+                              data
+                              {:load :none}))
+
+(swap! lib library/merge (library/load! @lib data [feed-guid]))
+(swap! lib library/merge (library/unload! @lib data :all))  ; e.g. in the background
+```
+
+A feed that isn't loaded is still in the search index and in `shows`,
+with `:unloaded? true`, and `show` gives its title and artwork, but no
+episode of it is in the views or the download plan, whose files of it
+stay. With the `:store` in the config, a refresh loads the feeds that
+it fetches, since it needs the episodes they had, and they stay loaded.
+Without it, they aren't fetched, and the report has
+`:library/not-loaded`. The function `unload!` writes the feeds to their
+documents before it lets them go, so nothing is lost if the app stops
+before its next save.
+
 `library.edn` says the version of its shape. A library saved by an older
 version of podcast-clj is brought up to this one, and one saved by a
 newer version isn't read: `restore!` gives the library as `make` made it,

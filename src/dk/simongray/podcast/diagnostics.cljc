@@ -653,6 +653,10 @@
      :doc "A document of the saved library didn't read: library.edn, so none
            of its parts were restored, or the document of a feed, which is
            fetched again. The :name says which, and the :reason why."}
+    {:id :library/not-loaded :level :warning
+     :doc "The feeds that :feed-guids names are due, but the library holds
+           them in their documents alone, and no :store was given to load
+           them from, so they weren't fetched."}
     {:id :library/newer-format :level :error
      :doc "The saved library is of a newer version than this one reads, so
            none of it was restored, and a save won't write over it. The

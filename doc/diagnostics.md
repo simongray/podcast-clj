@@ -219,6 +219,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:gpodder/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
 | `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why. |
 | `:library/unreadable-document` | warning | A document of the saved library didn't read: library.edn, so none of its parts were restored, or the document of a feed, which is fetched again. The :name says which, and the :reason why. |
+| `:library/not-loaded` | warning | The feeds that :feed-guids names are due, but the library holds them in their documents alone, and no :store was given to load them from, so they weren't fetched. |
 | `:library/newer-format` | error | The saved library is of a newer version than this one reads, so none of it was restored, and a save won't write over it. The :version says which. |
 | `:library/malformed-profile` | warning | The saved profile breaks the rules of a profile, so the library kept the profile it had, and the next sync brings back what the other devices hold. The :reason says what's wrong. |
 | `:library/index-rebuilt` | info | The search index was built again from the feeds, since some of its documents were missing or didn't read. The :reason says why. |
