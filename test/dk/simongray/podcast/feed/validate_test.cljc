@@ -63,7 +63,10 @@
                    validate/validate
                    ids)]
     (is (= {} (typed "text/vtt; charset=utf-8")) "a transcript type of the list, with a charset")
-    (is (= {:validate/invalid-enum 1} (typed "text/markdown")) "but not one off the list")))
+    (is (= {:validate/invalid-enum 1} (typed "text/markdown")) "but not one off the list")
+    (is (= {:validate/invalid-media-type 1} (typed "text/vtt;"))
+        "a parameter left empty, which the grammar of HTTP doesn't take")
+    (is (= {} (typed " text/vtt ")) "a type with spaces around it")))
 
 (deftest languages-by-rfc-5646
   (let [problem (fn [language]

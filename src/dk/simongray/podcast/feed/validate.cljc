@@ -78,17 +78,6 @@
                   (not (str/starts-with? domain "."))
                   (not (str/ends-with? domain "."))))))
 
-;; RFC 6838, section 4.2, with the parameters of RFC 9110, section 8.3.1
-(def ^:no-doc media-type-pattern
-  "A media type, e.g. audio/mpeg or text/vtt; charset=utf-8."
-  (let [name "[a-z0-9][a-z0-9!#$&^_.+-]{0,126}"]
-    (re-pattern (str "(?is)" name "/" name "(?:\\s*;.*)?"))))
-
-(defn- media-type?
-  "Whether `v` is a media type, e.g. audio/mpeg or text/vtt; charset=utf-8."
-  [v]
-  (boolean (re-matches media-type-pattern (str/trim v))))
-
 (defn- typed-diagnostics
   "The diagnostics of the value `v` of `type` at `path`, by the enumeration
   `values` and whether `https?` is expected.
@@ -152,9 +141,11 @@
                  "the value isn't an email address"
                  :value v)]
 
+    ;; MIME Sniffing, section 4.3: the grammar of HTTP, so a type with an
+    ;; empty parameter, e.g. audio/mpeg;, isn't one
     (and (= type :mime)
          (string? v)
-         (not (media-type? v)))
+         (not (mime/valid? (str/trim v))))
     [(diagnostic :validate/invalid-media-type :warning path
                  "the value isn't a media type such as audio/mpeg"
                  :value v)]
