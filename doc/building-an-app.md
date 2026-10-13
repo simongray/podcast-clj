@@ -1536,9 +1536,9 @@ another payment, and show the texts as text, not HTML.
 
 To validate a feed, e.g. one that a podcaster submits, fetch it with
 `fetch!` and give the answer to `validate/report`, with the requirements of
-PSP-1 or Apple Podcasts. It gives the diagnostics of the fetch, the parse
-and the validation in one list, and `diagnostics/verdict` says whether the
-feed passes:
+PSP-1, Apple Podcasts, Spotify or YouTube. It gives the diagnostics of the
+fetch, the parse and the validation in one list, and `diagnostics/verdict`
+says whether the feed passes:
 
 ```clojure
 (def diagnostics
@@ -1559,7 +1559,9 @@ requirements you chose, a warning is something that apps are likely to
 show worse than the podcaster means, and an info needs no change, as
 [Diagnostics](diagnostics.md) explains. The requirements raise some
 levels, e.g. a repeated enclosure URL is a warning, but an error for
-Apple, which keeps only the first of the items.
+Apple, which keeps only the first of the items. YouTube makes a video of
+each episode, so it takes only audio, and a title of at most 100
+characters without HTML.
 
 For a table of the diagnostics, `diagnostics/summarize` groups them by
 kind, and `validate/location` writes the path of each as people read it:
@@ -1581,7 +1583,8 @@ To check a feed before you publish it, or one that a podcaster submits,
 use `check/check-files!`. It fetches the media files, images, transcripts
 and chapters files of the newest items, and tells whether they reach a
 listener as the feed says. Give it the feed's URL to check the feed itself
-too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
+too, and the requirements of PSP-1, Apple Podcasts, Spotify or YouTube as
+`:requirements`:
 
 ```clojure
 (def result

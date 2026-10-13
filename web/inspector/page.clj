@@ -419,7 +419,7 @@
              (when op3?
                (list [:a {:href op3-href} "downloads at OP3"] " · "))
              "requirements: "
-             (for [p [nil :psp-1 :apple]]
+             (for [p [nil :psp-1 :apple :spotify :youtube]]
                (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
                        [:a {:href (under p)} (if p (name p) "none")])
@@ -564,7 +564,7 @@
                  "back to the feed"]
              " · "
              "requirements: "
-             (for [p [nil :psp-1 :apple]]
+             (for [p [nil :psp-1 :apple :spotify :youtube]]
                (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
                        [:a {:href (under p)} (if p (name p) "none")])

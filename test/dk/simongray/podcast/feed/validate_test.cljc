@@ -149,6 +149,42 @@
                (validate/validate f {:requirements (:apple validate/requirements)}))
             "an entry of requirements, given as a map")))))
 
+(deftest spotify-and-youtube
+  (let [f       (rss/parse @example)
+        missing (fn [feed who]
+                  (->> (validate/validate feed {:requirements who})
+                       (filter (comp #{:validate/required} :id))
+                       (map (juxt :path :message))))]
+    (testing "Spotify"
+      (is (empty? (missing f :spotify)))
+      (is (= [[[] "the channel has no <image> or <itunes:image>, which Spotify requires"]]
+             (missing (dissoc f :rss/image :itunes/image) :spotify))
+          "one of two elements will do")
+      (is (empty? (missing (-> f
+                               (update-in [:rss/items 0] dissoc :rss/title)
+                               (assoc-in [:rss/items 0 :media/title] "Episode 3"))
+                           :spotify))
+          "and so will a media:title")
+      (is (= [[[:rss/items 0] "the item has no <title> or <media:title>, which Spotify requires"]]
+             (missing (update-in f [:rss/items 0] dissoc :rss/title) :spotify))))
+    (testing "YouTube"
+      (is (empty? (missing f :youtube)))
+      (is (= [[:rss/items 0 :rss/title]]
+             (map first (missing (assoc-in f [:rss/items 0 :rss/title] (apply str (repeat 101 "x")))
+                                 :youtube)))
+          "a title of more than 100 characters")
+      (is (empty? (missing (assoc-in f [:rss/items 0 :rss/title] (apply str (repeat 100 "😀")))
+                           :youtube))
+          "counted as characters, not as UTF-16")
+      (is (= [[:rss/items 0 :rss/title]]
+             (map first (missing (assoc-in f [:rss/items 0 :rss/title] "A <b>bold</b> title") :youtube)))
+          "nor < or >")
+      (is (= [[:rss/items 0 :rss/enclosure]]
+             (map first (missing (assoc-in f [:rss/items 0 :rss/enclosure :type] "video/mp4") :youtube)))
+          "a video, since YouTube makes the video itself")
+      (is (= [[]] (map first (missing (dissoc f :itunes/owner :rss/managing-editor) :youtube)))
+          "an email to send the code to"))))
+
 (deftest repeated-items
   (let [item  (fn [guid url]
                 {:rss/title "E" :rss/guid guid :rss/enclosure {:url url :length 1 :type "audio/mpeg"}})

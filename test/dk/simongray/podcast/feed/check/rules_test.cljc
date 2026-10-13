@@ -53,6 +53,19 @@
                                                               :redirects (vec (repeat 5 {:status 302 :url "https://x/e.mp3"}))}))))
     (is (= #{:check/status} (ids media (assoc served :get {:status 302 :url "https://z/e.mp3"})))
         "one without a Location"))
+  (testing "the media types that a directory takes"
+    (let [video  {:kind :media :url "https://a/e.mp4" :path [:rss/items 0 :rss/enclosure]
+                  :declared {:type "video/mp4"}}
+          shown  (fn [type] (-> served
+                                (assoc-in [:head :type] type)
+                                (assoc-in [:get :type] type)))]
+      (is (= #{} (ids media served :youtube)) "audio")
+      (is (= [[:check/media-type :error "video/mp4"]]
+             (map (juxt :id :level :type) (rules/verdicts video (shown "video/mp4") :youtube)))
+          "but no video for YouTube, which makes its own")
+      (is (= #{} (ids video (shown "video/mp4") :spotify)))
+      (is (= #{:check/type :check/media-type} (ids media (shown "image/jpeg") :spotify))
+          "nor an image for Spotify")))
   (is (= #{:check/moved} (ids media (update served :get assoc :permanent-url "https://a/e.mp3"
                                             :redirects [{:status 301 :url "https://a/old.mp3"}]))))
   (is (= #{} (ids media (update served :get assoc :redirects [{:status 302 :url "https://a/e.mp3"}
@@ -180,6 +193,13 @@
       (is (= #{:check/artwork-type} (ids artwork (assoc-in square-jpeg [:image :process] :lossless) :apple)))
       (is (= #{:check/artwork-type} (ids artwork (update square-jpeg :image assoc :process :extended :bits 12) :apple))
           "JPEGs that browsers do not decode")))
+  (testing "Spotify's, square of any size, in TIFF too"
+    (let [small (update square-jpeg :image assoc :width 640 :height 640)
+          tiff  (assoc-in square-jpeg [:image :type] "image/tiff")]
+      (is (= #{} (ids artwork small :spotify)))
+      (is (= #{:check/artwork-size} (ids artwork (assoc-in small [:image :height] 600) :spotify)))
+      (is (= #{:check/image-type} (ids artwork tiff :spotify)) "a TIFF served as a JPEG")
+      (is (= #{} (ids artwork (assoc-in tiff [:head :type] "image/tiff") :spotify)))))
   (testing "the requirements of a directory that the app gives"
     (let [own   {:name    "A directory of our own"
                  :artwork {:sizes [3000 6000] :types #{"image/webp"}}

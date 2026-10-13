@@ -99,10 +99,10 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order and `blocked?`. |
 | `feed.schedule` | When a feed says that it changes, with `next-episode` from its update frequency and `next-check` for when to fetch it again. |
 | `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`, and the start of a feed for a preview with `fetch-head!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
-| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files` and `report` are pure. |
-| `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and Apple Podcasts, with `verdicts` for one file. |
+| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and the directories. Only `check-files!` sends requests, and `files` and `report` are pure. |
+| `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and the directories, with `verdicts` for one file. |
 | `feed.check.facts` | The facts of the files of a check, gathered over the network for `check-files!`. |
-| `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
+| `feed.validate` | Validation against the registry, with the requirements of PSP-1 and the directories. |
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` and `update-file-urls` rewrite the URLs of the media files, or of every file. |
 | `feed.search` | The shows and episodes of feeds as documents for full-text search, with `index` for an index of them that weighs the title most, `with-feed` and `without-feed` to change it a feed at a time, and `located` to give each result its feed and item. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |

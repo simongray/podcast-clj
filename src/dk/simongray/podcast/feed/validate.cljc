@@ -11,7 +11,8 @@
 
   The :requirements option adds the required and recommended elements of
   a directory or a standard: :psp-1 for the baseline of the Podcast
-  Standards Project, and :apple for Apple Podcasts.
+  Standards Project, and :apple, :spotify and :youtube for those
+  directories.
 
   A diagnostic has the shape of those of the parse report: an :id, a
   :level of :error, :warning or :info, a :path into the feed, and a
@@ -25,6 +26,7 @@
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.whatwg-mime :as mime]))
@@ -577,23 +579,57 @@
           :when d]
       d)))
 
+(defn- text-of
+  "The text of the value `v` of an element: `v` itself, or the :content of
+  an element with attributes."
+  [v]
+  (if (map? v) (:content v) v))
+
+(defn- characters
+  "How many characters the text `s` has, counting one outside the Basic
+  Multilingual Plane once."
+  [s]
+  #?(:clj  (.codePointCount ^String s 0 (count s))
+     :cljs (count (js/Array.from s))))
+
+;; YouTube Data API, snippet.title and snippet.description of the videos
+;; resource, updated 8 October 2026
+(defn- youtube-text?
+  "Whether the text of the value `v` is one that YouTube takes: without <
+  or >, and at most `n` long as `size-fn` counts it."
+  [size-fn n v]
+  (let [s (text-of v)]
+    (and (string? s)
+         (not (re-find #"[<>]" s))
+         (<= (size-fn s) n))))
+
 (def requirements
   "The required and recommended elements of the channel and of an item,
   for each standard or directory by name, and the levels that it raises
   above those of the catalogue.
 
   A requirement is a model key, or a vector of a key, a predicate of its
-  value, and a description. They're the requirements of PSP-1, and of
-  Apple's A Podcaster's Guide to RSS, as of September 2026. Both require
-  a category from Apple's list, which a name from before 2019 still is,
-  and Apple keeps only the first of the items that share an enclosure
-  URL."
+  value, and a description. The key can be a set of keys, of which one
+  will do. They're the requirements of these, as of October 2026:
+
+  - PSP-1 of the Podcast Standards Project
+  - Apple's A Podcaster's Guide to RSS
+  - Spotify's Podcast Delivery Specification 1.10
+  - YouTube's Deliver podcasts using an RSS feed, with the limits on the
+    title and description of a video of its Data API
+
+  PSP-1 and Apple require a category from Apple's list, which a name from
+  before 2019 still is, and Apple keeps only the first of the items that
+  share an enclosure URL. YouTube makes a video of each episode from the
+  audio and the show's image, and sends a code to the owner's email."
   (let [self-link  [:atom/links
                     #(some (comp #{"self"} :rel) %)
                     "<atom:link rel=\"self\">"]
         enclosure  [:rss/enclosure
                     (comp absolute-url? :url)
                     "<enclosure> with an absolute url"]
+        image      [#{:rss/image :itunes/image} nil
+                    "<image> or <itunes:image>"]
         categories {:validate/unknown-category  :error
                     :validate/escaped-category  :error
                     :validate/wrong-subcategory :error
@@ -619,7 +655,41 @@
                                      :itunes/duration :rss/link :itunes/image
                                      :itunes/explicit]}
              :levels  (assoc categories
-                             :validate/duplicate-enclosure :error)}}))
+                             :validate/duplicate-enclosure :error)}
+     :spotify {:name    "Spotify"
+               :channel {:required    [:rss/title :rss/link :rss/description
+                                       :itunes/author image]
+                         :recommended [:itunes/categories :rss/language
+                                       :itunes/explicit]}
+               :item    {:required    [:rss/guid :rss/pub-date
+                                       [#{:rss/title :media/title} nil
+                                        "<title> or <media:title>"]
+                                       [#{:rss/description :media/description}
+                                        nil
+                                        "<description> or <media:description>"]
+                                       [#{:rss/enclosure :media/contents} nil
+                                        "<enclosure> or <media:content>"]]}}
+     :youtube {:name    "YouTube"
+               :channel {:required    [:rss/title image
+                                       [#{:itunes/owner :rss/managing-editor}
+                                        #(some? (if (map? %) (:email %) %))
+                                        "<itunes:email> or <managingEditor>"]]
+                         :recommended [:rss/link :rss/description]}
+               :item    {:required    [[:rss/title
+                                        (partial youtube-text? characters 100)
+                                        (str "<title> of at most 100"
+                                             " characters, without < or >")]
+                                       [:rss/enclosure
+                                        #(some-> (:type %) mime/essence
+                                                 (str/starts-with? "audio/"))
+                                        "<enclosure> of an audio file"]]
+                         :recommended [[:rss/description
+                                        (partial youtube-text?
+                                                 (comp bytes/length
+                                                       bytes/encode)
+                                                 5000)
+                                        (str "<description> of at most 5000"
+                                             " bytes, without < or >")]]}}}))
 
 (defn- requirement
   "The key, the predicate and the label of the requirement `req` of an
@@ -632,12 +702,14 @@
       [req nil (str "<" (xml/qname tag) ">")])))
 
 (defn- met?
-  "Whether the map `m` meets the requirement of the key `k` and the
-  predicate `pred`."
+  "Whether the map `m` meets the requirement of the key `k`, or of one of
+  a set of keys, and the predicate `pred`."
   [m k pred]
-  (let [v (get m k)]
-    (and (some? v)
-         (or (nil? pred) (pred v)))))
+  (if (set? k)
+    (boolean (some #(met? m % pred) k))
+    (let [v (get m k)]
+      (and (some? v)
+           (or (nil? pred) (pred v))))))
 
 (defn- reported?
   "Whether `found`, a set of the paths that have an error, already has one
@@ -654,7 +726,7 @@
     (when (and (map? m) (not (met? m k pred)))
       (diagnostic (if (= :error level) :validate/required :validate/recommended)
                   level
-                  (conj path k)
+                  (if (set? k) path (conj path k))
                   (str place " has no " label ", which " who
                        (if (= :error level) " requires" " recommends"))
                   :key k))))

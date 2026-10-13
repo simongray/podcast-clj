@@ -79,8 +79,8 @@ that several large hosts put on `<rss>` is a quirk of its own, since RSS
 
 Three interpreters read it: `feed/parse` turns Hiccup into the model,
 `feed/emit` writes the model back in canonical form, and `validate/validate`
-reports what breaks the specs, with the requirements of PSP-1 and Apple
-Podcasts on top. The Malli schemas in `feed.schema` and the [feed
+reports what breaks the specs, with the requirements of PSP-1 and the
+directories on top. The Malli schemas in `feed.schema` and the [feed
 model](feed-model.md) reference are generated from it too, so none of
 them can drift from the code.
 
@@ -252,8 +252,8 @@ fetch, `feed.check.facts` gathers what came back, and `feed.check.rules`
 turns the facts into diagnostics. Only the gathering sends, so `report`
 can judge the same facts again by other requirements. The rules come from
 the standards first (RFC 9110, RSS 2.0, the podcast namespace, and the
-Fetch standard for CORS), and the requirements of PSP-1 and Apple Podcasts
-add theirs on top. A browser hides much of an answer from a page, so a
+Fetch standard for CORS), and the requirements of PSP-1 and the
+directories add theirs on top. A browser hides much of an answer from a page, so a
 check sees most on the JVM or in Node.
 
 

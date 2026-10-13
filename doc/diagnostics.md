@@ -154,6 +154,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/moved` | warning | The file moved for good, with a 301 or 308 redirect, so the feed can name its new URL. |
 | `:check/head` | error | The server doesn't answer a HEAD request for the file. RFC 9110 requires HEAD of every general-purpose server, and directories use it to check files. |
 | `:check/type` | warning | The server gives the file a different media type than the feed declares. |
+| `:check/media-type` | error | The chosen requirements don't take a media file of the :type that the server gives it, e.g. YouTube, which makes its videos from audio files. |
 | `:check/no-reader` | info | A reading of the file was asked for, but the media reader knows no format of the :type that the feed declares, e.g. audio/x-wav, so its duration and codecs weren't checked. |
 | `:check/no-type` | warning | The feed declares no media type for the file, which RSS 2.0 and the podcast namespace require. The :served type is the one that the server gives it. |
 | `:check/length` | info | The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of a different size to each request, so the length can't be exact. |
@@ -168,8 +169,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/unverified` | info | The media file wasn't compared with its podcast:integrity, because a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file didn't arrive. |
 | `:check/image-type` | info | The server gives the image a different media type than its bytes have, such as image/jpg for a JPEG. Browsers go by the bytes of an image. |
 | `:check/image-size` | warning | The size of the image differs from the width, height or aspect ratio that its podcast:image declares. |
-| `:check/artwork-size` | error | The image of an itunes:image isn't a square of 1400 to 3000 pixels, as the chosen requirements ask. |
-| `:check/artwork-type` | error | The image of an itunes:image isn't JPEG or PNG, as the chosen requirements ask, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample. |
+| `:check/artwork-size` | error | The image of an itunes:image isn't a square of the size that the chosen requirements ask for, e.g. 1400 to 3000 pixels for Apple. |
+| `:check/artwork-type` | error | The image of an itunes:image isn't of a type that the chosen requirements ask for, e.g. JPEG or PNG for Apple, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample. |
 | `:check/artwork-color` | error | The image of an itunes:image isn't in RGB colours, as the chosen requirements ask. |
 | `:check/artwork-alpha` | error | The image of an itunes:image has an alpha channel or transparency, which the chosen requirements don't allow. |
 | `:check/artwork-extension` | warning | The file extension in the URL of an itunes:image doesn't match the type of its image, as the chosen requirements ask. |

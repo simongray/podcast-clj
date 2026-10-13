@@ -348,20 +348,29 @@ every feed as a wrapper.
 An entry of `feed.validate/requirements` holds the elements that a
 directory requires and recommends, for the channel and for each item. An
 entry of `feed.check.rules/requirements` holds what it requires of
-artwork. Both hold the levels of the diagnostics that the directory
-changes:
+artwork and of the media files. Both hold the levels of the diagnostics
+that the directory changes:
 
 | Key | Meaning |
 |---|---|
 | `:name` | The name of the directory or the standard |
-| `:artwork` | `:sizes`, the smallest and largest width in pixels, `:types`, the media types, `:colors`, the colour models, and `:extension?`, `:alpha?` and `:last-modified?` |
+| `:artwork` | `:sizes`, the smallest and largest width in pixels, `:square?`, for a square of any size, `:types`, the media types, `:colors`, the colour models, and `:extension?`, `:alpha?` and `:last-modified?` |
+| `:media-type-pred` | A predicate of the media type that the server gives a media file |
 | `:levels` | The level of a diagnostic, by its id |
 
-Both have the profiles `:psp-1` and `:apple`, which follow
-[PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification)
-of the Podcast Standards Project and Apple's [A Podcaster's Guide to
-RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390), both as of
-30 September 2026.
+Both have these profiles:
+
+| Profile | Source | As of |
+|---|---|---|
+| `:psp-1` | [PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification) of the Podcast Standards Project | 30 September 2026 |
+| `:apple` | Apple's [A Podcaster's Guide to RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390) | 30 September 2026 |
+| `:spotify` | Spotify's [Podcast Delivery Specification 1.10](https://providersupport.spotify.com/article/podcast-delivery-specification-1-9) | 13 October 2026 |
+| `:youtube` | YouTube's [Deliver podcasts using an RSS feed](https://support.google.com/youtube/answer/13525207), with the limits on a video's [title and description](https://developers.google.com/youtube/v3/docs/videos) | 13 October 2026 |
+
+Spotify's specification also asks for titles of at most 20 characters
+where they show, which it truncates rather than refuses, so the profile
+leaves that out. YouTube publishes no size for the artwork that it makes
+its videos from.
 
 
 ## The categories of Apple Podcasts

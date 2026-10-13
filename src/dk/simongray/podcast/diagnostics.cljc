@@ -416,6 +416,10 @@
     {:id :check/type :level :warning
      :doc "The server gives the file a different media type than the feed
            declares."}
+    {:id :check/media-type :level :error
+     :doc "The chosen requirements don't take a media file of the :type that
+           the server gives it, e.g. YouTube, which makes its videos from audio
+           files."}
     {:id :check/no-reader :level :info
      :doc "A reading of the file was asked for, but the media reader knows no
            format of the :type that the feed declares, e.g. audio/x-wav, so
@@ -468,13 +472,13 @@
      :doc "The size of the image differs from the width, height or aspect ratio
            that its podcast:image declares."}
     {:id :check/artwork-size :level :error
-     :doc "The image of an itunes:image isn't a square of 1400 to 3000 pixels,
-           as the chosen requirements ask."}
+     :doc "The image of an itunes:image isn't a square of the size that the
+           chosen requirements ask for, e.g. 1400 to 3000 pixels for Apple."}
     {:id :check/artwork-type :level :error
-     :doc "The image of an itunes:image isn't JPEG or PNG, as the chosen
-           requirements ask, or it's a JPEG that apps and browsers can't decode:
-           lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than
-           8 bits per sample."}
+     :doc "The image of an itunes:image isn't of a type that the chosen
+           requirements ask for, e.g. JPEG or PNG for Apple, or it's a JPEG that
+           apps and browsers can't decode: lossless, hierarchical,
+           arithmetic-coded, JPEG-LS, or with more than 8 bits per sample."}
     {:id :check/artwork-color :level :error
      :doc "The image of an itunes:image isn't in RGB colours, as the chosen
            requirements ask."}

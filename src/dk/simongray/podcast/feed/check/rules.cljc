@@ -34,10 +34,14 @@
 (def requirements
   "The requirements that a check adds for a standard or a directory, by name.
 
-  Each gives the size, type, colors and file extension of the artwork of
-  an itunes:image, and the levels that it raises above those of the
-  catalogue. They're the requirements of PSP-1, and of Apple's A
-  Podcaster's Guide to RSS, as of September 2026.
+  Each can give the size, type, colors and file extension of the artwork
+  of an itunes:image, a :media-type-pred of the type that the server gives
+  a media file, and the levels that it raises above those of the
+  catalogue. They're the requirements of PSP-1, of Apple's A Podcaster's
+  Guide to RSS, of Spotify's Podcast Delivery Specification 1.10, and of
+  YouTube's Deliver podcasts using an RSS feed, as of October 2026.
+  Spotify asks for square artwork of any size, and YouTube makes its
+  videos from audio files.
 
   A map of your own can also give :max-feed-bytes, the largest feed that a
   directory takes. None of these give it, since no directory publishes
@@ -46,11 +50,18 @@
                  :types      #{"image/jpeg" "image/png"}
                  :colors     #{:rgb :indexed}
                  :extension? true}]
-    {:psp-1 {:name    "PSP-1 of the Podcast Standards Project"
-             :artwork artwork}
-     :apple {:name    "Apple Podcasts"
-             :artwork (assoc artwork :alpha? false :last-modified? true)
-             :levels  {:check/ranges :error}}}))
+    {:psp-1   {:name    "PSP-1 of the Podcast Standards Project"
+               :artwork artwork}
+     :apple   {:name    "Apple Podcasts"
+               :artwork (assoc artwork :alpha? false :last-modified? true)
+               :levels  {:check/ranges :error}}
+     :spotify {:name            "Spotify"
+               :artwork         {:square? true
+                                 :types   #{"image/tiff" "image/png"
+                                            "image/jpeg"}}
+               :media-type-pred #(not (str/starts-with? % "image/"))}
+     :youtube {:name            "YouTube"
+               :media-type-pred #(str/starts-with? % "audio/")}}))
 
 (defn ^:no-doc diagnostic
   "The diagnostic `id` about `file`, with the `details`, at the level of
@@ -130,6 +141,14 @@
 
       (and (nil? declared) served)
       [(diagnostic file chosen :check/no-type :served served)])))
+
+(defn- media-type-verdict
+  "The diagnostic of a media `file` that the server gives the media type
+  `served`, when the `chosen` requirements don't take a file of that type."
+  [file chosen served]
+  (let [pred (:media-type-pred chosen)]
+    (when (and pred served (not (pred served)))
+      [(diagnostic file chosen :check/media-type :type served)])))
 
 (defn- as-is?
   "Whether the `answer` sends the file as it is, not in a content coding
@@ -287,6 +306,7 @@
        (reaching file chosen get)
        (head-verdict file chosen head)
        (type-verdict file chosen (or (:type get) (:type head')))
+       (media-type-verdict file chosen (or (:type get) (:type head')))
        (length-verdict file chosen get head')
        (ranges-verdict file chosen get)
        (media-reading-verdicts file chosen media)
@@ -379,19 +399,19 @@
   The type of the image is the one that its bytes give, or else the one
   that the server gives."
   [{:keys [url] :as file} chosen head {:keys [width height color] :as image}]
-  (let [{:keys [sizes types colors extension? alpha? last-modified?]}
+  (let [{:keys [sizes square? types colors extension? alpha? last-modified?]}
         (:artwork chosen)
 
         [least most] sizes
         type         (or (:type image) (when (ok? head) (:type head)))
         ext          (extension url)]
     (concat
-     (when (and sizes
+     (when (and (or sizes square?)
                 width
                 (not (and height
                           (= width height)
-                          (<= least width)
-                          (<= width most))))
+                          (or (nil? sizes)
+                              (<= least width most)))))
        [(diagnostic file chosen :check/artwork-size
                     :width  width
                     :height height)])
