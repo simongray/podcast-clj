@@ -717,6 +717,45 @@ The podcaster didn't choose this thread, so show nothing when
 pages, so a mention has no link unless your `:link-fn` gives one,
 such as its `:uri`, a `nostr:` URI that opens a Nostr app on the device.
 
+### Post on Nostr
+
+A listener can comment, reply and react on Nostr with their own key,
+through a signer. Make the event, and post it to the relays of the
+thread:
+
+```clojure
+(def signer
+  (signer/local (signer/secret-key nsec)))  ; nsec1… that the listener gave
+
+(nostr-comments/post! thread
+                      (nostr-comments/comment-event thread "Great episode!")
+                      signer)
+;; => {:event {…} :relays {"wss://relay.fountain.fm" {:accepted? true} …}}
+```
+
+The other events are `reply-event` to a comment, `reaction-event` and
+`delete-event`. A comment on an episode is of kind 1111 of NIP-22, or of
+kind 1 with `{:kind 1}`, as Fountain writes it. To see a post in the
+thread, fetch the unread thread again.
+
+There are three kinds of signer:
+
+- `signer/local` holds the key in the app. Make a new key with
+  `signer/generate-key!`, and store it as you would a password. The
+  listener can keep it, or take it to another app, as `signer/nsec`.
+- `signer/nip07` signs with a browser extension such as Alby or nos2x, in
+  ClojureScript, and the page never sees the key.
+- `signer/remote` asks a remote signer of NIP-46, such as nsec.app, to
+  sign. Read the `bunker://` URI that the listener gives with
+  `signer/parse`, add a key of the app as `:client-key`, and keep both.
+  Then `signer/connect!` once, which gives the listener's public key.
+
+A remote signer can ask the listener to approve a request on a web page
+first, and the answer is then `:nostr/signer-approval` with the `:url`.
+Show the address of the page before you open it, and ask again once the
+listener approved. Only the `bunker://` URI is supported, since the
+`nostrconnect://` URI needs a subscription that waits for the signer.
+
 
 ## Play episodes
 
@@ -2015,6 +2054,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]

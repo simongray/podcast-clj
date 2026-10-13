@@ -27,10 +27,14 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def relays
   "The relays that podcast-clj asks for comments when neither the root of
@@ -755,6 +759,214 @@
       (renamed t (changed t))
       (with-root t root at)
       (counted t))))
+
+;; NIP-73: the kind of an id is the id without its guid
+(defn- external-kind
+  "The kind that NIP-73 gives the id `external` of a show, an episode or a
+  publisher, e.g. podcast:item:guid."
+  [external]
+  (str/replace external #":[^:]*$" ""))
+
+;; NIP-22 (kind 1111), and as the app Fountain writes it (kind 1), for an
+;; id of NIP-73; NIP-10 for a note
+(defn comment-event
+  "The event of a new comment with the text `content` at the root of
+  `thread`, with the `opts` below, to post with post!. It has no time and
+  no signature yet.
+
+  On a show or an episode, it's a comment of kind 1111 of NIP-22 with the
+  id of NIP-73, or with :kind 1 a note with the id in an i tag, as the app
+  Fountain writes it. On a note, it's a reply of kind 1 of NIP-10.
+
+  - :kind, 1111 or 1, for a thread about a show or an episode
+  - :url, the web page of the episode, a hint for other apps"
+  ([thread content]
+   (comment-event thread content {}))
+  ([{:keys [uri] :as thread} content {:keys [kind url] :or {kind 1111}
+                                      :as   opts}]
+   (let [{:keys [id external]} (root-of uri)
+         hinted (fn [tag v] (cond-> [tag v] url (conj url)))
+         k      (some-> external external-kind)]
+     (cond
+       (and external (= 1 kind))
+       {"kind" 1 "content" content "tags" [["k" k] (hinted "i" external)]}
+
+       external
+       {"kind"    1111
+        "content" content
+        "tags"    [(hinted "I" external) ["K" k] (hinted "i" external) ["k" k]]}
+
+       id
+       (let [author (get-in thread [:comments id :author])]
+         {"kind"    1
+          "content" content
+          "tags"    (cond-> [(cond-> ["e" id "" "root"] author (conj author))]
+                      author (conj ["p" author]))})))))
+
+;; NIP-10, the marked e tags, and the older positional ones
+(defn- note-root
+  "The e tag of the root of the thread of NIP-10 that the note `event` is
+  in, or nil when the note is the root."
+  [event]
+  (let [es     (filter #(and (= "e" (first %)) (nostr/hex-id? (second %)))
+                       (get event "tags"))
+        marker #(nth % 3 nil)]
+    (or (first (filter #(= "root" (marker %)) es))
+        (when-not (some #(contains? #{"reply" "root" "mention"} (marker %)) es)
+          (first es)))))
+
+(defn- note-reply-tags
+  "The tags of a note of kind 1 that replies to the note `event`, as
+  NIP-10 has them: the root and the note, and the authors that the note
+  names with its own."
+  [event]
+  (let [id     (get event "id")
+        author (get event "pubkey")
+        root   (note-root event)
+        root-e (when root
+                 (cond-> ["e" (second root) "" "root"]
+                   (nostr/hex-id? (nth root 4 nil)) (conj (nth root 4))))
+        people (distinct (concat (nostr/tag-values event "p") [author]))]
+    (into (if root-e
+            [root-e ["e" id "" "reply" author]]
+            [["e" id "" "root" author]])
+          (map #(vector "p" %))
+          people)))
+
+;; NIP-22: a reply keeps the root scope of its parent
+(defn reply-event
+  "The event of the text `content` that replies to the comment `id` of
+  `thread`, which a reading gave, to post with post!. It has no time and
+  no signature yet, and it's nil when the thread has no event of that
+  comment.
+
+  A reply to a comment of kind 1111 is one too, with the root scope of its
+  parent, as NIP-22 defines it. A reply to a note of kind 1 is a note,
+  with the e tags of NIP-10 that name the root of its thread and the note.
+  A reply to the root of the thread is comment-event."
+  [{:keys [root] :as thread} id content]
+  (if (= id root)
+    (comment-event thread content)
+    (when-let [event (get-in thread [:comments id ::event])]
+      (let [author (get event "pubkey")
+            scope  #(contains? #{"I" "E" "A" "K" "P"} (first %))]
+        (if (= 1111 (get event "kind"))
+          {"kind"    1111
+           "content" content
+           "tags"    (into (filterv scope (get event "tags"))
+                           [["e" id "" author] ["k" "1111"] ["p" author]])}
+          {"kind"    1
+           "content" content
+           "tags"    (note-reply-tags event)})))))
+
+;; NIP-09
+(defn delete-event
+  "The event that asks the relays to delete the comment `id` of `thread`,
+  with the text `reason` for its readers, to post with post! and the key
+  of its author. It's nil when the thread has no event of that comment."
+  ([thread id]
+   (delete-event thread id ""))
+  ([thread id reason]
+   (when-let [event (get-in thread [:comments id ::event])]
+     {"kind"    5
+      "content" (str reason)
+      "tags"    [["e" id] ["k" (str (get event "kind"))]]})))
+
+;; NIP-25: kind 7 for an event, and kind 17 for an id of NIP-73
+(defn reaction-event
+  "The event of the reaction `content` to the comment `id` of `thread`, to
+  post with post!. A + is a like, the reaction without `content`. It's nil
+  when the thread has no event of that comment.
+
+  A reaction to the show or the episode at the root of a thread about one
+  is of kind 17, with its id of NIP-73."
+  ([thread id]
+   (reaction-event thread id "+"))
+  ([{:keys [uri] :as thread} id content]
+   (let [{:keys [external]} (root-of uri)]
+     (if (and external (= id external))
+       {"kind"    17
+        "content" content
+        "tags"    [["k" (external-kind external)] ["i" external]]}
+       (when-let [event (get-in thread [:comments id ::event])]
+         (let [author (get event "pubkey")]
+           {"kind"    7
+            "content" content
+            "tags"    [["e" id "" author] ["p" author]
+                       ["k" (str (get event "kind"))]]}))))))
+
+(defn- published
+  "What the relays at `urls` did with an event, by URL, from the
+  `attempts` of giving it to each of them."
+  [urls attempts]
+  (into {}
+        (map (fn [url {:keys [value error]}]
+               [url (cond
+                      error
+                      {:error (async/explain error)}
+
+                      (:accepted? value)
+                      {:accepted? true}
+
+                      :else
+                      {:refused (or (:refused value)
+                                    (:closed value)
+                                    "No answer")})])
+             urls
+             attempts)))
+
+(defn post!
+  "Sign `event` with `signer`, and give it to the relays of `thread` with
+  `opts`. It gives the signed event and what each relay did with it, or a
+  map with a diagnostic under :error. On the JVM it gives the result, and
+  in ClojureScript a promise of it.
+
+      {:event  {…}
+       :relays {\"wss://relay.example\" {:accepted? true}
+                \"wss://other.example\" {:refused \"blocked: …\"}}}
+
+  The event gets the time of now, unless it has one. The relays are those
+  that the root of the thread names, and then the :relays of `opts`, or
+  the default ones, and each gets the event at once. A result has
+  :nostr/not-published under :error when no relay took the event, and the
+  error of the signer when it didn't sign. The `opts` are these:
+
+  - :relays, in place of the default relays
+  - :send, a function that sends a request map to a relay, in place of
+    nostr/send!
+  - :allow-pred, a predicate of the URL of a relay, nostr/public? by
+    default
+  - :timeout-seconds, for each relay
+  - :now-fn, a function that gives the instant of now, the clock by default"
+  ([thread event signer]
+   (post! thread event signer {}))
+  ([thread event signer {:keys [send allow-pred now-fn]
+                         :or   {send       nostr/send!
+                                allow-pred nostr/public?
+                                now-fn     time/now}
+                         :as   opts}]
+   (let [event  (cond-> event
+                  (nil? (get event "created_at"))
+                  (assoc "created_at" (time/unix-seconds (now-fn))))
+         urls   (relays-of thread opts)
+         limits (assoc (select-keys opts [:timeout-seconds])
+                       :allow-pred allow-pred)
+         give!  #(http/try-send! send {:url % :event %2} limits)]
+     (async/then
+      (signer/sign! signer event)
+      (fn [signed]
+        (if (:error signed)
+          signed
+          (async/then
+           (async/all (map #(give! % signed) urls))
+           (fn [attempts]
+             (let [relays (published urls attempts)
+                   result {:event signed :relays relays}]
+               (if (some :accepted? (vals relays))
+                 result
+                 (merge result (diagnostics/failed
+                                {:id     :nostr/not-published
+                                 :relays relays}))))))))))))
 
 (comment
   (def note-name

@@ -251,6 +251,13 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/no-metadata` | warning | The comment names no URL of metadata, or the URL answered without the x-rss-payment header. |
 | `:value/custom-record` | error | The records of the payment leave out the custom key and value of the recipient, because the key isn't a number, it's a type that the Lightning protocol reserves, or the value is missing. The payment would reach the node but not the wallet of the recipient, so don't send it. |
 | `:value/remote-unresolved` | warning | The value block of the remote item of a time split couldn't be fetched, so only the fees of that split are paid until a later fetch finds it. The Podcast Index or the remote feed didn't answer, refused the request or answered with an error, or there were neither credentials for the index nor a feed URL to ask. |
+| `:nostr/signer-refused` | warning | The signer didn't sign, e.g. because the listener said no, and :reason is what it said. |
+| `:nostr/signer-approval` | info | The remote signer asks the listener to approve the request on the web page at :url first. Open the page, and ask again once the listener approved. |
+| `:nostr/signer-silent` | warning | The remote signer didn't answer in time. The request went out, so the signer can still sign it. |
+| `:nostr/signer-unreachable` | warning | No relay of the connection took the request, so it reached no signer, and :relays says why. |
+| `:nostr/signer-unreadable` | error | The answer of the signer can't be read, or the signer signed another event than the one it was asked to, and :reason says which. |
+| `:nostr/request-too-large` | warning | The request to the remote signer has more bytes than an encrypted payload of NIP-44 holds, so it wasn't sent. |
+| `:nostr/not-published` | warning | No relay took the event, and :relays says why. |
 | `:value/no-recipients` | error | The value block names no recipient, so outside its time splits a payment goes to nobody. |
 | `:value/fees-over` | error | The fees of the recipients add up to more than 100 percent, so they take the whole of each payment, and the last of them less than it asks. |
 | `:value/no-shares` | error | No recipient but those of the fees has a split, so after the fees a payment goes nowhere. |

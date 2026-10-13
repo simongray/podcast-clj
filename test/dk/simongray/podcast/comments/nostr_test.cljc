@@ -11,7 +11,9 @@
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -352,6 +354,56 @@
     (is (= (mapv id [top-note top-comment reply reply-to-reply])
            (mapv :id (:added (comments/changes {} old))))
         "everything is new to no reading, in the order of time, but the root")))
+
+(deftest writing-to-a-thread
+  (let [[read] (read-thread thread (relay {relay-a about-episode}) {:relays [relay-a]})
+        tags   #(get % "tags")]
+    (testing "a comment on the episode"
+      (is (= {"kind"    1111
+              "content" "Hi"
+              "tags"    [["I" episode "https://e.example/1"] ["K" "podcast:item:guid"]
+                         ["i" episode "https://e.example/1"] ["k" "podcast:item:guid"]]}
+             (nostr-comments/comment-event read "Hi" {:url "https://e.example/1"})))
+      (is (= {"kind" 1 "content" "Hi" "tags" [["k" "podcast:item:guid"] ["i" episode]]}
+             (nostr-comments/comment-event read "Hi" {:kind 1}))
+          "as Fountain writes it"))
+    (testing "replies"
+      (is (= [["I" episode] ["K" "podcast:item:guid"] ["e" (id top-comment) "" bob-key] ["k" "1111"] ["p" bob-key]]
+             (tags (nostr-comments/reply-event read (id top-comment) "Yes")))
+          "a comment of NIP-22 keeps the root scope of its parent")
+      (is (= [["e" (id top-note) "" "root" ann-key] ["p" ann-key]]
+             (tags (nostr-comments/reply-event read (id top-note) "Yes")))
+          "a reply to the note at the top of a thread of NIP-10")
+      (is (= [["e" (id top-note) "" "root"] ["e" (id reply) "" "reply" bob-key] ["p" ann-key] ["p" bob-key]]
+             (tags (nostr-comments/reply-event read (id reply) "Yes")))
+          "the root and the note that it replies to, and the authors")
+      (is (= (nostr-comments/comment-event read "Yes") (nostr-comments/reply-event read episode "Yes")))
+      (is (nil? (nostr-comments/reply-event read "unknown" "Yes"))))
+    (testing "a deletion and reactions"
+      (is (= {"kind" 5 "content" "" "tags" [["e" (id reply)] ["k" "1"]]}
+             (nostr-comments/delete-event read (id reply))))
+      (is (= {"kind" 7 "content" "+" "tags" [["e" (id top-comment) "" bob-key] ["p" bob-key] ["k" "1111"]]}
+             (nostr-comments/reaction-event read (id top-comment))))
+      (is (= {"kind" 17 "content" "🔥" "tags" [["k" "podcast:item:guid"] ["i" episode]]}
+             (nostr-comments/reaction-event read episode "🔥"))
+          "a reaction to the episode itself"))
+    (testing "posting"
+      (let [send  (fn [{:keys [url]}]
+                    (if (= relay-a url)
+                      {:url url :accepted? true :sent? true}
+                      {:url url :refused "blocked: no" :sent? true}))
+            ann-s (signer/local (signer/secret-key ann) {:random-fn #(bytes/of (repeat % 9))})
+            event (nostr-comments/comment-event read "Hi")]
+        (run #(async/then (nostr-comments/post! read event ann-s {:relays [relay-a relay-b] :send send
+                                                                  :now-fn (constantly at)})
+                          (fn [{:keys [event relays error]}]
+                            (is (nil? error))
+                            (is (nostr/verified? event))
+                            (is (= [ann-key (quot (inst-ms at) 1000)] [(get event "pubkey") (get event "created_at")]))
+                            (is (= {relay-a {:accepted? true} relay-b {:refused "blocked: no"}} relays))))
+             #(async/then (nostr-comments/post! read event ann-s {:relays [relay-b] :send send})
+                          (fn [{:keys [error]}]
+                            (is (= :nostr/not-published (:id error)) "no relay took it"))))))))
 
 (deftest relays-that-fail
   (let [opts {:relays [relay-a relay-b]}]

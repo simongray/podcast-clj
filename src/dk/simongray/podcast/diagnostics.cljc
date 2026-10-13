@@ -772,6 +772,30 @@
            the request or answered with an error, or there were neither
            credentials for the index nor a feed URL to ask."}
 
+    ;; nostr: signing with the listener's key, and publishing
+    {:id :nostr/signer-refused :level :warning
+     :doc "The signer didn't sign, e.g. because the listener said no, and
+           :reason is what it said."}
+    {:id :nostr/signer-approval :level :info
+     :doc "The remote signer asks the listener to approve the request on the
+           web page at :url first. Open the page, and ask again once the
+           listener approved."}
+    {:id :nostr/signer-silent :level :warning
+     :doc "The remote signer didn't answer in time. The request went out, so
+           the signer can still sign it."}
+    {:id :nostr/signer-unreachable :level :warning
+     :doc "No relay of the connection took the request, so it reached no
+           signer, and :relays says why."}
+    {:id :nostr/signer-unreadable :level :error
+     :doc "The answer of the signer can't be read, or the signer signed
+           another event than the one it was asked to, and :reason says
+           which."}
+    {:id :nostr/request-too-large :level :warning
+     :doc "The request to the remote signer has more bytes than an encrypted
+           payload of NIP-44 holds, so it wasn't sent."}
+    {:id :nostr/not-published :level :warning
+     :doc "No relay took the event, and :relays says why."}
+
     ;; value: the recipients of the value blocks of a feed
     {:id :value/no-recipients :level :error
      :doc "The value block names no recipient, so outside its time splits a

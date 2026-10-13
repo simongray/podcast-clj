@@ -147,7 +147,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `comments` | Comment threads from ActivityPub, the AT Protocol and Nostr, in one shape. Pick the thread of an episode with `thread` and read it with `fetch!`, and a second `fetch!` continues where the first stopped. Use `changes` for what's new between two readings. For display, `tree` arranges the comments, and `parts`, `hiccup` and `text` give the content of a comment. |
 | `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
 | `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
-| `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. |
+| `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. The events of a comment, a reply, a reaction and a deletion come from `comment-event` and the others, and `post!` signs one and gives it to the relays of the thread. |
 | `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. Apps don't call it. |
 
 ## Value for value
@@ -193,6 +193,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | Namespace | Contents |
 |---|---|
 | `nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
+| `nostr.signer` | Signers of the listener's events: `local` over a key that the app holds, `nip07` over a browser extension, and `remote` over a remote signer of NIP-46, with `sign!`, which checks what a signer signed. |
 | `crypto.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
 | `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |
