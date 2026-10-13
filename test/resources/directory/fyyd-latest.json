@@ -1,0 +1,51 @@
+{
+ "status": 1,
+ "msg": "ok",
+ "meta": {
+  "API_INFO": {
+   "API_VERSION": "0.2"
+  },
+  "SERVER": "88.99.101.163",
+  "duration": 0
+ },
+ "data": [
+  {
+   "title": "Virtual data centres in space",
+   "id": 16126973,
+   "guid": "urn:bbc:podcast:w3ct8jyk",
+   "url": "http://www.bbc.co.uk/programmes/w3ct8jyk",
+   "enclosure": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pgj1kh.mp3",
+   "podcast_id": 86540,
+   "imgURL": "http://ichef.bbci.co.uk/images/ic/3000x3000/p0pgj1fm.jpg",
+   "pubdate": "2026-10-13T21:45:00+02:00",
+   "duration": 1589,
+   "status": 200,
+   "num_season": 0,
+   "num_episode": 0,
+   "inserted": "2026-10-13T22:26:05+02:00",
+   "url_fyyd": "https://fyyd.de/episode/16126973",
+   "description": "Where should data centres be built? We talk to an entrepreneur hoping to build a virtual data centre in space, by using computing power that's already up there …",
+   "duration_string": "26:29",
+   "content_type": "audio/mpeg"
+  },
+  {
+   "title": "Big bank earnings get a lukewarm welcome",
+   "id": 16126972,
+   "guid": "https://api.spreaker.com/episode/75765424",
+   "url": "https://seekingalpha.com/wsb?source=wsb_podcast:big_bank_earnings_get_a_lukewarm_welcome",
+   "enclosure": "https://api.spreaker.com/download/episode/75765424/utf_8_q_wsl_5fcombined_5f101326_10_13_26_3_08_e2_80_afpm_wav.mp3",
+   "podcast_id": 80144,
+   "imgURL": "https://d3wo5wojvuv7l.cloudfront.net/t_rss_itunes_square_1400/images.spreaker.com/original/9d03f5aa0b4133bdd516ba1836a0e249.jpg",
+   "pubdate": "2026-10-13T21:25:45+02:00",
+   "duration": 207,
+   "status": 200,
+   "num_season": 0,
+   "num_episode": 0,
+   "inserted": "2026-10-13T22:26:01+02:00",
+   "url_fyyd": "https://fyyd.de/episode/16126972",
+   "description": "JPMorgan misses earnings forecasts as big banks kick off reporting. (0:14) UnitedHealth raises its full-year outlook for the third time. (1:24) Fund managers pi…",
+   "duration_string": "03:27",
+   "content_type": "audio/mpeg"
+  }
+ ]
+}

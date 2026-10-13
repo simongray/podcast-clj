@@ -21,9 +21,9 @@
     ;; the calls of the Podcast Index
     :value/by-feed-id :value/by-feed-url :value/by-podcast-guid :value/by-episode-guid
     :value/batch-by-episode-guid
-    ;; the keys of a show from a directory
+    ;; the keys of a show or an episode from a directory
     :directory/episode-count :directory/id :directory/rank :directory/raw :directory/source
-    :directory/sources :directory/subscribers :directory/url})
+    :directory/sources :directory/subscribers :directory/url :directory/show})
 
 (defn- ids-in-source
   "The diagnostic ids that the source names. A keyword of an alias, such as

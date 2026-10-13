@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.directory
   "Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one
-  shape. You can search them, look shows up and read their charts, and
-  every answer is keyed like a parsed feed.
+  shape. You can search them, look shows up, read their charts and list
+  episodes, and every answer is keyed like a parsed feed.
 
   A request is a map that any HTTP client can send, and a response reads
   into shows, which are maps with the keys of a parsed feed where the
@@ -108,7 +108,7 @@
 (def sources
   "The directories that podcast-clj knows, by name. An entry has the :api
   that the directory speaks, its :name for a listener, whether it needs
-  credentials, and the URLs of the service.
+  credentials, the :calls that it answers, and the URLs of the service.
 
   A source is given by its name here, or as an entry of this shape. So
   you can reach another service with the same API:
@@ -121,6 +121,7 @@
   {:apple        {:api          :apple
                   :name         "Apple Podcasts"
                   :credentials? false
+                  :calls        #{:search :lookup :trending :episodes}
                   :search       "https://itunes.apple.com/search"
                   :lookup       "https://itunes.apple.com/lookup"
                   :trending     "https://rss.marketingtools.apple.com/api/v2/"
@@ -129,19 +130,24 @@
    :fyyd         {:api          :fyyd
                   :name         "fyyd"
                   :credentials? false
+                  :calls        #{:search :lookup :trending :episodes :recent}
                   :root         "https://api.fyyd.de/0.2/"}
    :gpodder      {:api          :gpodder
                   :name         "gpodder.net"
                   :credentials? false
+                  :calls        #{:search :lookup :trending}
                   :root         "https://gpodder.net/"}
    :podcastindex {:api          :podcastindex
                   :name         "Podcast Index"
                   :credentials? true
+                  :calls        #{:search :lookup :trending :episodes
+                                  :by-person :recent :live}
                   :root         index/base-url
                   :pages        "https://podcastindex.org/podcast/"}})
 
 (def calls
-  "The calls that every source answers, with their parameters:
+  "The calls of the sources, with their parameters. Every source answers
+  the first three with shows:
 
   - :search takes :q and :limit, with :country for Apple
   - :lookup takes the :id of the show at the source, which for
@@ -151,6 +157,16 @@
   - :trending takes :limit, with :country for Apple and :language for
     fyyd and the Podcast Index. A source that can take neither of those
     that are given throws, since its chart would be of the wrong shows.
+
+  The others give episodes, and the :calls of an entry of sources say
+  which it answers. A source throws for one that it doesn't answer.
+
+  - :episodes takes the :id of the show, or the :url of its feed at the
+    Podcast Index, and :limit, for its newest episodes
+  - :by-person takes :q, a name, and :limit, for the episodes that name
+    the person as a podcast:person or in their text
+  - :recent takes :limit, for the newest episodes of any show
+  - :live takes :limit, for the live items that are on air
 
   The :trending call also takes :category, for the chart of one
   category. It's a name of the categories of Apple Podcasts, such as
@@ -163,7 +179,11 @@
     It has the top categories of Apple, and words of its own for the rest.
   - The category is a tag of gpodder.net, in lower case.
   - The chart of fyyd has no categories, so asking for one throws."
-  #{:search :lookup :trending})
+  #{:search :lookup :trending :episodes :by-person :recent :live})
+
+(def ^:no-doc episode-calls
+  "The calls whose answers are episodes rather than shows."
+  #{:episodes :by-person :recent :live})
 
 (defn ^:no-doc source-id
   "What names `source` in the results: its name in sources, or the :id of
@@ -263,6 +283,8 @@
     :lookup   (let [ids   (if (coll? id) (str/join "," id) id)
                     query {:id ids :entity "podcast"}]
                 (get-request (str lookup "?" (url/query-string query))))
+    :episodes (let [query {:id id :entity "podcastEpisode" :limit limit}]
+                (get-request (str lookup "?" (url/query-string query))))
     :trending (get-request (apple-chart e params))))
 
 (defn- fyyd-request
@@ -273,6 +295,10 @@
                :search   (str "search/podcast?"
                               (url/query-string {:term q :count limit}))
                :lookup   (str "podcast?" (url/query-string {:podcast_id id}))
+               :episodes (str "podcast/episodes?"
+                              (url/query-string {:podcast_id id :count limit}))
+               :recent   (str "episode/latest?"
+                              (url/query-string {:count limit}))
                :trending (str "feature/podcast/hot?"
                               (url/query-string {:count    limit
                                                  :language language})))]
@@ -300,19 +326,32 @@
   (let [opts          (cond-> opts root (assoc :base-url root))
         index-request #(index/request credentials %1 %2 opts)]
     (case call
-      :search   (index-request :search/by-term {:q q :max limit})
-      :lookup   (cond
-                  (guid/guid? (str show))
-                  (index-request :podcasts/by-guid {:guid show})
+      :search    (index-request :search/by-term {:q q :max limit})
+      :lookup    (cond
+                   (guid/guid? (str show))
+                   (index-request :podcasts/by-guid {:guid show})
 
-                  (and (nil? show) url)
-                  (index-request :podcasts/by-feed-url {:url url})
+                   (and (nil? show) url)
+                   (index-request :podcasts/by-feed-url {:url url})
 
-                  :else
-                  (index-request :podcasts/by-feed-id {:id show}))
-      :trending (let [cat (some-> category index/category-filter)]
-                  (index-request :podcasts/trending
-                                 {:max limit :lang language :cat cat})))))
+                   :else
+                   (index-request :podcasts/by-feed-id {:id show}))
+      :episodes  (cond
+                   (guid/guid? (str show))
+                   (index-request :episodes/by-podcast-guid
+                                  {:guid show :max limit})
+
+                   (and (nil? show) url)
+                   (index-request :episodes/by-feed-url {:url url :max limit})
+
+                   :else
+                   (index-request :episodes/by-feed-id {:id show :max limit}))
+      :by-person (index-request :search/by-person {:q q :max limit})
+      :recent    (index-request :recent/episodes {:max limit})
+      :live      (index-request :episodes/live {:max limit})
+      :trending  (let [cat (some-> category index/category-filter)]
+                   (index-request :podcasts/trending
+                                  {:max limit :lang language :cat cat})))))
 
 (defn- check-region
   "Throw when `params` ask the source with the entry `e` for a chart of a
@@ -350,6 +389,9 @@
      (when-not (contains? calls call)
        (throw (ex-info (str "A call the directories do not answer: " call)
                        {:call call})))
+     (when-not (contains? (or (:calls e) (get-in sources [api :calls])) call)
+       (throw (ex-info (str (:name e (name (:id e))) " has no call " call)
+                       {:source (:id e) :call call})))
      (when (= :trending call)
        (check-region e params))
      (case api
@@ -525,26 +567,136 @@
          (filter #(= "podcast" (get % "kind")))
          (map apple-show))))
 
+(defn- apple-episode
+  "The episode of the result `r` of a lookup of episodes at Apple, with
+  the show that it's an episode of as :directory/show."
+  [{:strs [trackId trackName description episodeGuid episodeUrl releaseDate
+           trackTimeMillis artworkUrl600 trackViewUrl collectionId
+           collectionName feedUrl]
+    :as   r}]
+  (let [show (-> (present {:rss/title    collectionName
+                           :directory/id (some-> collectionId str)})
+                 (with-feed-url feedUrl))]
+    (present {:rss/title       trackName
+              :rss/description description
+              :rss/guid        (when episodeGuid {:content episodeGuid})
+              :rss/enclosure   (when episodeUrl {:url episodeUrl})
+              :rss/pub-date    (some-> releaseDate time/parse-iso8601)
+              :itunes/duration (when (number? trackTimeMillis)
+                                 (quot (long trackTimeMillis) 1000))
+              :itunes/image    (when artworkUrl600 {:href artworkUrl600})
+              :directory/id    (some-> trackId str)
+              :directory/url   trackViewUrl
+              :directory/show  show
+              :directory/raw   r})))
+
+(defn- apple-episodes
+  "The episodes in the JSON value `raw` of a lookup of episodes at Apple,
+  each with the show that the answer describes too."
+  [raw]
+  (let [results (get raw "results")
+        show    (some #(when (= "podcast" (get % "kind")) (apple-show %))
+                      results)]
+    (for [r     results
+          :when (= "podcastEpisode" (get r "wrapperType"))]
+      (cond-> (apple-episode r)
+        show (assoc :directory/show show)))))
+
+(defn- positive
+  "The number `n` when it's above zero, or nil."
+  [n]
+  (when (and (number? n) (pos? n))
+    n))
+
+(defn- fyyd-episode
+  "The episode of the record `e` of fyyd, of the `show`, or else of a show
+  known by the id that the record names."
+  [{:strs [id title guid url enclosure content_type pubdate duration imgURL
+           description num_season num_episode url_fyyd podcast_id]
+    :as   e}
+   show]
+  (present {:rss/title       title
+            :rss/description description
+            :rss/link        url
+            :rss/guid        (when-not (str/blank? (str guid)) {:content guid})
+            :rss/enclosure   (when enclosure
+                               (cond-> {:url enclosure}
+                                 content_type (assoc :type content_type)))
+            :rss/pub-date    (some-> pubdate time/parse-iso8601)
+            :itunes/duration (positive duration)
+            :itunes/image    (when imgURL {:href imgURL})
+            :itunes/season   (positive num_season)
+            :itunes/episode  (positive num_episode)
+            :directory/id    id
+            :directory/url   url_fyyd
+            :directory/show  (or show {:directory/id podcast_id})
+            :directory/raw   e}))
+
+(defn- fyyd-episodes
+  "The episodes in the JSON value `raw` of fyyd: those of one show, which
+  the answer describes too, or the newest of any show."
+  [raw]
+  (let [data (get raw "data")]
+    (when (= 1 (get raw "status"))
+      (if (map? data)
+        (let [show (fyyd-show (dissoc data "episodes"))]
+          (map #(fyyd-episode % show) (get data "episodes")))
+        (map #(fyyd-episode % nil) data)))))
+
+(defn- index-episode
+  "The episode map `m` of the Podcast Index, with the show that it names
+  as :directory/show."
+  [m]
+  (let [show (-> (present {:rss/title    (:index/feed-title m)
+                           :podcast/guid (:index/podcast-guid m)
+                           :itunes/image (some->> (:index/feed-image m)
+                                                  (hash-map :href))
+                           :directory/id (:index/feed-id m)})
+                 (with-feed-url (:index/feed-url m)))]
+    (present (assoc m
+                    :directory/id   (:index/id m)
+                    :directory/show show
+                    :directory/raw  (:index/raw m)))))
+
+(defn- episodes
+  "The episodes in the JSON `body` that a source with the `api` answered,
+  or none when the body tells of a failure."
+  [api body]
+  (case api
+    :podcastindex (let [{:keys [status items live-items]} (index/response body)]
+                    (when status
+                      (map index-episode (concat items live-items))))
+    :apple        (apple-episodes (json/read-str body))
+    :fyyd         (fyyd-episodes (json/read-str body))))
+
 (defn response
-  "The shows in the JSON `body` that `source` answered for `call`, as
-  a vector. It throws only when the body isn't JSON.
+  "The shows in the JSON `body` that `source` answered for `call`, or the
+  episodes for a call of episode-calls, as a vector. It throws only when
+  the body isn't JSON.
 
   A lookup gives one show. The shows of trending are in the order of the
   chart, each with its :directory/rank. The vector is empty when the body
   tells of a failure. The `source` is a name in sources or an entry, and
-  each show names it as :directory/source."
+  each show names it as :directory/source.
+
+  An episode has the keys of a parsed item, its :directory/id and
+  :directory/source, and the show that it's an episode of as
+  :directory/show, as much as the source tells of the show."
   [source call body]
   (let [{:keys [api id pages]} (entry source)
-        shows (if (= :podcastindex api)
-                (index-shows body pages)
-                (let [raw (json/read-str body)]
-                  (case api
-                    :apple   (apple-shows raw call)
-                    :fyyd    (when (= 1 (get raw "status"))
-                               (map fyyd-show (records (get raw "data"))))
-                    :gpodder (map gpodder-show (records raw)))))
-        named (map #(assoc % :directory/source id) shows)]
-    (vec (if (= :trending call) (ranked named) named))))
+        named #(assoc % :directory/source id)]
+    (if (contains? episode-calls call)
+      (mapv #(-> % named (update :directory/show named)) (episodes api body))
+      (let [shows (if (= :podcastindex api)
+                    (index-shows body pages)
+                    (let [raw (json/read-str body)]
+                      (case api
+                        :apple   (apple-shows raw call)
+                        :fyyd    (when (= 1 (get raw "status"))
+                                   (map fyyd-show (records (get raw "data"))))
+                        :gpodder (map gpodder-show (records raw)))))
+            shows (map named shows)]
+        (vec (if (= :trending call) (ranked shows) shows))))))
 
 (defn- name-of
   "The title and author of `show`, lower-cased: what tells shows apart when
@@ -629,8 +781,8 @@
   (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex)))
 
 (defn call!
-  "Send `call` with `params` and `opts` to `source`, and read the shows
-  in the answer, in ClojureScript in a promise.
+  "Send `call` with `params` and `opts` to `source`, and read the shows or
+  the episodes in the answer, in ClojureScript in a promise.
 
   The `opts` are those of request, and these:
 
@@ -639,10 +791,10 @@
     so a directory that doesn't answer costs little.
   - :user-agent, as http/send! takes it
 
-  A 404 gives no shows. Any other status that isn't a success throws with
-  the :type ::failed, so a refused key doesn't look like an empty answer.
-  The shows are at most the :limit of `params`, since gpodder.net takes
-  no limit."
+  A 404 gives none. Any other status that isn't a success throws with the
+  :type ::failed, so a refused key doesn't look like an empty answer.
+  There are at most the :limit of `params`, since gpodder.net takes no
+  limit."
   ([source call params]
    (call! source call params {}))
   ([source call {:keys [limit] :as params}

@@ -5,9 +5,11 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory :as directory]
+            [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch.async :as async]))
 
 (def apple-search
@@ -76,7 +78,9 @@
         "no User-Agent, which the sender gives")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :podcastindex :search {:q "x"})) "credentials wanted")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :spotify :search {:q "x"})))
-    (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :charts {:q "x"})))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :live {}))
+        "a call that the source doesn't answer")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :trending {:country "Denmark"})))))
 
 (deftest the-chart-of-a-country-or-language
@@ -284,6 +288,60 @@
       (is (= ["Linux Outlaws" "This American Life"] (take 2 (map :rss/title shows))))
       (is (= [1 2 3] (map :directory/rank shows)))
       (is (= 3321 (:directory/subscribers (first shows)))))))
+
+(deftest episodes
+  (testing "the requests"
+    (let [url         (fn [source call params & [opts]]
+                        (:url (directory/request source call params (or opts {}))))
+          credentials {:credentials {:key "K" :secret "S"} :auth-date 1700000000}]
+      (is (= "https://itunes.apple.com/lookup?id=1584274529&entity=podcastEpisode&limit=2"
+             (url :apple :episodes {:id "1584274529" :limit 2})))
+      (is (= "https://api.fyyd.de/0.2/podcast/episodes?podcast_id=61003&count=2"
+             (url :fyyd :episodes {:id 61003 :limit 2})))
+      (is (= "https://api.fyyd.de/0.2/episode/latest?count=2" (url :fyyd :recent {:limit 2})))
+      (is (str/ends-with? (url :podcastindex :episodes {:id 920666 :limit 2} credentials)
+                          "episodes/byfeedid?id=920666&max=2"))
+      (is (str/ends-with? (url :podcastindex :episodes {:id "917393e3-1b1e-5cef-ace4-edaa54e1f810"} credentials)
+                          "episodes/bypodcastguid?guid=917393e3-1b1e-5cef-ace4-edaa54e1f810"))
+      (is (str/ends-with? (url :podcastindex :by-person {:q "Adam Curry" :limit 3} credentials)
+                          "search/byperson?q=Adam%20Curry&max=3"))
+      (is (str/ends-with? (url :podcastindex :recent {:limit 3} credentials) "recent/episodes?max=3"))
+      (is (str/ends-with? (url :podcastindex :live {} credentials) "episodes/live"))
+      (doseq [[source call] [[:gpodder :episodes] [:apple :recent] [:fyyd :by-person] [:fyyd :live]]]
+        (is (thrown? #?(:clj Exception :cljs js/Error) (url source call {:id "x" :q "x"}))
+            (str source " has no " call)))))
+  (testing "Apple, which describes the show too"
+    (let [[e :as found] (directory/response :apple :episodes (fixture "directory/apple-episodes.json"))
+          show          (:directory/show e)]
+      (is (= 2 (count found)))
+      (is (= ["Episode 274: \"Vibe Cloning\"" {:content "PC20-274"} 6065 "1000794523391" :apple]
+             ((juxt :rss/title :rss/guid :itunes/duration :directory/id :directory/source) e)))
+      (is (= "https://op3.dev/e/mp3s.nashownotes.com/PC20-274-2026-10-09-Final.mp3"
+             (get-in e [:rss/enclosure :url])))
+      (is (= ["Podcasting 2.0" "Podcast Index LLC" "1584274529" "https://feeds.podcastindex.org/pc20.xml" :apple]
+             ((juxt :rss/title :itunes/author :directory/id resolve/self-url :directory/source) show)))
+      (is (= "https://podcasts.apple.com/podcast/id1584274529?i=1000794523391"
+             (links/link :apple :episode (links/ids show e)))
+          "the link of the episode in Apple Podcasts")))
+  (testing "fyyd, of one show and of any"
+    (let [[e] (directory/response :fyyd :episodes (fixture "directory/fyyd-episodes.json"))]
+      (is (= ["PC20-252" 5589 "audio/mpeg" 15248069]
+             [(get-in e [:rss/guid :content]) (:itunes/duration e) (get-in e [:rss/enclosure :type]) (:directory/id e)]))
+      (is (= ["Podcasting 2.0" "https://feeds.podcastindex.org/pc20.xml" :fyyd]
+             ((juxt :rss/title resolve/self-url :directory/source) (:directory/show e)))))
+    (let [found (directory/response :fyyd :recent (fixture "directory/fyyd-latest.json"))]
+      (is (= 2 (count found)))
+      (is (every? (comp :directory/id :directory/show) found) "the id of the show alone")))
+  (testing "the Podcast Index"
+    (let [episode (get (json/read-str (fixture "index/episode-byguid.json")) "episode")
+          body    (json/write-str {"status" "true" "items" [episode] "count" 1})
+          [e]     (directory/response :podcastindex :episodes body)]
+      (is (= [16795088 :podcastindex] ((juxt :directory/id :directory/source) e)))
+      (is (= [920666 "Podcasting 2.0" :podcastindex]
+             ((juxt :directory/id :rss/title :directory/source) (:directory/show e))))
+      (is (= "https://fountain.fm/episode/16795088"
+             (links/link :fountain :episode (links/ids (:directory/show e) e))))
+      (is (= [] (directory/response :podcastindex :live "{\"status\": \"false\"}"))))))
 
 (deftest podcast-index
   (let [shows (directory/response :podcastindex :search index-search)

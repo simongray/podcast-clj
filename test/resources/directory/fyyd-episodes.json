@@ -1,0 +1,90 @@
+{
+ "status": 1,
+ "msg": "ok",
+ "meta": {
+  "paging": {
+   "count": 2,
+   "page": 0,
+   "first_page": 0,
+   "last_page": 132,
+   "next_page": 1,
+   "prev_page": null
+  },
+  "API_INFO": {
+   "API_VERSION": "0.2"
+  },
+  "SERVER": "88.99.101.163",
+  "duration": 0
+ },
+ "data": {
+  "title": "Podcasting 2.0",
+  "id": 61003,
+  "xmlURL": "https://feeds.podcastindex.org/pc20.xml",
+  "htmlURL": "http://podcastindex.org",
+  "imgURL": "https://behindthesch3m3s.com/wp-content/uploads/2023/01/v4v-storm-good-quality.gif",
+  "status": 200,
+  "status_since": "2025-12-19 19:11:22",
+  "slug": "podcasting-2-0",
+  "layoutImageURL": "https://img-1.fyyd.de/pd/layout/6100310530cf85f33efb54a8ad5b5e89a3ccd.jpg",
+  "thumbImageURL": "https://img-1.fyyd.de/pd/thumbs/6100310530cf85f33efb54a8ad5b5e89a3ccd.png",
+  "smallImageURL": "https://img-1.fyyd.de/pd/small/6100310530cf85f33efb54a8ad5b5e89a3ccd.jpg",
+  "microImageURL": "https://img-1.fyyd.de/pd/micro/6100310530cf85f33efb54a8ad5b5e89a3ccd.png",
+  "language": "en",
+  "generator": "Sovereign Feeds",
+  "categories": [
+   155,
+   203
+  ],
+  "lastpub": "2026-03-06T21:22:10+01:00",
+  "rank": 187,
+  "url_fyyd": "https://fyyd.de/podcast/podcasting-2-0/0",
+  "description": "PC2.0 Episode #252 March 6th 2026 Live!\nPre-Boost Us!\nGet Podcast Addict, Podcast Guru, CurioCaster, Podverse, Fountain and Truefans from newpodcastapps.com",
+  "subtitle": "PC2.0 252 Live March 6th 2026",
+  "tcolor": "#fff",
+  "color": "#04050d",
+  "episode_count": 266,
+  "iflags": null,
+  "paymentURL": "https://paypal.me/podcastindex",
+  "author": "Podcast Index LLC",
+  "episodes": [
+   {
+    "title": "Episode 252: Joy Robber",
+    "id": 15248069,
+    "guid": "PC20-252",
+    "url": "https://www.podpage.com/podcasting-20/joy-robber/",
+    "enclosure": "https://op3.dev/e/mp3s.nashownotes.com/PC20-252-2026-03-06-Final.mp3",
+    "podcast_id": 61003,
+    "imgURL": "https://noagendaassets.com/enc/1684513486.722_pcifeedimage.png",
+    "pubdate": "2026-03-06T21:22:10+01:00",
+    "duration": 5589,
+    "status": 200,
+    "num_season": 0,
+    "num_episode": 0,
+    "inserted": "2026-03-06T22:06:02+01:00",
+    "url_fyyd": "https://fyyd.de/episode/15248069",
+    "description": "Podcasting 2.0 March 6th 2026 Episode 252: \"Joy Robber\"\nAdam &amp; Dave say one man's slop is another man's pr0n. A discussion ensues\nShowNotes\nWe are LIT\nAI Ta…",
+    "duration_string": "1:33:09",
+    "content_type": "audio/mpeg"
+   },
+   {
+    "title": "Episode 251: Pod Snuggle",
+    "id": 15233912,
+    "guid": "PC20-251",
+    "url": "https://www.podpage.com/podcasting-20/pod-snuggle/",
+    "enclosure": "https://op3.dev/e/mp3s.nashownotes.com/PC20-251-2026-02-27-Final.mp3",
+    "podcast_id": 61003,
+    "imgURL": "https://noagendaassets.com/enc/1684513486.722_pcifeedimage.png",
+    "pubdate": "2026-02-27T21:13:36+01:00",
+    "duration": 5244,
+    "status": 200,
+    "num_season": 0,
+    "num_episode": 0,
+    "inserted": "2026-03-04T21:06:01+01:00",
+    "url_fyyd": "https://fyyd.de/episode/15233912",
+    "description": "Podcasting 2.0 February 27th 2026 Episode 251: \"Pod Snuggle\"\nAdam &amp; Dave Discuss the future of Broadcast vs Podcasting, Apple Video and a new PodPing Archit…",
+    "duration_string": "1:27:24",
+    "content_type": "audio/mpeg"
+   }
+  ]
+ }
+}

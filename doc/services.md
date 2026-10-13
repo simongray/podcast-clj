@@ -57,8 +57,8 @@ There's no default for these, so you give them:
 
 ## The directories
 
-An entry of `directory/sources` says which API the directory speaks, and
-has the URLs of the service:
+An entry of `directory/sources` says which API the directory speaks, which
+`:calls` it answers, and has the URLs of the service:
 
 | Name | `:api` | URLs |
 |---|---|---|
@@ -162,8 +162,9 @@ The forms of the links to a show and to an episode in each app are in
 `links/apps`. They come from Nathan Gathright's list [Podcast Platform
 Links](https://github.com/nathangathright/podcast-platform-links), as it
 was on 29 September 2026. The table only has the forms built from ids that
-the app didn't make, and leaves out the forms that need the app's own id,
-such as Spotify's id of a show.
+a directory gives, and leaves out the forms that need an id that only the
+app knows, such as Spotify's id of a show. Apple's id of an episode comes
+from the `:episodes` call of `directory`.
 
 A key in braces is a key of `links/ids`, and a word before the key is an
 encoding:
@@ -181,7 +182,7 @@ type page is a web page that leads a listener to the apps.
 | 1tuner | app | `https://1tuner.com/podcast/{slug}/{base64url feed-url}` | `https://1tuner.com/podcast/{slug}/{base64url feed-url}/{encoded episode-guid}` |  |
 | AntennaPod | app | `https://antennapod.org/deeplink/subscribe?url={feed-url}` |  | `antennapod-subscribe://{bare feed-url}` |
 | Anytime Player | app | `https://anytimeplayer.app/subscribe?url={feed-url}` |  |  |
-| Apple Podcasts | app | `https://podcasts.apple.com/podcast/id{apple-id}` |  | `podcast://{bare feed-url}` |
+| Apple Podcasts | app | `https://podcasts.apple.com/podcast/id{apple-id}` | `https://podcasts.apple.com/podcast/id{apple-id}?i={apple-episode-id}` | `podcast://{bare feed-url}` |
 | Breez | app | `https://breez.link/p?feedURL={encoded feed-url}` | `https://breez.link/p?feedURL={encoded feed-url}&episodeID={encoded episode-guid}` |  |
 | Castamatic | app | `https://castamatic.com/guid/{podcast-guid}` |  | `castamatic://{bare feed-url}` |
 | Castbox | app | `https://castbox.fm/vic/{apple-id}` |  |  |

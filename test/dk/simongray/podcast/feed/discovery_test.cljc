@@ -94,8 +94,9 @@
     (is (= {:url "https://a.example/feed.xml" :typed? true} (discovery/read-input "pktc://subscribe/a.example/feed.xml")))
     (is (= {:url "https://a.example/feed.xml"}
            (discovery/read-input "https://antennapod.org/deeplink/subscribe?url=https%3A%2F%2Fa.example%2Ffeed.xml")))
-    (is (= {:apple-id "1200361736"}
-           (:ids (discovery/read-input "https://podcasts.apple.com/us/podcast/the-daily/id1200361736?i=1000")))))
+    (is (= {:apple-id "1200361736" :apple-episode-id "1000"}
+           (:ids (discovery/read-input "https://podcasts.apple.com/us/podcast/the-daily/id1200361736?i=1000")))
+        "with the episode that the link names"))
   (testing "a fast-follow link of the podcast namespace"
     (is (= {:url  "https://podnews.net/podcast/i8xe9"
             :guid "9b024349-ccf0-5f69-a609-6b82873eab3c"}

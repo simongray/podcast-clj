@@ -113,7 +113,7 @@
             p           form]
       (is (or (string? p)
               (contains? #{:feed-url :podcast-guid :apple-id :podcastindex-id :slug :episode-guid
-                           :enclosure-url :podcastindex-episode-id}
+                           :enclosure-url :podcastindex-episode-id :apple-episode-id}
                          (if (keyword? p) p (second p))))
           (pr-str [app kind p]))
       (is (or (not (vector? p)) (contains? #{:encoded :base64url :hex :bare} (first p)))
@@ -161,7 +161,9 @@
         (doseq [[k v] read]
           (is (= (if (= :feed-url k) (bare v) v) (if (= :feed-url k) (bare (ids k)) (ids k))) (str link " " k)))))
     (testing "the links that Apple Podcasts and Overcast share"
-      (is (= {:apple-id "1524356573"} (links/link-ids "https://podcasts.apple.com/dk/podcast/podcasting-2-0/id1524356573?i=1000")))
+      (is (= {:apple-id "1524356573" :apple-episode-id "1000"}
+             (links/link-ids "https://podcasts.apple.com/dk/podcast/podcasting-2-0/id1524356573?i=1000"))
+          "with the episode")
       (is (= {:apple-id "1524356573"} (links/link-ids "http://www.podcasts.apple.com/podcast/id1524356573")))
       (is (= {:apple-id "1524356573"} (links/link-ids "https://overcast.fm/itunes1524356573/podcasting-2-0"))))
     (testing "a feed URL that is encoded, though its form has it plain"

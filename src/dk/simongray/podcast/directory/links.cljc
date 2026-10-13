@@ -60,6 +60,8 @@
    :apple
    {:name      "Apple Podcasts" :type :app
     :show      [["https://podcasts.apple.com/podcast/id" :apple-id]]
+    :episode   [["https://podcasts.apple.com/podcast/id" :apple-id
+                 "?i=" :apple-episode-id]]
     :subscribe [["podcast://" [:bare :feed-url]]]}
 
    :breez
@@ -285,12 +287,13 @@
 
       {:feed-url \"…\" :podcast-guid \"…\" :apple-id \"…\"
        :podcastindex-id 920666 :episode-guid \"…\" :enclosure-url \"…\"
-       :podcastindex-episode-id 123}
+       :podcastindex-episode-id 123 :apple-episode-id \"1000794523391\"}
 
   A key is absent when the show doesn't have it. The `show` is a parsed
   feed, or a show of a directory, which has the ids of the directories.
-  The `item` is an item of the feed, or an episode from the Podcast
-  Index. A feed names its URL in its atom:link rel=self.
+  The `item` is an item of the feed, or an episode of a directory, whose
+  id at Apple or the Podcast Index only the directory knows. A feed names
+  its URL in its atom:link rel=self.
 
   The podcast:guid is that of the feed, or else the guid that the podcast
   namespace derives from the URL. The Podcast Index derives the same guid
@@ -314,7 +317,10 @@
          apple-id   (or (source :apple) (:index/itunes-id show))
          index-id   (or (source :podcastindex) (:index/id show))
          item-guid  (not-empty (get-in item [:rss/guid :content]))
-         episode-id (when (:index/feed-id item) (:index/id item))]
+         episode-id (when (:index/feed-id item) (:index/id item))
+         apple-item (or (get-in item [:directory/sources :apple])
+                        (when (= :apple (:directory/source item))
+                          (:directory/id item)))]
      (into {} (remove (comp nil? val))
            {:feed-url                url
             :podcast-guid            guid
@@ -322,7 +328,8 @@
             :podcastindex-id         index-id
             :episode-guid            item-guid
             :enclosure-url           (get-in item [:rss/enclosure :url])
-            :podcastindex-episode-id episode-id}))))
+            :podcastindex-episode-id episode-id
+            :apple-episode-id        apple-item}))))
 
 (defn- encoding-of
   "The encoding and the key of the part `p` of a form that names a key."
@@ -402,6 +409,7 @@
   isn't here is the text of one part of a path or a query."
   (let [hex #(str "[0-9a-fA-F]{" % "}")]
     {:apple-id                "[0-9]+"
+     :apple-episode-id        "[0-9]+"
      :podcastindex-id         "[0-9]+"
      :podcastindex-episode-id "[0-9]+"
      :podcast-guid            (str/join "-" (map hex [8 4 4 4 12]))
@@ -498,13 +506,14 @@
   with or without www., and with one more part of the path before each
   part of the form, such as the country and the name of a show in a link
   that Apple Podcasts shares. A feed URL that a link holds without its
-  scheme comes without one."
+  scheme comes without one. The forms of an episode come first, so a link
+  to an episode gives the ids of the episode too."
   ([url]
    (link-ids url {}))
   ([url opts]
    {:pre [(map? opts)]}
    (->> (for [entry (vals (:apps opts apps))
-              kind  kinds
+              kind  [:episode :show :subscribe]
               form  (get entry kind)]
           form)
         (keep #(read-form % (str url)))

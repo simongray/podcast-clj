@@ -209,6 +209,23 @@ The Podcast Index has no names for subcategories like Tech News, so give a
 category for each source: `{:category {:apple "Tech News" :podcastindex
 "Technology,News"}}`.
 
+For episodes, ask one source with `directory/call!`. The `:episodes` of a
+show come from Apple, fyyd and the Podcast Index, the `:recent` episodes
+of any show from fyyd and the Podcast Index, and the episodes `:by-person`
+and those `:live` now from the Podcast Index alone:
+
+```clojure
+(def episodes
+  (directory/call! :apple :episodes {:id "1584274529" :limit 5}))
+
+(let [e (first episodes)]
+  (links/link :apple :episode (links/ids (:directory/show e) e)))
+;; => "https://podcasts.apple.com/podcast/id1584274529?i=1000794523391"
+```
+
+Each episode has the keys of an item and the show it's from as
+`:directory/show`, so `links/ids` gives the ids of both.
+
 In a browser, give `search!` the `:send` of the proxy.
 
 

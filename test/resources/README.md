@@ -9,6 +9,10 @@ The other two feeds under `feeds/` are hand-written. `quirky.xml` combines many
 real-world quirks, and `broken.xml` is malformed in several ways.
 
 `directory/`, `index/` and `podping/` hold recorded answers of the services.
+`directory/apple-episodes.json`, `fyyd-episodes.json` and `fyyd-latest.json`
+are the answers of 13 October 2026, with their descriptions cut short. The
+tests make an answer of the Podcast Index with a list of episodes from the
+one episode of `index/episode-byguid.json`.
 
 `comments/` holds recorded answers of Mastodon, Misskey, PeerTube, the
 Mastodon API and a Bluesky AppView. The recordings keep only the fields

@@ -1,0 +1,111 @@
+{
+ "resultCount": 3,
+ "results": [
+  {
+   "wrapperType": "track",
+   "kind": "podcast",
+   "collectionId": 1584274529,
+   "trackId": 1584274529,
+   "artistName": "Podcast Index LLC",
+   "collectionName": "Podcasting 2.0",
+   "trackName": "Podcasting 2.0",
+   "collectionCensoredName": "Podcasting 2.0",
+   "trackCensoredName": "Podcasting 2.0",
+   "collectionViewUrl": "https://podcasts.apple.com/us/podcast/podcasting-2-0/id1584274529?uo=4",
+   "feedUrl": "https://feeds.podcastindex.org/pc20.xml",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/podcasting-2-0/id1584274529?uo=4",
+   "artworkUrl30": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/30x30bb.jpg",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/60x60bb.jpg",
+   "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/100x100bb.jpg",
+   "collectionPrice": 0.0,
+   "trackPrice": 0.0,
+   "collectionHdPrice": 0,
+   "releaseDate": "2026-10-02T19:18:00Z",
+   "collectionExplicitness": "notExplicit",
+   "trackExplicitness": "cleaned",
+   "trackCount": 212,
+   "trackTimeMillis": 5385,
+   "country": "USA",
+   "currency": "USD",
+   "primaryGenreName": "News",
+   "contentAdvisoryRating": "Clean",
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/600x600bb.jpg",
+   "genreIds": [
+    "1489",
+    "26",
+    "1318"
+   ],
+   "genres": [
+    "News",
+    "Podcasts",
+    "Technology"
+   ]
+  },
+  {
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/600x600bb.jpg",
+   "episodeFileExtension": "mp3",
+   "episodeContentType": "audio",
+   "artistIds": [],
+   "genres": [
+    {
+     "name": "News",
+     "id": "1489"
+    }
+   ],
+   "episodeGuid": "PC20-274",
+   "trackId": 1000794523391,
+   "releaseDate": "2026-10-09T19:37:54Z",
+   "shortDescription": "Podcasting 2.0 October 9th 2026 Episode 274 - \"Vibe Cloning\"\n\n\nThe Future is here! And so is the risk of spinning out. Adam & Dave go deep\n\n\nShowNotes\n\n--------…",
+   "trackName": "Episode 274: \"Vibe Cloning\"",
+   "feedUrl": "https://feeds.podcastindex.org/pc20.xml",
+   "closedCaptioning": "none",
+   "collectionId": 1584274529,
+   "collectionName": "Podcasting 2.0",
+   "kind": "podcast-episode",
+   "wrapperType": "podcastEpisode",
+   "description": "Podcasting 2.0 October 9th 2026 Episode 274 - \"Vibe Cloning\"\n\n\nThe Future is here! And so is the risk of spinning out. Adam & Dave go deep\n\n\nShowNotes\n\n--------…",
+   "country": "USA",
+   "artworkUrl160": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/160x160bb.jpg",
+   "collectionViewUrl": "https://itunes.apple.com/us/podcast/podcasting-2-0/id1584274529?mt=2&uo=4",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/episode-274-vibe-cloning/id1584274529?i=1000794523391&uo=4",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/60x60bb.png",
+   "trackTimeMillis": 6065000,
+   "contentAdvisoryRating": "Clean",
+   "previewUrl": "https://op3.dev/e/mp3s.nashownotes.com/PC20-274-2026-10-09-Final.mp3",
+   "episodeUrl": "https://op3.dev/e/mp3s.nashownotes.com/PC20-274-2026-10-09-Final.mp3"
+  },
+  {
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/600x600bb.jpg",
+   "episodeFileExtension": "mp3",
+   "episodeContentType": "audio",
+   "artistIds": [],
+   "genres": [
+    {
+     "name": "News",
+     "id": "1489"
+    }
+   ],
+   "episodeGuid": "PC20-273",
+   "trackId": 1000792888018,
+   "releaseDate": "2026-10-02T19:18:08Z",
+   "shortDescription": "Podcasting 2.0 October 2nd 2026 Episode 273 - \"Advertising is The Horse and Buggies of Podcasting\"\n\nOne topic only today - Big changes coming to podcast discove…",
+   "trackName": "Episode 273: \"Advertising is the Horse and Buggies of Podcasting\"",
+   "feedUrl": "https://feeds.podcastindex.org/pc20.xml",
+   "closedCaptioning": "none",
+   "collectionId": 1584274529,
+   "collectionName": "Podcasting 2.0",
+   "kind": "podcast-episode",
+   "wrapperType": "podcastEpisode",
+   "description": "Podcasting 2.0 October 2nd 2026 Episode 273 - \"Advertising is The Horse and Buggies of Podcasting\"\n\nOne topic only today - Big changes coming to podcast discove…",
+   "country": "USA",
+   "artworkUrl160": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/160x160bb.jpg",
+   "collectionViewUrl": "https://itunes.apple.com/us/podcast/podcasting-2-0/id1584274529?mt=2&uo=4",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/episode-273-advertising-is-the-horse-and/id1584274529?i=1000792888018&uo=4",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/75/16/2d/75162db9-1089-687d-7726-df2e4861ba24/mza_2968058896728768246.png/60x60bb.png",
+   "trackTimeMillis": 5385000,
+   "contentAdvisoryRating": "Clean",
+   "previewUrl": "https://op3.dev/e/mp3s.nashownotes.com/PC20-273-2026-10-02-Final.mp3",
+   "episodeUrl": "https://op3.dev/e/mp3s.nashownotes.com/PC20-273-2026-10-02-Final.mp3"
+  }
+ ]
+}
