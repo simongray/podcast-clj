@@ -343,20 +343,21 @@
 
 (defn refresh
   "Note in `profile` at `at` a new parse `after` of the feed at `url`, which
-  was `before`, with the `opts` of feed/new-episodes. The result is a map
-  of the new :profile and the episode ids that feed/new-episodes gives:
-  those :added, :backfilled and :renamed.
+  was `before`, with the `opts` of feed/new-episodes and :join-pred. The
+  result is a map of the new :profile and the episode ids that
+  feed/new-episodes gives: those :added, :backfilled and :renamed.
 
   The new episodes join the queue with :auto-queue? in the settings of a
   live subscription, at its end or right after the current episode, the
   newest :auto-queue-max of them when it's set. The others join the inbox
-  with :inbox?. An episode that's already in the profile stays as the
-  listener left it. A renamed episode takes its state along, as
-  profile/rename-episode moves it, written by this device for the
-  listener."
+  with :inbox?. With :join-pred, a predicate of the feed and an item, e.g.
+  of criteria/where, only the episodes that meet it join either. An
+  episode that's already in the profile stays as the listener left it. A
+  renamed episode takes its state along, as profile/rename-episode moves
+  it, written by this device for the listener."
   ([profile url before after at]
    (refresh profile url before after at {}))
-  ([profile url before after at opts]
+  ([profile url before after at {:keys [join-pred] :as opts}]
    {:pre [(map? opts)]}
    (let [feed-guid (guid/feed-key after url)
          {:keys [added backfilled renamed]}
@@ -369,7 +370,14 @@
          known?    #(or (profile/played? profile %)
                         (contains? (:queue profile) %)
                         (contains? (:inbox profile) %))
-         unknown   (remove known? added)
+         items     (when join-pred
+                     (into {}
+                           (map (juxt guid/item-guid identity))
+                           (:rss/items after)))
+         joins?    (fn [[_ item-guid]]
+                     (or (nil? join-pred)
+                         (join-pred after (get items item-guid))))
+         unknown   (filter joins? (remove known? added))
          writes    (joining profile unknown settings)
          ;; the feed is the author of what joins, at the episode's date of
          ;; publication but never after at, so that a device that finds an

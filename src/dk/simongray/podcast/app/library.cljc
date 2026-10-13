@@ -621,6 +621,20 @@
           (update :library settled target opts)
           (assoc-in [:guids feed-guid] target)))))
 
+(defn- join-pred
+  "The predicate of a feed and an item that a new episode of the show
+  `feed-guid` of `library`, at `url`, meets to join the queue or the inbox
+  at `at`, by the :join-where of its settings in `profile`, or nil.
+  Criteria of a later version that this one doesn't know select every
+  episode."
+  [library profile feed-guid url at]
+  (let [where (:join-where (profile/settings profile feed-guid))]
+    (when (and where (nil? (criteria/problem {:where where})))
+      (criteria/where where {:profile profile
+                             :url     url
+                             :at      at
+                             :files   (:files library {})}))))
+
 (defn- applied
   "The `library` with the `result` of a refresh of its feeds applied to the
   profile at `at`, and the fresh feeds cut down as the `opts` say, as a map
@@ -647,9 +661,13 @@
                        (noted acc feed-guid)
 
                        old-feed
-                       (let [{:keys [profile added backfilled renamed]}
+                       (let [join (join-pred library current feed-guid url at)
+                             {:keys [profile added backfilled renamed]}
                              (profile.queue/refresh current url old-feed feed
-                                                    at opts)]
+                                                    at
+                                                    (cond-> opts
+                                                      join (assoc :join-pred
+                                                                  join)))]
                          (-> acc
                              (assoc-in [:library :profile] profile)
                              (with-guid feed-guid)
@@ -903,12 +921,69 @@
 (defn show
   "The view of the show `feed-guid` of `library`, with the `opts` of
   app.show/view, or nil when the library has no such feed. Its episodes
-  have their :retained facts."
+  have their :retained facts.
+
+  The :title is the listener's :custom-title of the show, and the
+  :episodes are in the :order that the listener chose for it, as
+  profile/default-settings has them."
   ([library feed-guid]
    (show library feed-guid {}))
   ([library feed-guid opts]
    (when-let [{:keys [url] :as entry} (get-in library [:feeds feed-guid])]
-     (show/view (marked entry) (assoc opts :url url)))))
+     (let [profile (:profile library)
+           feed    (marked entry)
+           view    (show/view feed (assoc opts :url url))
+           own     (profile/settings profile feed-guid)]
+       (cond-> view
+         (:custom-title own)
+         (assoc :title (:custom-title own))
+
+         (and (:order own) (contains? view :episodes))
+         (assoc :episodes (criteria/episodes feed {:profile profile
+                                                   :url     url})))))))
+
+(defn shows
+  "The subscriptions of `library` in the listener's order, as profile/shows
+  gives it, each as a map for a screen of shows:
+
+      {:feed-guid \"…\"
+       :title     \"…\"           ; the listener's own title, or the feed's
+       :artwork   \"https://…\"
+       :newest    #inst \"…\"     ; when the newest episode came out
+       :counts    {:episodes 40 :unplayed 12 :in-progress 1 :played 27
+                   :inbox 2 :queued 1}}
+
+  The counts are of the episodes that the library keeps of each show, and
+  of those of its episodes in the inbox and the queue. A show whose feed
+  isn't fetched yet counts only the inbox and the queue."
+  [library]
+  (let [profile (:profile library)
+        inbox   (frequencies (map first (profile.queue/inbox profile)))
+        queued  (frequencies (map first (profile.queue/queue profile)))
+        summary
+        (fn [feed-guid]
+          (let [feed     (some-> (get-in library [:feeds feed-guid]) marked)
+                items    (some-> feed :rss/items resolve/distinct-items)
+                status   #(criteria/status
+                           (profile/episode-entry
+                            profile [feed-guid (guid/item-guid %)]))
+                statuses (frequencies (map status items))
+                dates    (seq (keep resolve/published items))
+                title    (profile/title profile feed-guid)
+                artwork  (or (some-> feed resolve/artwork)
+                             (get-in profile [:subscriptions feed-guid :image]))
+                counts   (cond-> {:inbox  (get inbox feed-guid 0)
+                                  :queued (get queued feed-guid 0)}
+                           feed (assoc :episodes    (count items)
+                                       :unplayed    (get statuses :unplayed 0)
+                                       :in-progress (get statuses
+                                                         :in-progress 0)
+                                       :played      (get statuses :played 0)))]
+            (cond-> {:feed-guid feed-guid :counts counts}
+              title   (assoc :title title)
+              artwork (assoc :artwork artwork)
+              dates   (assoc :newest (apply max-key inst-ms dates)))))]
+    (mapv summary (profile/shows profile))))
 
 (defn fetch-linked-shows!
   "Fetch the shows that the show `feed-guid` of `library` links to, with

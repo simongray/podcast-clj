@@ -170,6 +170,13 @@
       "last touched first, the untouched in feed order after")
   (is (= ["Bonus" "Trailer"] (titles {:order (fn [_ item] (count (:rss/title item))) :limit 2}))
       "a function is a key of its own; limit applies after ordering")
+  (testing "the order that the listener chose for a show as its listening order"
+    (let [chose #(-> (profile/make "phone")
+                     (profile/subscribe "feed-guid" {:url "https://x/rss" :title "Test Show"} t0)
+                     (profile/configure "feed-guid" {:order %} t0))]
+      (is (= (titles {:order :newest}) (titles {:profile (chose :newest)})))
+      (is (= (titles {}) (titles {:profile (chose nil)})))
+      (is (= (titles {}) (titles {:profile (chose :random)})) "or of a later version, the show's own")))
   (is (thrown? #?(:clj Exception :cljs js/Error) (criteria/order :random)))
   (is (thrown? #?(:clj Exception :cljs js/Error) (criteria/order :recent))))
 

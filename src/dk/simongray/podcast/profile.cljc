@@ -8,6 +8,7 @@
        :clock          #inst \"…\"      ; the latest stamp written or merged
        :subscriptions  {feed-guid {:url :title :image :added-at :guid
                                    :removed?}}
+       :show-ranks     {feed-guid {:rank \"V\" :removed? false}}  ; the order
        :remote-items   {id {:feed-url :removed?}}  ; episodes of other shows
        :settings       {feed-guid {:skip-intro 20 ... :stamps {…}}}
        :tags           {feed-guid {\"Tech\" {:removed? false}}}
@@ -46,7 +47,8 @@
   - profile.opml, the followed lists, and the subscriptions as OPML
   - profile.player, the events of a player"
   (:refer-clojure :exclude [merge])
-  (:require [dk.simongray.mind-meld :as crdt]
+  (:require [clojure.string :as str]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.mind-meld.list :as crdt.list]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -65,6 +67,7 @@
   entries of each collection, whether its tombstones can be dropped, the
   key of a count that only grows, and which collections are ordered."
   {:subscriptions  {:depth 1 :compact? true}
+   :show-ranks     {:depth 1 :ranked? true}
    :remote-items   {:depth 1 :compact? true}
    :settings       {:depth 1}
    :tags           {:depth 2 :compact? true}
@@ -95,15 +98,25 @@
     queue, the newest, or nil for all of them
   - :inbox?, whether they join the inbox instead, and those that the
     :auto-queue-max leaves out
+  - :join-where, the criteria of criteria/where that a new episode meets
+    to join the queue or the inbox, e.g. {:type #{\"full\" \"bonus\"}} to
+    leave the trailers out, or nil for every new episode
   - :skip-intro and :skip-outro, the seconds to skip at the start and the
     end
-  - :folder, the folder that the show is in"
+  - :folder, the folder that the show is in
+  - :order, the order of its episodes, one of criteria/orders, or nil for
+    the listening order of the show
+  - :custom-title, the listener's own title of the show, or nil for that
+    of its feed"
   {:auto-queue?    false
    :auto-queue-max nil
    :inbox?         false
+   :join-where     nil
    :skip-intro     0
    :skip-outro     0
-   :folder         nil})
+   :folder         nil
+   :order          nil
+   :custom-title   nil})
 
 (defn subscribed?
   "Whether `profile` holds a live subscription to `feed-guid`."
@@ -247,8 +260,8 @@
 
 (defn rekey
   "The `profile` with the subscription `feed-guid` moved to `new-guid` at
-  `at`, along with its settings and tags, leaving a tombstone, e.g. when a
-  feed declares a guid other than that of its URL.
+  `at`, along with its settings, tags and place among the shows, leaving a
+  tombstone, e.g. when a feed declares a guid other than that of its URL.
 
   Nothing changes when the guids are the same, or when there's no live
   subscription."
@@ -261,10 +274,16 @@
                       [[:subscriptions feed-guid] #(assoc % :removed? true)]]
           old        (crdt/fields (get-in profile [:settings feed-guid]))
           retagged   (for [t (tags profile feed-guid)]
-                       [[:tags new-guid t] (constantly {:removed? false})])]
+                       [[:tags new-guid t] (constantly {:removed? false})])
+          rank       (get-in profile [:show-ranks feed-guid])
+          replaced   (when (crdt/live? rank)
+                       [[[:show-ranks new-guid]
+                         (constantly (select-keys rank [:rank :removed?]))]])]
       (crdt/at-once profile at
                     (fn [p]
-                      (cond-> (crdt/write-each p (concat moved retagged) at)
+                      (cond-> (crdt/write-each p
+                                               (concat moved retagged replaced)
+                                               at)
                         (seq old)
                         (crdt/write-fields [:settings new-guid]
                                            #(clojure.core/merge % old)
@@ -393,6 +412,46 @@
                        at)
     profile))
 
+(defn title
+  "The title of the subscription `feed-guid` in `profile`: the listener's
+  :custom-title, or else the title of its feed."
+  [profile feed-guid]
+  (or (:custom-title (settings profile feed-guid))
+      (get-in profile [:subscriptions feed-guid :title])))
+
+(defn shows
+  "The feed guids of the live subscriptions of `profile` in the listener's
+  order: those that move-show placed by their places, then the others by
+  title."
+  [profile]
+  (let [subs   (subscriptions profile)
+        placed (filterv #(contains? subs %)
+                        (map key (crdt.list/ranked (:show-ranks profile))))
+        by     (fn [feed-guid]
+                 [(str/lower-case (str (title profile feed-guid)))
+                  (str feed-guid)])]
+    (into placed
+          (sort-by by (remove (set placed) (keys subs))))))
+
+(defn move-show
+  "Move the subscription `feed-guid` of `profile` to `index` in the
+  listener's order at `at`. The first move places every show where shows
+  has it, so that the others keep their places."
+  [profile feed-guid index at]
+  (if-not (subscribed? profile feed-guid)
+    profile
+    (crdt/at-once
+     profile at
+     (fn [p]
+       (let [order   (shows p)
+             placed  (crdt.list/append p [:show-ranks] (:show-ranks p) order
+                                       at)
+             entries (select-keys (:show-ranks placed) order)
+             rank    (crdt.list/rank-at entries feed-guid index)]
+         (crdt/write placed [:show-ranks feed-guid]
+                     (constantly {:rank rank :removed? false})
+                     at))))))
+
 (def default-preferences
   "How the listener likes to listen until they change it:
 
@@ -465,12 +524,13 @@
 
 (defn folders
   "The feed guids of the live subscriptions of `profile` by folder, in the
-  order of their titles, with the shows in no folder under nil."
+  listener's order, as shows gives it, with the shows in no folder under
+  nil."
   [profile]
-  (let [add (fn [m [feed-guid _]]
+  (let [add (fn [m feed-guid]
               (let [folder (:folder (settings profile feed-guid))]
                 (update m folder (fnil conj []) feed-guid)))]
-    (reduce add {} (sort-by (comp str :title val) (subscriptions profile)))))
+    (reduce add {} (shows profile))))
 
 (defn rename-folder
   "Move the shows of `profile` in the folder `from` to the folder `to` at

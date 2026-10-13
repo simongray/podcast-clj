@@ -171,7 +171,14 @@
         (is (= [["feed-a" "a3"]] (profile.queue/inbox p)))
         (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? true :auto-queue-max 1} t0)
                                                                         "https://a/rss" before after t1))))
-            "or nowhere without :inbox?")))))
+            "or nowhere without :inbox?")))
+    (testing "only those that meet the :join-pred, which go nowhere else"
+      (let [both  (profile/configure s "feed-a" {:auto-queue? true :inbox? true} t0)
+            a4?   (fn [_ item] (= "a4" (:rss/title item)))
+            r     (profile.queue/refresh both "https://a/rss" before after t1 {:join-pred a4?})]
+        (is (= [["feed-a" "a4"]] (profile.queue/queue (:profile r))))
+        (is (= [] (profile.queue/inbox (:profile r))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (:added r)) "though both are new")))))
 
 (deftest the-bound-on-new-episodes
   (let [dated  (fn [id day] {:rss/guid {:content id} :rss/title id :rss/pub-date (time/->inst (* day 86400000))})

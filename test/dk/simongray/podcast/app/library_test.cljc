@@ -334,6 +334,44 @@
                        (is (= show (get-in lib' [:feeds guid :feed])))
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
 
+(deftest a-screen-of-shows-and-the-choices-of-a-show
+  (let [other-guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"
+        lib        (library/subscribe library other-url {:status 200 :url other-url :feed other})
+        counts     #(into {} (map (juxt :feed-guid :counts)) (library/shows %))]
+    (testing "the shows by title, with the counts of their episodes"
+      (is (= [["Other" 1] ["Podcasting 2.0 Namespace Example" 3]]
+             (map (juxt :title (comp :episodes :counts)) (library/shows lib))))
+      (is (= #inst "2020-10-09T04:30:38Z" (:newest (second (library/shows lib)))))
+      (let [lib (-> lib
+                    (library/update-profile profile/mark-played [guid "https://example.com/ep0001"])
+                    (library/update-profile profile/progress [guid "https://example.com/ep0002"] 60 3600)
+                    (library/update-profile profile.queue/enqueue [guid "https://example.com/ep0003"]))]
+        (is (= {:episodes 3 :unplayed 1 :in-progress 1 :played 1 :inbox 0 :queued 1} (get (counts lib) guid)))))
+    (testing "in the listener's order, under their own title"
+      (let [lib (-> lib
+                    (library/update-profile profile/move-show guid 0)
+                    (library/update-profile profile/configure other-guid {:custom-title "Mine"}))]
+        (is (= [guid other-guid] (map :feed-guid (library/shows lib))))
+        (is (= "Mine" (:title (second (library/shows lib))) (:title (library/show lib other-guid))))))
+    (testing "the episodes of a show in the order that the listener chose for it"
+      (let [titles #(map :rss/title (:episodes (library/show % guid)))
+            oldest (library/update-profile lib profile/configure guid {:order :oldest})]
+        (is (= ["Episode 3 - The Future" "Episode 2 - The Present" "Episode 1 - The Past"] (titles lib)))
+        (is (= ["Episode 1 - The Past" "Episode 2 - The Present" "Episode 3 - The Future"] (titles oldest)))
+        (is (= (titles oldest) (map (comp :rss/title second) (library/episodes oldest {:feed-guids [guid]}))))))
+    (testing "only the new episodes that meet the show's criteria join the queue"
+      (let [later   (at 86400)
+            fetch   (fn [url _] {:status 200 :url url :feed (if (= url other-url) other newer)})
+            refresh #(library/refresh! % {:at later :fetch fetch :send (fn [_] {:status 304 :headers {} :body ""})})
+            picky   (library/update-profile library profile/configure guid {:join-where {:text "nothing like it"}})
+            broad   (library/update-profile library profile/configure guid {:join-where {:text "new"}})]
+        (run (fn []
+               (async/then (async/all [(refresh picky) (refresh broad)])
+                           (fn [[picky broad]]
+                             (is (= [[guid "new"]] (get-in picky [:refresh :added])) "though it's new")
+                             (is (= [] (profile.queue/queue (:profile picky))))
+                             (is (= [[guid "new"]] (profile.queue/queue (:profile broad))))))))))))
+
 (deftest the-options-of-one-refresh
   (let [picks-url "https://example.org/picks.opml"
         lib       (library/follow-list library picks-url picks {:title "Picks"})

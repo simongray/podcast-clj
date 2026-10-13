@@ -66,7 +66,7 @@
   [ctx feed item]
   (profile/episode-entry (:profile ctx) (episode-id ctx feed item)))
 
-(defn- status
+(defn ^:no-doc status
   "The status of the episode with the entry `e` of a profile: :unplayed,
   :in-progress or :played."
   [{:keys [position played?] :as e}]
@@ -303,12 +303,29 @@
   (let [{:keys [played-at updated-at]} (entry ctx feed item)]
     (some-> (or played-at updated-at) inst-ms)))
 
+(declare order)
+
+(defn- own-order
+  "The sort key of the order that the listener chose for the show of a
+  feed, by its settings in the profile of `ctx`, as a function of the
+  feed, or nil for the listening order of the show."
+  [ctx]
+  (let [ctx (with-feed-guids ctx)]
+    (memoized
+     (fn [feed]
+       (let [k (:order (profile/settings (:profile ctx)
+                                         ((::feed-guid ctx) feed)))]
+         ;; an order of a later version reads as the listening order
+         (when (and (contains? orders k) (not= :listening k))
+           (order k ctx)))))))
+
 (defn order
   "The sort key of a feed and one of its items for the order `k` and the
   context `ctx`, for sort-by. When `k` is a function of a feed and an
   item, it's `k` itself.
 
-  - :listening, the listening order of a show
+  - :listening, the listening order of a show, or the :order that the
+    listener chose for it, with :profile in `ctx`
   - :newest and :oldest, by publication
   - :shortest and :longest, by duration
   - :title, alphabetically
@@ -322,7 +339,13 @@
    (when (and (= :recent k) (not (:profile ctx)))
      (throw (ex-info ":recent needs the profile under :profile" {:order k})))
    (case k
-     :listening resolve/listening-key
+     :listening (if (:profile ctx)
+                  (let [own (own-order ctx)]
+                    (fn [feed item]
+                      (if-let [key (own feed)]
+                        (key feed item)
+                        (resolve/listening-key feed item))))
+                  resolve/listening-key)
      :newest    (fn [_ item] (- (or (published-ms item) ##-Inf)))
      :oldest    (fn [_ item] (or (published-ms item) ##Inf))
      :shortest  (fn [_ item] (or (resolve/duration item) ##Inf))

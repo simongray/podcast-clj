@@ -321,7 +321,10 @@ feeds of new subscriptions, and the feeds whose next check has come. The
 new episodes go to the queue of a show with `:auto-queue?`, at its end,
 or right after the current episode with `:next`, or to the inbox with
 `:inbox?`. With `:auto-queue-max`, only the newest of one fetch join the
-queue, and the others the inbox when `:inbox?` is set too. An episode
+queue, and the others the inbox when `:inbox?` is set too. With
+`:join-where`, criteria of `criteria/where`, only the new episodes that
+meet them join either, e.g. `{:type #{"full" "bonus"}}` leaves the
+trailers out. An episode
 that the listener already played or removed on another device doesn't
 come back. An episode older than the
 newest one the library knew isn't new either: it's `:backfilled` rather
@@ -532,7 +535,7 @@ add what the episode's chapters file, transcript and media file say:
 ```clojure
 (def show-page (library/show @lib guid))
 (:notes show-page)     ; the description, sanitised, as Hiccup
-(:episodes show-page)  ; the items in listening order
+(:episodes show-page)  ; the items in the order of the show
 (:links show-page)     ; links to the show in other apps
 
 (def page (merge (library/episode @lib id) (library/read-files! @lib id)))
@@ -1099,6 +1102,15 @@ Each has a function to read it back, such as `profile/folders`,
 `profile.queue/playlist`. To show the size of the inbox on the app's
 icon, give `(count (profile.queue/inbox profile))` to
 `navigator.setAppBadge` in a browser, or to the platform's badge.
+
+For a screen of the shows, `library/shows` gives each subscription in
+the listener's order, with its title, its artwork, when its newest
+episode came out, and how many of its episodes are unplayed, in
+progress, played, in the inbox and queued. The shows are in the order of
+their titles until the listener moves one with `profile/move-show`. The
+settings `:custom-title` and `:order` of a show replace the title of its
+feed and its listening order, on its page, in `library/episodes` and in
+OPML.
 
 To change many episodes at once, e.g. to clear the inbox or the queue,
 `profile/mark-all-played`, `profile/mark-all-unplayed`,

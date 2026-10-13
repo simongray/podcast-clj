@@ -253,6 +253,38 @@
                                                     t0)))
         "the innermost of nested folders")))
 
+(deftest the-order-and-titles-of-shows
+  (let [s (-> (profile/make "phone")
+              (profile/subscribe "feed-a" {:url "https://a/rss" :title "banana"} t0)
+              (profile/subscribe "feed-b" {:url "https://b/rss" :title "Apple"} t0)
+              (profile/subscribe "feed-c" {:url "https://c/rss" :title "cherry"} t0))]
+    (is (= ["feed-b" "feed-a" "feed-c"] (profile/shows s)) "by title, whatever the case")
+    (testing "the listener's own title, which a move of the feed leaves be"
+      (let [own (-> (profile/configure s "feed-c" {:custom-title "Aardvark"} t1)
+                    (profile/relocate "feed-c" {:url "https://c2/rss" :title "Cherry 2"}))]
+        (is (= "Aardvark" (profile/title own "feed-c")))
+        (is (= "Apple" (profile/title own "feed-b")) "or the title of the feed")
+        (is (= ["feed-c" "feed-b" "feed-a"] (profile/shows own)))
+        (is (= [["Aardvark" "Cherry 2"] ["Apple" "Apple"] ["banana" "banana"]]
+               (map (juxt :text :title) (:subscriptions (profile.opml/to-opml own))))
+            "in OPML as the text of the outline, in the listener's order")))
+    (testing "a move places every show, so that the others keep their places"
+      (let [moved (profile/move-show s "feed-c" 0 t1)]
+        (is (= ["feed-c" "feed-b" "feed-a"] (profile/shows moved)))
+        (is (= ["feed-b" "feed-c" "feed-a"] (profile/shows (profile/move-show moved "feed-b" 0 t2))))
+        (is (= ["feed-b" "feed-a" "feed-c"] (profile/shows (profile/move-show moved "feed-c" 9 t2))) "an index past the end")
+        (is (= ["feed-c" "feed-b" "feed-a" "feed-d"]
+               (profile/shows (profile/subscribe moved "feed-d" {:url "https://d/rss" :title "Date"} t2)))
+            "a new show comes after the placed ones")
+        (is (= ["feed-b" "feed-a"] (profile/shows (profile/unsubscribe moved "feed-c" t2))))
+        (is (= {nil ["feed-c" "feed-b" "feed-a"]} (profile/folders moved)) "the folders keep the order")
+        (is (= moved (profile/move-show moved "feed-x" 0 t2)) "a show the profile doesn't hold stays out")
+        (is (nil? (profile/problem moved)))
+        (testing "on another device, and under the guid that a feed declares"
+          (let [laptop (profile/merge (profile/make "laptop") moved)]
+            (is (= ["feed-c" "feed-b" "feed-a"] (profile/shows laptop)))
+            (is (= ["declared" "feed-b" "feed-a"] (profile/shows (profile/rekey laptop "feed-c" "declared" t2))))))))))
+
 (deftest tags-of-shows
   (let [s (-> (profile/make "phone")
               (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)

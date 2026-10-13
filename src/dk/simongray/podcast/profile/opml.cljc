@@ -127,9 +127,10 @@
 (defn to-opml
   "The live subscriptions of `profile` as an OPML subscription list.
 
-  The folders come first, then the shows in no folder, and the followed
-  lists are includes. Each outline has the guid of its feed, the tags as
-  categories, and the time of subscribing as its creation time."
+  The folders come first, then the shows in no folder, each in the
+  listener's order, and the followed lists are includes. Each outline has
+  the listener's title of the show as its text, the guid of its feed, the
+  tags as categories, and the time of subscribing as its creation time."
   [profile]
   (let [subs    (profile/subscriptions profile)
         ls      (lists profile)
@@ -137,8 +138,9 @@
                          (profile/folders profile))
         outline (fn [folder feed-guid]
                   (let [{:keys [url title added-at]} (get subs feed-guid)
-                        ts (profile/tags profile feed-guid)]
-                    (cond-> {:text (or title url) :xml-url url :guid feed-guid}
+                        text (or (profile/title profile feed-guid) url)
+                        ts   (profile/tags profile feed-guid)]
+                    (cond-> {:text text :xml-url url :guid feed-guid}
                       title            (assoc :title title)
                       folder           (assoc :path [folder])
                       (seq ts)         (assoc :category (vec ts))
