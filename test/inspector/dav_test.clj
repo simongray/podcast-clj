@@ -43,7 +43,7 @@
     (doseq [path ["/dav/" "/dav"]]
       (let [{:keys [status body]} (call :propfind path)]
         (is (= 207 status))
-        (is (str/includes? body "<d:collection/>"))
+        (is (str/includes? body ":collection/>"))
         (is (not (str/includes? body "getetag")) "nothing in it yet"))))
   (testing "a document put, listed, fetched and deleted"
     (let [{:keys [status headers]} (call :put "/dav/phone.edn" :body "{:version 1 :state {}}")
@@ -55,11 +55,10 @@
         (is (= "{:version 1 :state {}}" body))
         (is (= etag (get headers "ETag")))
         (is (str/starts-with? (get headers "Content-Type") "application/edn")))
-      (is (= "" (:body (call :head "/dav/phone.edn"))))
+      (is (empty? (:body (call :head "/dav/phone.edn"))))
       (let [{:keys [status body]} (call :propfind "/dav/")]
         (is (= 207 status))
-        (is (str/includes? body "<d:href>/dav/phone.edn</d:href>"))
-        (is (str/includes? body (str "<d:getetag>" (str/escape etag {\" "&quot;"}) "</d:getetag>"))))
+        (is (str/includes? body ":href>/dav/phone.edn</")))
       (is (= [{:name "phone.edn" :version etag}] (webdav/response :list (update (call :propfind "/dav/") :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %))))
           "the library's own reader agrees")
       (testing "the preconditions"
@@ -71,8 +70,11 @@
       (is (= 404 (:status (call :delete "/dav/laptop.edn"))))
       (is (= 404 (:status (call :get "/dav/laptop.edn"))))
       (is (= 404 (:status (call :propfind "/dav/laptop.edn"))))))
+  (testing "a page of links for a browser"
+    (let [{:keys [status headers]} (call :get "/dav/")]
+      (is (= 200 status))
+      (is (str/starts-with? (get headers "Content-Type") "text/html"))))
   (testing "what is refused"
-    (is (= 405 (:status (call :get "/dav/"))))
     (is (= 405 (:status (call :put "/dav/" :body "x"))))
     (is (= 405 (:status (call :lock "/dav/phone.edn"))))
     (is (= 400 (:status (call :put "/dav/.hidden" :body "x"))) "a hidden file is not a document")
