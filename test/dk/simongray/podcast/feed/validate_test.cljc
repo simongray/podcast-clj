@@ -169,8 +169,9 @@
            (found {:url "https://t/1.pdf" :length 1 :type "application/pdf"})))
     (is (= #{}
            (found {:url "https://t/1.m3u8" :length 1 :type "application/x-mpegURL"})
-           (found {:url "https://t/1.mp4" :length 1 :type "Video/MP4; codecs=\"avc1\""}))
-        "an HLS playlist, and a type in any case with parameters")))
+           (found {:url "https://t/1.mp4" :length 1 :type "Video/MP4; codecs=\"avc1\""})
+           (found {:url "https://t/1.ogg" :length 1 :type "application/ogg"}))
+        "an HLS playlist, a type in any case with parameters, and Ogg")))
 
 (deftest apples-categories
   (let [found (fn [categories & [opts]]

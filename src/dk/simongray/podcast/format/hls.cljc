@@ -29,8 +29,8 @@
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 ;; RFC 8216, section 4, and the x- forms that feeds use
 (def types
@@ -43,7 +43,7 @@
   "Whether the `enclosure`, or any map of a :url and a :type, is an HLS
   playlist: by its type, or by a path that ends in .m3u8 or .m3u."
   [{:keys [url type] :as enclosure}]
-  (boolean (or (contains? types (headers/media-type type))
+  (boolean (or (contains? types (mime/essence type))
                (some->> url str (re-find #"(?i)\.m3u8?(?:[?#]|$)")))))
 
 ;; RFC 8216, section 4.2: a quoted string can hold commas

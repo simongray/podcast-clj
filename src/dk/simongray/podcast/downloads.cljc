@@ -26,7 +26,8 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.date :as date]
             [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:
@@ -788,7 +789,7 @@
         digest (subs (bytes/hex (bytes/sha256 (bytes/encode (pr-str id))))
                      0 8)
         ending (or (:extension (get media/types
-                                    (some-> type headers/media-type)))
+                                    (mime/essence type)))
                    (extension url))]
     (str (when (seq words) (str words "-"))
          digest

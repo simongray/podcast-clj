@@ -10,8 +10,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.media :as media]
-            [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (def ^:no-doc origin
   "The origin that a check names in its requests for the files that pages
@@ -128,7 +128,9 @@
   requirements, when it differs from the one that the feed declares, or
   the feed declares none."
   [file chosen served]
-  (let [declared (headers/media-type (get-in file [:declared :type]))]
+  (let [stated   (some-> (get-in file [:declared :type]) str str/trim not-empty)
+        ;; a type that isn't a MIME type, e.g. mp3, as it's written
+        declared (or (mime/essence stated) (some-> stated str/lower-case))]
     (cond
       (and declared served (not= declared served))
       [(diagnostic file chosen :check/type
@@ -183,7 +185,7 @@
   a request for a byte range, `get`, with that range, by the `chosen`
   requirements."
   [{:keys [declared] :as file} chosen get]
-  (let [type (or (headers/media-type (:type declared)) (:type get) "")]
+  (let [type (or (mime/essence (:type declared)) (:type get) "")]
     (when (and (re-find #"^(?:audio|video)/" type)
                (not (ranged? get)))
       [(diagnostic file chosen :check/ranges :status (:status get))])))
@@ -231,7 +233,7 @@
   "The diagnostics of what reading the media `file` found, `media`, against
   what the feed declares, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen media]
-  (let [expected (formats (headers/media-type (:type declared)))
+  (let [expected (formats (mime/essence (:type declared)))
         found    (:format media)
         report   (:report media)
         unknown? #(= :file/unknown-format (:id %))]

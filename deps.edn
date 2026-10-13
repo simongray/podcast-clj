@@ -5,8 +5,8 @@
  ;; wary-fetch for HTTP, qname-hiccup for the XML of feeds and lists,
  ;; html-pieces for the HTML in show notes and comments, drop-in-search for
  ;; full-text search, mind-meld for the CRDT of the listener's profile,
- ;; like-minded for syncing it and for the stores, and websub-clj for
- ;; WebSub.
+ ;; like-minded for syncing it and for the stores, websub-clj for WebSub,
+ ;; and whatwg-mime for media types.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -15,13 +15,14 @@
  ;; well-formed even after repair are parsed leniently instead of rejected.
  :deps  {org.clojure/clojure      {:mvn/version "1.11.4"}
          org.clojure/data.json    {:mvn/version "2.5.2"}
-         dk.simongray/wary-fetch     {:mvn/version "0.5.0"}
+         dk.simongray/wary-fetch     {:mvn/version "0.6.1"}
          dk.simongray/qname-hiccup   {:mvn/version "0.3.0"}
          dk.simongray/html-pieces    {:mvn/version "0.6.0"}
          dk.simongray/drop-in-search {:mvn/version "0.2.0"}
-         dk.simongray/websub-clj     {:mvn/version "0.4.0"}
+         dk.simongray/websub-clj     {:mvn/version "0.5.0"}
          dk.simongray/mind-meld      {:mvn/version "0.3.0"}
-         dk.simongray/like-minded    {:mvn/version "0.2.0"}}
+         dk.simongray/like-minded    {:mvn/version "0.2.0"}
+         dk.simongray/whatwg-mime    {:mvn/version "0.1.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

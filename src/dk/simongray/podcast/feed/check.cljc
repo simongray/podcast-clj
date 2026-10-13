@@ -26,8 +26,8 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (def ^:no-doc overlays
   "The top-level domains of overlay networks, whose hosts only their own
@@ -86,8 +86,8 @@
           :let  [same? (contains? #{nil "default"} (some-> rel str/lower-case))]
           {:keys [uri content-type]} sources
           :let  [own-type? (and content-type
-                                (not= (headers/media-type content-type)
-                                      (headers/media-type type)))]
+                                (not= (mime/essence content-type)
+                                      (mime/essence type)))]
           :when (checkable? uri)]
       {:kind     (if (hls/playlist? {:url uri :type (or content-type type)})
                    :stream

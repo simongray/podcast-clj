@@ -25,7 +25,7 @@
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.qname-hiccup :as xml]
-            [dk.simongray.wary-fetch.headers :as headers]))
+            [dk.simongray.whatwg-mime :as mime]))
 
 (defn- diagnostic
   [id level path message & {:as details}]
@@ -153,7 +153,7 @@
     (and (= type :mime)
          values
          (string? v)
-         (not (enum-ok? values (headers/media-type v))))
+         (not (enum-ok? values (mime/essence v))))
     [(diagnostic :validate/invalid-enum :warning path
                  (str "the media type isn't one of "
                       (str/join ", " (sort values)))
@@ -197,13 +197,11 @@
   #{"application/vnd.apple.mpegurl" "application/x-mpegurl"})
 
 (defn- playable-type?
-  "Whether the media type `s` is of audio, of video or of a playlist of
-  either, whatever its case and parameters."
+  "Whether the media type `s` is of audio, of video (application/ogg
+  included) or of a playlist of either, whatever its case and parameters."
   [s]
-  (let [t (-> (str/split s #";" 2) first str/trim str/lower-case)]
-    (or (str/starts-with? t "audio/")
-        (str/starts-with? t "video/")
-        (contains? playlist-types t))))
+  (or (mime/audio-or-video? s)
+      (contains? playlist-types (mime/essence s))))
 
 (def ^:no-doc structural-rules
   "Checks by tag of the model value of an element, each a function of the

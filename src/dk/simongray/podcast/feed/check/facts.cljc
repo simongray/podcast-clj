@@ -18,7 +18,7 @@
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]))
+            [dk.simongray.whatwg-mime :as mime]))
 
 (defn ^:no-doc attempted
   "The value of the `attempt` of a reading, or a map with a diagnostic as
@@ -103,7 +103,7 @@
    (probe-url! send url {})
    (fn [{:keys [head get] :as facts}]
      (let [target     (or (:url get) (:url head) url)
-           stated     (headers/media-type (:type declared))
+           stated     (mime/essence (:type declared))
            came?      (contains? #{200 206} (:status get))
            readable?  (or (nil? stated) (contains? rules/formats stated))
            read-job   (when (and read? came? readable?)

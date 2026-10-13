@@ -18,7 +18,8 @@
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (def found-by
   "Where a candidate feed can be found, best first:
@@ -157,7 +158,7 @@
   against `base` when there is one, or nil when the link names no feed."
   [{:keys [rel type href title] :as attrs} base]
   (let [rels    (set (str/split (str/lower-case (str rel)) #"\s+"))
-        type    (headers/media-type (text-of type))
+        type    (mime/essence (text-of type))
         href    (when-let [h (text-of href)]
                   (if base (url/absolute-url base h) h))
         schemes (if base #{"http" "https"} #{nil "http" "https"})]

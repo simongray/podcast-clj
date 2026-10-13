@@ -9,8 +9,8 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
-            [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."
@@ -407,10 +407,8 @@
   its parameters, or nil when it says nothing of the format: there's none,
   it isn't a type and a subtype, or it's one of unknown-types."
   [type]
-  (let [essence (headers/media-type (str type))]
-    (when (and essence
-               (re-matches #"[^/]+/[^/]+" essence)
-               (not (unknown-types essence)))
+  (let [essence (mime/essence type)]
+    (when-not (unknown-types essence)
       essence)))
 
 (defn- content-type
@@ -521,7 +519,7 @@
   parameters such as a charset, or after them all when it isn't among
   them."
   [types type]
-  (let [type (headers/media-type (str type))]
+  (let [type (mime/essence type)]
     (or (first (keep-indexed (fn [i wanted]
                                (when (= type (str/lower-case wanted)) i))
                              types))
@@ -598,7 +596,7 @@
   type that has them as a rule."
   [{:keys [type rel] :as ref}]
   (or (= "captions" (some-> rel str/lower-case))
-      (contains? timed-transcript-types (headers/media-type (str type)))))
+      (contains? timed-transcript-types (mime/essence type))))
 
 ;; Media RSS 1.5.1, sections 5 and 5.22: deeper subtitles come first
 (defn transcripts

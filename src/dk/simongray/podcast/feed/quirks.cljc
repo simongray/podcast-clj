@@ -11,8 +11,8 @@
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]
-            [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.whatwg-mime :as mime]))
 
 (defn ^:no-doc uri-key
   "The namespace `uri` in the form to look it up by, without scheme, case
@@ -281,7 +281,9 @@
   namespace don't have."
   [[tag attrs :as element]]
   (let [type (some-> (:type attrs) xml/trim str/lower-case)
-        bare (headers/media-type type)
+        ;; a bare word such as srt is no MIME type, so only its parameters go
+        bare (or (mime/essence type)
+                 (some-> type (str/split #";" 2) first str/trim))
         t    (or (transcript-type-values bare)
                  (when (and (not= bare type)
                             (contains? spec/transcript-types bare))
