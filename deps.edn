@@ -108,8 +108,8 @@
 
   ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
   ;; like-minded, websub-clj, whatwg-mime and langtag-clj from checkouts
-  ;; beside this one, to change them and podcast-clj at once, e.g. clojure
-  ;; -M:dev:local:nrepl
+  ;; beside this one, to change them and podcast-clj at once, e.g.
+  ;; clojure -M:dev:local:nrepl
   :local {:override-deps
           {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
            dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}

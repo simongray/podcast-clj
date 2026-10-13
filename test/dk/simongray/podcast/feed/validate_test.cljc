@@ -65,6 +65,22 @@
     (is (= {} (typed "text/vtt; charset=utf-8")) "a transcript type of the list, with a charset")
     (is (= {:validate/invalid-enum 1} (typed "text/markdown")) "but not one off the list")))
 
+(deftest languages-by-rfc-5646
+  (let [problem (fn [language]
+                  (->> {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                        :rss/language language}
+                       validate/validate
+                       (filter (comp #{:validate/invalid-language} :id))
+                       (map (juxt :reason :subtag))
+                       first))]
+    (is (nil? (problem "da-DK")))
+    (is (nil? (problem " en-us ")) "whatever the case, and with spaces around it")
+    (is (= [:invalid-subtag "en_US"] (problem "en_US")))
+    (is (= [:unexpected-subtag "US"] (problem "en-US-US")))
+    (is (= [:empty-extension "a"] (problem "en-a")))
+    (is (= [:not-iso-639 nil] (problem "english")))
+    (is (= [:not-iso-639 nil] (problem "i-klingon")) "a grandfathered tag has no language")))
+
 (deftest a-publisher-needs-its-remote-item
   (let [feed (fn [publisher]
                {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"

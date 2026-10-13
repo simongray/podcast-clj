@@ -18,6 +18,7 @@
   :message. Validation never throws on a value, since a shape that the
   element doesn't take is a diagnostic like any other."
   (:require [clojure.string :as str]
+            [dk.simongray.langtag :as langtag]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
@@ -43,15 +44,20 @@
   (and (string? v)
        (boolean (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v))))
 
-;; RFC 5646, section 2.1, by its shape alone: a language of two or three
-;; letters, as ISO 639 has them and Apple asks for, and its subtags
-(defn- language-tag?
-  "Whether `v` is a language tag, e.g. en or en-US."
+;; RFC 5646, with a language of two or three letters, as ISO 639 has them
+;; and Apple asks for
+(defn- language-problem
+  "Why `v` isn't a language tag such as en or en-US, or nil when it is one.
+
+  The reason is a map of the :reason and :subtag that langtag-clj gives,
+  or of :reason :not-iso-639 for a tag without a language of two or three
+  letters, e.g. english."
   [v]
-  ;; a split, not a repeated group, which a long value would overflow
-  (let [[language & subtags] (str/split (str/trim v) #"-" -1)]
-    (boolean (and (re-matches #"(?i)[a-z]{2,3}" language)
-                  (every? #(re-matches #"(?i)[a-z0-9]{1,8}" %) subtags)))))
+  (let [v (str/trim v)]
+    (if-let [{:keys [language]} (langtag/parse v)]
+      (when-not (<= 2 (count language) 3)
+        {:reason :not-iso-639})
+      (select-keys (langtag/error v) [:reason :subtag]))))
 
 ;; RFC 5322, section 3.4.1, by its shape alone; RSS 2.0 follows an address
 ;; with a name in parentheses, e.g. geo@herald.com (George Matesky)
@@ -130,10 +136,11 @@
 
     (and (= type :language)
          (string? v)
-         (not (language-tag? v)))
-    [(diagnostic :validate/invalid-language :warning path
-                 "the value isn't a language tag such as en or en-US"
-                 :value v)]
+         (language-problem v))
+    [(merge (diagnostic :validate/invalid-language :warning path
+                        "the value isn't a language tag such as en or en-US"
+                        :value v)
+            (language-problem v))]
 
     (and (= type :email)
          (string? v)
