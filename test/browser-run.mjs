@@ -25,7 +25,8 @@ const types = { '.html': 'text/html', '.js': 'text/javascript',
 
 const server = http.createServer(async (req, res) => {
   const wanted = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = path.join(dir, wanted.endsWith('/') ? wanted + 'index.html' : wanted);
+  const file = path.join(dir, wanted.endsWith('/') ? wanted + 'index.html'
+                                                  : wanted);
   if (!file.startsWith(dir)) return res.writeHead(403).end();
   try {
     const body = await fs.readFile(file);
@@ -67,7 +68,8 @@ const endpoint = await new Promise((resolve, reject) => {
     const found = text.match(/DevTools listening on ws:\/\/([^/\s]+)\//);
     if (found) resolve(found[1]);
   });
-  browser.on('exit', code => reject(new Error(`Chrome exited with ${code}: ${text}`)));
+  browser.on('exit', code =>
+    reject(new Error(`Chrome exited with ${code}: ${text}`)));
 });
 const target = await (await fetch(`http://${endpoint}/json/new?about:blank`,
                                   { method: 'PUT' })).json();
@@ -97,3 +99,9 @@ socket.addEventListener('message', ({ data }) => {
 });
 send('Runtime.enable');
 send('Page.navigate', { url: page });
+setTimeout(() => {
+  if (!started) {
+    console.error(`No test started within a minute at ${page}`);
+    finish(1);
+  }
+}, 60000).unref();
