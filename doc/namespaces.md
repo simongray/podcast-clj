@@ -183,7 +183,8 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `util.bytes.ranges` | `read!`, which fetches the byte ranges that a reader of a view asks for until it's done, and fetchers of a local file or a Blob. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.entities` | Character and entity references in the text of feeds, HTML's included: `decode-entities` replaces them with the characters they stand for. |
-| `util.names` | The keys of the maps, from camelCase names: `kebab`, and `attr-key` for the attributes of XML. |
+| `util.names` | The keys of the maps, from camelCase names: `kebab`, and `attr-key` for the attributes of XML, and back to camelCase with `camel`. |
+| `testing` | Stand-ins for the network in the tests of an app: `sender`, which answers requests from a map, with a 304 for a copy that's still current, and `feed`, the XML of a podcast feed. |
 
 ## Nostr and cryptography
 

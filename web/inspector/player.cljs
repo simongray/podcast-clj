@@ -15,10 +15,14 @@
 
   The episode that plays is on the lock screen, through the Media Session
   of play-nice, and its buttons and those of the headphones go through
-  the library as app.media-session has them."
+  the library as app.media-session has them.
+
+  The feeds of the episodes are refreshed in a web worker when they're
+  due, as inspector.worker describes."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.like-minded.store.folder :as folder]
+            [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.play-nice.session :as session]
@@ -29,6 +33,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
+            [inspector.shared :as shared]
             [replicant.dom :as replicant]))
 
 (def storage-key
@@ -628,6 +633,62 @@
                         (sync!)))
   (js/window.setInterval sync-when-due! 30000))
 
+(defn- refreshed!
+  "Restore the library that the worker saved, and merge it into the page's
+  with the result of the refresh, by the event `e` of the worker's answer.
+  The time of the answer and any error go under :refreshed."
+  [^js e]
+  (let [{:keys [error refresh]} (js->clj (.-data e) :keywordize-keys true)
+        store  (indexeddb/store shared/store-name)
+        device (get-in @app [:library :device])
+        done   #(assoc % :refreshing? false :refreshed %2)]
+    (if error
+      (swap! app done {:at (time/now) :error error})
+      (.then (shared/locked #(library/restore! (library/make device) store))
+             (fn [restored]
+               (swap! app #(-> %
+                               (update :library library/merge restored)
+                               (assoc-in [:library :refresh]
+                                         (reader/read-string refresh))
+                               (done {:at (time/now)}))))))))
+
+(defn- worker-failed!
+  "Note the error event `e` of the worker, which failed to load or threw,
+  so that the next refresh that's due asks again."
+  [^js e]
+  (swap! app assoc
+         :refreshing? false
+         :refreshed   {:at (time/now) :error (or (.-message e) "no message")}))
+
+(defonce ^{:doc "The web worker that refreshes the feeds of the library,
+  made on first use, or nil where the browser has none."}
+  refresher
+  (delay (when (exists? js/Worker)
+           (doto (js/Worker. "/js/worker.js")
+             (.addEventListener "message" refreshed!)
+             (.addEventListener "error" worker-failed!)))))
+
+(defn- refresh-when-due!
+  "Ask the worker to refresh the feeds, once the library has one due:
+  save the library to the store that the worker shares first."
+  []
+  (when-let [^js w (when (and (not (:refreshing? @app))
+                              (some-> (library/next-refresh (:library @app))
+                                      inst-ms
+                                      (<= (js/Date.now))))
+                     @refresher)]
+    (swap! app assoc :refreshing? true)
+    (let [store  (indexeddb/store shared/store-name)
+          device (get-in @app [:library :device])]
+      (.then (shared/locked #(library/save! (:library @app) store))
+             (fn [_] (.postMessage w #js {:device device}))))))
+
+(defn- refresh-on-its-own!
+  "Refresh the feeds in the worker now, and whenever one is due."
+  []
+  (refresh-when-due!)
+  (js/window.setInterval refresh-when-due! 30000))
+
 (defn ^:export init
   "Mount the player:
 
@@ -636,7 +697,7 @@
   - take over navigation and the other tabs' saves
   - take up the sync folder of the last visit
   - add an episode that the URL asks for
-  - sync on its own"
+  - sync and refresh on its own"
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
   (let [{:keys [device profile]} (:library @app)]
@@ -662,4 +723,5 @@
   (render! true)
   (restore-folder!)
   (add-from-query!)
-  (sync-on-its-own!))
+  (sync-on-its-own!)
+  (refresh-on-its-own!))

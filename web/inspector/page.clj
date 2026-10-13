@@ -88,6 +88,7 @@
             [:a {:href "/podping"} "Podping"]
             [:span.muted "podcast-clj reference implementation"]]]
           body)
+    [:script {:src "/js/shared.js"}]
     [:script {:src "/js/player.js"}]]])
 
 (defn- pretty

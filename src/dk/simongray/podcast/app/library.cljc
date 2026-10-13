@@ -951,8 +951,10 @@
   feeds and followed lists is due, or nil when it has none to fetch. The
   result is never before the time of the call.
 
-  The feed of a subscription that was never fetched is due at once, and a
-  feed that's gone or held for remote items alone is never due. After a
+  The feed of a subscription that was never fetched is due at once, unless
+  the last refresh failed to fetch it. Then it waits the first wait of the
+  :after-failure of the cadence, as a feed that failed once does. A feed
+  that's gone or held for remote items alone is never due. After a
   refresh that found the device offline, the next waits the
   :offline-seconds of the config."
   ([library]
@@ -960,16 +962,20 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [at       (time-of library opts)
-         {:keys [offline-seconds]} (options library opts)
+         {:keys [offline-seconds cadence]} (options library opts)
          {:keys [report] last-at :at} (:refresh library)
+         wait     (-> (clojure.core/merge feeds/default-cadence cadence)
+                      :after-failure
+                      first)
+         failed   (set (keep :feed-guid report))
+         retry    #(if (contains? failed %) (time/later last-at wait) at)
          check    #(or (:next-check %) at)
          checked? (fn [[feed-guid entry]]
                     (not (or (:gone? entry) (alone? library feed-guid))))
          checks   (concat (map (comp check val)
                                (filter checked? (:feeds library)))
                           (map check (vals (:fetched-lists library)))
-                          (when (seq (pending library))
-                            [at]))
+                          (map retry (keys (pending library))))
          offline? (some (comp #{:refresh/offline} :id) report)]
      (when (seq checks)
        (time/latest at

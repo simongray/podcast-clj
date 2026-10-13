@@ -463,6 +463,18 @@
     (is (= now (library/next-refresh (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks"})))
         "the show of a list, never fetched, at once")))
 
+(deftest a-subscription-that-never-answered
+  (let [dead  "https://example.net/gone.xml"
+        lib   (library/subscribe (library/make "phone") dead)
+        later (at 86400)
+        fetch (fn [u _] {:status 404 :url u})]
+    (is (= later (library/next-refresh lib {:at later})) "due at once")
+    (run #(async/then (library/refresh! lib {:at later :fetch fetch})
+                      (fn [lib']
+                        (is (= (at (+ 86400 900))
+                               (library/next-refresh lib' {:at later}))
+                            "and after a failure, as a feed that failed once"))))))
+
 (deftest the-new-episodes-to-announce
   (let [fetch   (fn [url _] {:status 200 :url url :feed newer})
         opts    {:at (at 86400) :fetch fetch}

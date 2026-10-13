@@ -37,6 +37,7 @@
             [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]))
@@ -460,8 +461,9 @@
   Returns a map of :feeds, :changed, :failed, :moved and :report for all
   the fetches, as refresh gives them, :checked, the guids of the feeds
   fetched, and :left, those of the feeds that stay due, in ClojureScript
-  as a promise. Nothing is thrown for what the network or a server does.
-  The `opts` are:
+  as a promise. Nothing is thrown for what the network or a server does,
+  but a platform without an XML parser throws, e.g. a web worker without
+  a DOMParser installed. The `opts` are:
 
   - :at, the instant of the refresh, the time of the clock by default
   - :feed-guids, the feeds to fetch instead of the due ones, e.g. those
@@ -545,6 +547,9 @@
                      (fn [{:keys [value error]}]
                        (let [new-url (:new-feed-url value)]
                          (cond
+                           (= ::xml/no-parser (:type (ex-data error)))
+                           (throw error)
+
                            error
                            [feed-guid (unreachable url error)]
 

@@ -196,7 +196,24 @@
      (when (seq (:report synced))
        [:ul.compact
         (for [{:keys [id message]} (:report synced)]
-          [:li {:replicant/key (str id)} [:code (str id)] " " message])])]))
+          [:li {:replicant/key (str id)} [:code (str id)] " " message])])
+     (when-let [{:keys [at error]} (:refreshed state)]
+       (let [{:keys [added report]} (get-in state [:library :refresh])
+             n (count added)]
+         (list
+          [:p.muted
+           (str "A web worker refreshed the feeds at "
+                (.toLocaleTimeString ^js at)
+                (if error
+                  (str ", and failed: " error)
+                  (str ", and found " n " new episode" (when (not= 1 n) "s")))
+                ".")]
+          (when (and (not error) (seq report))
+            [:ul.compact
+             (for [{:keys [id url message]} report]
+               [:li {:replicant/key (str id url)}
+                [:code (str id)] " " (when url [:span.muted url " "])
+                message])]))))]))
 
 (defn- sync-folder
   "The sync through a folder that a sync client mirrors, in the page

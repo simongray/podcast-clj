@@ -14,6 +14,7 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
 
@@ -266,6 +267,15 @@
                    (fn [{:keys [feeds report]}]
                      (is (= [0 three [:refresh/offline]] [@asked feeds (map :id report)])
                          "a device that knows it has no network fetches nothing")))))))
+
+(deftest a-platform-without-a-parser
+  (let [parse (fn [u _]
+                (throw (ex-info "No DOMParser" {:type ::xml/no-parser :url u})))]
+    (run #(async/then (async/attempt
+                       (fn [] (feeds/refresh! feeds {:at (at 86400) :fetch parse})))
+                      (fn [{:keys [error]}]
+                        (is (= ::xml/no-parser (:type (ex-data error)))
+                            "throws, since every feed would fail alike"))))))
 
 (deftest a-refresh-on-a-budget
   (let [entry (assoc (get feeds guid) :next-check nil)

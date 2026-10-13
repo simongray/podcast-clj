@@ -9,8 +9,14 @@
           :browser-test {:target    :browser-test
                          :test-dir  "target/browser-test"
                          :ns-regexp "(?<!-node)-test$"}
-          ;; clojure -M:cljs compile player        (the inspector's player, served at /js/player.js)
+          ;; clojure -M:cljs compile player        (the inspector's player, served at /js/shared.js
+          ;; and /js/player.js, and its web worker at /js/worker.js)
           :player       {:target     :browser
                          :output-dir "target/web/public/js"
                          :asset-path "/js"
-                         :modules    {:player {:init-fn inspector.player/init}}}}}
+                         :modules    {:shared {:entries []}
+                                      :player {:init-fn    inspector.player/init
+                                               :depends-on #{:shared}}
+                                      :worker {:init-fn    inspector.worker/init
+                                               :depends-on #{:shared}
+                                               :web-worker true}}}}}

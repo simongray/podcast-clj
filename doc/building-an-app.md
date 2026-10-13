@@ -101,7 +101,8 @@ podcast-clj. It depends on them, so they come with it:
 - **In Node**, install a `DOMParser`, e.g. that of `@xmldom/xmldom` as
   `globalThis.DOMParser`. The folder store needs Node 20.16 or 22.3 and
   later, and Nostr comments and wallets need the global `WebSocket` of
-  Node 22.
+  Node 22. A web worker has no `DOMParser` either, so install one there
+  too.
 - **On a server of your own**, run the proxy of a web page, the callbacks
   of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
 - **In a desktop app on Electron**, the main process is Node and the
@@ -115,8 +116,8 @@ podcast-clj. It depends on them, so they come with it:
   of its own.
 
 In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
-it with `:deps true`. A browser needs no npm packages, and Node only the
-`DOMParser` above.
+it with `:deps true`. A browser needs no npm packages, and Node and web
+workers only the `DOMParser` above.
 
 
 ## Send requests from a web page
@@ -324,13 +325,11 @@ or right after the current episode with `:next`, or to the inbox with
 queue, and the others the inbox when `:inbox?` is set too. With
 `:join-where`, criteria of `criteria/where`, only the new episodes that
 meet them join either, e.g. `{:type #{"full" "bonus"}}` leaves the
-trailers out. An episode
-that the listener already played or removed on another device doesn't
-come back. An episode older than the
-newest one the library knew isn't new either: it's `:backfilled` rather
-than `:added`, so that a host that publishes its back catalogue again
-doesn't fill the queue. The setting `:only-newer? false` counts those as
-new too.
+trailers out. An episode that the listener already played or removed on
+another device doesn't come back. An episode older than the newest one
+the library knew isn't new either: it's `:backfilled` rather than
+`:added`, so that a host that publishes its back catalogue again doesn't
+fill the queue. The setting `:only-newer? false` counts those as new too.
 
 The `:counts` and `:seconds` say how many feeds were checked and how it
 went, e.g. for a status line or a log. Schedule the next refresh at
@@ -346,6 +345,22 @@ progress, give it `:on-feed-fn`, which hears of each fetch as it ends.
 To let the listener cancel it, give it a `:signal`: an AbortSignal in
 ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
+
+In a web page, parsing the feeds that changed can hold up the page for a
+moment, so run the refresh in a web worker, with a store that both
+share, e.g. like-minded's `store.indexeddb`:
+
+1. The page saves the library and posts the worker a message.
+2. The worker restores the library, refreshes it, saves it, and posts
+   back the `:refresh`, which the store doesn't keep.
+3. The page restores the library, merges it into its own, and puts the
+   `:refresh` back, since its report tells `next-refresh` which feeds
+   failed.
+
+Hold a Web Lock around each save and restore, with
+`navigator.locks.request`, so that one of them writes at a time. The
+inspector's player does this in `web/inspector/worker.cljs`, where the
+worker is a shadow-cljs module with `:web-worker true`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -1817,6 +1832,48 @@ that changed its requirements takes them as `:requirements`, e.g.
 `(assoc-in (:apple check.rules/requirements) [:artwork :sizes] [1400 4000])`.
 
 
+## Test your app
+
+A test of your app can run a library with no network and no clock.
+`testing/sender` answers each request from a map of URLs to responses,
+with a 304 when the request names the ETag of its response, and
+`testing/feed` writes the XML of a feed with as many episodes as you ask
+for. Give the sender as the `:send` of the config, and a clock that
+stands still as its `:now-fn`:
+
+```clojure
+(def url "https://example.com/feed.xml")
+
+(def responses
+  (atom {url {:body    (testing/feed {:episodes 3})
+              :headers {"ETag" "\"v1\""}}}))
+
+(defn send
+  "Answer a request from the responses as they are now."
+  [request]
+  ((testing/sender @responses) request))
+
+(def lib
+  (atom (library/make "phone" {:config {:send   send
+                                        :now-fn (constantly #inst "2026-02-01")}})))
+
+(swap! lib library/subscribe url (podcast/fetch! url {:send send})
+       {:auto-queue? true})
+
+;; a new episode comes out
+(swap! responses assoc url {:body (testing/feed {:episodes 4})})
+(swap! lib library/merge (library/refresh! @lib {:at #inst "2026-02-02"}))
+
+(profile.queue/queue (:profile @lib))
+;; => [[feed-guid "https://example.com/4"]]
+```
+
+For sync, a backend over `store/memory` keeps the documents in an atom,
+and two libraries of different devices sync through one such store.
+`downloads/plan` takes the files of a device as data, so a test of the
+downloads needs no files either.
+
+
 ## The namespaces of the examples
 
 The namespaces outside `dk.simongray.podcast` are those of the libraries
@@ -1875,6 +1932,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.testing :as testing]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
