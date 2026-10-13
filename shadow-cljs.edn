@@ -8,7 +8,10 @@
           ;; the -node-test namespaces need Node's modules and stay out)
           :browser-test {:target    :browser-test
                          :test-dir  "target/browser-test"
-                         :ns-regexp "(?<!-node)-test$"}
+                         :ns-regexp "(?<!-node)-test$"
+                         ;; with the report on the console, for
+                         ;; node test/browser-run.mjs target/browser-test
+                         :runner-ns dk.simongray.podcast.browser-runner}
           ;; clojure -M:cljs compile player        (the inspector's player, served at /js/shared.js
           ;; and /js/player.js, and its web worker at /js/worker.js)
           :player       {:target     :browser

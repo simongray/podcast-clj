@@ -7,6 +7,7 @@ clojure -X:test-floor                 # the library tests on Clojure 1.11
 npm install                           # once, for the ClojureScript tests
 clojure -M:cljs compile test          # all tests in Node
 clojure -M:cljs compile browser-test  # all tests in a browser: serve target/browser-test
+node test/browser-run.mjs target/browser-test  # or run them in a headless Chrome
 clojure -T:build jar                  # the jar and its pom, in target/
 ```
 
