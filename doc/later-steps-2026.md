@@ -100,9 +100,11 @@ These block the step they name.
   stay so, in which case this step goes, or should a household be able
   to share one server?
   ([Many listeners](needs-2026.md#many-listeners-on-one-server))
+  (Decided on 13 October: it stays for one listener, and the step goes.)
 - **Step 20.** A hand-written lenient parser in cljc, or a JavaScript one
   behind a hook?
   ([A lenient XML parser](needs-2026.md#a-lenient-xml-parser-for-javascript))
+  (Decided on 13 October: a hook for a parser of the app's own.)
 - **A release of podcast-clj.** No step releases it. Step 4 changes the
   saved library again, and steps 5 to 8 add API, so a first release fits
   after step 4 or after step 8. When should it go out? (Decided on 13

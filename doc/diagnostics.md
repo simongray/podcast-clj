@@ -70,7 +70,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:repair/undeclared-prefixes` | warning | Known namespace prefixes that were used without a declaration were declared. |
 | `:repair/html-entities` | warning | HTML entities that XML lacks, such as &nbsp;, were replaced by character references. |
 | `:repair/bare-ampersands` | warning | Bare ampersands were escaped. |
-| `:repair/lenient-parser` | warning | The document was still malformed after the repairs, so it was parsed leniently with jsoup. |
+| `:repair/lenient-parser` | warning | The document was still malformed after the repairs, so it was parsed leniently, with the parser that the app installed or with jsoup. |
 | `:xml/skipped-entity` | warning | An entity that only an external DTD could declare was left out of the text, since no external DTD is read. The :entity names it. |
 | `:xml/default-namespace` | info | A default namespace isn't known, so the elements in it have no alias, and its declaration stays as an xmlns attribute. |
 | `:xml/unknown-namespace` | info | The namespace URI isn't known, so its prefix is used as the alias. |

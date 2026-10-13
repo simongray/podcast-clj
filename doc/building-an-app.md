@@ -119,6 +119,14 @@ In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
 it with `:deps true`. A browser needs no npm packages, and Node and web
 workers only the `DOMParser` above.
 
+A few feeds aren't well-formed XML even after the repairs that
+podcast-clj makes, e.g. with a tag that's never closed. On the JVM, jsoup
+reads them when it's on the classpath. In JavaScript, they're refused as
+malformed, unless you install a lenient parser of your own with
+`repair/use-lenient-parser!`, e.g. over htmlparser2. It takes a function
+of the XML text that gives the raw Hiccup that `qname-hiccup/parse-raw`
+gives.
+
 
 ## Send requests from a web page
 
@@ -2071,6 +2079,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.schedule :as schedule]
+            [dk.simongray.podcast.feed.repair :as repair]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.feed.validate :as validate]

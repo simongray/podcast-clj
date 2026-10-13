@@ -178,7 +178,9 @@ normalisations of `feed.quirks` fix the tree, e.g. variant namespace URIs
 or `yes` in `itunes:explicit`. [Diagnostics](diagnostics.md) lists them
 all. If the document is still malformed and `org.jsoup/jsoup` is on the
 classpath, its XML mode reads the document into the same raw Hiccup, so
-all later steps are shared.
+all later steps are shared. JavaScript has no such parser, so an app can
+install one of its own with `repair/use-lenient-parser!`, which gives
+the same raw Hiccup.
 
 `{:quirks? false}` gives the strict path, and `:except` leaves out the
 repairs and normalisations it names. Each layer reports only what it did, and `rss/parse`
@@ -604,7 +606,7 @@ a late download.
 | Concern | JVM | JavaScript |
 |---|---|---|
 | XML in | `javax.xml.stream`, not namespace-aware, no DTDs | a browser's `DOMParser`, or one installed in Node |
-| Lenient XML in | the XML mode of jsoup, if present | none |
+| Lenient XML in | the XML mode of jsoup, if present | one that the app installs |
 | JSON | `clojure.data.json` | `js/JSON` |
 | SHA-1 (guid, Podcast Index) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` | `js/Date` |
@@ -670,6 +672,7 @@ Java 11 with Clojure 1.11, the oldest versions podcast-clj supports.
 - Stores over the HTTP APIs of cloud services, and a JSON form of the sync
   documents for clients in other languages, both of which belong in
   like-minded.
-- A lenient XML parser for JavaScript.
+- A lenient XML parser for JavaScript of podcast-clj's own, in place of
+  the one that an app installs.
 - The extensions of Nostr Wallet Connect other than keysend: notifications,
   hold invoices, payment history and BOLT 12 offers.
