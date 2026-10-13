@@ -99,7 +99,9 @@ forgotten.
 Of each feed, the server keeps only what tells when to check it again and
 the guids, dates and media of its episodes. It saves them in the volume,
 in `library.edn` and a document per feed, so that after a restart it
-only asks each feed whether it changed.
+only asks each feed whether it changed. Between its checks, it holds
+only the guids and media of the episodes in memory, about half of what
+it saves.
 
 
 AntennaPod and other gpodder apps

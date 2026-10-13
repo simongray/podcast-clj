@@ -20,7 +20,8 @@ refresh against the feeds that the study chose as exhibits, when its
 sample is in `dev-resources/corpus/study/`. To time the
 core of the library over the corpus before and after a change, run
 `(bench/run!)` from `dev/bench.clj`, and `(bench/compare before after)`
-with the dates of two runs.
+with the dates of two runs. For the memory that a library holds with all
+its feeds and with none, run `(bench/footprints)`.
 
 To change [wary-fetch](https://github.com/simongray/wary-fetch),
 [qname-hiccup](https://github.com/simongray/qname-hiccup),

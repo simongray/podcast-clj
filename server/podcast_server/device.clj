@@ -7,9 +7,12 @@
   library syncs every minute, then fetches the feeds that are due. The
   gpodder API syncs before and after each call.
 
-  The library keeps only the slim part of each feed, and saves what it
-  knows of the feeds to its data folder, so that a restart doesn't fetch
-  them all again."
+  The library saves the slim part of each feed to its data folder, so that
+  a restart doesn't fetch them all again, and keeps no feed in memory
+  between its steps. A step loads the feeds that are due. What stays is a
+  skeleton of each feed, the guid and the media of its items, which name
+  the episodes for the gpodder API and the media files that the server
+  streams."
   (:require [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
@@ -28,9 +31,10 @@
 
 (defn make
   "The server's library, a device of the listener, with `config` over the
-  defaults. Its feeds are fetched only from the public internet, only the
-  slim part of each is kept, and since it doesn't search, it keeps no
-  search index."
+  defaults, e.g. the :store of its data folder, from which a step loads
+  the feeds that are due. Its feeds are fetched only from the public
+  internet, only the slim part of each is kept, and since it doesn't
+  search, it keeps no search index."
   ([]
    (make {}))
   ([config]
@@ -59,27 +63,66 @@
       (log/warn :msg "The library couldn't be saved" :problem error))
     saved))
 
+(defn- skeleton
+  "What the server keeps of the feed of `entry` while it isn't loaded: the
+  URL, and the guid and the media of each item."
+  [{:keys [url feed] :as entry}]
+  (let [kept [:rss/guid :rss/enclosure :podcast/alternate-enclosures
+              :media/contents :media/group]]
+    {:url  url
+     :feed {:rss/items (mapv #(select-keys % kept) (:rss/items feed))}}))
+
+(defn remembered
+  "The `library` with the skeleton of each feed that it holds in memory
+  under ::known, kept by the guid of the feed, and without those of the
+  feeds that it no longer has."
+  [library]
+  (let [feeds (:feeds library)]
+    (assoc library ::known
+           (into (select-keys (::known library) (keys feeds))
+                 (for [[feed-guid entry] feeds
+                       :when (:feed entry)]
+                   [feed-guid (skeleton entry)])))))
+
 (defn restore!
   "The `library` with what was saved to `data-store`, and what didn't read
-  logged."
+  logged. Its feeds stay in their documents, and each is read once for its
+  skeleton."
   [library data-store]
-  (let [restored (library/restore! library data-store {:keys saved-keys})]
+  (let [restored (library/restore! library data-store {:keys saved-keys
+                                                       :load :none})
+        known    (fn [lib feed-guid]
+                   (let [read  (library/load! lib data-store [feed-guid])
+                         entry (get-in read [:feeds feed-guid])]
+                     (cond-> lib
+                       (:feed entry)
+                       (assoc-in [::known feed-guid] (skeleton entry)))))]
     (doseq [problem (get-in restored [:restore :report])]
       (log/warn :msg (str "The saved library couldn't be read, so its "
                           "feeds are fetched again")
                 :problem problem))
-    restored))
+    (reduce known (assoc restored ::known {}) (library/unloaded restored))))
 
 (defn step!
   "Sync `lib`, an atom of the server's library, through `backend`, fetch
   the feeds that are due, and sync again when that changed the profile.
-  Returns the library."
+  Returns the library, which holds the feeds that it fetched, and the
+  skeletons of all of them."
   [lib backend]
   (swap! lib library/merge (library/sync! @lib [backend]))
   (swap! lib library/merge (library/refresh! @lib))
-  (if (library/unsynced? @lib)
-    (swap! lib library/merge (library/sync! @lib [backend]))
-    @lib))
+  (when (library/unsynced? @lib)
+    (swap! lib library/merge (library/sync! @lib [backend])))
+  (swap! lib remembered))
+
+(defn unload!
+  "Let the feeds of `lib`, an atom of the server's library, go from memory,
+  each written to its document in `data-store` first, and log a failure."
+  [lib data-store]
+  (let [unloaded (library/unload! @lib data-store :all)]
+    (doseq [problem (get-in unloaded [:unload :report])]
+      (log/warn :msg "The feeds couldn't be let go" :problem problem))
+    (swap! lib library/merge unloaded)))
 
 (defn- log-problems!
   "Log the failures of the last sync and fetch of `library`."
@@ -103,7 +146,8 @@
                           after  (step! lib backend)]
                       (log-problems! after)
                       (when (not= before (select-keys after saved-keys))
-                        (save! after data-store)))
+                        (save! after data-store))
+                      (unload! lib data-store))
                     ;; the executor runs no more steps after one that throws
                     (catch Throwable e
                       (log/error :msg "A step of the library failed"
@@ -120,17 +164,20 @@
 
 (defn- identities
   "The ways to name the shows and episodes of the feeds in `lib`, an atom
-  of a library, as a function of no arguments for the gpodder API. The
-  feeds are indexed again only when they changed."
+  of a library, by their skeletons, as a function of no arguments for the
+  gpodder API. The feeds are indexed again only when they changed."
   [lib]
   (let [indexed (atom nil)
-        index   (fn [feeds]
-                  {:feeds feeds :names (gpodder/identities (vals feeds))})]
+        index   (fn [known]
+                  {:known known
+                   :names (gpodder/identities
+                           (for [[feed-guid skeleton] known]
+                             (assoc skeleton :guid feed-guid)))})]
     (fn []
-      (let [feeds (:feeds @lib)]
-        (:names (swap! indexed #(if (identical? feeds (:feeds %))
+      (let [known (::known @lib)]
+        (:names (swap! indexed #(if (identical? known (:known %))
                                   %
-                                  (index feeds))))))))
+                                  (index known))))))))
 
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder

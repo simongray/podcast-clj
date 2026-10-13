@@ -112,6 +112,52 @@
          [show item] (first (library/episodes lib {:order :newest}))]
      {:library lib :id (library/episode-id lib show item)})))
 
+(def saved-many
+  "A memory store with the library of `many` saved to it."
+  (delay (doto (store/memory)
+           (->> (library/save! (:library @many))))))
+
+(def largest-feed
+  "The guid of the feed of `many` with the most episodes, the worst case of
+  a show that the listener opens."
+  (delay
+   (key (apply max-key (comp count :rss/items :feed val)
+               (:feeds (:library @many))))))
+
+(defn- heap-mb
+  "The megabytes of the heap in use, after a few rounds of collection."
+  []
+  (let [rt (Runtime/getRuntime)]
+    (dotimes [_ 3]
+      (System/gc)
+      (Thread/sleep 150))
+    (/ (- (.totalMemory rt) (.freeMemory rt)) 1e6)))
+
+(defn footprint
+  "The megabytes of the heap that the value of `f`, a function of no
+  arguments, holds on to, roughly, by the heap in use before and after.
+  The value is kept while the heap is measured."
+  [f]
+  (let [before (heap-mb)
+        held   (f)
+        after  (heap-mb)]
+    (when held
+      (/ (Math/round (* 10 (- after before))) 10.0))))
+
+(defn footprints
+  "The megabytes that the library of `many` holds when restored with all
+  its feeds and with none, with and without its search index, as a map."
+  []
+  (let [restored #(library/restore! (library/make "bench" {:config %1})
+                                    @saved-many
+                                    {:load %2})]
+    ;; the first restore loads code and fills caches, which stay
+    (restored {} :all)
+    {:all            (footprint #(restored {} :all))
+     :none           (footprint #(restored {} :none))
+     :all-no-index   (footprint #(restored {:search? false} :all))
+     :none-no-index  (footprint #(restored {:search? false} :none))}))
+
 (defn- played-profile
   "A profile of the `device` with `n` episodes of the feeds of `sweep`
   played, one stamp apart."
@@ -187,6 +233,14 @@
    [:restore        (let [store (delay (doto (store/memory)
                                          (->> (library/save! (:library @many)))))]
                       #(library/restore! (library/make "bench") @store))]
+   ;; feeds on demand: a library that holds none of its feeds, and one feed
+   ;; read back into it, as for the page of a show
+   [:restore-none   #(library/restore! (library/make "bench") @saved-many
+                                       {:load :none})]
+   [:load-one       (let [none (delay (library/restore! (library/make "bench")
+                                                        @saved-many
+                                                        {:load :none}))]
+                      #(library/load! @none @saved-many [@largest-feed]))]
    [:sync-round     #(let [{:keys [store a b]} (synced-pair)
                            backend (sync/backend store)]
                        (library/sync! (library/merge b (library/sync! a [backend]))

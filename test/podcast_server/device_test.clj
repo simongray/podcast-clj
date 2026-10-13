@@ -68,10 +68,15 @@
         (device/save! (device/step! (atom (device/make {:fetch fetch})) backend) data)
         (is (= [url] @asked))
         (reset! asked [])
-        (let [library (device/step! (atom (device/restore! (device/make {:fetch fetch}) data)) backend)]
+        (let [lib     (atom (device/restore! (device/make {:fetch fetch :store data}) data))
+              library (device/step! lib backend)]
           (is (= [] @asked) "no fetch, since the saved feed isn't due yet")
           (is (= "\"v1\"" (get-in library [:feeds (first id) :etag])))
-          (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])))
+          (is (not (library/loaded? library (first id))) "the feed stays in its document")
+          (is (= [{:rss/guid {:content "a1"} :rss/enclosure {:url "https://a.example/1.mp3" :type "audio/mpeg" :length 1}}]
+                 (get-in library [::device/known (first id) :feed :rss/items]))
+              "and the server keeps its skeleton")
+          (is (= (feeds/slim feed) (get-in (library/load! library data [(first id)]) [:feeds (first id) :feed])))
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the profile, from the sync documents"))
         (spit (io/file dir library/saved-name) "{:feeds")
         (is (= {} (:feeds (device/restore! (device/make) data))) "a file that can't be read is left out")))))
@@ -83,8 +88,11 @@
             show    (rss/parse (fixture "feeds/namespace-example.xml"))
             library (library/subscribe (device/make) "https://example.com/feed.xml" show)]
         (device/save! library data)
-        (is (= (select-keys library device/saved-keys)
-               (select-keys (device/restore! (device/make) data) device/saved-keys)))))))
+        (let [restored (device/restore! (device/make) data)]
+          (is (= (select-keys library device/saved-keys)
+                 (select-keys (library/load! restored data :all) device/saved-keys)))
+          (is (= 3 (count (get-in restored [::device/known (first (keys (:feeds library))) :feed :rss/items])))
+              "the skeleton of the feed, read once"))))))
 
 (deftest the-gpodder-api-names-episodes-by-the-feeds
   (with-temp-dir
@@ -101,4 +109,7 @@
         (phone-synced! store)
         (is (= [] (actions)) "no URL for the episode while the server has no feed")
         (device/step! lib (sync/backend store))
-        (is (= [["https://a.example/1.mp3" 600]] (actions)) "named by the feed that the library fetched")))))
+        (is (= [["https://a.example/1.mp3" 600]] (actions)) "named by the feed that the library fetched")
+        (device/unload! lib (folder/store dir))
+        (is (not (library/loaded? @lib (first id))))
+        (is (= [["https://a.example/1.mp3" 600]] (actions)) "and by its skeleton once the feed is let go")))))

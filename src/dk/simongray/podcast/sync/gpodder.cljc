@@ -37,14 +37,15 @@
    :max-pending 500})
 
 (defn- indexed
-  "The `feed` at `url` with its guid, and the index of its items as a
-  delay, made when a lookup first needs it.
+  "The `feed` at `url` with its guid, the :guid given or else the one it
+  gives itself, and the index of its items as a delay, made when a lookup
+  first needs it.
 
   The index has the items by guid, and their guids by the URL of their
   media."
-  [{:keys [url feed]}]
+  [{:keys [url feed] key :guid}]
   {:url   url
-   :guid  (guid/feed-key feed url)
+   :guid  (or key (guid/feed-key feed url))
    :index (delay
             (let [with-guid (fn [item]
                               (when-let [g (guid/item-guid item)]
@@ -58,7 +59,9 @@
 (defn identities
   "The ways to name the shows and episodes of the `feeds`, for the
   :identities-fn of a backend. The feeds are maps of the :url and the
-  parsed :feed, and the ways are these:
+  parsed :feed, and of the :guid that the app keeps the feed under, when
+  the feed alone doesn't give it, e.g. for a feed of nothing but its
+  items' guids and media. The ways are these:
 
       {:feed-guid-fn   (fn [url])                        ; the guid of the feed
        :feed-url-fn    (fn [feed-guid])                  ; the URL of the feed

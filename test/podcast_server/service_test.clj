@@ -163,8 +163,8 @@
     (with-server {"/ep.mp3" {:body episode :headers {"Content-Type" "audio/mpeg"}}}
       (fn [base]
         (let [known   (str base "/ep.mp3")
-              lib     (atom {:feeds {"g" {:feed {:rss/items [{:rss/guid      {:content "1"}
-                                                              :rss/enclosure {:url known :type "audio/mpeg"}}]}}}})
+              lib     (atom {::device/known {"g" {:feed {:rss/items [{:rss/guid      {:content "1"}
+                                                                      :rss/enclosure {:url known :type "audio/mpeg"}}]}}}})
               media   (service/media-handler lib {:allow-pred (constantly true)})
               fetch   (fn [url headers]
                         (let [response (media {:request-method :get

@@ -441,10 +441,11 @@
 
 (defn media-urls
   "The URLs of the media files of the episodes of the feeds in `library`,
-  as resolve/enclosures gives them."
+  by the skeletons that it keeps of them, as resolve/enclosures gives
+  them."
   [library]
   (into #{}
-        (for [[_ {:keys [feed]}] (:feeds library)
+        (for [[_ {:keys [feed]}] (::device/known library)
               item               (:rss/items feed)
               {:keys [url]}      (resolve/enclosures item)
               :when              url]
@@ -465,10 +466,10 @@
                  (merge {:user-agent client/user-agent} opts))
          cache  (atom nil)
          known  (fn [library]
-                  (let [[feeds urls] @cache]
-                    (if (identical? feeds (:feeds library))
+                  (let [[skeletons urls] @cache]
+                    (if (identical? skeletons (::device/known library))
                       urls
-                      (second (reset! cache [(:feeds library)
+                      (second (reset! cache [(::device/known library)
                                              (media-urls library)])))))]
      (fn [request]
        (let [url (get (url/query-params (:query-string request)) "url")]
@@ -596,7 +597,8 @@
              ;; for the saved library, which can't go in the sync folder,
              ;; where every file is a sync document
              data-store (folder/store data-dir)
-             lib        (atom (device/restore! (device/make) data-store))
+             lib        (atom (device/restore! (device/make {:store data-store})
+                                               data-store))
              running    (conn/start! (connector settings sync-store lib))]
          (reset! server {:connector running
                          :library   lib
