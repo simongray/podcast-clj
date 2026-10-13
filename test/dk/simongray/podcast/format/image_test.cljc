@@ -63,6 +63,11 @@
   [type data]
   (concat (ascii "RIFF") (le 4 (+ 12 (count data))) (ascii "WEBP") (ascii type) (le 4 (count data)) data))
 
+(deftest the-type-by-the-first-bytes
+  (is (= ["image/jpeg" "image/png" "image/webp" nil]
+         (map (comp image/sniff bytes/of)
+              [[0xFF 0xD8 0xFF 0xE0 0 16 74 70 73 70] png-signature (webp "VP8 " (repeat 10 0)) [1 2 3 4]]))))
+
 (deftest png-headers
   (is (= {:type "image/png" :width 3000 :height 3000 :color :rgb :alpha? false}
          (image/read (view (png 3000 3000 2)))))

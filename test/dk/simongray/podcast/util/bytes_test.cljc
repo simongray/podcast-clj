@@ -4,7 +4,18 @@
   random bytes, on both platforms."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.test-support :refer [ascii]]
+            [dk.simongray.podcast.test-support.media :refer [utf16be utf8]]
             [dk.simongray.podcast.util.bytes :as bytes]))
+
+(deftest text-in-its-encodings
+  (is (= "Ærø" (bytes/decode (bytes/of [0xC6 0x72 0xF8]) 0 3 :latin1)))
+  (is (= "Ærø" (bytes/decode (bytes/of (utf8 "Ærø")) 0 5 :utf8)))
+  (is (= "Ærø" (bytes/decode (bytes/of (utf16be "Ærø")) 0 6 :utf16be)))
+  (is (bytes/utf8? (bytes/of (utf8 "Ærø")) 0 5))
+  (is (not (bytes/utf8? (bytes/of [0xC6 0x72 0xF8]) 0 3)))
+  (is (not (bytes/utf8? (bytes/of (ascii "plain")) 0 5)) "ASCII says nothing about the encoding")
+  (is (= "AQID" (bytes/base64 (bytes/of [1 2 3])))))
 
 (deftest bytes-one-after-another
   (is (= "00ff10" (bytes/hex (bytes/join [(bytes/from-hex "00ff") (bytes/of []) (bytes/from-hex "10")]))))
