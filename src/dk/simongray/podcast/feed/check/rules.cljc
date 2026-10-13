@@ -31,15 +31,6 @@
   [facts]
   (get-in facts [:error :reason]))
 
-(def ^:no-doc formats
-  "The format that the media reader finds in a file of each declared type,
-  for the types whose files it reads."
-  (into {}
-        (keep (fn [[type {:keys [format]}]]
-                (when format
-                  [type format])))
-        media/types))
-
 (def requirements
   "The requirements that a check adds for a standard or a directory, by name.
 
@@ -243,7 +234,7 @@
   "The diagnostics of what reading the media `file` found, `media`, against
   what the feed declares, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen media]
-  (let [expected (formats (mime/essence (:type declared)))
+  (let [expected (media/formats (mime/essence (:type declared)))
         found    (:format media)
         report   (:report media)
         unknown? #(= :file/unknown-format (:id %))]

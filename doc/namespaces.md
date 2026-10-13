@@ -134,7 +134,7 @@ WebDAV collection, IndexedDB, memory, and any of them encrypted.
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
-| `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
+| `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration, chapters and artwork, in the shape that `format.media.mp4` gives them. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters, artwork, codecs, video size and whether the movie comes first. |
 
 ## Comments

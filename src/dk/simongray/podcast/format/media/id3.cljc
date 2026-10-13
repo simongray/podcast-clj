@@ -100,7 +100,8 @@
         (encodings b)
 
         (view/quirk? ctx :id3/text-encoding)
-        (do (view/note! ctx (view/diagnostic :id3/text-encoding :info :encoding b))
+        (do (view/note! ctx (view/diagnostic :id3/text-encoding :info
+                                             :encoding b))
             [:latin1 1])
 
         :else
@@ -198,7 +199,8 @@
     (if-let [sniffed (and loose?
                           (view/quirk? ctx :id3/image-type)
                           (image/sniff data))]
-      (do (view/note! ctx (view/diagnostic :id3/image-type :info :declared declared))
+      (do (view/note! ctx (view/diagnostic :id3/image-type :info
+                                           :declared declared))
           sniffed)
       (if (str/blank? t) declared t))))
 
@@ -442,7 +444,8 @@
   (try
     ((reader ctx id) ctx (view/whole data) version id)
     (catch #?(:clj Exception :cljs :default) _
-      (view/note! ctx (view/diagnostic :id3/malformed :warning :offset p :frame id))
+      (view/note! ctx (view/diagnostic :id3/malformed :warning
+                                       :offset p :frame id))
       nil)))
 
 (defn- frame-header
@@ -476,19 +479,22 @@
               (> (+ p header) end))
         (do (when (and (< p end)
                        (not (plausible-end? view version p end)))
-              (view/note! ctx (view/diagnostic :id3/padding-junk :info :offset p)))
+              (view/note! ctx (view/diagnostic :id3/padding-junk :info
+                                               :offset p)))
             acc)
         (if-let [{:keys [id flags start stop]}
                  (frame-header ctx view version p end)]
           (let [{:keys [compressed? encrypted? unsync?]} flags]
             (if (or compressed? encrypted? (> start stop))
-              (do (view/note! ctx (view/diagnostic :id3/skipped-frame :info :frame id))
+              (do (view/note! ctx (view/diagnostic :id3/skipped-frame :info
+                                                   :frame id))
                   (recur stop acc))
               (let [data  (cond-> (view/slice view start stop)
                             unsync? resync)
                     frame (frame-body ctx data version id p)]
                 (recur stop (cond-> acc frame (conj frame))))))
-          (do (view/note! ctx (view/diagnostic :id3/malformed :warning :offset p))
+          (do (view/note! ctx (view/diagnostic :id3/malformed :warning
+                                               :offset p))
               acc))))))
 
 (defn- tag
@@ -641,12 +647,13 @@
                        (view/quirk? ctx :id3/chapter-end))
         unlisted? (and places (not (contains? places element-id)))]
     (when drop?
-      (view/note! ctx (view/diagnostic :id3/chapter-end :info :element-id element-id)))
+      (view/note! ctx (view/diagnostic :id3/chapter-end :info
+                                       :element-id element-id)))
     (cond-> {:start-time (/ start-ms 1000.0)}
       (not drop?) (assoc :end-time (/ end-ms 1000.0))
       title       (assoc :title title)
       url         (assoc :url url)
-      picture     (assoc :img (bytes/data-url (:type picture) (:data picture)))
+      picture     (assoc :artwork (select-keys picture [:type :data]))
       unlisted?   (assoc :toc false))))
 
 (defn chapters
@@ -654,10 +661,10 @@
   `opts`, in the shape of dk.simongray.podcast.format.chapters.
 
   Each chapter is a map with :start-time and :end-time in seconds. It has
-  the :title, the :url and the :img of the frames inside its frame, with
-  the image as a data URL. The top-level table of contents gives the
-  order. A chapter that the table doesn't list comes after the others, by
-  its start, with :toc false.
+  the :title, the :url and the picture of the frames inside its frame, the
+  picture as :artwork, a map of :type and :data. The top-level table of
+  contents gives the order. A chapter that the table doesn't list comes
+  after the others, by its start, with :toc false.
 
   The :except of `opts` is the ids of the quirks to leave out, and the
   report gives the quirks that applied."

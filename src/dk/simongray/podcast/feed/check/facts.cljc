@@ -104,7 +104,7 @@
      (let [target     (or (:url get) (:url head) url)
            stated     (mime/essence (:type declared))
            came?      (contains? #{200 206} (:status get))
-           readable?  (or (nil? stated) (contains? rules/formats stated))
+           readable?  (or (nil? stated) (contains? media/formats stated))
            read-job   (when (and read? came? readable?)
                         (async/attempt
                          #(media/read! target (reading-opts send opts))))

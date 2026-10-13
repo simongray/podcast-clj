@@ -16,7 +16,6 @@
   :except option leaves out the quirks that it names."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -47,40 +46,50 @@
    "audio/webm"      {:extension "webm"}
    "video/webm"      {:extension "webm"}})
 
+(def ^:no-doc formats
+  "The format that read finds in a file of each media type, for the types
+  whose files it reads."
+  (into {}
+        (keep (fn [[type {:keys [format]}]]
+                (when format
+                  [type format])))
+        types))
+
+(def ^:no-doc signatures
+  "How the start of a file tells its format, in order, as pairs of the
+  format and a predicate of the view: an ID3 tag for :mp3, an ftyp box for
+  :mp4, and an MPEG audio frame for :mp3."
+  [[:mp3 #(= "ID3" (view/code % 0 3))]
+   [:mp4 #(= "ftyp" (view/code % 4 4))]
+   [:mp3 #(mp3/frame-header % 0)]])
+
+(def ^:no-doc readers
+  "The reader of each format, which gives the keys of read."
+  {:mp3 mp3/read
+   :mp4 mp4/read})
+
 (defn- sniff
-  "The format of the file whose start `view` holds, or nil: :mp3 for an ID3
-  tag or an MPEG audio frame, and :mp4 for an ftyp box."
+  "The format of the file whose start `view` holds, by signatures, or nil."
   [view]
   (view/need view 0 12)
-  (cond
-    (= "ID3" (view/code view 0 3))  :mp3
-    (= "ftyp" (view/code view 4 4)) :mp4
-    (mp3/frame-header view 0)       :mp3))
+  (some (fn [[format matches?]] (when (matches? view) format)) signatures))
 
-(defn- mp3-result
-  "What the MP3 file in `view` says about itself, read with `opts`."
-  [view opts]
-  (let [file     (mp3/read view opts)
-        frames   (mapcat :frames (:tags file))
-        start    (:audio-start file)
-        duration (or (:duration file) (id3/duration frames))
-        chs      (id3/chapters frames opts)
-        artwork  (id3/artwork frames)]
-    (view/reported
-     (cond-> {:format :mp3}
-       start     (assoc :media-start start)
-       duration  (assoc :duration duration)
-       (seq chs) (assoc :chapters {:version chapters/version :chapters chs})
-       artwork   (assoc :artwork artwork))
-     (into (mp3/report file) (id3/report chs)))))
+(defn- with-image
+  "The `chapter` with the image of its :artwork as the data URL of its
+  :img, as a chapters document has it."
+  [{:keys [artwork] :as chapter}]
+  (cond-> (dissoc chapter :artwork)
+    artwork (assoc :img (bytes/data-url (:type artwork) (:data artwork)))))
 
-(defn- mp4-result
-  "What the MP4 file in `view` says about itself, read with `opts`."
-  [view opts]
-  (let [{:keys [chapters] :as file} (mp4/read view opts)
-        document {:version chapters/version :chapters chapters}]
-    (cond-> (assoc (dissoc file :chapters) :format :mp4)
-      chapters (assoc :chapters document))))
+(defn- result
+  "What the `file` of `format` says about itself, as its reader gave it:
+  without the tags of an MP3 file, and with its chapters as a chapters
+  document."
+  [format {:keys [chapters] :as file}]
+  (let [document {:version  chapters/version
+                  :chapters (mapv with-image chapters)}]
+    (cond-> (assoc (dissoc file :tags :chapters) :format format)
+      (seq chapters) (assoc :chapters document))))
 
 (defn report
   "The diagnostics of the read `file`. Each diagnostic has its message."
@@ -114,11 +123,10 @@
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
-   (let [unknown {:id :file/unknown-format :level :warning}
+   (let [unknown (view/diagnostic :file/unknown-format :warning)
          total   (:total view)]
-     (view/reading #(cond-> (case (sniff view)
-                              :mp3 (mp3-result view opts)
-                              :mp4 (mp4-result view opts)
+     (view/reading #(cond-> (if-let [format (sniff view)]
+                              (result format ((readers format) view opts))
                               (view/reported {} [unknown]))
                       (number? total) (assoc :bytes total))))))
 

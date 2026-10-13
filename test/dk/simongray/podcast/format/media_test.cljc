@@ -238,12 +238,17 @@
     (is (= [{:start-time 60.0 :end-time 150.5 :title "The interview" :url "https://example.org"}
             {:start-time 0.0 :end-time 60.0 :title "Intro"}
             {:start-time 150.5 :end-time 160.0 :title "Hidden" :toc false}]
-           (map #(dissoc % :img) chs))
+           (map #(dissoc % :artwork) chs))
         "in the order of the table of contents; what it leaves out comes last, out of it")
-    (is (str/starts-with? (:img (first chs)) "data:image/jpeg;base64,"))
+    (is (= "image/jpeg" (:type (:artwork (first chs)))))
+    (is (= (bytes/hex (bytes/of jpeg)) (bytes/hex (:data (:artwork (first chs))))))
     (is (= [] (id3/report chs)))
-    (testing "the image that a host writes as a file"
-      (let [{:keys [type data]} (bytes/from-data-url (:img (first chs)))]
+    (testing "the image of a chapter, which format.media gives as a data URL that a host writes as a file"
+      (let [file                (media/read (view (concat (tag 3
+                                                               (ctoc 3 "toc" ["ch0"])
+                                                               (chap 3 "ch0" 0 60000 (apic 3 "image/jpeg" 0 jpeg)))
+                                                          [0xFF 0xFB 0x90 0x00] (repeat 413 0))))
+            {:keys [type data]} (bytes/from-data-url (:img (first (:chapters (:chapters file)))))]
         (is (= "image/jpeg" type))
         (is (= (bytes/hex (bytes/of jpeg)) (bytes/hex data)))))))
 

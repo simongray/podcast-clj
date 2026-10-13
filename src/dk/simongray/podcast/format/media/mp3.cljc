@@ -180,13 +180,16 @@
   (view/report file))
 
 (defn read
-  "The MP3 file in `view`, read with `opts`, as a map of :tags,
-  :audio-start and :duration.
+  "The MP3 file in `view`, read with `opts`, as a map of the keys below,
+  each absent when the file doesn't have it, as mp4/read gives them.
 
   - :tags are the ID3v2 tags
-  - :audio-start is where the first frame starts
-  - :duration is in seconds, or nil when the file has no frame, or has no
-    Xing, Info or VBRI header and no known size
+  - :media-start is where the first frame starts
+  - :duration is in seconds, from a Xing, Info or VBRI header, else
+    estimated from the frames and the size of the file, else from the TLEN
+    frame of a tag
+  - :chapters, from the CHAP and CTOC frames, as id3/chapters gives them
+  - :artwork, a map of :type, :data and :description
 
   The :except of `opts` is the ids of the quirks to leave out. When the
   view lacks bytes, the reading throws an exception that holds their
@@ -196,17 +199,23 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [tags        (id3/read-all view 0 opts)
+         frames      (mapcat :frames tags)
          start       (or (:end (peek tags)) 0)
          ctx         (view/context opts)
          [p h]       (first-frame ctx view start)
-         result      {:tags        tags
-                      :audio-start p
-                      :duration    (duration ctx view p h)}
-         diagnostics (into (vec (mapcat id3/report tags)) (view/noted ctx))]
-     (view/reported result
-                    (cond-> diagnostics
-                      (nil? h) (conj (view/diagnostic :mp3/no-audio
-                                                      :warning)))))))
+         seconds     (or (duration ctx view p h) (id3/duration frames))
+         chs         (id3/chapters frames opts)
+         artwork     (id3/artwork frames)
+         result      (cond-> {:tags tags}
+                       p         (assoc :media-start p)
+                       seconds   (assoc :duration seconds)
+                       (seq chs) (assoc :chapters chs)
+                       artwork   (assoc :artwork artwork))
+         no-audio    (view/diagnostic :mp3/no-audio :warning)
+         diagnostics (cond-> (into (vec (mapcat id3/report tags))
+                                   (view/noted ctx))
+                       (nil? h) (conj no-audio))]
+     (view/reported result (into diagnostics (id3/report chs))))))
 
 (comment
   ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes

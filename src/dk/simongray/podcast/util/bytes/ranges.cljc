@@ -25,14 +25,15 @@
      format.media/read! for a downloaded episode."
      [f]
      (fn [start end]
-       (with-open [channel (FileChannel/open (.toPath (io/file f))
-                                             (into-array OpenOption
-                                                         [StandardOpenOption/READ]))]
-         (let [total  (.size channel)
-               buffer (ByteBuffer/allocate (int (max 0 (- (min end total) start))))]
-           (.position channel (long start))
-           (while (and (.hasRemaining buffer) (pos? (.read channel buffer))))
-           {:bytes (.array buffer) :start start :total total})))))
+       (let [path (.toPath (io/file f))
+             read (into-array OpenOption [StandardOpenOption/READ])]
+         (with-open [channel (FileChannel/open path read)]
+           (let [total  (.size channel)
+                 n      (max 0 (- (min end total) start))
+                 buffer (ByteBuffer/allocate (int n))]
+             (.position channel (long start))
+             (while (and (.hasRemaining buffer) (pos? (.read channel buffer))))
+             {:bytes (.array buffer) :start start :total total}))))))
 
 ;; File API, the slice and arrayBuffer methods of a Blob, which a browser's
 ;; File is, and which Node's fs.openAsBlob gives of a file
