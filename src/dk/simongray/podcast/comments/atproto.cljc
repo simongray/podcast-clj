@@ -12,8 +12,9 @@
   - a reply with a warning is :sensitive?
   - a reply that the author of the root post hid is :hidden?
 
-  The protocol gives no web page for a post, so build a link to the web
-  app of your choice from the parts of its at URI."
+  A thread starts at the at URI of a post, or at the URL of its page on
+  Bluesky's web app. Each comment and each author has the :url of its page
+  there, and post-url and profile-url give the page on another web app."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
@@ -37,12 +38,61 @@
                        :collection collection
                        :rkey       rkey}))))
 
-(defn ^:no-doc post-uri?
-  "Whether `s` is the at URI of a post."
+(def web-origin
+  "The origin of Bluesky's web app, whose links to posts name threads, and
+  whose pages are the :url of each comment and author."
+  "https://bsky.app")
+
+;; AT Protocol, DID, Handle and Record Key, as of 2026-10-13: the
+;; characters of each, and the dots of a handle
+(def ^:no-doc actor-pattern
+  "The DID or the handle of an actor."
+  #"did:[a-z]+:[A-Za-z0-9._:%-]{1,2048}|[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,126}")
+
+(defn- rkey?
+  "Whether `s` is a record key."
   [s]
-  (let [{:keys [collection rkey]} (at-uri s)]
-    (and (= "app.bsky.feed.post" collection)
-         (some? rkey))))
+  (boolean (and (string? s)
+                (re-matches #"[A-Za-z0-9._:~-]{1,512}" s)
+                (not (contains? #{"." ".."} s)))))
+
+(defn post-uri
+  "The at URI of the post that `s` names, or nil for another string.
+
+  The `s` is the at URI of a post, or the URL of its page on Bluesky's web
+  app, https://bsky.app/profile/actor/post/rkey, whose actor is the handle
+  or the DID of its author. An AppView reads an at URI with a handle, so
+  the at URI of such a page has the actor as it is."
+  [s]
+  (if (= (url/origin web-origin) (url/origin s))
+    (let [path           (str (:path (url/parts s)))
+          [_ actor rkey] (re-matches #"/profile/([^/]+)/post/([^/]+)/?" path)]
+      (when (and actor (re-matches actor-pattern actor) (rkey? rkey))
+        (str "at://" actor "/app.bsky.feed.post/" rkey)))
+    (let [{:keys [collection rkey]} (at-uri s)]
+      (when (and (= "app.bsky.feed.post" collection) rkey)
+        s))))
+
+(defn profile-url
+  "The URL of the page of the `actor`, a DID or a handle, on Bluesky's web
+  app, or on the web app with the same paths at the :origin of `opts`.
+  It's nil for another string."
+  ([actor]
+   (profile-url actor {}))
+  ([actor {:keys [origin] :or {origin web-origin} :as opts}]
+   (when (and (string? actor) (re-matches actor-pattern actor))
+     (str (url/without-trailing-slashes origin) "/profile/" actor))))
+
+(defn post-url
+  "The URL of the page of the post at the at URI `uri` on Bluesky's web
+  app, or on the web app with the same paths at the :origin of `opts`.
+  It's nil for another URI."
+  ([uri]
+   (post-url uri {}))
+  ([uri opts]
+   (let [{:keys [authority collection rkey]} (at-uri uri)]
+     (when (and (= "app.bsky.feed.post" collection) (rkey? rkey))
+       (some-> (profile-url authority opts) (str "/post/" rkey))))))
 
 (defn- thread-request
   "The request to the AppView at `appview` for the thread below the post
@@ -175,8 +225,7 @@
 
   A link of the post is a link. The :link-fn of `opts` is a function of a
   part. It gives the URL that a mention or a hashtag links to, or nil for
-  no link. The protocol gives no web page for a profile, so you choose the
-  web app that shows one."
+  no link, e.g. the profile-url of the :id of a mention."
   ([record]
    (hiccup record {}))
   ([record opts]
@@ -256,6 +305,7 @@
         language  (first (common/values record "langs"))]
     (common/present
      (merge {:id          (get view "uri")
+             :url         (post-url (get view "uri"))
              :author      (get-in view ["author" "did"])
              :in-reply-to (get-in record ["reply" "parent" "uri"])
              :published   published
@@ -272,13 +322,14 @@
 
 (defn- profile-author
   "The AT Protocol profile `p` as an author read at `at`: its display name,
-  its handle when the AppView verified it, and its avatar."
+  its handle when the AppView verified it, its page and its avatar."
   [p at]
   (let [handle (common/first-text (get p "handle"))
         handle (when (not= "handle.invalid" handle) handle)]
     (common/present {:id      (get p "did")
                      :name    (common/first-text (get p "displayName") handle)
                      :handle  (some->> handle (str "@"))
+                     :url     (profile-url (get p "did"))
                      :avatar  (common/web-url (get p "avatar"))
                      :read-at at})))
 
@@ -334,9 +385,9 @@
 
 (defn readable?
   "Whether the thread of `interact` can be read with `opts`. Its URI must
-  be the at URI of a post, and `opts` must name an :appview."
+  name a post, as post-uri reads it, and `opts` must name an :appview."
   [{:keys [uri] :as interact} opts]
-  (and (post-uri? uri) (string? (:appview opts))))
+  (and (some? (post-uri uri)) (string? (:appview opts))))
 
 (defn resumed
   "The AT Protocol `thread` as a new reading of it starts: unread again
@@ -379,8 +430,8 @@
            []
 
            (nil? read-at)
-           (when (post-uri? uri)
-             [(thread-request appview uri)])
+           (when-let [post (post-uri uri)]
+             [(thread-request appview post)])
 
            (< fresh max-comments)
            (reply-requests thread appview))
@@ -445,6 +496,12 @@
 (comment
   (at-uri "at://did:plc:ann/app.bsky.feed.post/1")
 
+  ;; the link that a feed pastes, as the at URI of its post, and back
+  (post-uri "https://bsky.app/profile/ann.example/post/3k")
+  ;; => "at://ann.example/app.bsky.feed.post/3k"
+  (post-url "at://did:plc:ann/app.bsky.feed.post/3k")
+  ;; => "https://bsky.app/profile/did:plc:ann/post/3k"
+
   (def root-uri "at://did:plc:ann/app.bsky.feed.post/1")
 
   (def sample-thread
@@ -498,6 +555,6 @@
   (parts sample-record)
   (hiccup sample-record)
   (hiccup sample-record
-          {:link-fn (fn [{:keys [id]}] (str "https://bsky.app/profile/" id))})
+          {:link-fn (comp profile-url :id)})
   (post-html sample-record)
   #_.)

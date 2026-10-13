@@ -73,9 +73,8 @@
 ;;   diagnostics/describe, so the library would need its own.
 ;; - util.client, util.json, util.time and util.bytes would become its own
 ;;   User-Agent and small copies.
-;; - A blog would soon miss four things: a bsky.app link as the start of a
-;;   thread, Nostr comments on a web page by its NIP-73 URL, counts of likes
-;;   and reposts, and a web link for each comment on Bluesky.
+;; - A blog would soon miss two things: Nostr comments on a web page by its
+;;   NIP-73 URL, and counts of likes and reposts.
 ;; - ActivityPub is the fediverse, but Bluesky and Nostr aren't, which the
 ;;   name should allow for.
 
@@ -288,9 +287,9 @@
 
   The protocol of the thread must be one of protocols, and its URI must
   have the form of that protocol. For ActivityPub, the URI is an http or
-  https URL. For the AT Protocol, it's the at URI of a post, and `opts`
-  must name an :appview. For Nostr, it's the name of a note, or the id
-  that NIP-73 gives a show or an episode."
+  https URL. For the AT Protocol, it's the at URI of a post or the URL of
+  its page on bsky.app, and `opts` must name an :appview. For Nostr, it's
+  the name of a note, or the id that NIP-73 gives a show or an episode."
   ([interact]
    (readable? interact {}))
   ([interact opts]

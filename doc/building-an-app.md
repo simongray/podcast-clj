@@ -621,6 +621,11 @@ For a notification, `comments/text` gives the content as plain text, and
 or `:sensitive?` behind a warning. On Bluesky, the author of the root post
 can hide replies, and `tree` only shows those with `{:hidden? true}`.
 
+To link to the original, use the `:url` of a comment or an author, which
+everything but Nostr has. On Bluesky, it's a page on bsky.app, and
+`atproto/post-url` gives the page on another web app, e.g. `(atproto/post-url
+(:id reply) {:origin "https://deer.social"})`.
+
 A fetch reads for a minute at most, and 100 comments at a time. To show
 something sooner, give it `:max-seconds 5`, show what it read, and fetch
 the same thread again to read more. A server that failed for a while is
@@ -1734,6 +1739,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.comments :as comments]
+            [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.diagnostics :as diagnostics]

@@ -796,8 +796,24 @@
                                  "-&gt; <a href=\"https://bsky.network/\" rel=\"nofollow ugc\">bsky.network</a></p>")
                  "a link as its facet marks it, after text with characters beyond ASCII")
              (is (:deleted? (get-in thread [:comments "at://did:plc:ewvi7nxzyoun6zhxrhs64oiz/app.bsky.feed.post/3msyzzzzzzz2z"])))
-             (is (= {:name "AT Protocol Developers" :handle "@atproto.com"}
-                    (select-keys (get-in thread [:authors "did:plc:ewvi7nxzyoun6zhxrhs64oiz"]) [:name :handle]))))))))
+             (is (= {:name "AT Protocol Developers" :handle "@atproto.com"
+                     :url  "https://bsky.app/profile/did:plc:ewvi7nxzyoun6zhxrhs64oiz"}
+                    (select-keys (get-in thread [:authors "did:plc:ewvi7nxzyoun6zhxrhs64oiz"]) [:name :handle :url])))
+             (is (= "https://bsky.app/profile/did:web:fry69.dev/post/3msydt4s5v22m"
+                    (get-in thread [:comments "at://did:web:fry69.dev/app.bsky.feed.post/3msydt4s5v22m" :url]))
+                 "the page of a comment by its DID, which stays when the handle changes"))))))
+
+(deftest a-thread-from-a-link-to-bsky-app
+  (let [log    (atom [])
+        link   "https://bsky.app/profile/atproto.com/post/3msydg6sd7s2d"
+        by-dns (assoc bluesky "at://atproto.com/app.bsky.feed.post/3msydg6sd7s2d" (get bluesky bluesky-root))]
+    (run #(async/then
+           (comments/fetch! {:protocol "atproto" :uri link} {:send (appview by-dns log) :appview "https://appview.example/"})
+           (fn [thread]
+             (is (= [link bluesky-root] ((juxt :uri :root) thread)))
+             (is (= "AT Protocol Developers" (first (shape (comments/tree thread)))))
+             (is (= "at://atproto.com/app.bsky.feed.post/3msydg6sd7s2d" (first @log))
+                 "the link of a feed as an at URI with the handle, which the AppView reads"))))))
 
 (deftest a-post-with-a-video
   (run #(async/then
@@ -853,7 +869,26 @@
 (deftest an-at-uri
   (is (= {:authority "did:plc:x" :collection "app.bsky.feed.post" :rkey "3k"} (atproto/at-uri "at://did:plc:x/app.bsky.feed.post/3k")))
   (is (= {:authority "atproto.com"} (atproto/at-uri "at://atproto.com")))
-  (is (nil? (atproto/at-uri "https://bsky.app/profile/atproto.com/post/3k"))))
+  (is (nil? (atproto/at-uri "https://bsky.app/profile/atproto.com/post/3k")))
+  (testing "a post by its page on bsky.app"
+    (is (= ["at://atproto.com/app.bsky.feed.post/3k" "at://did:plc:x/app.bsky.feed.post/3k"
+            "at://atproto.com/app.bsky.feed.post/3k" "at://did:plc:x/app.bsky.feed.post/3k"]
+           (map atproto/post-uri ["https://bsky.app/profile/atproto.com/post/3k" "https://bsky.app/profile/did:plc:x/post/3k/"
+                                  "https://BSKY.app/profile/atproto.com/post/3k?ref=feed#top"
+                                  "at://did:plc:x/app.bsky.feed.post/3k"])))
+    (is (every? nil? (map atproto/post-uri ["https://bsky.app/profile/atproto.com" "https://bsky.app/profile/atproto.com/post/"
+                                            "https://bsky.app/profile/atproto/post/3k" "https://bsky.app/profile/a.com/post/.."
+                                            "https://bsky.app/profile/a.com/feed/3k" "https://bsky.app:8443/profile/a.com/post/3k"
+                                            "http://bsky.app/profile/a.com/post/3k" "https://deer.social/profile/a.com/post/3k"
+                                            "at://did:plc:x/app.bsky.feed.like/3k" "at://did:plc:x" nil 42]))
+        "a page of a post on bsky.app alone, by a handle with a dot or a DID"))
+  (testing "the pages of a post and of an actor"
+    (is (= ["https://bsky.app/profile/did:plc:x/post/3k" "https://deer.social/profile/did:plc:x/post/3k"]
+           [(atproto/post-url "at://did:plc:x/app.bsky.feed.post/3k")
+            (atproto/post-url "at://did:plc:x/app.bsky.feed.post/3k" {:origin "https://deer.social/"})]))
+    (is (= "https://bsky.app/profile/atproto.com" (atproto/profile-url "atproto.com")))
+    (is (every? nil? [(atproto/post-url "at://did:plc:x/app.bsky.feed.like/3k") (atproto/post-url "at://a b/app.bsky.feed.post/3k")
+                      (atproto/profile-url "did:plc:x/../y") (atproto/profile-url nil)]))))
 
 (deftest the-next-page-of-a-collection
   (let [page    {:method :get :url "https://a.example/replies" ::comments/for [:replies "https://a.example/1"]}
@@ -894,7 +929,7 @@
            (async/all (for [[interact opts] [[{:protocol "matrix" :uri "https://matrix.to/#/#podcast:example.org"} {}]
                                              [{:protocol "atproto" :uri bluesky-root} {}]
                                              [{:protocol "activitypub" :uri "fuffaweb_italia.bio.link"} {}]
-                                             [{:protocol "atproto" :uri "https://bsky.app/profile/atproto.com/post/3msydg6sd7s2d"}
+                                             [{:protocol "atproto" :uri "https://bsky.app/profile/atproto.com"}
                                               {:appview "https://appview.example"}]
                                              [{:protocol "nostr" :uri "nostr:nevent1qqs"} {}]
                                              [{:protocol "nostr" :uri "podcast:item:guid:1"} {:relays []}]]]

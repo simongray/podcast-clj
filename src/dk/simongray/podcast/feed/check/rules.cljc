@@ -529,20 +529,12 @@
        [(diagnostic file chosen :check/empty)])
      (passed-on file (:report read)))))
 
-;; RFC 7303, section 4: application/xml and text/xml; RFC 6839, section
-;; 4.1: a type with the suffix +xml, e.g. application/rss+xml
-(defn- xml-type?
-  "Whether the media type `t` is one of XML."
-  [t]
-  (or (contains? #{"application/xml" "text/xml"} t)
-      (str/ends-with? t "+xml")))
-
 (defn- feed-type-verdict
   "The diagnostic of the feed `file` by the `chosen` requirements when the
   answers `head` and `get` serve it as a media type that isn't one of XML."
   [file chosen head get]
   (let [served (or (:type get) (when (ok? head) (:type head)))]
-    (when (and served (not (xml-type? served)))
+    (when (and served (not (mime/xml? served)))
       [(diagnostic file chosen :check/feed-type :served served)])))
 
 (defn- feed-size-verdict
