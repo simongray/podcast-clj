@@ -346,6 +346,7 @@
   (is (= [["https://podcastindex.social" "117294750060235480"]
           ["https://podcastindex.social" "117294750060235480"]
           ["https://gts.example.org" "01HXYZ"]
+          ["https://infosec.exchange" "117439054503735295"]
           ["https://pleroma.example.org" "AbC123"]
           nil
           nil]
@@ -353,6 +354,7 @@
               [root
                (str root-id "/")
                "https://gts.example.org/@ann/statuses/01HXYZ?x=1"
+               "https://infosec.exchange/ap/users/117064736050780246/statuses/117439054503735295"
                "https://pleroma.example.org/notice/AbC123#top"
                "https://mk.spook.social/notes/arb76m33iw"
                "not a URL"])))

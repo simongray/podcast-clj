@@ -807,18 +807,20 @@
 
 (def status-paths
   "The paths of statuses on the servers that answer the Mastodon API, as of
-  September 2026.
+  October 2026.
 
   They're the paths of the web pages and of the ActivityPub ids. Each is a
   regular expression of the whole path, and its one group is the id of
   the status in the API.
 
   They're the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
-  both, and of Pleroma and Akkoma, unless the options give the paths of
-  other servers as :status-paths."
+  both, the numeric ids of newer Mastodon servers included, and of Pleroma
+  and Akkoma, unless the options give the paths of other servers as
+  :status-paths."
   [#"/@[^/?#]+/([0-9A-Za-z]+)"
    #"/@[^/?#]+/statuses/([0-9A-Za-z]+)"
    #"/users/[^/?#]+/statuses/([0-9A-Za-z]+)"
+   #"/ap/users/[^/?#]+/statuses/([0-9A-Za-z]+)"
    #"/notice/([0-9A-Za-z]+)"])
 
 (defn ^:no-doc api-status
