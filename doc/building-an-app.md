@@ -336,10 +336,10 @@ Without `app.library`, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
 the profile uses the key of a feed: the guid that `feed.guid/feed-guid`
 gives it at its first fetch, which stays when the feed later gives itself
-another, e.g. after a move. `feeds/add` puts the key on the feed with
-`feed.guid/with-key`, so that `feed.guid/episode-id` gives ids by it. A
-feed can declare the guid of another subscription and take it over, so
-check a new feed with `profile/takeover` first.
+another, e.g. after a move. When `feeds/add` keeps a feed, it puts the
+key on it with `feed.guid/with-key`, so that `feed.guid/episode-id` gives
+ids by it. A feed can declare the guid of another subscription and take
+it over, so check a new feed with `profile/takeover` first.
 
 ### A show of local files
 
@@ -656,11 +656,12 @@ Without it, they aren't fetched, and the report has
 documents before it lets them go, so nothing is lost if the app stops
 before its next save.
 
-`library.edn` says the version of its shape. A library saved by an older
-version of podcast-clj is brought up to this one, and one saved by a
-newer version isn't read: `restore!` gives the library as `make` made it,
-with `:library/newer-format` in the report, and `save!` won't write over
-it, so an older app can't destroy what a newer one saved.
+The document `library.edn` names the version of its shape. A library
+saved by an older version of podcast-clj is brought up to this one, and
+one saved by a newer version isn't read: `restore!` returns the library as
+`make` made it, with `:library/newer-format` in the report, and `save!`
+won't write over it, so an older app can't destroy what a newer one
+saved.
 
 Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:
@@ -878,8 +879,8 @@ a show:
 Its root is the episode itself, so the root of the tree has no content.
 The podcaster didn't choose this thread, so show nothing when
 `resolve/social-interacts` gives the protocol `disabled`. Nostr has no web
-pages, so a mention has no link unless your `:link-fn` gives one,
-such as its `:uri`, a `nostr:` URI that opens a Nostr app on the device.
+pages, so a mention has no link unless your `:link-fn` returns one, such
+as its `:uri`, a `nostr:` URI that opens a Nostr app on the device.
 
 ### Post on Nostr
 
@@ -912,7 +913,7 @@ There are three kinds of signer:
 - `signer/remote` asks a remote signer of NIP-46, such as nsec.app, to
   sign. Read the `bunker://` URI that the listener gives with
   `signer/parse`, add a key of the app as `:client-key`, and keep both.
-  Then `signer/connect!` once, which gives the listener's public key.
+  Then `signer/connect!` once, which returns the listener's public key.
 
 A remote signer can ask the listener to approve a request on a web page
 first, and the answer is then `:nostr/signer-approval` with the `:url`.
@@ -1061,14 +1062,14 @@ as `podcast:remoteItem` names an episode, so `refresh!` fetches that feed
 on every device. The library keeps only that episode of the show, and
 doesn't check the feed again, so the show's later episodes never count
 as new. To take it out again, use `library/remove-episode`, which leaves
-the queue as it is. `library/remove-played-episodes` takes out every
+the queue as it is. And `library/remove-played-episodes` takes out every
 such episode that the listener played, from the queue and the playlists
 too, but keeps those with a star or another mark.
 
 A show's live streams, its `podcast:liveItem`s, play by their ids as its
-episodes do. `library/live-items` lists those of the subscriptions, the
-ones on air first, then the ones to come, and a feed is checked again at
-the start and the end of each one to come.
+episodes do. The function `library/live-items` lists those of the
+subscriptions, the ones on air first, then the ones to come, and a feed
+is checked again at the start and the end of each one to come.
 
 Some settings and events change what `step` does:
 
@@ -1167,26 +1168,27 @@ fetcher of the file as `:fetch`: `ranges/file-fetcher` of its path on the
 JVM, or `ranges/blob-fetcher` of a File or a Blob in a browser. Besides
 the chapters, the duration and the artwork, the result has the file's
 `:tags`, e.g. its title and artist, and the `:bitrate`, `:sample-rate`
-and `:channels` of its audio. A file that
-the listener marks with `library/keep-file` stays whatever the rules
-say, and `downloads/usage` of `(:files @lib)` gives the episodes and bytes
-of each show on the device, e.g. for a storage screen. The record is
-saved with the library, but never synced, since each device has its own
-files. To keep a record of your own instead, give it to `plan` as
-`files`, e.g. `{[guid "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}}`.
-For rules that only apply to this device, give `plan` the rules as
-`:rules`. To choose among the files of an episode, e.g. audio
+and `:channels` of its audio.
+
+A file that the listener marks with `library/keep-file` stays whatever
+the rules say, and `downloads/usage` of `(:files @lib)` returns the
+episodes and bytes of each show on the device, e.g. for a storage screen.
+The record is saved with the library, but never synced, since each device
+has its own files. To keep a record of your own instead, give it to
+`plan` as `files`, e.g. `{[guid "ep-1"] {:bytes 50117331 :at #inst
+"2026-09-09"}}`. For rules that only apply to this device, give `plan` the
+rules as `:rules`. To choose among the files of an episode, e.g. audio
 alone, give it the options of `resolve/enclosure` as `:enclosure`. The
 plan only has files that `resolve/downloadable?` takes, so never an HLS
-stream or a torrent. A rule written by a newer version of podcast-clj does
-nothing until this version understands it, and `downloads/problems` says
-why.
+stream or a torrent. A rule written by a newer version of podcast-clj
+does nothing until this version understands it, and `downloads/problems`
+says why.
 
 The plan deletes the files of a show that the listener left, but for
 those that the rules keep and the episodes added on their own, unless
 the rules have `:delete-unsubscribed? false`. To name a file, give
 `downloads/file-name` the entry of the plan and the title of the episode.
-It gives a name that every file system takes, from the letters of the
+It returns a name that every file system takes, from the letters of the
 title, a digest of the episode's id and the extension of the file, e.g.
 `Episode-274-Vibe-Cloning-c71b5f4a.mp3`.
 
@@ -1220,8 +1222,7 @@ A show that the listener subscribed to by its URL has only the ids of its
 feed, so `library/identify!` asks the directories for the rest: the
 Podcast Index by its guid or its URL when the config has the
 credentials, and Apple by its title. The ids stay in the library, and
-the views of the show and its episodes link to it in more apps, e.g. 44
-rather than 29 for Podcasting 2.0:
+the views of the show and its episodes link to it in many more apps:
 
 ```clojure
 (swap! lib library/merge (library/identify! @lib))
@@ -1381,8 +1382,8 @@ OPML.
 To take an episode out of the lists without marking it played, hide it
 with `profile/hide`. A show's setting `:hide-where` hides those of its
 episodes that meet the criteria, e.g. `{:status :played}` hides the ones
-heard, and `profile/unhide` shows one again. `library/episodes` and the
-download rules leave the hidden episodes out unless the criteria name
+heard, and `profile/unhide` shows one again. Both `library/episodes` and
+the download rules leave the hidden episodes out unless the criteria name
 `:hidden?`, e.g. `{:hidden? true}` lists them. To take an episode out of
 the history, `profile/forget` drops its progress and its played mark on
 every device, so it counts as never heard until the listener plays it
@@ -1401,7 +1402,7 @@ To mark every episode of a show as heard, use `library/mark-show-played`.
   played, started or deleted. Import its shows with `from-opml`, which
   leaves out those marked as left, refresh, and then
   `library/episodes-from-opml` takes the episodes over by the URLs of
-  their media. `library/to-opml` writes them out in the same form.
+  their media, and `library/to-opml` writes them out in the same form.
 - Ratings are from 1 to 5 by default, and `:scale` takes another one, such
   as `{:worst 0 :best 1}` for thumbs. Each rating keeps its scale, so
   `profile.marks/rating` can give it in yours.
@@ -1551,7 +1552,7 @@ hand. Let the listener save this device's document into the folder, and
 load the folder with `<input type="file" webkitdirectory>`:
 
 ```clojure
-(library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
+(library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 2 …}"}
 
 (.then (library/sync! @lib [(library/backend (folder/store (.-files input)))])
        #(swap! lib library/merge %))
@@ -1559,8 +1560,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 
 The store of the files of an input has no `:put`, so its backend only
 reads them. Check for the picker itself rather than for a browser, so
-that the app uses it wherever it arrives.
-The [providers
+that the app uses it wherever it arrives. The [providers
 page](https://github.com/simongray/like-minded/blob/master/doc/providers.md#folders-in-a-browser-as-of-october-2026)
 of like-minded has what each browser can do, and the inspector's player
 in `web/inspector/player.cljs` does all of the above.
@@ -1631,7 +1631,7 @@ only the fees of its split are paid.
 
 Without `app.library`, `episode/fetch-remote-values!` takes the view
 from `episode/view`. To fetch a block yourself, e.g. with
-`podcastindex/fetch-remote-value!`, which gives the block, nil or an
+`podcastindex/fetch-remote-value!`, which returns the block, nil or an
 `:error`, fold it in with `value/with-remote`.
 
 What goes with a payment is one map, however it's sent. Inside a remote
@@ -1746,7 +1746,7 @@ payments in whole sats:
 To pay a boost to every recipient, give `recipients/pay!` the wallet's
 functions. It divides the amount as `value/payments` does, pays a node
 with keysend and a Lightning address with an invoice, one at a time, and
-gives an entry for each recipient:
+returns an entry for each recipient:
 
 ```clojure
 (defn record!
@@ -1795,8 +1795,8 @@ another payment, and show the texts as text, not HTML.
 
 To validate a feed, e.g. one that a podcaster submits, fetch it with
 `fetch!` and give the answer to `validate/report`, with the requirements of
-PSP-1, Apple Podcasts, Spotify or YouTube. It gives the diagnostics of the
-fetch, the parse and the validation in one list, and `diagnostics/verdict`
+PSP-1, Apple Podcasts, Spotify or YouTube. It returns the diagnostics of
+the fetch, the parse and the validation in one list, and `diagnostics/verdict`
 says whether the feed passes:
 
 ```clojure
@@ -1831,9 +1831,9 @@ kind, and `validate/location` writes the path of each as people read it:
 ```
 
 To validate a feed that you've built rather than fetched, e.g. before you
-publish it, give the map to `validate/validate`. The files that a feed
-links to are the next section's matter. Add the `:report` of
-`check/check-files!` to the diagnostics for a verdict on both.
+publish it, give the map to `validate/validate`. The next section checks
+the files that a feed links to, and adding the `:report` of
+`check/check-files!` to the diagnostics gives a verdict on both.
 
 The value blocks have checks of their own. Of these,
 `recipients/problems` reports what would send a payment where the
@@ -1868,8 +1868,8 @@ playlists of video, and compares their duration, codecs and height with
 what the feed declares. The limits on files, time and bytes are in
 `check/default-limits`. Like `fetch!`, it requests nothing on your own
 network unless you give it an `:allow-pred`. For a single file,
-`http/probe!` gives the same facts, e.g. the
-size of an episode before downloading it.
+`http/probe!` returns the same facts, e.g. the size of an episode before
+downloading it.
 
 
 ## Count the downloads of a show
@@ -1886,7 +1886,7 @@ Apache and nginx, or the extended format of the W3C, with `logs/requests`:
 ```
 
 The `:base-url` turns the paths in the log into the URLs of the files. A
-line that doesn't read gives a map with an `:error`. If nginx writes
+line that can't be parsed becomes a map with an `:error`. If nginx writes
 X-Forwarded-For after the user agent, give `:extra [:forwarded-for]`. For
 a log in another format, turn each line into a request map yourself:
 
@@ -2016,8 +2016,8 @@ documents linked as RFC 5005 describes:
 
 The archives don't change when a new episode comes out, so apps fetch each
 one only once. Give the feed's URL as `:url` when the feed doesn't name
-its own, and other URLs for the archives as `:page-url-fn`, a function of the
-page number.
+its own, and other URLs for the archives as `:page-url-fn`, a function of
+the page number.
 
 To push changes through WebSub, name the hub in the feed and tell it
 about each change:
@@ -2030,7 +2030,7 @@ about each change:
 ```
 
 To announce a change through Podping, give `podping/notify!` the token
-that podping.cloud gave you. It gives the `:status` of the answer, or an
+that podping.cloud gave you. It returns the `:status` of the answer, or an
 `:error` when the service didn't take it:
 
 ```clojure
@@ -2181,7 +2181,8 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
 
 ```clojure
 (ns my.app
-  (:require [dk.simongray.drop-in-search :as search]
+  (:require [clojure.java.io :as io]
+            [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
