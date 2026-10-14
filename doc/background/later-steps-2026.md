@@ -528,7 +528,8 @@ those files anyway, and a release is a good time.
   localised categories, the dominant colour of artwork, and a reference
   client of the server. The chapter images from MP4, with their links,
   local files as a show and the dominant colour of artwork were done on
-  14 October 2026.
+  14 October 2026, and the ID3 writer is in
+  [id3-clj](https://github.com/simongray/id3-clj).
 - **The nice-to-haves of gain 1**, of both reports.
 - **The proposals of the podcast namespace**, among them phase 9 (#789)
   and `podcast:socialAccount` (#784), once a maintainer answers.

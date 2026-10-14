@@ -13,7 +13,9 @@
   - quirk, the normalizations of the tree
   - feed, the model
   - transcript and chapters, the companion formats
-  - id3, mp3, mp4 and file, media files and images
+  - mp3, mp4 and file, media files and images
+  - id3, the ID3v2 tags of media files, whose diagnostics are those of
+    id3-clj
   - validate, the validator, whose diagnostics are about the feed rather
     than about reading it
   - check, the checks over the network of what the feed links to
@@ -39,6 +41,7 @@
   requirements breaks a rule of its guide, though Apple Podcasts Connect
   doesn't say which rules it refuses a feed for."
   (:require [clojure.string :as str]
+            [dk.simongray.id3.diagnostics :as id3-diagnostics]
             [dk.simongray.like-minded.diagnostics :as sync-diagnostics]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -287,38 +290,8 @@
     {:id :chapters/malformed :level :warning
      :doc "Chapters that aren't JSON objects in a list were left out."}
 
-    ;; media files and images: the ID3v2 tags, the MPEG audio frames, the MP4
-    ;; boxes, the Ogg pages, the ADTS frames and the headers of images
-    {:id :id3/frame-size :level :info
-     :doc "An ID3v2 frame gave its size in the form of the other version, a
-           plain number in ID3v2.4 or a syncsafe number in ID3v2.3, and the size
-           was read in that form."}
-    {:id :id3/text-encoding :level :info
-     :doc "An ID3v2 frame names a text encoding that ID3 doesn't define, so its
-           text was read as ISO-8859-1."}
-    {:id :id3/utf8-latin1 :level :info
-     :doc "An ID3v2 frame declared its text as ISO-8859-1, but the bytes are
-           UTF-8, so the text was read as UTF-8."}
-    {:id :id3/utf16-bom :level :info
-     :doc "An ID3v2 frame declared its text as UTF-16 without a byte order mark,
-           so the byte order was worked out from where the zero bytes are."}
-    {:id :id3/image-type :level :info
-     :doc "An ID3 picture gave its type loosely, such as JPG or image/jpg, or
-           gave none, so the type was taken from the bytes of the image."}
-    {:id :id3/chapter-end :level :info
-     :doc "An ID3 chapter ends at or before its start, so its end was left
-           out."}
-    {:id :id3/second-tag :level :info
-     :doc "A second ID3v2 tag follows the first, as when a writer adds a tag in
-           front of an existing one, and both tags were read."}
-    {:id :id3/skipped-frame :level :info
-     :doc "An ID3v2 frame is compressed or encrypted, and wasn't read."}
-    {:id :id3/malformed :level :warning
-     :doc "A frame of an ID3v2 tag doesn't read, and was left out. When its size
-           doesn't read, the frames after it were left out too."}
-    {:id :id3/padding-junk :level :info
-     :doc "The padding after the ID3v2 frames holds bytes that aren't zeros,
-           because a writer didn't clear it or a frame gave a wrong size."}
+    ;; media files and images: the MPEG audio frames, the MP4 boxes, the Ogg
+    ;; pages, the ADTS frames and the headers of images
     {:id :mp3/junk-before-audio :level :info
      :doc "Bytes that aren't MPEG audio frames lie between the tags and the
            first frame, e.g. padding that the size of a tag leaves out, and were
@@ -926,9 +899,12 @@
            and its continuation token names that page."}]))
 
 (def catalogue
-  "The diagnostics, in the order they tend to arise, and then those of a
-  sync step, from the catalogue of like-minded."
-  (into podcast-catalogue sync-diagnostics/catalogue))
+  "The diagnostics, in the order they tend to arise, and then those of the
+  ID3v2 tags, from the catalogue of id3-clj, and those of a sync step, from
+  the catalogue of like-minded."
+  (-> podcast-catalogue
+      (into id3-diagnostics/catalogue)
+      (into sync-diagnostics/catalogue)))
 
 (def by-id
   "The catalogue by id."

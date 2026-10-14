@@ -25,19 +25,26 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-Requests are sent by [wary-fetch](https://github.com/simongray/wary-fetch),
-whose namespaces are the `http`, `url`, `proxy`, `async` and `secret` of
-these docs. The XML of feeds and lists is read and written by
-[qname-hiccup](https://github.com/simongray/qname-hiccup), the HTML in
-show notes and comments is read by
-[html-pieces](https://github.com/simongray/html-pieces), full-text search
-comes from [drop-in-search](https://github.com/simongray/drop-in-search),
-the profile is a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld), WebSub comes from
-[websub-clj](https://github.com/simongray/websub-clj), and bytes, their
-encodings and hashes come from
-[webcrypto-clj](https://github.com/simongray/webcrypto-clj). Each is a
-library in a repository of its own.
+Some of the work is done by libraries in repositories of their own:
+
+- [wary-fetch](https://github.com/simongray/wary-fetch) sends the
+  requests, and its namespaces are the `http`, `url`, `proxy`, `async`
+  and `secret` of these docs
+- [qname-hiccup](https://github.com/simongray/qname-hiccup) reads and
+  writes the XML of feeds and lists
+- [html-pieces](https://github.com/simongray/html-pieces) reads the HTML
+  in show notes and comments
+- [drop-in-search](https://github.com/simongray/drop-in-search) is the
+  full-text search
+- [mind-meld](https://github.com/simongray/mind-meld) is the CRDT that the
+  profile is built on, and
+  [like-minded](https://github.com/simongray/like-minded) syncs it and
+  holds the stores
+- [websub-clj](https://github.com/simongray/websub-clj) does WebSub
+- [webcrypto-clj](https://github.com/simongray/webcrypto-clj) gives bytes,
+  their encodings and hashes
+- [id3-clj](https://github.com/simongray/id3-clj) reads the ID3v2 tags of
+  media files, and writes them too
 
 The tables follow the same order. Names in them are relative to the root,
 and everything runs on the JVM and in ClojureScript unless the table says
@@ -142,7 +149,7 @@ and any of them encrypted.
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL, and `colors`, the colours of a UI by an image, which the platform decodes, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one of them alone. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
-| `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
+| `format.media.id3` | What the ID3v2 tags at the start of an MP3 or AAC file say about it, as id3-clj reads them: the tags, the duration, the artwork and the chapters in seconds. |
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration, chapters and artwork, in the shape that `format.media.mp4` gives them. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters, artwork, codecs, video size and whether the movie comes first. |
 | `format.media.ogg` | The pages of an Ogg file of Opus or Vorbis: its duration and codec, and the chapters and artwork of its comments. |

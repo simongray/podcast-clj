@@ -253,7 +253,9 @@
               "- `quirk`: the normalisations of the tree"
               "- `feed`: the model"
               "- `transcript` and `chapters`: the companion formats"
-              "- `id3`, `mp3`, `mp4` and `file`: the media files and the images"
+              "- `mp3`, `mp4` and `file`: the media files and the images"
+              (str "- `id3`: the ID3v2 tags of media files, through "
+                   "[id3-clj](https://github.com/simongray/id3-clj)")
               "- `validate`: the validator"
               "- `check`: the checks over the network"
               (str "- `sync`: the sync between devices, through "

@@ -32,7 +32,8 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `quirk`: the normalisations of the tree
 - `feed`: the model
 - `transcript` and `chapters`: the companion formats
-- `id3`, `mp3`, `mp4` and `file`: the media files and the images
+- `mp3`, `mp4` and `file`: the media files and the images
+- `id3`: the ID3v2 tags of media files, through [id3-clj](https://github.com/simongray/id3-clj)
 - `validate`: the validator
 - `check`: the checks over the network
 - `sync`: the sync between devices, through [like-minded](https://github.com/simongray/like-minded)
@@ -117,16 +118,6 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:chapters/inferred` | info | The chapters were read from timestamps in the show notes rather than from a chapters file. |
 | `:chapters/not-an-object` | warning | The document isn't JSON, or isn't a JSON object, so it holds no chapters. |
 | `:chapters/malformed` | warning | Chapters that aren't JSON objects in a list were left out. |
-| `:id3/frame-size` | info | An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe number in ID3v2.3, and the size was read in that form. |
-| `:id3/text-encoding` | info | An ID3v2 frame names a text encoding that ID3 doesn't define, so its text was read as ISO-8859-1. |
-| `:id3/utf8-latin1` | info | An ID3v2 frame declared its text as ISO-8859-1, but the bytes are UTF-8, so the text was read as UTF-8. |
-| `:id3/utf16-bom` | info | An ID3v2 frame declared its text as UTF-16 without a byte order mark, so the byte order was worked out from where the zero bytes are. |
-| `:id3/image-type` | info | An ID3 picture gave its type loosely, such as JPG or image/jpg, or gave none, so the type was taken from the bytes of the image. |
-| `:id3/chapter-end` | info | An ID3 chapter ends at or before its start, so its end was left out. |
-| `:id3/second-tag` | info | A second ID3v2 tag follows the first, as when a writer adds a tag in front of an existing one, and both tags were read. |
-| `:id3/skipped-frame` | info | An ID3v2 frame is compressed or encrypted, and wasn't read. |
-| `:id3/malformed` | warning | A frame of an ID3v2 tag doesn't read, and was left out. When its size doesn't read, the frames after it were left out too. |
-| `:id3/padding-junk` | info | The padding after the ID3v2 frames holds bytes that aren't zeros, because a writer didn't clear it or a frame gave a wrong size. |
 | `:mp3/junk-before-audio` | info | Bytes that aren't MPEG audio frames lie between the tags and the first frame, e.g. padding that the size of a tag leaves out, and were skipped. |
 | `:mp3/estimated-duration` | info | The MP3 file has no Xing, Info or VBRI header, so the duration was estimated from the bitrate of the first frames and the size of the file. The estimate is exact for a constant bitrate. |
 | `:mp3/no-audio` | warning | No MPEG audio frame was found after the tags, so the file has no duration. |
@@ -293,6 +284,20 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:analytics/unreadable-pattern` | warning | A pattern in the list of user agents doesn't compile on this platform, so its entry was left out. |
 | `:analytics/unreadable-line` | warning | A line of a server log doesn't read as a request in the format of the log, so it counts as no download. |
 | `:analytics/unreachable` | warning | OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before it, and its continuation token names that page. |
+| `:id3/truncated` | warning | The bytes end before the tag does, so only the frames that fit were read. |
+| `:id3/frame-size` | info | A frame gave its size in the other version's form, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, so it was read that way. |
+| `:id3/text-encoding` | info | A frame names a text encoding that ID3 doesn't define, so its text was read as ISO-8859-1. |
+| `:id3/utf8-latin1` | info | A frame declared its text as ISO-8859-1, but the bytes are UTF-8, so the text was read as UTF-8. |
+| `:id3/utf16-bom` | info | A frame declared its text as UTF-16 without a byte order mark, so the byte order was worked out from where the zero bytes are. |
+| `:id3/image-type` | info | A picture gave its MIME type loosely, such as JPG or image/jpg, or gave none, so the type was taken from the bytes of the image. |
+| `:id3/chapter-end` | info | A chapter ends at or before its start, so its end was left out. |
+| `:id3/second-tag` | info | A second tag follows the first, as when a writer adds a tag in front of an existing one, and both tags were read. |
+| `:id3/skipped-frame` | info | A frame is compressed or encrypted, and wasn't read. |
+| `:id3/malformed` | warning | A frame couldn't be parsed and was left out. When its header couldn't be parsed, the frames after it were left out too. |
+| `:id3/padding-junk` | info | The padding after the frames holds bytes that aren't zeros, because a writer didn't clear it or a frame gave a wrong size. |
+| `:id3/too-many-frames` | warning | The tag holds more frames than the :max-frames option allows, counting those inside chapters, so the frames after the limit were left out. |
+| `:id3/too-many-strings` | warning | The text frames of the tag hold more strings than the :max-strings option allows, so from the limit on, each text frame kept only its first string. |
+| `:id3/too-many-tags` | warning | More tags follow each other than the :max-tags option allows, so the tags after the limit were left out. |
 | `:sync/backend-failed` | warning | A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why. |
 | `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |
 | `:sync/other-kind` | warning | A document holds another kind of state than the one this device syncs, e.g. that of another app pointed at the same folder, and was left out. |

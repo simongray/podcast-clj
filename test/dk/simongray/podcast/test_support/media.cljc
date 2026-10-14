@@ -4,23 +4,13 @@
   chapters, fragments and tracks, Ogg pages of Opus and Vorbis, and ADTS
   frames. Each builder gives a sequence of numbers from 0 to 255, for
   test-support/view."
-  (:require [dk.simongray.podcast.test-support :refer [ascii be code le]]
+  (:require [dk.simongray.podcast.test-support :refer [ascii be le]]
             [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn syncsafe
   "The four syncsafe bytes of the number `x`, as ID3 writes a size."
   [x]
   (for [i [21 14 7 0]] (bit-and (quot x (long (Math/pow 2 i))) 0x7F)))
-
-(defn utf16be
-  "The UTF-16BE bytes of `s`, which holds only characters of the BMP."
-  [s]
-  (mapcat #(be 2 (code %)) s))
-
-(defn utf16le
-  "The UTF-16LE bytes of `s`, which holds only characters of the BMP."
-  [s]
-  (mapcat #(reverse (be 2 (code %))) s))
 
 (defn utf8
   "The UTF-8 bytes of `s`."
