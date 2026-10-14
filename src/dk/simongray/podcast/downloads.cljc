@@ -24,7 +24,6 @@
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.date :as date]
             [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.whatwg-mime :as mime]))
@@ -403,33 +402,17 @@
            (profile/played? profile id)
            (dismissed? profile id))))
 
-;; TODO: move the choice of the If-Range validator, strong-date? and
-;; complete-length to wary-fetch, which reads the other HTTP headers
-(defn- strong-date?
-  "Whether the Last-Modified value `last-modified` of an answer is a strong
-  validator, by the Date value `date` of the same answer."
-  [last-modified date]
-  (let [modified (some-> last-modified date/epoch-ms)
-        sent     (some-> date date/epoch-ms)]
-    (boolean (and modified sent (<= (+ modified 1000) sent)))))
-
-;; RFC 9110, section 13.1.5: an If-Range with a strong validator alone,
-;; and a date only without an entity tag; section 8.8.2.2: a date is strong
-;; when the Date of its answer is at least a second later
 (defn resume-headers
   "The headers of a request for the rest of the partial `file`, from the
   bytes it has to the end, or nil when it can't go on: when it has no
   bytes, or no strong validator that tells whether the file is still the
-  same, e.g.
+  same, as headers/if-range of wary-fetch chooses it, e.g.
 
       {\"Range\" \"bytes=1048576-\" \"If-Range\" \"\\\"5f3a\\\"\"}"
   [{:keys [received etag last-modified date] :as file}]
-  (let [validator (cond
-                    etag
-                    (when-not (str/starts-with? etag "W/") etag)
-
-                    (strong-date? last-modified date)
-                    last-modified)]
+  (let [validator (headers/if-range {"etag"          etag
+                                     "last-modified" last-modified
+                                     "date"          date})]
     (when (and (pos-int? received) validator)
       {"Range"    (str "bytes=" received "-")
        "If-Range" validator})))
@@ -832,16 +815,6 @@
          digest
          (when ending (str "." ending)))))
 
-;; TODO: move to wary-fetch, beside headers/content-range
-(defn- complete-length
-  "The size of the whole file that the Content-Range value `s` of an
-  answer of 416 gives, e.g. bytes */146515, or nil."
-  [s]
-  (some->> s
-           (re-matches #"(?i)\s*bytes\s+\*/(\d{1,15})\s*")
-           second
-           parse-long))
-
 ;; RFC 9110, sections 14.4, 15.3.7 and 15.5.17
 (defn resume-result
   "What the `response` to a request with the resume-headers of the partial
@@ -865,7 +838,7 @@
             :append
             :restart)
       200 :replace
-      416 (if (= received (complete-length value))
+      416 (if (= received (headers/complete-length value))
             :complete
             :restart)
       nil)))
