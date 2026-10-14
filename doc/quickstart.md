@@ -63,14 +63,14 @@ Pick episodes across all the shows, in the order you want:
 (def episodes (library/episodes @lib {:order :newest :limit 3}))
 
 (map (comp :rss/title second) episodes)
-;; => ("Episode 272: \"Is this Y'all?\"" "Episode 271: Foot Terminal" …)
+;; => ("Episode 274: \"Vibe Cloning\"" "Episode 273: \"Advertising is…\"" …)
 
 (def id
   (let [[show item] (first episodes)]
     (library/episode-id @lib show item)))
 
 id
-;; => ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]
+;; => ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-274"]
 ```
 
 An episode is a `[show item]` pair: the feed and its item, as
@@ -86,11 +86,11 @@ which reads the episode's chapters file, transcript and media file:
 (def page (merge (library/episode @lib id) (library/read-files! @lib id)))
 
 (select-keys page [:title :duration])
-;; => {:title "Episode 272: \"Is this Y'all?\"" :duration 5501.208}
+;; => {:title "Episode 274: \"Vibe Cloning\"" :duration 6064.692244897959}
 (:notes page)                                       ; the show notes as Hiccup
 (:source (:chapters page))                          ; => :file
-(count (:chapters (:document (:chapters page))))    ; => 40
-(count (:segments (:document (:transcript page))))  ; => 1481
+(count (:chapters (:document (:chapters page))))    ; => 21
+(count (:segments (:document (:transcript page))))  ; => 1483
 ```
 
 If a file can't be read, its part has an `:error`, and nothing is thrown.
@@ -106,11 +106,11 @@ with the effects to apply under `:effects`:
 (-> (swap! lib library/update-profile profile.queue/enqueue id)
     :profile
     profile.queue/queue)
-;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]]
+;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-274"]]
 
 (:effects (swap! lib library/step [:progress id 754 (:duration page)]))  ; => []
 (:effects (swap! lib library/step [:skip id :forward]))
-;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
+;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-274"] 784]]
 ```
 
 The profile is `(:profile @lib)`, which every function of `profile`
@@ -136,12 +136,11 @@ result into the atom with `library/merge`, which keeps those changes:
 ```
 
 Nothing is due right after subscribing, so in an app, call `refresh!` from
-a timer, at the time that `library/next-refresh` gives. The result under
+a timer, at the time that `library/next-refresh` returns. The result under
 `:refresh` lists the new episodes, the feeds that moved, and the fetches
-that failed. Once the show has a new episode,
-`:added` holds its id, e.g. `[["917393e3-…" "PC20-274"]]`, and the episode
-is in the queue. A feed that failed stays as it was, and
-waits longer before the next try.
+that failed. Once the show has a new episode, `:added` holds its id, e.g.
+`[["917393e3-…" "PC20-275"]]`, and the episode is in the queue. A feed
+that failed stays as it was, and waits longer before the next try.
 
 ## The other devices
 

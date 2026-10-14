@@ -12,17 +12,20 @@ clojure -T:build jar                  # the jar and its pom, in target/
 ```
 
 Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
-The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
-to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
-To measure a larger sample of real feeds, see
-[the corpus study](background/corpus-study-2026.md) and `dev/study.clj`. The
-conformance test checks the rules of the parse, the validator and the
-refresh against the feeds that the study chose as exhibits, when its
-sample is in `dev-resources/corpus/study/`. To time the
-core of the library over the corpus before and after a change, run
-`(bench/run!)` from `dev/bench.clj`, and `(bench/compare before after)`
-with the dates of two runs. For the memory that a library holds with all
-its feeds and with none, run `(bench/footprints)`.
+The corpus tests read real feeds from `dev-resources/corpus/`, which isn't
+in Git. To download the corpus, run `(corpus/download!)` from
+`dev/corpus.clj`.
+
+To measure a larger sample of real feeds, see [the corpus
+study](background/corpus-study-2026.md) and `dev/study.clj`. When the
+study's sample is in `dev-resources/corpus/study/`, the conformance test
+checks the rules of the parser, the validator and the refresh against the
+feeds that the study chose as exhibits.
+
+To time the core of the library over the corpus before and after a
+change, run `(bench/run!)` from `dev/bench.clj`, and then `(bench/compare
+before after)` with the dates of the two runs. For the memory that a
+library holds with all its feeds and with none, run `(bench/footprints)`.
 
 To change a sibling library and podcast-clj at once, use the `:local`
 alias, e.g. `clojure -M:dev:local:nrepl`. It takes each sibling that it

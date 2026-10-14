@@ -25,7 +25,7 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-Some of the work is done by libraries in repositories of their own:
+Libraries in repositories of their own do some of the work:
 
 - [wary-fetch](https://github.com/simongray/wary-fetch) sends the
   requests, and its namespaces are the `http`, `url`, `proxy`, `async`
@@ -48,16 +48,16 @@ Some of the work is done by libraries in repositories of their own:
 - [webvtt-clj](https://github.com/simongray/webvtt-clj) reads and writes
   WebVTT transcripts, as a browser reads them
 
-The tables follow the same order. Names in them are relative to the root,
-and everything runs on the JVM and in ClojureScript unless the table says
-otherwise. [Principles](principles.md) has the rules that every namespace
-follows.
+The tables below follow the order of the three kinds. Names in them are
+relative to the root, and everything runs on the JVM and in ClojureScript
+unless the table says otherwise. [Principles](principles.md) has the rules
+that every namespace follows.
 
-A namespace that talks to a service has the same three steps. Its
+A namespace that talks to a service works in the same three steps. Its
 `request` builds a request map, a function such as `http/send!` sends the
-map and gives the response, and its `response` reads the answer. A `call!`
-does all three for a call that you name, e.g. `:search`, and the `:send`
-option replaces the function that sends.
+map and returns the response, and its `response` reads the answer. A
+`call!` does all three for a call that you name, e.g. `:search`, and the
+`:send` option replaces the function that sends.
 
 
 ## The root namespace
@@ -70,7 +70,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!` with a `backend`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, for a show of local files, `subscribe-local`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!` with a `backend`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, for a show of local files, `subscribe-local`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. A server that WebSub hubs push feeds to uses `hub-requests` and `pushed`. |
 | `app.media-session` | The Media Session of a browser for the episode that plays: which `actions` do something, and the `events` of `library/step` for each. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, the value blocks that its time splits point at from `fetch-remote-values!`, and the metadata of the Media Session from `metadata`. |
@@ -85,21 +85,21 @@ option replaces the function that sends.
 | `profile.marks` | The stars, bookmarks, clips and ratings of the profile. |
 | `profile.payments` | The record of the listener's payments in the profile, with `unsettled` for those that went to the wallet with no answer, which mustn't be sent again. |
 | `profile.opml` | The OPML lists that the listener follows, and the subscriptions as OPML with `to-opml` and `from-opml`. |
-| `profile.player` | The events of a player, with `step`, which gives the new profile and the effects for the UI. |
+| `profile.player` | The events of a player, with `step`, which returns the new profile and the effects for the UI. |
 | `criteria` | Criteria as data that select and order episodes, with `episodes`, for saved filters and download rules. Use `problem` to check criteria from another device. |
-| `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
+| `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`, and the record of the files on a device that the plan reads, kept by `start-download`, `finish-download`, `remove-file` and `keep-file`. |
 
 ## Sync
 
-The sync between devices is that of
-[like-minded](https://github.com/simongray/like-minded), and the state it
-syncs is the profile, a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld). `library/sync!` and a
-backend of `library/backend` give like-minded the profile's
-`sync-options`. The stores that the sync and a saved library share are
-those of like-minded: a folder, a WebDAV collection through
-[webdav-clj](https://github.com/simongray/webdav-clj), IndexedDB, memory,
-and any of them encrypted.
+The devices sync through
+[like-minded](https://github.com/simongray/like-minded), and what they
+sync is the profile, a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld). For `library/sync!`,
+a backend from `library/backend` gives like-minded the profile's
+`sync-options`. The sync and a saved library use like-minded's stores: a
+folder, a WebDAV collection through
+[webdav-clj](https://github.com/simongray/webdav-clj), IndexedDB, a
+key-value store, memory, and an encrypted form of any of them.
 
 | Namespace | Contents |
 |---|---|
@@ -136,10 +136,10 @@ and any of them encrypted.
 
 | Namespace | Contents |
 |---|---|
-| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. Both `search!` and `fetch-chart!` ask them all at once, `call!` asks one for the episodes of a show, by a person, recent or live, and `identify!` finds the ids of a show known by its feed. |
+| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. Both `search!` and `fetch-chart!` ask them all at once, `call!` asks one for the episodes of a show, by a person, recent or live, and `identify!` finds the ids of a show known by its feed. Also `fetch-category-names!`, the names of Apple's categories in another language. |
 | `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model, and `fetch-remote-item!` and `fetch-remote-value!`, which resolve remote items. |
 | `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
-| `podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
+| `podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, `notify!` tells the service of Podping that a feed changed. |
 
 ## Formats
 
@@ -148,7 +148,7 @@ and any of them encrypted.
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers and the word timing of WebVTT, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL, and `colors`, the colours of a UI by an image, which the platform decodes, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one of them alone. |
+| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url` for data URLs, and `colors`, which picks the colours of a UI from an image, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one colour at a time. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.media.id3` | What the ID3v2 tags at the start of an MP3 or AAC file say about it, as id3-clj reads them: the tags, the duration, the artwork and the chapters in seconds. |

@@ -6,23 +6,20 @@ These principles guide the design of podcast-clj, its API and its code.
 
 ## General
 
-- **A library, not a framework.** Pure functions over plain Clojure data,
-  with no global state. Your app decides how to store data, play media and
-  draw its UI.
+- **A library, not a framework.** Pure functions over plain Clojure data.
+  How to store data, play media and draw the UI is up to you.
 - **Everything a podcast app needs.** A feature is left out only when it
   makes no sense in a library, like audio processing, or when it would be
   an immense amount of work.
 - **Standards first.** Each spec is implemented as written. New features
   are built on what the specs already offer, including the parts that most
-  apps ignore: OPML has categories for tags and includes for followed
-  lists, so podcast-clj uses them. We only invent where the specs leave a
-  gap.
+  apps ignore, and podcast-clj only invents where the specs leave a gap.
 - **Lenient, but transparent.** Real feeds break the specs in many small
   ways, and an app has to show them anyway. Each workaround is a named
   quirk that can be switched off for strict parsing, and every repair goes
-  in a report. Nothing is dropped silently: unknown elements are kept as
-  Hiccup, so `emit` writes back the content that `parse` read, and the
-  report names anything that couldn't be kept.
+  in a report. Nothing is dropped silently: unknown elements are kept, so
+  writing a feed back keeps what was read, and the report names anything
+  that couldn't be kept.
 - **Sync without a server.** The listener's profile is a CRDT, so devices
   merge their changes in any order, and the later of two changes wins. Any
   place that can hold files is enough to sync through, even a plain folder.
@@ -35,9 +32,9 @@ These principles guide the design of podcast-clj, its API and its code.
 
 ## API
 
-- **Compose, don't reimplement.** The `app.*` namespaces are built from the
-  lower-level functions, so an app can start with one call and drop down a
-  level when it needs more control.
+- **Compose, don't reimplement.** The high-level functions are built from
+  the lower-level ones, so you can start with one call and drop down a
+  level when you need more control.
 - **Convention over configuration.** A function requires only what it
   can't work without. Everything else has a default, and the options are
   a map that comes last and can be left out, which a test checks.
@@ -65,13 +62,13 @@ These principles guide the design of podcast-clj, its API and its code.
   than it needs.
 - **Safe by default.** Every fetch has limits of size and time, URLs from
   untrusted sources are only fetched if they're on the public internet,
-  and secrets print as `#<secret>`.
+  and secrets don't print.
 
 
 ## Code
 
 - **Layers without cycles.** A namespace only requires namespaces in its
-  own [layer](architecture.md#layers) or below, e.g. `util` and `nostr`
-  are at the bottom and know nothing about podcasts. A test enforces it.
+  own [layer](architecture.md#layers) or below, and the general tools at
+  the bottom know nothing about podcasts. A test enforces it.
 - **Cite the spec.** Where code implements a standard, a short comment or
   the docstring names the spec and its section.
