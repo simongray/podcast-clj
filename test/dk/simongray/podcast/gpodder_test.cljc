@@ -209,6 +209,39 @@
     (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions @state)))))
         "stays, with what the call wrote")))
 
+(deftest a-restart-with-the-book
+  (let [state   (atom (profile/make "server"))
+        clock   (atom t1)
+        books   (atom [])
+        started (fn [book]
+                  (ring-send (server/handler {:state           state
+                                              :authorized-pred (constantly true)
+                                              :now-fn          #(deref clock)
+                                              :book            book
+                                              :on-book-fn      #(swap! books conj %)})))
+        before  (started nil)
+        since   (str "?since=" (+ 60 (quot (inst-ms t1) 1000)))
+        added   #(get (second (ask % :get (str "/api/2/subscriptions/simon/phone.json" since))) "add")]
+    (ask before :post "/api/2/devices/simon/phone.json" {"caption" "My phone" "type" "mobile"})
+    (ask before :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a]})
+    (ask before :get "/api/2/devices/simon.json")
+    (is (= 2 (count @books)) "a book after each call that changed it")
+    (reset! clock t2)
+    (let [after (started (last @books))]
+      (is (= [] (added after)) "a subscription that arrived before the restart isn't new to the app")
+      (is (= ["My phone"] (map #(get % "caption") (second (ask after :get "/api/2/devices/simon.json"))))
+          "nor is its device"))
+    (is (= [feed-a] (added (started nil))) "without the book, everything arrives again")))
+
+(deftest a-book-forgets-what-left-the-state
+  (let [s    (profile/subscribe (profile/make "server") "a" {:url feed-a :title "A"} t1)
+        gone ["a" "an episode that the profile archived"]
+        book (server/settled {:index {[:episodes gone] [0 0]} :urls {gone [feed-a "https://a.example/1.mp3"]}}
+                             s
+                             (inst-ms t2))]
+    (is (= [[:subscriptions "a"]] (keys (:index book))))
+    (is (= {} (:urls book)))))
+
 (defn- phone
   "A phone of podcast-clj subscribed to feed A, 100 seconds into its first
   episode, whose item guid is a1."

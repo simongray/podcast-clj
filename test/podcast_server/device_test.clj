@@ -112,3 +112,19 @@
         (device/unload! lib (folder/store dir))
         (is (not (library/loaded? @lib (first id))))
         (is (= [["https://a.example/1.mp3" 600]] (actions)) "and by its skeleton once the feed is let go")))))
+
+(deftest the-gpodder-api-after-a-restart
+  (with-temp-dir
+    (fn [dir]
+      (let [settings    (assoc service/defaults :port 0 :data-dir dir)
+            store       (service/sync-store settings)
+            started     #(service/connector settings store (atom (device/make {:fetch fetch})))
+            credentials {"authorization" (secret/reveal (http/authorization {:username "simon" :password "x"}))}
+            devices     #(json/parse (str (:body (response-for % :get "/api/2/devices/simon.json" :headers credentials))))]
+        (response-for (started) :post "/api/2/devices/simon/phone.json"
+                      :body (json/write-str {"caption" "My phone" "type" "mobile"}) :headers credentials)
+        (is (.isFile (io/file dir device/gpodder-book-name)) "the book, in the data folder")
+        (is (= [{"id" "phone" "caption" "My phone" "type" "mobile" "subscriptions" 0}] (devices (started)))
+            "a device that registered before the restart")
+        (spit (io/file dir device/gpodder-book-name) "{:index")
+        (is (= [] (devices (started))) "a book that can't be read is left out")))))

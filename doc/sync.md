@@ -299,9 +299,12 @@ The server is a device of podcast-clj itself, with one list of
 subscriptions for all the devices that use it, as the Nextcloud app has.
 It serves one listener, so every user that it lets in shares the profile.
 It answers `since` by when each entry arrived rather than by the time in
-the action, so an action sent late still reaches the other devices. It keeps
-its sessions and arrival times in memory, and after a restart, a device
-reads again what it read before, which changes nothing.
+the action, so an action sent late still reaches the other devices. The
+sessions stay in memory. The rest of its book, i.e. when each entry
+arrived, the devices and the URLs of episodes, can be saved through the
+handler's `:on-book-fn` and given back as its `:book` after a restart, as
+the podcast server does. Without a saved book, a device reads again what
+it read before, which changes nothing.
 
 
 ## Privacy

@@ -12,8 +12,13 @@
   between its steps. A step loads the feeds that are due. What stays is a
   skeleton of each feed, the guid and the media of its items, which name
   the episodes for the gpodder API and the media files that the server
-  streams."
-  (:require [dk.simongray.mind-meld :as crdt]
+  streams.
+
+  The gpodder API keeps its book in the data folder too: when each change
+  arrived, the apps' devices and the URLs of their episodes. So after a
+  restart, the apps get only what changed."
+  (:require [clojure.edn :as edn]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.gpodder :as gpodder]
@@ -178,12 +183,41 @@
                                   %
                                   (index known))))))))
 
+(def gpodder-book-name
+  "The document of the data folder that holds the book of the gpodder API,
+  so that after a restart the apps get only what changed."
+  "gpodder-book.edn")
+
+(defn- saved-book
+  "The book of the gpodder API that `data-store` holds, or nil when it has
+  none or it doesn't read, which is logged."
+  [data-store]
+  (try
+    (some-> ((:fetch data-store) gpodder-book-name {}) :body edn/read-string)
+    (catch Exception e
+      (log/warn :msg "The book of the gpodder API didn't read" :exception e)
+      nil)))
+
+(defn- save-book!
+  "Write the `book` of the gpodder API to `data-store`, and log a failure."
+  [data-store book]
+  (try
+    ((:put data-store) gpodder-book-name
+                       (binding [*print-length* nil
+                                 *print-level*  nil]
+                         (pr-str book))
+                       {})
+    (catch Exception e
+      (log/warn :msg "The book of the gpodder API couldn't be saved"
+                :exception e))))
+
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder
-  `sync-store`, naming episodes by the feeds in `lib`, an atom of the
-  server's library. It lets in the apps that `authorized-pred`, a function
-  of a user name and a password, says yes to."
-  [sync-store lib authorized-pred]
+  `sync-store`, with its book in `data-store`, naming episodes by the
+  feeds in `lib`, an atom of the server's library. It lets in the apps
+  that `authorized-pred`, a function of a user name and a password, says
+  yes to."
+  [sync-store data-store lib authorized-pred]
   (let [state (atom (crdt/identify (profile/make "podcast-server-gpodder")
                                    {:name "Podcast server, for gpodder apps"}
                                    (time/now)))]
@@ -191,4 +225,6 @@
      {:state           state
       :authorized-pred authorized-pred
       :identities-fn   (identities lib)
-      :sync            (gpodder-server/stepper [(library/backend sync-store)])})))
+      :sync            (gpodder-server/stepper [(library/backend sync-store)])
+      :book            (saved-book data-store)
+      :on-book-fn      #(save-book! data-store %)})))

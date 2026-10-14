@@ -105,6 +105,10 @@
    "Wrestling" 1555 "Tennis" 1556 "Volleyball" 1557 "Swimming" 1558
    "Wilderness" 1559 "Fantasy Sports" 1560})
 
+;; TODO: Spotify, Podchaser, Listen Notes and Taddy as sources, each with
+;; its requests, its answers read into shows and its credentials. Spotify
+;; needs a step that gets its client-credentials token, and its ids belong
+;; with the others in directory.links.
 (def sources
   "The directories that podcast-clj knows, by name. An entry has the :api
   that the directory speaks, its :name for a listener, whether it needs

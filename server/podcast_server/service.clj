@@ -354,6 +354,13 @@
   [settings]
   (folder/store (sync-dir settings)))
 
+(defn data-store
+  "The store of the :data-dir of `settings`, for what can't go in the sync
+  folder, where every file is a sync document: the saved library and the
+  book of the gpodder API."
+  [{:keys [data-dir] :as settings}]
+  (folder/store data-dir))
+
 (def max-document-bytes
   "The most bytes that a document of the sync folder can hold."
   (* 32 1024 1024))
@@ -482,7 +489,10 @@
         authorized? (if password
                       (fn [_ given] (password? password given))
                       (constantly true))
-        gpodder     (device/gpodder-handler sync-store lib authorized?)
+        gpodder     (device/gpodder-handler sync-store
+                                            (data-store settings)
+                                            lib
+                                            authorized?)
         proxy       (at-most 4 30 (proxy/handler {:user-agent client/user-agent
                                                   :send (proxy-send settings)}))]
     #{["/proxy" :any proxy :route-name ::proxy]
@@ -567,7 +577,7 @@
   ([]
    (start! {}))
   ([settings]
-   (let [{:keys [host port data-dir] :as settings} (merge defaults settings)]
+   (let [{:keys [host port] :as settings} (merge defaults settings)]
      (when (open? settings)
        (throw (ex-info (str "The server needs a password to listen on " host
                             ", e.g. from PODCAST_SERVER_PASSWORD, unless "
@@ -576,9 +586,7 @@
                        {:host host})))
      (when-not @server
        (let [sync-store (sync-store settings)
-             ;; for the saved library, which can't go in the sync folder,
-             ;; where every file is a sync document
-             data-store (folder/store data-dir)
+             data-store (data-store settings)
              lib        (atom (device/restore! (device/make {:store data-store})
                                                data-store))
              running    (conn/start! (connector settings sync-store lib))]

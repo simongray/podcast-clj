@@ -117,7 +117,8 @@ The gpodder API names an episode by the URL of its media file, which the
 server finds in the feeds that it fetched. So a play from another device
 reaches the app once the server has fetched that episode's feed, and the
 episodes of a private feed never do, since the server has no passwords.
-When the server restarts, the app gets every play once more.
+The server saves when each change reached it, so after a restart the app
+gets only what changed.
 
 
 Without Tailscale

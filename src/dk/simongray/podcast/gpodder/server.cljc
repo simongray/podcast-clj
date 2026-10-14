@@ -376,23 +376,58 @@
       (answer! env request answer (merge parts from {:https? https?}) at))))
 
 (defn- arrived
-  "The `index` of when each entry of the subscriptions and episodes of
-  `state` arrived, with the entries whose stamp changed noted as arrived
-  at `at-ms`.
+  "The `index` of when each of the `entries` arrived, with those whose
+  stamp changed noted as arrived at `at-ms`.
 
-  The index maps [collection key] to [stamp arrived], in milliseconds."
-  [index state at-ms]
-  (let [collections [[:subscriptions (:subscriptions state)]
-                     [:episodes (profile/episode-entries state)]]
-        stamped     (for [[k entries] collections
-                          [id e]      entries]
-                      [k id e])
-        note        (fn [index [k id e]]
-                      (let [stamp (some-> (:updated-at e) inst-ms)]
-                        (cond-> index
-                          (not= stamp (first (get index [k id])))
-                          (assoc [k id] [stamp at-ms]))))]
+  The entries are the subscriptions and the episodes of a state by
+  collection. The index maps [collection key] to [stamp arrived], in
+  milliseconds."
+  [index entries at-ms]
+  (let [stamped (for [[k es] entries
+                      [id e] es]
+                  [k id e])
+        note    (fn [index [k id e]]
+                  (let [stamp (some-> (:updated-at e) inst-ms)]
+                    (cond-> index
+                      (not= stamp (first (get index [k id])))
+                      (assoc [k id] [stamp at-ms]))))]
     (reduce note index stamped)))
+
+(defn- without
+  "The map `m` without the keys that `gone-pred` is true of, and `m`
+  itself when there are none."
+  [m gone-pred]
+  (let [gone (filter gone-pred (keys m))]
+    (if (seq gone)
+      (apply dissoc m gone)
+      m)))
+
+(defn ^:no-doc settled
+  "The `book` once the `state` is in step at `at-ms`: the index notes the
+  entries that arrived, and the index and the URLs leave out the entries
+  that left the state, e.g. the episodes that the profile archived, so
+  that a saved book doesn't grow without end."
+  [book state at-ms]
+  (let [entries {:subscriptions (:subscriptions state)
+                 :episodes      (profile/episode-entries state)}]
+    (-> book
+        (update :index arrived entries at-ms)
+        (update :index without (fn [[k id]]
+                                 (not (contains? (entries k) id))))
+        (update :urls without #(not (contains? (:episodes entries) %))))))
+
+(def ^:no-doc lasting-keys
+  "The parts of the book that outlive a handler. The sessions don't, since
+  a restart with a new password must end them."
+  [:index :devices :urls])
+
+(defn ^:no-doc lasting
+  "The parts of `book` that outlive a handler, each a map."
+  [book]
+  (into {}
+        (for [k lasting-keys
+              :let [v (get book k)]]
+          [k (if (map? v) v {})])))
 
 (defn stepper
   "A :sync for handler, which syncs a profile through `backends` with
@@ -431,6 +466,13 @@
     fetches are on the public internet
   - :max-additions, the most subscriptions that one push can add, 1000 by
     default, as a first sync of an app adds all of its own
+  - :book, the book that an earlier handler gave :on-book-fn, e.g. read
+    back at a restart, so that the apps don't get every change again
+  - :on-book-fn, a function of the book that the handler calls after a
+    call changed it, e.g. to save it
+
+  The book is plain data: when each change arrived here, the devices that
+  registered, and the URLs that the apps named episodes by.
 
   A request has Basic credentials or the session of a login, and the user
   in the path must be the one who logged in. A session lasts a day, and
@@ -447,24 +489,29 @@
 
   For a site with many listeners, make a handler for each, with a state,
   an :authorized-pred and a :sync of its own, and pass each request to the
-  handler of the user in its path. Keep each handler while the site runs,
-  since it holds the sessions and the times that the changes arrived."
-  [{:keys [state authorized-pred] sync! :sync :as opts}]
+  handler of the user in its path, each with a book of its own. Keep each
+  handler while the site runs, since it holds the sessions."
+  [{:keys [state authorized-pred on-book-fn] sync! :sync :as opts}]
   (when-not (and (some? state) (fn? authorized-pred))
     (throw (ex-info (str "A handler needs the :state and the function "
                          ":authorized-pred")
                     {})))
-  ;; TODO: keep the arrival times and the devices in the store, so that they
-  ;; outlive a restart. Not the sessions: a restart with a new password must
-  ;; end them.
-  (let [book    (atom {:index {} :sessions {} :devices {} :urls {}})
+  (let [book    (atom (assoc (lasting (:book opts)) :sessions {}))
+        told    (atom (lasting @book))
+        tell!   (fn []
+                  (let [now (lasting @book)]
+                    (when-not (every? #(identical? (% now) (% @told))
+                                      lasting-keys)
+                      (reset! told now)
+                      (when on-book-fn
+                        (on-book-fn now)))))
         settle! (fn [at]
                   (when sync!
                     (let [from @state]
                       (put! state from (sync! from))))
-                  (let [settled @state]
-                    (swap! book update :index arrived settled (inst-ms at))
-                    settled))
+                  (let [in-step @state]
+                    (swap! book settled in-step (inst-ms at))
+                    in-step))
         env     (merge {:now-fn        time/now
                         :max-bytes     (* 10 1024 1024)
                         :allow-pred    public-url?
@@ -480,7 +527,9 @@
                                  (.unlock lock)))))
                    :cljs (fn [f] (f)))]
     (fn [request]
-      (one #(respond env request)))))
+      (one #(let [response (respond env request)]
+              (tell!)
+              response)))))
 
 (comment
   (route "/api/2/subscriptions/ann/phone.json")

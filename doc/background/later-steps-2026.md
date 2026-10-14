@@ -533,4 +533,5 @@ those files anyway, and a release is a good time.
 - **F5 to F7 of the video report**: alternates grouped by rel, HLS
   downloads counted, and the play position tied to its file, each waiting
   for the evidence that report asks for.
-- **The gpodder book kept over a restart of the server.**
+- **The gpodder book kept over a restart of the server.** Done on 14
+  October 2026, in the server's data folder.
