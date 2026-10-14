@@ -14,8 +14,8 @@
             [dk.simongray.podcast.test-support :refer [ascii be fetch-from run view
                                                        #?@(:clj [local? with-file-server])]]
             [dk.simongray.podcast.test-support.media
-             :refer [about= adts-frame audio-frame box chap chapter-file chapter-track-file ctoc mvhd opus-file syncsafe tag
-                     text xing-frame #?(:clj fragmented-file)]]
+             :refer [about= adts-frame audio-frame box chap chapter-file chapter-track-file ctoc enhanced-file jpeg mvhd
+                     opus-file syncsafe tag text xing-frame #?(:clj fragmented-file)]]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             #?(:clj [dk.simongray.wary-fetch :as http])
@@ -41,6 +41,14 @@
     (let [r (media/read (view (concat (tag 3 (ctoc 3 "t" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "A")))
                                       (xing-frame 10) (audio-frame))))]
       (is (= {:version "1.2.0" :chapters [{:start-time 0.0 :end-time 5.0 :title "A"}]} (:chapters r)))))
+  (testing "the chapters of an M4A file, with an image as a data URL and a link"
+    (let [file (enhanced-file [{:title "A" :ms 5000 :url "https://example.org/a"}] [jpeg])]
+      (is (= [{:start-time 0.0 :end-time 5.0 :title "A" :url "https://example.org/a"
+               :img (str "data:image/jpeg;base64," (bytes/base64 (bytes/of jpeg)))}]
+             (:chapters (:chapters (media/read (view file))))))
+      (is (= [{:start-time 0.0 :end-time 5.0 :title "A" :url "https://example.org/a"}]
+             (:chapters (:chapters (media/read (view file) {:chapter-images? false}))))
+          "and without it")))
   (is (every? :message (media/report (media/read (view (ascii "not audio at all"))))) "every diagnostic with its message"))
 
 (deftest the-format-by-the-first-bytes

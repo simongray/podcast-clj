@@ -160,7 +160,7 @@
         movie    (fn [offset]
                    (box "moov"
                         (mvhd 1000 (reduce + durations))
-                        (trak 1 44100 (* 44100 (quot (reduce + durations) 1000)) "soun" (box "tref" (box "chap" (be 4 2))))
+                        (trak 1 44100 (quot (* 44100 (reduce + durations)) 1000) "soun" (box "tref" (box "chap" (be 4 2))))
                         (box "trak"
                              (box "tkhd" [0 0 0 7] (be 4 0) (be 4 0) (be 4 2) (repeat 60 0))
                              (box "mdia"
@@ -247,6 +247,86 @@
   (let [moov (box "moov" (mvhd 1000 60000) (apply concat traks))
         mdat (box "mdat" (repeat 16 0))]
     (concat (box "ftyp" (ascii "isom") (be 4 0)) (if last? (concat mdat moov) (concat moov mdat)))))
+
+(defn- sample-table
+  "A sample table of one sample for each chunk, whose sample entry is
+  `entry`, of the `durations` and the `sizes` at the `offsets`."
+  [entry durations sizes offsets]
+  (box "stbl"
+       (box "stsd" [0 0 0 0] (be 4 1) entry)
+       (box "stts" [0 0 0 0] (be 4 (count durations)) (mapcat #(concat (be 4 1) (be 4 %)) durations))
+       (box "stsz" [0 0 0 0] (be 4 0) (be 4 (count sizes)) (mapcat #(be 4 %) sizes))
+       (box "stsc" [0 0 0 0] (be 4 1) (be 4 1) (be 4 1) (be 4 1))
+       (box "stco" [0 0 0 0] (be 4 (count offsets)) (mapcat #(be 4 %) offsets))))
+
+(defn- sample-trak
+  "A track `id` of `handler`, `duration` milliseconds long, whose samples
+  the sample table `stbl` holds."
+  [id handler duration stbl]
+  (box "trak"
+       (box "tkhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 id) (repeat 60 0))
+       (box "mdia"
+            (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 duration) [0 0 0 0])
+            (box "hdlr" [0 0 0 0] (be 4 0) (ascii handler) (repeat 12 0) [0])
+            (box "minf" stbl))))
+
+(defn href
+  "The href box of a text sample, which links its first `n` characters to
+  the `url`."
+  [url n]
+  (let [u (utf8 url)]
+    (box "href" (be 2 0) (be 2 n) [(count u)] u [0])))
+
+(defn- link-runs
+  "The samples of a track of links for `chapters`, as pairs of the bytes
+  that `linked` gives and the milliseconds: a chapter with a link starts a
+  sample, which lasts until the next, and an empty one comes before the
+  first."
+  [chapters linked]
+  (reduce (fn [runs {:keys [url ms] :as c}]
+            (if (or url (empty? runs))
+              (conj runs [(if url (linked c) [0 0]) ms])
+              (update-in runs [(dec (count runs)) 1] + ms)))
+          []
+          chapters))
+
+(defn enhanced-file
+  "An M4A file of an enhanced podcast: the `chapters` are maps of the
+  :title, the length in milliseconds :ms and the :url of each, and the
+  `images` are the bytes of an image for each chapter in turn, or none, in
+  a track of their own that the chapter reference names first. The images
+  come last in the file.
+
+  The options are :link-track?, to write the links in a text track of
+  their own, as GarageBand and Auphonic do, rather than after each title,
+  and :tail, the milliseconds that the last image runs past the audio."
+  [chapters images & {:keys [link-track? tail] :or {tail 0}}]
+  (let [durations (map :ms chapters)
+        total     (reduce + durations)
+        title     (fn [s] (let [t (utf8 s)] (concat (be 2 (count t)) t)))
+        linked    (fn [{:keys [url] s :title}] (concat (title s) (when url (href url (count s)))))
+        texts     (map (if link-track? (comp title :title) linked) chapters)
+        links     (when link-track? (link-runs chapters linked))
+        shown     (let [ds (vec (take (count images) durations))]
+                    (cond-> ds (seq ds) (update (dec (count ds)) + tail)))
+        samples   (concat texts (map first links) images)
+        movie     (fn [start]
+                    (let [offsets (reductions + start (map count samples))
+                          at      (fn [from n] (take n (drop from offsets)))
+                          text    (sample-table (box "text" (repeat 16 0)) durations (map count texts)
+                                                (at 0 (count texts)))
+                          link    (sample-table (box "text" (repeat 16 0)) (map second links) (map (comp count first) links)
+                                                (at (count texts) (count links)))
+                          image   (sample-table (box "jpeg" (repeat 78 0)) shown (map count images)
+                                                (at (+ (count texts) (count links)) (count images)))]
+                      (box "moov"
+                           (mvhd 1000 (+ total tail))
+                           (trak 1 1000 total "soun" (box "tref" (box "chap" (be 4 3) (be 4 2) (when links (be 4 4)))))
+                           (sample-trak 2 "text" total text)
+                           (sample-trak 3 "vide" (+ total tail) image)
+                           (when links (sample-trak 4 "text" total link)))))
+        ftyp      (box "ftyp" (ascii "M4A ") (be 4 0))]
+    (concat ftyp (movie (+ (count ftyp) (count (movie 0)) 8)) (box "mdat" (apply concat samples)))))
 
 (defn chapter-track-file
   "An M4A file with a chapter track of `n` samples, whose sample table is

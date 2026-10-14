@@ -148,8 +148,8 @@
   - :sample-rate and :channels of the audio, and for an MP3 or AAC file
     :vbr?, whether the bitrate varies, as its headers say
   - :chapters is a chapters document of dk.simongray.podcast.format.chapters,
-    and the images of an MP3 file's chapters are data URLs, which a host
-    serves as files with update-image-urls of that namespace
+    and the images of the chapters of an MP3 or MP4 file are data URLs,
+    which a host serves as files with update-image-urls of that namespace
   - :artwork is a map of :type and :data
   - :bytes is the size of the file, when the view knows it
   - :media-start is where the audio or video starts, after the ID3 tags of
@@ -161,8 +161,12 @@
   needs under :need, as pairs of start and end, end excluded.
 
   The reading doesn't throw on the content of the file, and the report
-  tells what it didn't read. The :except of `opts` is the ids of the quirks to
-  leave out."
+  tells what it didn't read. The `opts` are these:
+
+  - :except, the ids of the quirks to leave out
+  - :chapter-images?, false to leave out the chapter images of an MP4
+    file, which lie in its media data, so that the reading needs fewer
+    bytes. Those of an MP3 file are in its tags, which it reads anyway."
   ([view]
    (read view {}))
   ([view opts]
@@ -187,7 +191,7 @@
     makes, when `url` only names the file in an error
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow-pred and :user-agent, as http/send! takes them
-  - :except, as read takes it
+  - :except and :chapter-images?, as read takes them
   - the limits of ranges/read!, with ranges/default-limits for those that
     they don't set
 
@@ -201,7 +205,7 @@
   ([url]
    (read! url {}))
   ([url opts]
-   (let [read-opts (select-keys opts [:except])]
+   (let [read-opts (select-keys opts [:except :chapter-images?])]
      (ranges/read-url! url #(read % read-opts) opts))))
 
 (comment

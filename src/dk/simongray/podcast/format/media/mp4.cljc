@@ -4,8 +4,10 @@
   A reading gives the duration from the movie header, the chapters, the
   artwork, the codecs and size of the tracks that play, and whether the
   movie comes first. The chapters are those of a QuickTime chapter track,
-  or else those of a Nero chpl box. The artwork is the covr item of the
-  iTunes metadata.
+  or else those of a Nero chpl box. The titles of a chapter track can have
+  a link each, and a track of images can name an image for each chapter,
+  as in the enhanced podcasts of GarageBand. The artwork is the covr item
+  of the iTunes metadata.
 
   The movie box can come before the media data or after it, so the
   reading walks the boxes at the top level. A reader that has only the
@@ -151,6 +153,15 @@
         (when (and (pos? width) (pos? height))
           [width height])))))
 
+;; ISO/IEC 14496-12, section 8.5.2: the entries follow the version, the
+;; flags and their count
+(defn- sample-entry
+  "The first sample entry of the sample table `stbl` in `view`, a box whose
+  type names the format of the samples, e.g. mp4a, tx3g or jpeg, or nil."
+  [view stbl]
+  (when-let [stsd (when stbl (child view stbl "stsd"))]
+    (box view (+ (:content stsd) 8) (:end stsd))))
+
 ;; ISO/IEC 14496-12, section 8.4.3: the handler type follows the version,
 ;; the flags and four bytes of zeros
 (defn- handler
@@ -254,6 +265,58 @@
       (samples-of view stts stsz stsc stco)
       [])))
 
+(def ^:no-doc max-text-sample
+  "The most bytes of a sample of chapter titles that the reading takes: the
+  length, a text of 65535 bytes at most, and a kilobyte of the boxes after
+  it. A sample can say that it's larger than that."
+  (+ 2 65535 1024))
+
+(def ^:no-doc max-chapter-image-bytes
+  "The most bytes of chapter images that a reading takes, so that a file
+  with large ones still gives its duration and its chapters within the
+  limits of a reading."
+  (* 16 1024 1024))
+
+(def ^:no-doc image-entries
+  "The MIME type of the images of a chapter track by its sample entry."
+  {"jpeg" "image/jpeg"
+   "png " "image/png"})
+
+(defn- chapter-tracks
+  "The tracks of `tracks` that the chapter references of the others name,
+  as a map of the :titles track, the other text tracks as :links, and the
+  :images track.
+
+  A track of video holds the images, and the first other one the titles.
+  GarageBand and Auphonic write the links in a text track of their own."
+  [tracks]
+  (let [by-id  (into {} (map (juxt :id identity)) tracks)
+        named  (keep by-id (distinct (mapcat :chapters tracks)))
+        video? #(= "vide" (:handler %))
+        texts  (remove video? named)]
+    {:titles (first texts)
+     :links  (rest texts)
+     :images (first (filter video? named))}))
+
+(defn- timed
+  "The samples of the track `t` in `view`, each with the time it shows
+  :from and :to, in seconds, or none when the track has no timescale."
+  [view t]
+  (let [[scale _] (:timing t)]
+    (if (and scale (pos? scale) (:stbl t))
+      (mapv (fn [{:keys [start duration] :as s}]
+              (assoc s
+                     :from (/ start (double scale))
+                     :to   (/ (+ start duration) (double scale))))
+            (samples view (:stbl t)))
+      [])))
+
+(defn- millis
+  "The time `t` in seconds as whole milliseconds, in which the samples of
+  two tracks that start together agree."
+  [t]
+  (Math/round (* 1000 (double t))))
+
 (defn- sample-text
   "The text of the QuickTime text sample `s` in `view`: its length, then
   the text in UTF-8, or in UTF-16 after a byte order mark."
@@ -267,26 +330,108 @@
         (view/text view (+ p 2) (+ p n) :utf16be)
         (view/text view p (+ p n) :utf8)))))
 
+(defn- href-box
+  "The content of the first href box in `view` from `p` to `end`, as a
+  pair of its start and end, or nil when there's none."
+  [view p end]
+  (loop [p p]
+    (when (<= (+ p 8) end)
+      (let [n (view/u32 view p)]
+        (cond
+          (< n 8)
+          nil
+
+          (= "href" (view/code view (+ p 4) 4))
+          [(+ p 8) (min end (+ p n))]
+
+          :else
+          (recur (+ p n)))))))
+
+;; 3GPP TS 26.245, sections 5.16 and 5.17.1.5: boxes follow the text of a
+;; sample, and that of a link holds the offsets of the text that it links,
+;; then the URL and another text, each after its length in one byte
+(defn- sample-url
+  "The URL of the href box after the text of the text sample `s` in
+  `view`, or nil."
+  [view {:keys [offset size] :as s}]
+  (when (>= size 2)
+    (when-let [[from to] (href-box view
+                                   (+ offset 2 (view/u16 view offset))
+                                   (+ offset (min size max-text-sample)))]
+      (let [p (+ from 4)
+            n (when (< p to) (view/u8 view p))]
+        (when (and n (<= (+ p 1 n) to))
+          (not-empty (view/text view (inc p) (+ p 1 n) :utf8)))))))
+
+(defn- image-samples
+  "The samples of the chapter track `t` of images in `view`, those that
+  hold bytes, each with the time it shows :from and :to, in seconds, and
+  the :type of its sample entry. It's nil when they hold more than
+  max-chapter-image-bytes, which the reading context `ctx` notes."
+  [view t ctx]
+  (let [found (filterv (comp pos? :size) (timed view t))
+        type  (image-entries (:type (sample-entry view (:stbl t))))]
+    (if (> (reduce + (map :size found)) max-chapter-image-bytes)
+      (do (view/note! ctx (view/diagnostic :mp4/chapter-images-skipped :info))
+          nil)
+      (mapv #(assoc % :type type) found))))
+
+(defn- image-of
+  "The image of the image sample `s` in `view`, as a map of :type and
+  :data, or nil when its type is unknown."
+  [view {:keys [offset size type] :as s}]
+  (let [data (view/slice view offset (+ offset size))]
+    (when-let [type (or type (image/sniff data))]
+      {:type type :data data})))
+
+(defn- with-images
+  "The `chapters` in `view`, each with the :artwork of the image of
+  `images` that shows at its start. Both are in the order of their time,
+  and the times of two tracks agree to a millisecond."
+  [view chapters images]
+  (loop [cs (seq chapters) is (seq images) shown nil acc []]
+    (if-not cs
+      acc
+      (let [{:keys [start-time] :as c} (first cs)]
+        (if (and is (<= (:from (first is)) (+ start-time 0.001)))
+          (recur cs (next is) (first is) acc)
+          (let [image (when (and shown (< start-time (- (:to shown) 0.001)))
+                        (image-of view shown))]
+            (recur (next cs) is shown
+                   (conj acc (cond-> c image (assoc :artwork image))))))))))
+
 (defn- quicktime-chapters
-  "The chapters in `view` of the chapter track that one of `tracks` names,
-  or nil when none names one. Each is a map of :start-time, :end-time and
-  :title. When the view lacks text samples, it throws for all at once."
-  [view tracks]
-  (when-let [chapter-track (some (fn [id]
-                                   (some #(when (= id (:id %)) %) tracks))
-                                 (mapcat :chapters tracks))]
-    (let [[scale _] (:timing chapter-track)
-          samples   (when (and scale (pos? scale) (:stbl chapter-track))
-                      (samples view (:stbl chapter-track)))]
-      ;; a sample can say that it is larger than its text, which two bytes
-      ;; count: no more of it is needed
-      (view/need-all view (for [{:keys [offset size]} samples]
-                            [offset (+ offset (min size 65537))]))
-      (seq (for [{:keys [start duration] :as s} samples]
-             (let [title (sample-text view s)]
-               (cond-> {:start-time (/ start (double scale))
-                        :end-time   (/ (+ start duration) (double scale))}
-                 (seq title) (assoc :title title))))))))
+  "The chapters in `view` of the chapter `tracks` that chapter-tracks
+  gives, each a map of :start-time, :end-time, :title and :url, with the
+  :artwork of the image of `images` that shows at its start.
+
+  The link of a chapter is in its own sample, or in a sample of a track of
+  links that starts with it. It's nil when there's no track of titles, or
+  when it has no samples. When the view lacks samples, it throws for all
+  of them at once."
+  [view {:keys [titles links] :as tracks} images]
+  (when titles
+    (let [found  (timed view titles)
+          linked (into [] (mapcat #(timed view %)) links)
+          texts  (for [{:keys [offset size]} (concat found linked)]
+                   [offset (+ offset (min size max-text-sample))])]
+      (view/need-all view (concat texts
+                                  (for [{:keys [offset size]} images]
+                                    [offset (+ offset size)])))
+      (let [urls (into {}
+                       (keep #(when-let [url (sample-url view %)]
+                                [(millis (:from %)) url]))
+                       linked)]
+        (not-empty
+         (with-images view
+           (mapv (fn [{:keys [from to] :as s}]
+                   (let [title (sample-text view s)
+                         url   (or (sample-url view s) (urls (millis from)))]
+                     (cond-> {:start-time from :end-time to}
+                       (seq title) (assoc :title title)
+                       url         (assoc :url url))))
+                 found)
+           images))))))
 
 (defn- nero-chapters
   "The chapters of the Nero chpl box `b` in `view`, each a map of
@@ -305,11 +450,11 @@
           (recur (+ p 9 length) (inc k) (conj acc chapter)))))))
 
 (defn- movie-chapters
-  "The chapters in `view` of the movie whose tracks are `tracks`: those of
-  its QuickTime chapter track, or else those of the Nero chpl box in its
+  "The chapters in `view` of a movie: those of its QuickTime chapter
+  `tracks`, with the `images`, or else those of the Nero chpl box in its
   `udta` box."
-  [view tracks udta]
-  (or (quicktime-chapters view tracks)
+  [view tracks images udta]
+  (or (quicktime-chapters view tracks images)
       (some->> (when udta (child view udta "chpl"))
                (nero-chapters view))))
 
@@ -623,9 +768,7 @@
   "The RFC 6381 codecs string of the track `t` in `view`, or the type of
   its sample entry when its configuration doesn't read, or nil."
   [view {:keys [stbl handler] :as t}]
-  (when-let [{:keys [type content] :as entry}
-             (when-let [stsd (when stbl (child view stbl "stsd"))]
-               (box view (+ (:content stsd) 8) (:end stsd)))]
+  (when-let [{:keys [type content] :as entry} (sample-entry view stbl)]
     (let [skip (if (= "vide" handler)
                  78
                  (case (view/u16 view (+ content 8)) 1 44 2 64 28))
@@ -646,9 +789,7 @@
   "The :channels and the :sample-rate of the audio track `t` in `view`, as
   its sample entry gives them, or nil."
   [view {:keys [stbl] :as t}]
-  (when-let [{:keys [content]} (when-let [stsd (when stbl
-                                                  (child view stbl "stsd"))]
-                                 (box view (+ (:content stsd) 8) (:end stsd)))]
+  (when-let [{:keys [content]} (sample-entry view stbl)]
     (when (#{0 1} (view/u16 view (+ content 8)))
       (let [channels (view/u16 view (+ content 16))
             rate     (view/u16 view (+ content 24))]
@@ -683,12 +824,26 @@
 
   A fragmented movie lasts as long as its fragments. Any other lasts as
   long as its header says, or by the quirk as long as its longest track,
-  when the header says 0."
+  when the header says 0.
+
+  A chapter track can run past the tracks that play, e.g. the last image
+  of an enhanced podcast, and the header counts it. The movie then lasts
+  as long as the longest track that plays, which a listener hears."
   [view moov tracks ctx]
   (let [[scale d] (some->> (child view moov "mvhd") (timing view))
         mvex      (child view moov "mvex")
         stated?   (and d (pos? d))
-        longest   (longest-track tracks)]
+        longest   (longest-track tracks)
+        named     (comp (set (mapcat :chapters tracks)) :id)
+        chapters  (longest-track (filter named tracks))
+        played    (longest-track (remove named tracks))
+        heard     (fn [movie]
+                    (if (and played
+                             chapters
+                             (< played movie)
+                             (< played chapters))
+                      played
+                      movie))]
     (cond
       mvex
       (let [fragments (view/part :fragments
@@ -702,18 +857,23 @@
           {:value longest})
 
       (and stated? scale (pos? scale))
-      {:value (/ d (double scale))})))
+      {:value (heard (/ d (double scale)))})))
 
 (defn- read-movie
   "What the file in `view` whose moov box is `moov` says about itself, read
-  in the context `ctx`."
-  [view moov ctx]
+  in the context `ctx`, with the images of its chapters when `images?`."
+  [view moov ctx images?]
   (view/need view (:start moov) (:end moov))
   (let [boxes    (children view (:content moov) (:end moov))
         tracks   (mapv #(track view %) (filter #(= "trak" (:type %)) boxes))
         udta     (child view moov "udta")
         duration (movie-duration view moov tracks ctx)
-        chapters (view/part :chapters #(movie-chapters view tracks udta))
+        named    (chapter-tracks tracks)
+        pictures (view/part :chapter-images
+                            #(when-let [t (and images? (:images named))]
+                               (image-samples view t ctx)))
+        chapters (view/part :chapters
+                            #(movie-chapters view named (:value pictures) udta))
         art      (view/part :artwork #(when udta (artwork view udta)))
         tags     (view/part :tags #(if udta (tags-of view udta) {}))
         played   (view/part :codecs #(playing-tracks view tracks))]
@@ -724,7 +884,9 @@
        (:value duration)       (assoc :duration (:value duration))
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
-     (into (into [] (mapcat :report) [duration chapters art tags played])
+     (into (into []
+                 (mapcat :report)
+                 [duration pictures chapters art tags played])
            (view/noted ctx)))))
 
 (defn report
@@ -736,8 +898,10 @@
   "The MP4 file in `view`, read with `opts`, as a map of the keys below,
   each absent when the file doesn't have it.
 
-  - :duration is in seconds
-  - :chapters, each with :start-time, :end-time and :title
+  - :duration is in seconds, that of the tracks that play when a chapter
+    track runs past them
+  - :chapters, each with :start-time, :end-time and :title, and with :url
+    and :artwork, a map of :type and :data, when the file has them
   - :artwork, a map of :type and :data
   - :codecs, the RFC 6381 codecs string of the tracks that play, e.g.
     \"avc1.64001F,mp4a.40.2\"
@@ -751,21 +915,28 @@
     that of the media data over the duration, when the bytes at hand reach
     it, unless the file is in fragments
 
-  The :except of `opts` is the ids of the quirks to leave out. When the
-  view lacks bytes, the reading throws an exception that holds their
-  ranges.
+  The `opts` are these:
 
-  The chapters, the artwork, the tags and the index of the fragments are
-  parts that the rest can do without. A part that doesn't read is left
-  out, and the report names it."
+  - :except, the ids of the quirks to leave out
+  - :chapter-images?, false to leave out the images of the chapters, which
+    lie in the media data, so that the reading needs fewer bytes
+
+  When the view lacks bytes, the reading throws an exception that holds
+  their ranges.
+
+  The chapters, their images, the artwork, the tags and the index of the
+  fragments are parts that the rest can do without. A part that doesn't
+  read is left out, and the report names it."
   ([view]
    (read view {}))
-  ([view opts]
+  ([view {:keys [chapter-images?] :or {chapter-images? true} :as opts}]
    {:pre [(map? opts)]}
    (if-let [moov (movie view)]
      (let [{:keys [content end] :as data} (media-data view)
-           {:keys [duration] :as file}    (read-movie view moov
-                                                      (view/context opts))
+           {:keys [duration] :as file}    (read-movie view
+                                                      moov
+                                                      (view/context opts)
+                                                      chapter-images?)
            ;; a file in fragments has its media in many mdat boxes
            whole?                         (nil? (child view moov "mvex"))]
        (cond-> file

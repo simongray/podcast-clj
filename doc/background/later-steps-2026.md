@@ -526,7 +526,8 @@ those files anyway, and a release is a good time.
   files as a show, an ID3 writer, chapter images from MP4, Spotify and
   other directories, streaming payments, WebSub subscriptions renewed,
   localised categories, the dominant colour of artwork, and a reference
-  client of the server.
+  client of the server. The chapter images from MP4, with their links,
+  were done on 14 October 2026.
 - **The nice-to-haves of gain 1**, of both reports.
 - **The proposals of the podcast namespace**, among them phase 9 (#789)
   and `podcast:socialAccount` (#784), once a maintainer answers.

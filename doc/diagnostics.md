@@ -133,6 +133,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:mp4/zero-duration` | info | The movie header of the MP4 file gives no duration, so the duration of the longest track was used. |
 | `:mp4/fragments-unread` | info | The MP4 file is in fragments, with no mehd box and no index at its end that gives the duration of all of them, so the file has no duration. |
 | `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives no duration and no chapters. |
+| `:mp4/chapter-images-skipped` | info | The images of the chapters of the MP4 file are larger than a reading takes, so the chapters have no images. |
 | `:ogg/unknown-codec` | warning | The Ogg file has no Opus or Vorbis stream, e.g. it holds FLAC or Speex, so nothing was read from it. |
 | `:ogg/no-audio` | warning | The Opus or Vorbis stream has no audio after its headers, so the file has no duration. |
 | `:ogg/no-end` | info | No page of the audio stream ends a packet in the last 64 KB of the file, e.g. because other streams follow it, so the file has no duration. |

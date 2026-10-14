@@ -340,6 +340,9 @@
     {:id :mp4/no-movie :level :warning
      :doc "The MP4 file has no movie box, so it gives no duration and no
            chapters."}
+    {:id :mp4/chapter-images-skipped :level :info
+     :doc "The images of the chapters of the MP4 file are larger than a
+           reading takes, so the chapters have no images."}
     {:id :ogg/unknown-codec :level :warning
      :doc "The Ogg file has no Opus or Vorbis stream, e.g. it holds FLAC or
            Speex, so nothing was read from it."}

@@ -8,8 +8,8 @@
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.test-support :refer [ascii be view]]
             [dk.simongray.podcast.test-support.media
-             :refer [aac-entry box chapter-file chapter-track-file fragmented-file jpeg movie-file mvhd playing-trak
-                     trak video-entry]]
+             :refer [aac-entry box chapter-file chapter-track-file enhanced-file fragmented-file jpeg movie-file mvhd
+                     playing-trak trak video-entry]]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.webcrypto.bytes :as bytes]))
 
@@ -126,3 +126,40 @@
                   (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))]
     (is (= mp4/max-samples (count (:chapters (mp4/read (view (chapter-track-file stbl n))))))
         "50000 chunks in as many runs, read in one pass, and no more chapters than the most")))
+
+(deftest the-images-and-links-of-chapters
+  (let [chapters [{:title "Intro" :ms 60000 :url "https://example.org/intro"}
+                  {:title "Talk" :ms 90500}
+                  {:title "Outro" :ms 9500 :url "https://example.org/outro"}]
+        other    (concat (take 4 jpeg) [1 2 3])
+        file     (enhanced-file chapters [jpeg [] other])
+        hex      #(bytes/hex (bytes/of %))
+        seen     (fn [r]
+                   (map (juxt :title :url (comp :type :artwork) #(some-> % :artwork :data bytes/hex))
+                        (:chapters r)))]
+    (is (= [["Intro" "https://example.org/intro" "image/jpeg" (hex jpeg)]
+            ["Talk" nil nil nil]
+            ["Outro" "https://example.org/outro" "image/jpeg" (hex other)]]
+           (seen (mp4/read (view file))))
+        "the titles of the text track though the reference names the images first, and a chapter without an image")
+    (is (= [] (mp4/report (mp4/read (view file)))))
+    (is (= ["image/jpeg" nil nil] (map (comp :type :artwork) (:chapters (mp4/read (view (enhanced-file chapters [jpeg]))))))
+        "an image track that ends after the first chapter")
+    (let [r (mp4/read (view (enhanced-file chapters [jpeg [] other] :link-track? true :tail 10000)))]
+      (is (= (seen (mp4/read (view file))) (seen r))
+          "the links in a track of their own, as GarageBand writes them, each for the chapter that starts with it")
+      (is (= 160.0 (:duration r)) "the duration of the audio, though the last image runs ten seconds past it"))
+    (testing "without the images, the reading needs none of their bytes"
+      (let [b    (bytes/of file)
+            n    (bytes/length b)
+            from (- n (count jpeg) (count other))
+            head (view/add (view/view n) 0 (bytes/slice b 0 from) n)
+            need (:need (view/reading #(mp4/read head)))]
+        (is (= [["Intro" "https://example.org/intro" nil nil] ["Talk" nil nil nil] ["Outro" "https://example.org/outro" nil nil]]
+               (seen (mp4/read head {:chapter-images? false}))))
+        (is (= [from n] [(ffirst need) (second (last need))]) "and with them, the images at the end of the file")))
+    (testing "images larger than a reading takes"
+      (with-redefs [mp4/max-chapter-image-bytes 5]
+        (let [r (mp4/read (view file))]
+          (is (every? (comp nil? :artwork) (:chapters r)))
+          (is (= [:mp4/chapter-images-skipped] (map :id (mp4/report r)))))))))

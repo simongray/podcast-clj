@@ -1941,7 +1941,7 @@ URL with a 301 redirect to yours, and keep the redirect and the
 To move a show away from a host that can't redirect, serve the old feed
 with `moved` instead.
 
-An MP3 file can hold its chapters with an image for each, and
+An MP3 or M4A file can hold its chapters with an image for each, and
 `media/read!` gives the images as data URLs. JSON Chapters says that an
 image is a URL, so write the images as files before you serve the
 chapters file:

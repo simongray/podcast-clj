@@ -105,9 +105,10 @@
            stated     (mime/essence (:type declared))
            came?      (contains? #{200 206} (:status get))
            readable?  (or (nil? stated) (contains? media/formats stated))
+           ;; the check keeps no chapters, so it fetches none of their images
+           read-opts  (assoc (reading-opts send opts) :chapter-images? false)
            read-job   (when (and read? came? readable?)
-                        (async/attempt
-                         #(media/read! target (reading-opts send opts))))
+                        (async/attempt #(media/read! target read-opts)))
            verify-job (when (and integrity? came? (:integrity declared))
                         (async/attempt
                          #(integrity/verify! target (:integrity declared)
