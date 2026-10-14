@@ -7,11 +7,11 @@
             #?@(:clj [[clojure.test.check.clojure-test :refer [defspec]]
                       [clojure.test.check.generators :as gen]
                       [clojure.test.check.properties :as prop]])
-            [clojure.test :refer [deftest is #?(:cljs async)]]
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.test-support :refer [ascii be fetch-from le run view]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def png-signature
   "The eight bytes a PNG image begins with."
@@ -180,6 +180,29 @@
      #(async/then (image/read! url {:send (fn [request] {:status 403 :url (:url request) :headers {}})})
                   (fn [header]
                     (is (= [:file/unreachable url 403] ((juxt :id :url :status) (:error header)))))))))
+
+(deftest data-urls
+  (let [read (fn [url]
+               (some-> (image/from-data-url url) (update :data bytes/hex)))]
+    (is (= {:type "image/png" :data "89504e47"}
+           (read (image/data-url "image/png" (bytes/from-hex "89504e47")))))
+    (testing "the forms of RFC 2397"
+      (is (= {:type "text/plain;charset=US-ASCII" :data "41206e6f7465"} (read "data:,A%20note")))
+      (is (= {:type "text/plain;charset=utf-8" :data "c3a6"} (read "data:;charset=utf-8,%C3%A6")))
+      (is (= {:type "image/svg+xml" :data "3c7376673ec3a6"} (read "data:image/svg+xml,%3Csvg%3Eæ")))
+      (is (= {:type "text/plain" :data "31303025"} (read "data:text/plain,100%")) "a percent sign that encodes nothing"))
+    (testing "base64 as browsers read it"
+      (is (= "616263" (:data (read "DATA:;BASE64,YW Jj\n"))) "in any case, with spaces")
+      (is (= "41" (:data (read "data:;base64,QQ"))) "without its padding")
+      (is (= "41" (:data (read "data:;base64,QQ%3D%3D"))) "with its padding percent-encoded")
+      (is (= "41" (:data (read "data:;base64,QR"))) "pad bits that aren't zero, which are left out")
+      (is (= "4142" (:data (read "data:;base64,QUL"))) "the pad bits of a group of three digits"))
+    (doseq [url [nil 5 "" "https://a.example/a.png" "data:image/png" "data:;base64,Q"
+                 "data:;base64,QQ=QQ" "data:;base64,Q!==" "data:;base64,QQ="]]
+      (is (nil? (image/from-data-url url)) (pr-str url)))
+    (testing "a large image reads in a short time"
+      (let [b (bytes/of (repeat 300000 7))]
+        (is (true? (bytes/same? b (:data (image/from-data-url (image/data-url "image/png" b))))))))))
 
 (deftest a-jpeg-of-many-segments
   (let [b     (bytes/of (apply jpeg 0xC0 1400 1400 3 (repeat 9 (segment 0xE2 (repeat 65533 0)))))

@@ -19,10 +19,10 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn at-uri
   "The parts of the at URI `s` as a map of :authority, :collection and
@@ -207,7 +207,7 @@
       []
       (let [b      (bytes/encode text)
             n      (bytes/length b)
-            cut    #(bytes/decode b %1 %2 :utf8)
+            cut    #(bytes/decode (bytes/slice b %1 %2))
             marked (marks (common/values record "facets") n)
             pieces (fn [[start end part] from]
                      [{:type :text :text (cut from start)}

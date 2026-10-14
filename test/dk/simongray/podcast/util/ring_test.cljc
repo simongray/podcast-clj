@@ -3,10 +3,10 @@
   bodies within a limit, the credentials, the conditions and the hosts of
   the requests."
   (:require [clojure.test :refer [deftest is]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest the-bytes-of-a-ring-request
   (is (= 0 (bytes/length (ring/body-bytes nil 10))))

@@ -6,9 +6,9 @@
   of those types into a payment and diagnoses what it forgave, and a
   writer writes the keys of a payment under the names of the format."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn ^:no-doc amounts
   "The amount and the total of `payment` in millisatoshis, as a pair, or
@@ -124,10 +124,9 @@
   a custom record."
   [x]
   (let [o (cond
-            (map? x)                                    x
-            (string? x)                                 (json/parse x)
-            #?(:clj (bytes? x) :cljs (instance? js/Uint8Array x))
-            (json/parse (bytes/decode x :utf8)))]
+            (map? x)           x
+            (string? x)        (json/parse x)
+            (bytes/bytes? x)   (json/parse (bytes/decode x)))]
     (when (map? o)
       o)))
 

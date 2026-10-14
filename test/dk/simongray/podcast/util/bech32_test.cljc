@@ -5,7 +5,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def valid
   "The valid texts of the section Test vectors of BIP-173."

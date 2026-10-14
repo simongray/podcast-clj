@@ -25,7 +25,6 @@
             [dk.simongray.podcast.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
@@ -36,6 +35,8 @@
             [dk.simongray.wary-fetch.proxy :as proxy]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes]
             [inspector.dav :as dav]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
@@ -598,7 +599,7 @@
 (defn- new-token!
   "A token for a wallet form. At most 500 tokens are kept."
   []
-  (let [token (bytes/hex (bytes/generate! 16))]
+  (let [token (bytes/hex (webcrypto/random-bytes 16))]
     (swap! wallet-tokens #(conj (if (< (count %) 500) % #{}) token))
     token))
 

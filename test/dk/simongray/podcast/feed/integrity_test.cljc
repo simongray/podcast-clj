@@ -7,8 +7,8 @@
             [clojure.test :refer [deftest is #?(:cljs async)]]
             [dk.simongray.podcast.feed.integrity :as integrity]
             [dk.simongray.podcast.test-support :refer [ascii run #?@(:clj [local? with-file-server])]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest subresource-integrity
   (is (= {:algorithm "sha384" :digests #{"abc="}} (integrity/sri "sha256-xyz= sha384-abc=")) "the strongest wins")

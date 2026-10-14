@@ -12,14 +12,15 @@
   clock but the functions that send."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def base-url
   "The root of the URLs of the API, which the paths of calls are below,
@@ -160,11 +161,11 @@
   (cond-> {"User-Agent" (or user-agent client/user-agent)}
     secret (assoc "X-Auth-Key"    key
                   "X-Auth-Date"   (str seconds)
-                  "Authorization" (-> (str key (secret/reveal secret) seconds)
-                                      bytes/encode
-                                      bytes/sha1
-                                      bytes/hex
-                                      secret/hide))))
+                  "Authorization" (->> (str key (secret/reveal secret) seconds)
+                                       bytes/encode
+                                       (hash/digest :sha-1)
+                                       bytes/hex
+                                       secret/hide))))
 
 (defn request
   "The request map for `call`, a key of paths, with `params`, signed with

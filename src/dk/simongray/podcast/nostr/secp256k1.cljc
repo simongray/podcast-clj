@@ -12,8 +12,9 @@
   of the curve is a vector of x, y and z in Jacobian coordinates, and nil
   is the point at infinity."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.secret :as secret])
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash])
   #?(:clj (:import [java.math BigInteger])))
 
 (defn- big
@@ -59,8 +60,8 @@
   "The tagged hash of BIP-340 with the tag `tag`, for the bytes that the
   hexadecimal text `data` names, in hexadecimal."
   [tag data]
-  (let [t (bytes/hex (bytes/sha256 (bytes/encode tag)))]
-    (bytes/hex (bytes/sha256 (bytes/from-hex (str t t data))))))
+  (let [t (bytes/hex (hash/digest :sha-256 (bytes/encode tag)))]
+    (bytes/hex (hash/digest :sha-256 (bytes/from-hex (str t t data))))))
 
 (defn- hex32
   "The number `k` as hexadecimal text of 32 bytes."

@@ -218,7 +218,7 @@
   a function of its own, write-image!, that gives the URL of the file:
 
       (update-image-urls doc #(if-let [{:keys [type data]}
-                                       (bytes/from-data-url %)]
+                                       (image/from-data-url %)]
                                 (write-image! type data)
                                 %))"
   [doc f]

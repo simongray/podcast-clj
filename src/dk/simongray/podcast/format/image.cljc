@@ -12,12 +12,13 @@
 
   A reading takes a view of the parts of the file at hand, as in
   dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
-  that it still needs."
+  that it still needs. An image embedded in text, e.g. the artwork of a
+  chapter, is a data URL, which data-url and from-data-url write and read."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 ;; WHATWG MIME Sniffing Standard, section 6.1
 (def ^:no-doc signatures
@@ -382,6 +383,77 @@
   ([url opts]
    (ranges/read-url! url read opts)))
 
+;; RFC 2397, section 3
+(defn data-url
+  "The bytes `b` of the MIME type `type` as a data URL, which a browser
+  shows as an image source."
+  [type b]
+  (str "data:" type ";base64," (bytes/base64 b)))
+
+;; RFC 3986, section 2.1
+(defn- percent-decoded
+  "The bytes of the text `s` in UTF-8, with each byte that it
+  percent-encodes decoded."
+  [s]
+  (apply bytes/concat
+         (for [piece (re-seq #"%[0-9A-Fa-f]{2}|[^%]+|%" s)]
+           (if (and (= 3 (count piece))
+                    (str/starts-with? piece "%"))
+             (bytes/from-hex (subs piece 1))
+             (bytes/encode piece)))))
+
+;; WHATWG Infra, section 7, as of 5 October 2026
+(defn- from-forgiving-base64
+  "The bytes that the base64 text `s` names once its percent-encoding is
+  undone, or nil. It may have spaces, lack its padding and have pad bits
+  that aren't zero, as a data URL may."
+  [s]
+  (let [digits (str "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    "abcdefghijklmnopqrstuvwxyz"
+                    "0123456789+/")
+        s      (-> s
+                   (str/replace #"%([0-9A-Fa-f]{2})"
+                                (fn [[_ hex]]
+                                  (str (char #?(:clj  (Integer/parseInt hex 16)
+                                                 :cljs (js/parseInt hex 16))))))
+                   (str/replace #"[\t\n\f\r ]" ""))
+        s      (cond-> s
+                 (zero? (mod (count s) 4)) (str/replace #"={1,2}$" ""))
+        n      (count s)
+        ;; the bits of the last digit that make whole bytes
+        mask   (get {2 0x30 3 0x3C} (mod n 4))]
+    (when (and (not= 1 (mod n 4))
+               (re-matches #"[A-Za-z0-9+/]*" s))
+      (let [s (if mask
+                (let [x (str/index-of digits (subs s (dec n)))]
+                  (str (subs s 0 (dec n)) (nth digits (bit-and x mask))))
+                s)]
+        (bytes/from-base64 (str s (subs "===" 0 (mod (- n) 4))))))))
+
+;; RFC 2397, section 3
+(defn from-data-url
+  "The MIME type and the bytes of the data URL `s` as a map of :type and
+  :data, or nil for a text that isn't a data URL. A data URL without a
+  type is text/plain;charset=US-ASCII."
+  [s]
+  (let [comma            (when (string? s)
+                           (str/index-of s ","))
+        [_ type base64?] (when comma
+                           (re-matches #"(?i)^data:(.*?)(;base64)?$"
+                                       (subs s 0 comma)))
+        body             (when type
+                           (subs s (inc comma)))
+        data             (when body
+                           (if base64?
+                             (from-forgiving-base64 body)
+                             (percent-decoded body)))]
+    (when data
+      {:type (cond
+               (str/blank? type)           "text/plain;charset=US-ASCII"
+               (str/starts-with? type ";") (str "text/plain" type)
+               :else                       type)
+       :data data})))
+
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the
   ;; signature, the IHDR chunk, and the header of the IDAT chunk
@@ -399,7 +471,7 @@
   (report (read sample))
 
   ;; the first 20 bytes alone: the reading tells the range that it needs
-  (read (view/add (view/view) 0 (bytes/copy sample-bytes 0 20) nil))
+  (read (view/add (view/view) 0 (bytes/slice sample-bytes 0 20) nil))
 
   ;; a file that is no image
   (report (read (view/add (view/view) 0

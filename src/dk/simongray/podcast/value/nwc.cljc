@@ -21,7 +21,6 @@
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.nostr.nip44 :as nip44]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
@@ -30,7 +29,9 @@
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def kinds
   "The kinds of the events of NIP-47, in its section Events: the info
@@ -497,7 +498,7 @@
          {:send       nostr/send!
           :allow-pred nostr/public?
           :now-fn     time/now
-          :random-fn  bytes/generate!}
+          :random-fn  webcrypto/random-bytes}
          opts))
 
 (defn fetch-info!
@@ -693,8 +694,8 @@
   (-> (request-event connection
                      (get-balance)
                      {:at    #inst "2026-09-29T12:00:00Z"
-                      :nonce (bytes/hex (bytes/generate! 32))
-                      :aux   (bytes/hex (bytes/generate! 32))})
+                      :nonce (bytes/hex (webcrypto/random-bytes 32))
+                      :aux   (bytes/hex (webcrypto/random-bytes 32))})
       (select-keys ["kind" "tags" "pubkey"]))
 
   (info {"content" "pay_invoice get_balance"

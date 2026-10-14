@@ -16,9 +16,9 @@
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def apps
   "The forms of the links of each app, by an id of the app. The options
@@ -472,9 +472,9 @@
         v            (case encoding
                        :encoded   (url/percent-decode text)
                        :base64url (some-> (bytes/from-base64url text)
-                                          (bytes/decode :utf8))
+                                          bytes/decode)
                        :hex       (some-> (bytes/from-hex text)
-                                          (bytes/decode :utf8))
+                                          bytes/decode)
                        (if encoded-url? (url/percent-decode text) text))
         with-scheme  (cond->> v (= :bare encoding) (str "https://"))]
     (case k

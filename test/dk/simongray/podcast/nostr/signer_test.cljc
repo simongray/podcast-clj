@@ -9,10 +9,10 @@
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.test-support :refer [run secret-key]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def ann (secret-key 1))
 (def ann-key (secp256k1/public-key ann))

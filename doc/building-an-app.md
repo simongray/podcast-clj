@@ -1951,7 +1951,7 @@ chapters file:
   "The URL of the file that the image at `url` is written to, if it's a
   data URL, or else `url`."
   [url]
-  (if-let [{:keys [type data]} (bytes/from-data-url url)]
+  (if-let [{:keys [type data]} (image/from-data-url url)]
     (write-image! type data)
     url))
 
@@ -2087,6 +2087,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.gpodder :as gpodder]
@@ -2098,7 +2099,6 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.profile.payments :as profile.payments]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.testing :as testing]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]

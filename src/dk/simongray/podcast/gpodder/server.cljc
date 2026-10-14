@@ -16,13 +16,14 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.gpodder :as gpodder]
             [dk.simongray.podcast.gpodder.api :as gpodder.api]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url])
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes])
   #?(:clj (:import [java.util.concurrent.locks ReentrantLock])))
 
 (def ^:no-doc session-seconds
@@ -33,7 +34,7 @@
 (defn- new-session
   "The id of a new session, which nobody can guess."
   []
-  (bytes/hex (bytes/generate! 16)))
+  (bytes/hex (webcrypto/random-bytes 16)))
 
 (defn ^:no-doc live
   "The `sessions` that still last at the instant `at`, by id."

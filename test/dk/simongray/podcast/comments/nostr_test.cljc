@@ -13,9 +13,9 @@
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def at #inst "2026-09-29T12:00:00Z")
 

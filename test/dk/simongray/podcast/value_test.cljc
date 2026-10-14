@@ -13,7 +13,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.test-support :refer [fixture invoice run]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
@@ -21,7 +20,9 @@
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.payment :as value.payment]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def records
   "The records of the examples of bLIP-10, by app and action."
@@ -268,7 +269,7 @@
     (let [preimage (apply str (repeat 64 "7"))
           paid     (invoice preimage)]
       (is (= {:network :bitcoin :msat 50000} (bolt11/invoice-amount paid)))
-      (is (= (bytes/hex (bytes/sha256 (bytes/from-hex preimage))) (bolt11/payment-hash paid)))
+      (is (= (bytes/hex (hash/digest :sha-256 (bytes/from-hex preimage))) (bolt11/payment-hash paid)))
       (is (true? (bolt11/proves? preimage paid)))
       (is (true? (bolt11/proves? (str/upper-case preimage) (str/upper-case paid))))
       (doseq [[x reason] {(apply str (repeat 64 "8")) "another preimage"

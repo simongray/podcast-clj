@@ -5,7 +5,7 @@
   frames. Each builder gives a sequence of numbers from 0 to 255, for
   test-support/view."
   (:require [dk.simongray.podcast.test-support :refer [ascii be code le]]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn syncsafe
   "The four syncsafe bytes of the number `x`, as ID3 writes a size."

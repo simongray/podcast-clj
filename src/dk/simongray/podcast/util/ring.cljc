@@ -3,9 +3,9 @@
   responses they give: the bodies, credentials, hosts and conditions of
   the requests."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.secret :as secret])
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto.bytes :as bytes])
   #?(:clj (:import [java.io InputStream])))
 
 (defn body-bytes
@@ -20,11 +20,12 @@
             (string? body)
             (bytes/encode body)
 
+            (bytes/bytes? body)
+            body
+
             :else
-            #?(:clj  (if (bytes? body)
-                       body
-                       (.readNBytes ^InputStream body (int (inc max-bytes))))
-               :cljs (when (instance? js/Uint8Array body) body)))]
+            #?(:clj  (.readNBytes ^InputStream body (int (inc max-bytes)))
+               :cljs nil))]
     (when (and b (<= (bytes/length b) max-bytes))
       b)))
 
@@ -33,7 +34,7 @@
   UTF-8."
   [body max-bytes]
   (when-let [b (body-bytes body max-bytes)]
-    (bytes/decode b :utf8)))
+    (bytes/decode b)))
 
 (defn response
   "The Ring response of `status` with the `body` of `content-type`, and the
@@ -100,7 +101,7 @@
                                   (re-matches auth-pattern))]
     (case (some-> scheme str/lower-case)
       "basic"  (let [b       (bytes/from-base64 value)
-                     decoded (some-> b (bytes/decode :utf8))
+                     decoded (some-> b bytes/decode)
                      i       (some-> decoded (str/index-of ":"))]
                  (when i
                    {:username (subs decoded 0 i)

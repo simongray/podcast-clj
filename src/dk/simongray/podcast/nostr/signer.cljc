@@ -20,13 +20,14 @@
             [dk.simongray.podcast.nostr.nip44 :as nip44]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn- unreadable
   "A map of the diagnostic of an answer of a signer that can't be read,
@@ -67,7 +68,7 @@
   as a hidden text."
   []
   (loop []
-    (let [hex (bytes/hex (bytes/generate! 32))]
+    (let [hex (bytes/hex (webcrypto/random-bytes 32))]
       (if (secp256k1/public-key hex)
         (secret/hide hex)
         (recur)))))
@@ -80,7 +81,9 @@
     aux of each signature of BIP-340, from a secure source by default"
   ([secret-key]
    (local secret-key {}))
-  ([secret-key {:keys [random-fn] :or {random-fn bytes/generate!} :as opts}]
+  ([secret-key {:keys [random-fn]
+                :or   {random-fn webcrypto/random-bytes}
+                :as   opts}]
    (let [public (public-key secret-key)]
      (when-not public
        (throw (ex-info "The key is no secret key of Nostr" {})))
@@ -303,7 +306,7 @@
                 {:send       nostr/send!
                  :allow-pred nostr/public?
                  :now-fn     time/now
-                 :random-fn  bytes/generate!}
+                 :random-fn  webcrypto/random-bytes}
                 opts)
          id      (bytes/hex (random-fn 16))
          at      (now-fn)

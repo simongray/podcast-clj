@@ -8,9 +8,9 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [example-guid fixture run]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.value :as value]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def show
   (assoc (rss/parse (fixture "feeds/namespace-example.xml")) :podcast/guid example-guid))

@@ -26,9 +26,9 @@
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.qname-hiccup :as xml]
+            [dk.simongray.webcrypto.bytes :as bytes]
             [dk.simongray.whatwg-mime :as mime]))
 
 (defn- diagnostic

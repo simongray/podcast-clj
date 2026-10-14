@@ -12,8 +12,8 @@
   :except option leaves out the quirks of the tags that it names."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.media.id3 :as id3]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 ;; ISO/IEC 14496-3, Annex 1.A: the sampling_frequency_index of ADTS, of
 ;; which 13 and 14 are reserved, and 15 is not allowed

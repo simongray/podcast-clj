@@ -14,9 +14,9 @@
   under :error, which analytics/downloads leaves out as malformed."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 ;; Apache HTTP Server 2.4, Log Files, and nginx, ngx_http_log_module, as of
 ;; 2026-10-13: the host, identity, user, time, request line, status and
@@ -52,7 +52,7 @@
                                      s)]
              (cond
                run
-               (bytes/decode (bytes/from-hex (str/replace run "\\x" "")) :utf8)
+               (bytes/decode (bytes/from-hex (str/replace run "\\x" "")))
 
                (and (= 2 (count token)) (str/starts-with? token "\\"))
                (subs token 1)

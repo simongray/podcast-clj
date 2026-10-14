@@ -9,8 +9,9 @@
   https://github.com/lightning/bolts/blob/master/11-payment-encoding.md"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def ^:no-doc max-invoice-length
   "The most characters of an invoice that podcast-clj reads: the most
@@ -166,9 +167,9 @@
   [preimage invoice]
   (boolean (and (string? preimage)
                 (re-matches #"[0-9a-fA-F]{64}" preimage)
-                (when-let [hash (payment-hash invoice)]
-                  (let [digest (bytes/sha256 (bytes/from-hex preimage))]
-                    (= hash (bytes/hex digest)))))))
+                (when-let [expected (payment-hash invoice)]
+                  (let [digest (hash/digest :sha-256 (bytes/from-hex preimage))]
+                    (= expected (bytes/hex digest)))))))
 
 (comment
   (invoice-amount "lnbc2500u1pvjluez")

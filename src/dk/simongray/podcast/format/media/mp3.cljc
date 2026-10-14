@@ -19,8 +19,8 @@
   quirks that it names, those of the tags too."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.media.id3 :as id3]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def ^:no-doc bitrates
   "The bitrates in kbit/s by MPEG version and layer, by bitrate index."

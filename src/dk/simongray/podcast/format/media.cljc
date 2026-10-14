@@ -17,14 +17,15 @@
   :except option leaves out the quirks that it names."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.format.media.aac :as aac]
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.format.media.ogg :as ogg]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 ;; IANA Media Types: RFC 3003 for audio/mpeg, RFC 4337 for audio/mp4 and
 ;; video/mp4, RFC 5334 for audio/ogg, RFC 7845, section 9, for .opus; and
@@ -100,7 +101,7 @@
   :img, as a chapters document has it."
   [{:keys [artwork] :as chapter}]
   (cond-> (dissoc chapter :artwork)
-    artwork (assoc :img (bytes/data-url (:type artwork) (:data artwork)))))
+    artwork (assoc :img (image/data-url (:type artwork) (:data artwork)))))
 
 (defn- result
   "What the `file` of `format` says about itself, as its reader gave it:

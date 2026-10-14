@@ -6,7 +6,8 @@
  ;; html-pieces for the HTML in show notes and comments, drop-in-search for
  ;; full-text search, mind-meld for the CRDT of the listener's profile,
  ;; like-minded for syncing it and for the stores, websub-clj for WebSub,
- ;; whatwg-mime for media types and langtag-clj for language tags.
+ ;; whatwg-mime for media types, langtag-clj for language tags and
+ ;; webcrypto-clj for bytes, their encodings, hashes and HMACs.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -23,7 +24,8 @@
          dk.simongray/mind-meld      {:mvn/version "0.4.0"}
          dk.simongray/like-minded    {:mvn/version "0.4.2"}
          dk.simongray/whatwg-mime    {:mvn/version "0.2.1"}
-         dk.simongray/langtag-clj    {:mvn/version "0.2.0"}}
+         dk.simongray/langtag-clj    {:mvn/version "0.2.0"}
+         dk.simongray/webcrypto-clj  {:mvn/version "0.1.2"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

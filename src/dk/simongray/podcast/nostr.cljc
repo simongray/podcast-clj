@@ -8,10 +8,11 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]
             #?(:clj [dk.simongray.podcast.util.client :as client])
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.wary-fetch.url :as url])
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient WebSocket WebSocket$Listener]
                    [java.time Duration]
@@ -85,7 +86,7 @@
   "The id that NIP-01 gives `event`: the SHA-256 of its fields, in
   hexadecimal."
   [event]
-  (bytes/hex (bytes/sha256 (bytes/encode (serialized event)))))
+  (bytes/hex (hash/digest :sha-256 (bytes/encode (serialized event)))))
 
 (defn verified?
   "Whether `event` is an event whose id is the id of its content, and
@@ -179,7 +180,7 @@
         :else
         (let [end (+ i 2 (long (bytes/at b (inc i))))]
           (when (<= end n)
-            (let [entry [(bytes/at b i) (bytes/copy b (+ i 2) end)]]
+            (let [entry [(bytes/at b i) (bytes/slice b (+ i 2) end)]]
               (recur end (conj out entry)))))))))
 
 (defn- with-fields
@@ -195,7 +196,7 @@
                     (reduce (fn [acc i] (+ (* 256 acc) (bytes/at b i)))
                             0
                             (range 4))))
-        extras  (cond-> {:relays (mapv #(bytes/decode % :utf8) (of-type 1))}
+        extras  (cond-> {:relays (mapv bytes/decode (of-type 1))}
                   author (assoc :author author)
                   kind   (assoc :kind kind))]
     (case type
@@ -206,7 +207,7 @@
       :naddr    (when (and special author kind)
                   (assoc extras
                          :type       type
-                         :identifier (bytes/decode special :utf8))))))
+                         :identifier (bytes/decode special))))))
 
 (defn decode
   "What the name `s` names, as a map with its :type, or nil for another
@@ -260,7 +261,7 @@
                              [(field 3 (kind-bytes kind))]))
         named      (fn [prefix special]
                      (let [parts (cons (field 0 special) extras)]
-                       (bech32/encode prefix (bytes/join parts))))]
+                       (bech32/encode prefix (apply bytes/concat parts))))]
     (case type
       :npub     (when (hex-id? public-key)
                   (bech32/encode "npub" (bytes/from-hex public-key)))

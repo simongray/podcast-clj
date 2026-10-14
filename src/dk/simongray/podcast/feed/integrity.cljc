@@ -7,15 +7,17 @@
   https://www.w3.org/TR/sri/"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
-  names in MessageDigest, which are those of WebCrypto too."
-  [["sha256" :sha256] ["sha384" :sha384] ["sha512" :sha512]])
+  hashes in webcrypto-clj, whose names in upper case are those of
+  MessageDigest and WebCrypto."
+  [["sha256" :sha-256] ["sha384" :sha-384] ["sha512" :sha-512]])
 
 (defn sri
   "The strongest hashes of the SRI integrity metadata `s`, as Subresource
@@ -65,11 +67,7 @@
   "The base64 digest of the bytes `b` by `algorithm`. In ClojureScript,
   it's in a promise, from WebCrypto, which digests a large file fast."
   [algorithm b]
-  #?(:clj  (bytes/base64 (bytes/digest algorithm b))
-     :cljs (.then (.digest (.-subtle js/crypto)
-                           (bytes/digest-names algorithm)
-                           b)
-                  #(bytes/base64 (js/Uint8Array. %)))))
+  (webcrypto/then (webcrypto/digest algorithm b) bytes/base64))
 
 (defn- fetch-whole!
   "Fetch the file at `url` whole with `send` and the limits of `opts`, and
@@ -100,7 +98,7 @@
      limits of `opts`, and give the verdict against `metadata`."
      [url metadata algorithm opts]
      (try
-       (let [named                    (bytes/digest-names algorithm)
+       (let [named                    (str/upper-case (name algorithm))
              opts                     (update opts :user-agent
                                               #(or % client/user-agent))
              {:keys [status digests]} (http/digest! url [named] opts)]

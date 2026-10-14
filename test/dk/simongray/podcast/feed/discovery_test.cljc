@@ -8,9 +8,9 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [run]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn- feed-xml
   "An RSS feed with the `title` and the `opts`: its website as :link, its
@@ -68,7 +68,7 @@
           {:status        206
            :url           url
            :headers       {}
-           :body          (bytes/copy b start (min (inc end) n))
+           :body          (bytes/slice b start (min (inc end) n))
            :content-range {:start start :total n}}
           {:status 200 :url url :headers {} :body body}))
       {:status 404 :url url :headers {} :body ""})))

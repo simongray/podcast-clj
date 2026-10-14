@@ -75,8 +75,8 @@
 ;;   comments, while nostr.nip44 stays here.
 ;; - The :comments/* diagnostics get their messages from
 ;;   diagnostics/describe, so the library would need its own.
-;; - util.client, util.json, util.time and util.bytes would become its own
-;;   User-Agent and small copies.
+;; - util.client, util.json and util.time would become its own User-Agent
+;;   and small copies.
 ;; - A blog would soon miss two things: Nostr comments on a web page by its
 ;;   NIP-73 URL, and the counts of reactions and reposts on Nostr.
 ;; - ActivityPub is the fediverse, but Bluesky and Nostr aren't, which the

@@ -7,11 +7,12 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.secret :as secret]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def page-size
   "How many items a document of pages holds, unless its options give
@@ -472,7 +473,7 @@
      :as   opts}]
    {:pre [(map? opts)]}
    (let [body     (or body (rss/emit feed))
-         digest   (bytes/hex (bytes/sha256 (bytes/encode body)))
+         digest   (bytes/hex (hash/digest :sha-256 (bytes/encode body)))
          etag     (str "\"" (subs digest 0 32) "\"")
          modified (or last-modified (last-change feed))
          link     (link-header feed)

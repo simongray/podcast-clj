@@ -19,10 +19,10 @@
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def css
   "The inspector's stylesheet, inlined into every page."

@@ -4,8 +4,8 @@
   across parts, on both platforms."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest a-view-of-parts
   (let [v (view/add (view/view 100) 10 (bytes/of [1 2 3 4 5 6 7 8]) 100)]
@@ -26,3 +26,13 @@
       (is (= (range 5 11) (numbers (view/slice v 5 11))))
       (is (view/truncated? (try (view/slice v 10 20) (catch #?(:clj Exception :cljs :default) e e)))
           "past the end of the file"))))
+
+(deftest text-in-its-encodings
+  (let [text (fn [xs encoding] (view/text (view/whole (bytes/of xs)) 0 (count xs) encoding))]
+    (is (= "Ærø" (text [0xC6 0x72 0xF8] :latin1)))
+    (is (= "Ærø" (text [0xC3 0x86 0x72 0xC3 0xB8] :utf8)))
+    (is (= "Ærø" (text [0x00 0xC6 0x00 0x72 0x00 0xF8] :utf16be)))
+    (is (= "Ærø" (text [0xC6 0x00 0x72 0x00 0xF8 0x00] :utf16le))))
+  (is (view/utf8? (view/whole (bytes/encode "Ærø")) 0 5))
+  (is (not (view/utf8? (view/whole (bytes/of [0xC6 0x72 0xF8])) 0 3)))
+  (is (not (view/utf8? (view/whole (bytes/encode "plain")) 0 5)) "ASCII says nothing about the encoding"))

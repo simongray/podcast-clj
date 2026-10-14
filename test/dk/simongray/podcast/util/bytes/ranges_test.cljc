@@ -5,11 +5,11 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is #?(:cljs async)]]
             [dk.simongray.podcast.test-support :refer [run]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn- zeros
   "A fetch of a file of `total` zero bytes, as `ranges/read!` takes it,

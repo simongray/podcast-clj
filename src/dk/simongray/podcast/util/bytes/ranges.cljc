@@ -8,12 +8,12 @@
   fetcher of a local file or a Blob."
   (:require #?(:clj [clojure.java.io :as io])
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async])
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes])
   #?(:clj (:import [java.nio ByteBuffer]
                    [java.nio.channels FileChannel]
                    [java.nio.file OpenOption StandardOpenOption])))

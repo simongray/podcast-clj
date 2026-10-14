@@ -8,9 +8,11 @@
             [dk.simongray.podcast.nostr.nip44 :as nip44]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.wary-fetch.secret :as secret])
+            [dk.simongray.wary-fetch.secret :as secret]
+            #?(:clj [dk.simongray.webcrypto :as webcrypto])
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash])
   #?(:clj (:import [java.util Arrays]
                    [javax.crypto Cipher]
                    [javax.crypto.spec ChaCha20ParameterSpec SecretKeySpec])))
@@ -23,7 +25,7 @@
 (defn- sha256
   "The SHA-256 of the text `s`, in hexadecimal."
   [s]
-  (bytes/hex (bytes/sha256 (bytes/encode s))))
+  (bytes/hex (hash/digest :sha-256 (bytes/encode s))))
 
 (defn- shared
   "The conversation key of `secret-key` and `public-key`, as text."
@@ -144,7 +146,7 @@
                   "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
                   "5af90bbf74a35be6b40b8eedf2785e42874d")
              (bytes/hex sealed)))
-      (is (= sunscreen (bytes/decode (nip44/chacha20 sample-key nonce sealed {:counter 1}) 0 (bytes/length sealed) :utf8))
+      (is (= sunscreen (bytes/decode (nip44/chacha20 sample-key nonce sealed {:counter 1})))
           "the cipher is its own inverse")
       (is (not= (bytes/hex sealed) (bytes/hex (nip44/chacha20 sample-key nonce (bytes/encode sunscreen))))
           "the stream starts at the block 0, unless the options tell another"))))
@@ -156,7 +158,7 @@
             sealed (nip44/chacha20 sample-key nonce text)]
         (is (= n (bytes/length sealed)) n)
         (is (= (bytes/hex text) (bytes/hex (nip44/chacha20 sample-key nonce sealed))) n)))
-    (is (= (bytes/hex (bytes/copy (nip44/chacha20 sample-key nonce (bytes/of (repeat 130 0))) 64 128))
+    (is (= (bytes/hex (bytes/slice (nip44/chacha20 sample-key nonce (bytes/of (repeat 130 0))) 64 128))
            (bytes/hex (nip44/chacha20 sample-key nonce (bytes/of (repeat 64 0)) {:counter 1})))
         "the second block of a stream is the first block of the stream that starts at 1")))
 
@@ -172,9 +174,9 @@
                              (.init Cipher/ENCRYPT_MODE (SecretKeySpec. key "ChaCha20") (ChaCha20ParameterSpec. nonce (int counter))))
                            data))]
        (doseq [i (range 60)]
-         (let [key     (bytes/generate! 32)
-               nonce   (bytes/generate! 12)
-               data    (bytes/generate! (* 11 i))
+         (let [key     (webcrypto/random-bytes 32)
+               nonce   (webcrypto/random-bytes 12)
+               data    (webcrypto/random-bytes (* 11 i))
                counter (* 1000 i)]
            (is (Arrays/equals ^bytes (jdk key nonce counter data)
                               ^bytes (nip44/chacha20 key nonce data {:counter counter}))

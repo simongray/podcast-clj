@@ -3,8 +3,9 @@
   one that the UUIDv5 scheme of podcast:guid derives from its URL, and an
   episode by its guid, on both platforms."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def ^:no-doc podcast-namespace
   "The UUID namespace that every podcast:guid is derived in."
@@ -15,7 +16,8 @@
   UUID namespace `ns`, as a lower-case string."
   [ns name]
   (let [ns-bytes (bytes/from-hex (str/replace ns "-" ""))
-        digest   (bytes/sha1 (bytes/join [ns-bytes (bytes/encode name)]))
+        digest   (hash/digest :sha-1
+                              (bytes/concat ns-bytes (bytes/encode name)))
         octets   (-> (mapv #(bytes/at digest %) (range 16))
                      (update 6 #(bit-or (bit-and % 0x0f) 0x50))
                      (update 8 #(bit-or (bit-and % 0x3f) 0x80)))
@@ -117,11 +119,11 @@
   such a text."
   [s]
   (let [pieces (re-seq #"%[0-9A-Fa-f]{2}|[A-Za-z0-9._~-]+" s)
-        text   (bytes/decode (bytes/join (for [piece pieces]
-                                           (if (str/starts-with? piece "%")
-                                             (bytes/from-hex (subs piece 1))
-                                             (bytes/encode piece))))
-                             :utf8)]
+        text   (bytes/decode (apply bytes/concat
+                                    (for [piece pieces]
+                                      (if (str/starts-with? piece "%")
+                                        (bytes/from-hex (subs piece 1))
+                                        (bytes/encode piece)))))]
     ;; anything else in it, or bytes that aren't UTF-8, give another text
     (when (= (str/replace s #"%[0-9a-f]{2}" str/upper-case) (encoded text))
       text)))

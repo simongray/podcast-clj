@@ -5,12 +5,13 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.test-support :refer [ascii be view]]
             [dk.simongray.podcast.test-support.media
              :refer [apic chap ctoc ctoc-of frame id3-tag jpeg nested-chaps syncsafe tag text utf16le utf8]]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest id3-tags
   (doseq [version [3 4]]
@@ -73,7 +74,7 @@
                                                                (ctoc 3 "toc" ["ch0"])
                                                                (chap 3 "ch0" 0 60000 (apic 3 "image/jpeg" 0 jpeg)))
                                                           [0xFF 0xFB 0x90 0x00] (repeat 413 0))))
-            {:keys [type data]} (bytes/from-data-url (:img (first (:chapters (:chapters file)))))]
+            {:keys [type data]} (image/from-data-url (:img (first (:chapters (:chapters file)))))]
         (is (= "image/jpeg" type))
         (is (= (bytes/hex (bytes/of jpeg)) (bytes/hex data)))))))
 
@@ -88,7 +89,7 @@
   (testing "text declared ISO-8859-1 whose bytes are UTF-8"
     (let [xs (tag 3 (frame 3 "TIT2" (concat [0] (utf8 "Ærø"))))]
       (is (= "Ærø" (:text (first (:frames (id3/read (view xs) 0))))))
-      (is (= (bytes/decode (bytes/of (utf8 "Ærø")) 0 5 :latin1)
+      (is (= (apply str (map char (utf8 "Ærø")))
              (:text (first (:frames (id3/read (view xs) 0 {:except #{:id3/utf8-latin1}})))))
           "without the quirk, the bytes read as declared")))
   (testing "UTF-16 without its byte order mark"

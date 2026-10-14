@@ -19,14 +19,14 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.publish :as publish]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.names :as names]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def origin
   "The origin of OP3, unless the options give the origin of another

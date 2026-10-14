@@ -29,8 +29,8 @@
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn ^:no-doc syncsafe
   "The 28-bit number of the four syncsafe bytes at `p` in `view`, or nil
@@ -68,7 +68,7 @@
         out #?(:clj (byte-array n) :cljs (js/Uint8Array. n))]
     (loop [i 0 j 0]
       (if (>= i n)
-        (bytes/copy out 0 j)
+        (bytes/slice out 0 j)
         (let [x         (bytes/at b i)
               inserted? (and (= 0xFF x)
                              (< (inc i) n)
@@ -163,7 +163,7 @@
   [ctx view start end encoding]
   (case encoding
     :latin1 (if (and (view/quirk? ctx :id3/utf8-latin1)
-                     (bytes/utf8? (view/slice view start end) 0 (- end start)))
+                     (view/utf8? view start end))
               (do (view/note! ctx (view/diagnostic :id3/utf8-latin1 :info))
                   (view/text view start end :utf8))
               (view/text view start end :latin1))

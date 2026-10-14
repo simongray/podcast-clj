@@ -19,9 +19,9 @@
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 ;; RFC 3533, section 6: the CRC of a page has the generator polynomial
 ;; 0x04c11db7, unreflected, from zero
@@ -132,7 +132,8 @@
 (defn- packet-bytes
   "The bytes of the `packet` in `view`, whose ranges are its parts."
   [view packet]
-  (bytes/join (map (fn [[start end]] (view/slice view start end)) packet)))
+  (apply bytes/concat (map (fn [[start end]] (view/slice view start end))
+                           packet)))
 
 ;; RFC 3533, section 4: the first pages of a file begin its streams
 (defn- first-pages

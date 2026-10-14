@@ -33,8 +33,10 @@ show notes and comments is read by
 [html-pieces](https://github.com/simongray/html-pieces), full-text search
 comes from [drop-in-search](https://github.com/simongray/drop-in-search),
 the profile is a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld), and WebSub comes
-from [websub-clj](https://github.com/simongray/websub-clj). Each is a
+[mind-meld](https://github.com/simongray/mind-meld), WebSub comes from
+[websub-clj](https://github.com/simongray/websub-clj), and bytes, their
+encodings and hashes come from
+[webcrypto-clj](https://github.com/simongray/webcrypto-clj). Each is a
 library in a repository of its own.
 
 The tables follow the same order. Names in them are relative to the root,
@@ -136,7 +138,7 @@ and any of them encrypted.
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
+| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
@@ -185,7 +187,6 @@ and any of them encrypted.
 | `util.time.rrule` | RFC 5545 recurrence rules. |
 | `util.client` | The User-Agent of podcast-clj, and `send!`, the `:send` of every function that sends unless you give another. |
 | `util.ring` | The Ring requests that the handlers answer, and their responses: `body-bytes` and `body-text` read their bodies within a limit, `credentials` reads their Authorization header, `not-modified?` their conditions and `addressed-to?` their Host header, and `response` and `text-response` make the responses. |
-| `util.bytes` | Bytes on both platforms: hex, base64 and base64url, data URLs, text, the digests and HMACs of SHA-1 and SHA-2, and random bytes. |
 | `util.bytes.view` | Views of files whose bytes come in parts, which a reader of media files or images reads. |
 | `util.bytes.ranges` | `read!`, which fetches the byte ranges that a reader of a view asks for until it's done, and fetchers of a local file or a Blob. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |

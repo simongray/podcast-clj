@@ -23,9 +23,10 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]
             [dk.simongray.whatwg-mime :as mime]))
 
 (def keeps
@@ -806,7 +807,8 @@
                    (str/replace #"^-+" ""))
         words  (-> (subs words 0 (min 80 (count words)))
                    (str/replace #"-+$" ""))
-        digest (subs (bytes/hex (bytes/sha256 (bytes/encode (pr-str id))))
+        digest (subs (bytes/hex (hash/digest :sha-256
+                                             (bytes/encode (pr-str id))))
                      0 8)
         ending (or (:extension (get media/types
                                     (mime/essence type)))

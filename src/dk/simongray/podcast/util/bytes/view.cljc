@@ -8,8 +8,9 @@
   ranges, so that the caller can fetch them and read again. A range past
   the end of the file throws too. The fetching is in util.bytes.ranges."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes])
+  #?(:clj (:import [java.nio.charset StandardCharsets])))
 
 (defn view
   "A view of a file of `total` bytes, which is nil when the size isn't
@@ -200,7 +201,7 @@
   (let [[o b] (part-at view start)]
     (cond
       (>= start end)                  (bytes/of [])
-      (<= end (+ o (bytes/length b))) (bytes/copy b (- start o) (- end o))
+      (<= end (+ o (bytes/length b))) (bytes/slice b (- start o) (- end o))
       :else
       (let [n   (- end start)
             out #?(:clj (byte-array n) :cljs (js/Uint8Array. n))]
@@ -212,11 +213,73 @@
               (recur to))
             out))))))
 
+#?(:cljs
+   (defn- binary-string
+     "The bytes `b` as a string of one character for each byte, in pieces so
+     that a large part never overflows the stack of `apply`."
+     [b]
+     (let [n (alength b)]
+       (apply str (for [i (range 0 n 32768)]
+                    (.apply js/String.fromCharCode nil
+                            (.subarray b i (min n (+ i 32768)))))))))
+
+(defn- decoded
+  "The text of the bytes `b` in `encoding`: :latin1, :utf8, :utf16le or
+  :utf16be. A byte order mark stays, and a sequence that isn't valid
+  becomes U+FFFD, on both platforms."
+  [b encoding]
+  #?(:clj  (String. ^bytes b
+                    (case encoding
+                      :latin1  StandardCharsets/ISO_8859_1
+                      :utf8    StandardCharsets/UTF_8
+                      :utf16le StandardCharsets/UTF_16LE
+                      :utf16be StandardCharsets/UTF_16BE))
+     :cljs (if (= :latin1 encoding)
+             (binary-string b)
+             (let [label (case encoding
+                           :utf8    "utf-8"
+                           :utf16le "utf-16le"
+                           :utf16be "utf-16be")]
+               (.decode (js/TextDecoder. label #js {:ignoreBOM true}) b)))))
+
 (defn text
   "The text of the bytes of `view` from `start` to `end` in `encoding`:
   :latin1, :utf8, :utf16le or :utf16be."
   [view start end encoding]
-  (bytes/decode (slice view start end) encoding))
+  (decoded (slice view start end) encoding))
+
+;; RFC 3629, section 3
+(defn utf8?
+  "Whether the bytes of `view` from `start` to `end` are UTF-8 with one or
+  more characters outside ASCII.
+
+  Such bytes are text that a writer meant as UTF-8, also when the writer
+  names another encoding."
+  [view start end]
+  (let [b          (slice view start end)
+        end        (bytes/length b)
+        continued? (fn [i n]
+                     (every? #(= 0x80 (bit-and (bytes/at b (+ i %)) 0xC0))
+                             (range 1 (inc n))))]
+    (loop [i 0 wide? false]
+      (if (>= i end)
+        wide?
+        (let [x (bytes/at b i)
+              ;; how many bytes follow the first of a character, or -1 for
+              ;; a byte that starts none
+              n (cond
+                  (< x 0x80) 0
+                  (< x 0xC2) -1
+                  (< x 0xE0) 1
+                  (< x 0xF0) 2
+                  (< x 0xF5) 3
+                  :else      -1)]
+          (cond
+            (neg? n)          false
+            (zero? n)         (recur (inc i) wide?)
+            (> (+ i n 1) end) false
+            (continued? i n)  (recur (+ i n 1) true)
+            :else             false))))))
 
 (defn code
   "The `n` bytes of `view` at `p` as characters of ISO-8859-1, the form of

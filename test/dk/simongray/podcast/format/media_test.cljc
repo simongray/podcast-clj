@@ -16,11 +16,11 @@
             [dk.simongray.podcast.test-support.media
              :refer [about= adts-frame audio-frame box chap chapter-file chapter-track-file ctoc mvhd opus-file syncsafe tag
                      text xing-frame #?(:clj fragmented-file)]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
             #?(:clj [dk.simongray.wary-fetch :as http])
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest reading-media
   (is (= :mp3 (:format (media/read (view (concat (tag 3 (text 3 "TIT2" "T")) (xing-frame 10) (audio-frame)))))))
@@ -35,7 +35,7 @@
   (is (= [:file/unknown-format] (map :id (media/report (media/read (view (ascii "<html><body>not audio</body></html>")))))))
   (testing "a view that lacks bytes gives the ranges it needs"
     (let [b    (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
-          head (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 40) (bytes/length b))]
+          head (view/add (view/view (bytes/length b)) 0 (bytes/slice b 0 40) (bytes/length b))]
       (is (= [[45 61]] (:need (media/read head))) "the header of the box after the media data, which ends at 45")))
   (testing "the chapters of an MP3 file as a chapters document"
     (let [r (media/read (view (concat (tag 3 (ctoc 3 "t" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "A")))
@@ -179,7 +179,7 @@
   (let [n (bytes/length b)]
     (fn [start end]
       (swap! log conj [start end])
-      {:bytes (bytes/copy b (min start n) (min end n)) :start start :total total})))
+      {:bytes (bytes/slice b (min start n) (min end n)) :start start :total total})))
 
 (deftest sizes-that-lie
   (let [mb      (* 1024 1024)

@@ -10,8 +10,8 @@
             [dk.simongray.podcast.test-support.media
              :refer [aac-entry box chapter-file chapter-track-file fragmented-file jpeg movie-file mvhd playing-trak
                      trak video-entry]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest mp4-files
   (doseq [last? [false true]]
@@ -96,7 +96,7 @@
           ;; the movie and no more, of a file whose size is known
           b           (bytes/of first-movie)
           moov-end    (- (bytes/length b) 24)
-          head        (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 moov-end) (bytes/length b))]
+          head        (view/add (view/view (bytes/length b)) 0 (bytes/slice b 0 moov-end) (bytes/length b))]
       (is (= (- (count first-movie) 16) (:media-start (mp4/read (view first-movie)))))
       (is (= 24 (:media-start (mp4/read (view last-movie)))) "past the ftyp box and the header of the mdat box")
       (is (= (:duration (mp4/read (view first-movie))) (:duration (mp4/read head))))

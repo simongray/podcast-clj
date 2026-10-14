@@ -14,12 +14,13 @@
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]))
+            [dk.simongray.wary-fetch.headers :as headers]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def default-limits
   "The limits of the requests for the files and value blocks of an episode
@@ -209,7 +210,7 @@
   "The name of the document of a store that keeps the file at `url`, a
   hash of the URL."
   [url]
-  (str "file-" (bytes/hex (bytes/sha256 (bytes/encode url)))))
+  (str "file-" (bytes/hex (hash/digest :sha-256 (bytes/encode url)))))
 
 (defn- copy-of
   "The copy of the file at `url` in the `text` of a document of a cache, as

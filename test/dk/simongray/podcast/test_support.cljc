@@ -15,9 +15,10 @@
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.bytes.view :as view]
-            #?(:clj [dk.simongray.podcast.util.json :as json]))
+            #?(:clj [dk.simongray.podcast.util.json :as json])
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io File InputStream OutputStream]
                    [java.net InetAddress InetSocketAddress ServerSocket Socket]
@@ -159,11 +160,11 @@
   `preimage`, hexadecimal text of 32 bytes. Its data are the time, the
   payment hash, and a signature of zeros, so no wallet pays it."
   [preimage]
-  (let [hash  (bytes/sha256 (bytes/from-hex preimage))
-        bits  (concat (for [i (range 32), j [7 6 5 4 3 2 1 0]]
-                        (bit-and 1 (bit-shift-right (bytes/at hash i) j)))
-                      [0 0 0 0])
-        words (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 5 bits))]
+  (let [digest (hash/digest :sha-256 (bytes/from-hex preimage))
+        bits   (concat (for [i (range 32), j [7 6 5 4 3 2 1 0]]
+                         (bit-and 1 (bit-shift-right (bytes/at digest i) j)))
+                       [0 0 0 0])
+        words  (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 5 bits))]
     (bech32/encode-words "lnbc500n" (concat [1 12 18 31 28 25 2] [1 1 20] words (repeat 104 0)))))
 
 (defn view
@@ -181,7 +182,7 @@
       (let [[start end] range]
         {:status        206
          :headers       {}
-         :body          (bytes/copy b start (min (inc end) (bytes/length b)))
+         :body          (bytes/slice b start (min (inc end) (bytes/length b)))
          :content-range {:start start :total (bytes/length b)}}))))
 
 (defn fetch-from
@@ -191,7 +192,7 @@
   (fn [start end]
     (swap! log conj [start end])
     (let [end (min end (bytes/length b))]
-      {:bytes (bytes/copy b start end) :start start :total (bytes/length b)})))
+      {:bytes (bytes/slice b start end) :start start :total (bytes/length b)})))
 
 #?(:clj
    (defn with-temp-dir

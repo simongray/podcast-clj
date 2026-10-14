@@ -10,12 +10,12 @@
             [dk.simongray.podcast.nostr.nip44 :as nip44]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [invoice run secret-key #?(:clj with-relay)]]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.nwc :as nwc]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def example
   "The connection URI of the example of NIP-47."
@@ -102,7 +102,7 @@
     (let [payment {:action :boost :sats 50 :message "Great episode" :app-name "My app"}
           command (nwc/pay-keysend payment recipient)
           records (get-in command [:params "tlv_records"])
-          text    (fn [hex] (bytes/decode (bytes/from-hex hex) :utf8))]
+          text    (fn [hex] (bytes/decode (bytes/from-hex hex)))]
       (is (= {:method "pay_keysend" :params {"amount" 50000 "pubkey" (:address recipient)}}
              (update command :params dissoc "tlv_records")))
       (is (= [696969 7629169] (map #(get % "type") records)))

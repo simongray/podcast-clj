@@ -10,7 +10,7 @@
   data go into characters of five bits. Bech32m, the checksum of BIP-350,
   isn't here."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def ^:no-doc charset
   "The 32 characters of the data, in the order of their values."

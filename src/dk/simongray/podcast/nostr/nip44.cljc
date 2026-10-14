@@ -16,8 +16,10 @@
   NIP-44 asks that a payload is in a signed event, and that a reader
   checks the signature before it reads the payload."
   (:require [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret]
+            [dk.simongray.webcrypto :as webcrypto]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def default-limits
   "The limits of a payload that the options don't set.
@@ -36,23 +38,6 @@
   "The salt of the conversation key, as the section Encryption of NIP-44
   gives it."
   "nip44-v2")
-
-(defn- extracted
-  "The key that HKDF extracts from the bytes `material` with the bytes
-  `salt`, as section 2.2 of RFC 5869 defines it."
-  [salt material]
-  (bytes/hmac :sha256 salt material))
-
-(defn- expanded
-  "The `n` bytes that HKDF expands from the bytes `key` for the bytes
-  `info`, as section 2.3 of RFC 5869 defines it."
-  [key info n]
-  (loop [i 1 last (bytes/of []) out []]
-    (if (<= n (* 32 (count out)))
-      (bytes/copy (bytes/join out) 0 n)
-      (let [input (bytes/join [last info (bytes/of [i])])
-            part  (bytes/hmac :sha256 key input)]
-        (recur (inc i) part (conj out part))))))
 
 (defn- key?
   "Whether `x` is hexadecimal text of 32 bytes, plain or hidden, as a
@@ -87,7 +72,7 @@
   [secret-key public-key]
   (when-let [x (secp256k1/shared-x secret-key public-key)]
     (let [material (bytes/from-hex (secret/reveal x))
-          key      (extracted (bytes/encode salt) material)]
+          key      (hash/hkdf-extract :sha-256 (bytes/encode salt) material)]
       (secret/hide (bytes/hex key)))))
 
 (defn ^:no-doc message-keys
@@ -100,10 +85,10 @@
   They're 76 bytes that HKDF expands."
   [conversation-key nonce]
   (let [key (bytes/from-hex (secret/reveal conversation-key))
-        b   (expanded key (bytes/from-hex nonce) 76)]
-    {:cipher-key   (bytes/copy b 0 32)
-     :cipher-nonce (bytes/copy b 32 44)
-     :check-key    (bytes/copy b 44 76)}))
+        b   (hash/hkdf-expand :sha-256 key (bytes/from-hex nonce) 76)]
+    {:cipher-key   (bytes/slice b 0 32)
+     :cipher-nonce (bytes/slice b 32 44)
+     :check-key    (bytes/slice b 44 76)}))
 
 (defn ^:no-doc padded-length
   "The bytes of a text of `n` bytes with its padding, as the function
@@ -134,11 +119,11 @@
   text of 65,536 bytes or more has two zeros and a length of four bytes."
   [text]
   (let [n (bytes/length text)]
-    (bytes/join [(if (< n 65536)
-                   (number-bytes n 2)
-                   (bytes/join [(bytes/of [0 0]) (number-bytes n 4)]))
-                 text
-                 (bytes/of (repeat (- (padded-length n) n) 0))])))
+    (bytes/concat (if (< n 65536)
+                    (number-bytes n 2)
+                    (bytes/concat (bytes/of [0 0]) (number-bytes n 4)))
+                  text
+                  (bytes/of (repeat (- (padded-length n) n) 0)))))
 
 (defn- unpadded
   "The text in the padded bytes `b`, as bytes, or nil when the bytes don't
@@ -152,7 +137,7 @@
       (when (and (pos? n)
                  (= long? (<= 65536 n))
                  (= (bytes/length b) (+ start (padded-length n))))
-        (bytes/copy b start (+ start n))))))
+        (bytes/slice b start (+ start n))))))
 
 (defn- payload-length
   "The characters of a payload with a text of `n` bytes at most."
@@ -164,7 +149,7 @@
   "The check of the bytes `sealed` with the bytes `nonce` before them,
   under the bytes `key`, as the function hmac_aad of NIP-44 computes it."
   [key nonce sealed]
-  (bytes/hmac :sha256 key (bytes/join [nonce sealed])))
+  (hash/hmac :sha-256 key (bytes/concat nonce sealed)))
 
 ;; ChaCha20, the stream cipher of RFC 8439. A word is a number of 32 bits
 ;; without a sign. The cipher keeps a text secret, but doesn't tell when
@@ -285,7 +270,7 @@
                      nonce
                      sealed
                      (check check-key nonce sealed)]]
-         (bytes/base64 (bytes/join parts)))))))
+         (bytes/base64 (apply bytes/concat parts)))))))
 
 (defn payload-version
   "The version of the `payload`, a number, or nil for a text that isn't a
@@ -324,15 +309,15 @@
          n    (if b (bytes/length b) 0)]
      (when (and (<= 99 n)
                 (= version (bytes/at b 0)))
-       (let [nonce  (bytes/copy b 1 33)
-             sealed (bytes/copy b 33 (- n 32))
-             mac    (bytes/copy b (- n 32) n)
+       (let [nonce  (bytes/slice b 1 33)
+             sealed (bytes/slice b 33 (- n 32))
+             mac    (bytes/slice b (- n 32) n)
              {:keys [cipher-key cipher-nonce check-key]}
              (message-keys conversation-key (bytes/hex nonce))]
          (when (bytes/same? (check check-key nonce sealed) mac)
            (let [opened (chacha20 cipher-key cipher-nonce sealed)]
              (when-let [text (unpadded opened)]
-               (bytes/decode text :utf8)))))))))
+               (bytes/decode text)))))))))
 
 (comment
   ;; the secret keys 1 and 2, and the public key of each
@@ -357,5 +342,5 @@
   ;; a new nonce for each payload
   (encrypt "a"
            (conversation-key ann (secp256k1/public-key bob))
-           (bytes/hex (bytes/generate! 32)))
+           (bytes/hex (webcrypto/random-bytes 32)))
   #_.)

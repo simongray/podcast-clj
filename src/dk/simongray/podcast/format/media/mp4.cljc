@@ -21,8 +21,8 @@
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn ^:no-doc box
   "The box whose header is at `p` in `view`, ending no later than `limit`,
@@ -797,6 +797,6 @@
   (report (read sample))
 
   ;; the first 40 bytes alone: the reading tells the range that it needs
-  (let [start (bytes/copy sample-bytes 0 40)]
+  (let [start (bytes/slice sample-bytes 0 40)]
     (view/reading #(read (view/add (view/view) 0 start nil))))
   #_.)

@@ -8,8 +8,8 @@
             [dk.simongray.podcast.test-support :refer [view]]
             [dk.simongray.podcast.test-support.media
              :refer [about= adts-frame audio-frame chap header-128k jpeg apic tag text]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (deftest adts-frames
   (is (= {:mpeg 4 :profile 1 :sample-rate 44100 :channels 2 :samples 1024 :length 371 :crc? false :vbr? true}
@@ -25,7 +25,7 @@
       (is (= [] (aac/report r)))))
   (testing "else estimated from its first frames and the size of the file"
     (let [b    (bytes/of (apply concat (repeat 1000 (adts-frame))))
-          part (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 200000) (bytes/length b))
+          part (view/add (view/view (bytes/length b)) 0 (bytes/slice b 0 200000) (bytes/length b))
           r    (aac/read part)]
       (is (about= (/ (* 1000 1024) 44100.0) (:duration r)))
       (is (= [:aac/estimated-duration] (map :id (aac/report r))))))

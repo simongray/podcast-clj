@@ -24,12 +24,13 @@
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.wary-fetch.proxy :as proxy]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.webcrypto.hash :as hash]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.ring-middlewares :as ring-middlewares]
@@ -39,7 +40,6 @@
             [io.pedestal.service.resources :as resources]
             [podcast-server.device :as device])
   (:import [java.io File]
-           [java.security MessageDigest]
            [java.util.concurrent Executors Semaphore TimeUnit])
   (:gen-class))
 
@@ -229,8 +229,8 @@
   time, so that the time of an answer tells nothing about the password.
   Either can be a hidden text."
   [password given]
-  (let [digest #(bytes/sha256 (bytes/encode (str (secret/reveal %))))]
-    (MessageDigest/isEqual ^bytes (digest password) ^bytes (digest given))))
+  (let [digest #(hash/digest :sha-256 (bytes/encode (str (secret/reveal %))))]
+    (bytes/same? (digest password) (digest given))))
 
 (defn- client-address
   "The address of the client of `request`: the one that the proxy in front

@@ -10,8 +10,8 @@
             [dk.simongray.podcast.test-support.media
              :refer [about= jpeg opus-file opus-head opus-packet opus-tags packets-page picture-comment
                      vorbis-file]]
-            [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.bytes.view :as view]))
+            [dk.simongray.podcast.util.bytes.view :as view]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (defn- ids
   "The ids of the report of `r`."
@@ -112,6 +112,6 @@
 (deftest reading-in-parts
   (testing "a view that lacks bytes gives the ranges that it needs: the pages, then the end of the file"
     (let [b    (bytes/of (opus-file :pages 400))
-          head (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 300) (bytes/length b))]
+          head (view/add (view/view (bytes/length b)) 0 (bytes/slice b 0 300) (bytes/length b))]
       (is (= [[(- (bytes/length b) ogg/max-page) (bytes/length b)]]
              (:need (view/reading #(ogg/read head))))))))

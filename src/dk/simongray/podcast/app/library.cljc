@@ -72,10 +72,10 @@
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]))
 
 (def default-config
   "The config of a library when none is given. The :list-seconds is how
@@ -1940,11 +1940,11 @@
       (reduce reindexed library (remove indexed feeds)))))
 
 (defn- read-map
-  "The map that the EDN of the :body of `document` holds, or nil when it
-  doesn't read as one."
-  [document]
+  "The map that the EDN of the :body of `document` holds, as text or as
+  the bytes of UTF-8, or nil when it doesn't read as one."
+  [{:keys [body] :as document}]
   (let [x (try
-            (edn/read-string (bytes/as (:body document) :text))
+            (edn/read-string (if (string? body) body (bytes/decode body)))
             (catch #?(:clj Throwable :cljs :default) _
               nil))]
     (when (map? x)
