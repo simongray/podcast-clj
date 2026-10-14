@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.crypto.secp256k1
+(ns dk.simongray.podcast.nostr.secp256k1
   "Schnorr signatures over the curve secp256k1, as BIP-340 defines them,
   on both platforms. Nostr signs each event with such a signature.
 

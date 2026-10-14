@@ -1018,7 +1018,7 @@
           [:h1 "Podping"]
           [:p.muted (str "The feeds that just announced a change on the Hive "
                          "blockchain, read by "
-                         "dk.simongray.podcast.updates.podping from the "
+                         "dk.simongray.podcast.podping from the "
                          "twenty blocks before the head, about a minute of "
                          "the chain, in one request. A poller keeps the block "
                          "it reached and asks for the blocks since; a ping "

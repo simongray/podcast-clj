@@ -1,9 +1,9 @@
-(ns dk.simongray.podcast.crypto.secp256k1-test
+(ns dk.simongray.podcast.nostr.secp256k1-test
   "Schnorr signatures by the test vectors of BIP-340, on both platforms."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture secret-key]]
             [dk.simongray.wary-fetch.secret :as secret]))
 

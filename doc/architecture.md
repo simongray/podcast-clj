@@ -10,10 +10,10 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds  app.media-session
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  gpodder  gpodder.*
+  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  podping  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  gpodder  gpodder.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.repair  feed.quirks
-  0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics
+  0  primitives   util.*  nostr  nostr.*  feed.guid  diagnostics
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -21,8 +21,7 @@ registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
 The `app` namespaces are the only ones that require the root namespace,
 because they call `fetch!`. The names show two of the layers: `app` holds
-the top layer and nothing else, and `util`, `crypto` and `nostr` are
-primitives. A test in `architecture_test.clj` reads the `ns` forms, and
+the top layer and nothing else, and `util` and `nostr` are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
 
@@ -386,7 +385,7 @@ works like a parsed one. Its own fields are under `:index/*`.
 
 Both tell an app that a feed has changed. With Podping, a host announces it
 through podping.cloud, which writes it to the Hive blockchain, and anyone
-can read the chain. `updates.podping` builds the JSON-RPC calls as request
+can read the chain. `podping` builds the JSON-RPC calls as request
 maps and reads the pings from the blocks. Anyone can write to the chain, so
 `writers` reads the accounts that the `podping` account follows, and
 `poll!` keeps only their pings. A poller repeats `poll!` as it repeats
@@ -460,10 +459,11 @@ the character, and a JSON writer escapes more than NIP-01 allows, so
 `event-id` writes that text itself.
 
 Neither the JDK nor the Web Crypto API has the curve secp256k1 or the cipher
-ChaCha20. So `crypto.secp256k1` (the Schnorr signatures of BIP-340) and
-`crypto.chacha20` (RFC 8439) implement them in Clojure, and they pass the
-test vectors of their specs on both platforms. The NIP-44 encryption of
-wallet commands builds on them.
+ChaCha20. So `nostr.secp256k1` (the Schnorr signatures of BIP-340) and
+the ChaCha20 (RFC 8439) of `nostr.nip44` implement them in Clojure, and
+they pass the test vectors of their specs on both platforms. The NIP-44
+encryption of wallet commands builds on them, and they're under `nostr`
+since nothing else needs them.
 
 A relay speaks over a WebSocket, and `nostr/send!` is one exchange: open,
 ask, read until the relay has no more, close. So a request to a relay is a

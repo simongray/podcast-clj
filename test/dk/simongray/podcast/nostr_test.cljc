@@ -5,8 +5,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed #?(:clj with-relay)]]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]

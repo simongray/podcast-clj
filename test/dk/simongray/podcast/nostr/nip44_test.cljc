@@ -1,15 +1,19 @@
-(ns dk.simongray.podcast.crypto.nip44-test
-  "The encrypted payloads of NIP-44 by the test vectors of its authors, on
-  both platforms."
+(ns dk.simongray.podcast.nostr.nip44-test
+  "The encrypted payloads of NIP-44 by the test vectors of its authors, and
+  its ChaCha20 by the examples of RFC 8439, on both platforms, and on the
+  JVM against the cipher of the JDK."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.crypto.nip44 :as nip44]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.nostr.nip44 :as nip44]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.wary-fetch.secret :as secret]))
+            [dk.simongray.wary-fetch.secret :as secret])
+  #?(:clj (:import [java.util Arrays]
+                   [javax.crypto Cipher]
+                   [javax.crypto.spec ChaCha20ParameterSpec SecretKeySpec])))
 
 (def vectors
   "A part of the test vectors of NIP-44, version 2. The file tells where
@@ -116,3 +120,62 @@
     (is (nil? (nip44/encrypt "abc" key nonce {:max-bytes 2})))
     (doseq [[k n] [["abc" nonce] [key "abc"] [nil nonce] [key nil]]]
       (is (thrown? #?(:clj Throwable :cljs js/Error) (nip44/encrypt "a" k n)) (pr-str [k n])))))
+
+;; ChaCha20
+
+(def sample-key
+  "The key of the examples of RFC 8439: the bytes 0 to 31."
+  (bytes/of (range 32)))
+
+(def sunscreen
+  "The text of the example of section 2.4.2 of RFC 8439."
+  "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.")
+
+(deftest the-examples-of-rfc-8439
+  (testing "the block of section 2.3.2"
+    (is (= (str "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e"
+                "d2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e")
+           (bytes/hex (bytes/of (nip44/chacha20-block sample-key (bytes/from-hex "000000090000004a00000000") 1))))))
+  (testing "the text of section 2.4.2, whose stream starts at the block 1"
+    (let [nonce  (bytes/from-hex "000000000000004a00000000")
+          sealed (nip44/chacha20 sample-key nonce (bytes/encode sunscreen) {:counter 1})]
+      (is (= (str "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0b"
+                  "f91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d8"
+                  "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
+                  "5af90bbf74a35be6b40b8eedf2785e42874d")
+             (bytes/hex sealed)))
+      (is (= sunscreen (bytes/decode (nip44/chacha20 sample-key nonce sealed {:counter 1}) 0 (bytes/length sealed) :utf8))
+          "the cipher is its own inverse")
+      (is (not= (bytes/hex sealed) (bytes/hex (nip44/chacha20 sample-key nonce (bytes/encode sunscreen))))
+          "the stream starts at the block 0, unless the options tell another"))))
+
+(deftest texts-of-each-length
+  (let [nonce (bytes/from-hex "000000000000004a00000000")]
+    (doseq [n [0 1 63 64 65 128 300]]
+      (let [text   (bytes/of (map #(mod (* 7 %) 256) (range n)))
+            sealed (nip44/chacha20 sample-key nonce text)]
+        (is (= n (bytes/length sealed)) n)
+        (is (= (bytes/hex text) (bytes/hex (nip44/chacha20 sample-key nonce sealed))) n)))
+    (is (= (bytes/hex (bytes/copy (nip44/chacha20 sample-key nonce (bytes/of (repeat 130 0))) 64 128))
+           (bytes/hex (nip44/chacha20 sample-key nonce (bytes/of (repeat 64 0)) {:counter 1})))
+        "the second block of a stream is the first block of the stream that starts at 1")))
+
+(deftest a-key-and-a-nonce-of-another-size
+  (let [nonce (bytes/from-hex "000000000000004a00000000")]
+    (is (thrown? #?(:clj Throwable :cljs js/Error) (nip44/chacha20 (bytes/of (range 16)) nonce (bytes/of [1]))))
+    (is (thrown? #?(:clj Throwable :cljs js/Error) (nip44/chacha20 sample-key (bytes/of (range 8)) (bytes/of [1]))))))
+
+#?(:clj
+   (deftest the-cipher-of-the-jdk
+     (let [jdk (fn [^bytes key ^bytes nonce counter ^bytes data]
+                 (.doFinal (doto (Cipher/getInstance "ChaCha20")
+                             (.init Cipher/ENCRYPT_MODE (SecretKeySpec. key "ChaCha20") (ChaCha20ParameterSpec. nonce (int counter))))
+                           data))]
+       (doseq [i (range 60)]
+         (let [key     (bytes/generate! 32)
+               nonce   (bytes/generate! 12)
+               data    (bytes/generate! (* 11 i))
+               counter (* 1000 i)]
+           (is (Arrays/equals ^bytes (jdk key nonce counter data)
+                              ^bytes (nip44/chacha20 key nonce data {:counter counter}))
+               (str "a text of " (* 11 i) " bytes")))))))

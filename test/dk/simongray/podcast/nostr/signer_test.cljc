@@ -4,9 +4,9 @@
   relays."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is]]
-            [dk.simongray.podcast.crypto.nip44 :as nip44]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.nip44 :as nip44]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.test-support :refer [run secret-key]]
             [dk.simongray.podcast.util.bytes :as bytes]

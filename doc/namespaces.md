@@ -12,13 +12,13 @@ Every namespace of podcast-clj is under the root namespace,
 - **One part of podcasting each.** The other namespaces each cover one
   part, such as the feed model in `feed`, the listener's profile in
   `profile` and payments in `value`. Many of them are named for the
-  standard they implement, e.g. `format.opml`, `updates.podping` or
+  standard they implement, e.g. `format.opml`, `podping` or
   `value.nwc`. Use them when you need one part, or more control than the
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
-- **Not specific to podcasts.** The `util` and `crypto` namespaces and
-  `nostr` hold general tools, e.g. JSON, dates, and the Nostr protocol and
-  its cryptography.
+- **Not specific to podcasts.** The `util` and `nostr` namespaces hold
+  general tools, e.g. JSON, dates, and the Nostr protocol and its
+  cryptography.
 
 The `app` namespaces are built from all the others, and nothing outside
 `app` requires them, so you can use any other namespace without them.
@@ -127,7 +127,7 @@ and any of them encrypted.
 | `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. Both `search!` and `fetch-chart!` ask them all at once, `call!` asks one for the episodes of a show, by a person, recent or live, and `identify!` finds the ids of a show known by its feed. |
 | `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model, and `fetch-remote-item!` and `fetch-remote-value!`, which resolve remote items. |
 | `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
-| `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
+| `podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
 
 ## Formats
 
@@ -199,6 +199,5 @@ and any of them encrypted.
 |---|---|
 | `nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
 | `nostr.signer` | Signers of the listener's events: `local` over a key that the app holds, `nip07` over a browser extension, and `remote` over a remote signer of NIP-46, with `sign!`, which checks what a signer signed. |
-| `crypto.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
-| `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
-| `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |
+| `nostr.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
+| `nostr.nip44` | The encrypted payloads of NIP-44, version 2, with the ChaCha20 stream cipher of RFC 8439 that they need. |

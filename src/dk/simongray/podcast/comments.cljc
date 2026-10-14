@@ -67,12 +67,12 @@
 
 ;; TODO: Consider a library of comments for blogs and other sites: this
 ;; namespace and comments.*, with the parts of Nostr that reading threads
-;; needs (nostr, crypto.secp256k1 and util.bech32). The podcast glue would
+;; needs (nostr, nostr.secp256k1 and util.bech32). The podcast glue would
 ;; stay here: the thread of podcast:socialInteract and the ids of NIP-73 for
 ;; podcasts. What stands in the way today:
-;; - value.nwc uses nostr and crypto.secp256k1 too, and value.bolt11 uses
+;; - value.nwc uses nostr and nostr.secp256k1 too, and value.bolt11 uses
 ;;   util.bech32, so the payments would require them from a library of
-;;   comments, while crypto.nip44 and crypto.chacha20 stay here.
+;;   comments, while nostr.nip44 stays here.
 ;; - The :comments/* diagnostics get their messages from
 ;;   diagnostics/describe, so the library would need its own.
 ;; - util.client, util.json, util.time and util.bytes would become its own

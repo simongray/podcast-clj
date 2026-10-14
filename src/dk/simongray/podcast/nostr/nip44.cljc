@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.crypto.nip44
+(ns dk.simongray.podcast.nostr.nip44
   "NIP-44, the encrypted payloads of Nostr, in its version 2, on both
   platforms. Nostr Wallet Connect sends its requests and its answers in
   such payloads.
@@ -7,15 +7,15 @@
   between them is encrypted. A payload is base64 text: a version, a
   nonce, the encrypted text and a check of the two.
 
-  The text is encrypted with ChaCha20 (RFC 8439), and the check is an
-  HMAC with SHA-256 (RFC 2104). The keys of one payload come from the
-  conversation key and the nonce by HKDF (RFC 5869). The text gets
-  padding, so that the payload tells little of its length.
+  The text is encrypted with ChaCha20 (RFC 8439), which is here since the
+  Web Crypto API of the browsers lacks it, and the check is an HMAC with
+  SHA-256 (RFC 2104). The keys of one payload come from the conversation
+  key and the nonce by HKDF (RFC 5869). The text gets padding, so that the
+  payload tells little of its length.
 
   NIP-44 asks that a payload is in a signed event, and that a reader
   checks the signature before it reads the payload."
-  (:require [dk.simongray.podcast.crypto.chacha20 :as chacha20]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+  (:require [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.wary-fetch.secret :as secret]))
 
@@ -166,6 +166,97 @@
   [key nonce sealed]
   (bytes/hmac :sha256 key (bytes/join [nonce sealed])))
 
+;; ChaCha20, the stream cipher of RFC 8439. A word is a number of 32 bits
+;; without a sign. The cipher keeps a text secret, but doesn't tell when
+;; somebody changed it, which is what the check above is for.
+
+(def ^:no-doc chacha20-constants
+  "The four words that start the state of ChaCha20: the text \"expand
+  32-byte k\", as section 2.3 of RFC 8439 gives it."
+  [0x61707865 0x3320646e 0x79622d32 0x6b206574])
+
+(def ^:no-doc chacha20-rounds
+  "The places of the words of each quarter round of a double round, as
+  section 2.3 of RFC 8439 gives them: the four columns of the state, and
+  then its four diagonals."
+  [[0 4 8 12] [1 5 9 13] [2 6 10 14] [3 7 11 15]
+   [0 5 10 15] [1 6 11 12] [2 7 8 13] [3 4 9 14]])
+
+(defn- word
+  "The 32 lowest bits of the number `x`, as a number without a sign."
+  [x]
+  #?(:clj  (bit-and (long x) 0xffffffff)
+     :cljs (unsigned-bit-shift-right x 0)))
+
+(defn- rotated
+  "The word `x` with its bits moved `n` places to the left, and around
+  its end."
+  [x n]
+  (word (bit-or (bit-shift-left x n) (unsigned-bit-shift-right x (- 32 n)))))
+
+(defn- quarter
+  "The state `s`, a vector of 16 words, after a quarter round on the words
+  at the places `a`, `b`, `c` and `d`. Section 2.1 of RFC 8439 defines
+  the quarter round."
+  [s [a b c d]]
+  (let [mixed (fn [s x y z n]
+                (let [sum (word (+ (s x) (s y)))]
+                  (assoc s x sum z (rotated (bit-xor (s z) sum) n))))]
+    (-> s
+        (mixed a b d 16)
+        (mixed c d b 12)
+        (mixed a b d 8)
+        (mixed c d b 7))))
+
+(defn- words
+  "The words of the bytes `b`, four bytes to a word, the lowest byte
+  first."
+  [b]
+  (for [i (range 0 (bytes/length b) 4)]
+    (+ (bytes/at b i)
+       (* 0x100 (bytes/at b (+ i 1)))
+       (* 0x10000 (bytes/at b (+ i 2)))
+       (* 0x1000000 (bytes/at b (+ i 3))))))
+
+(defn ^:no-doc chacha20-block
+  "The 64 bytes of the stream of ChaCha20 that the block `counter` gives,
+  under the bytes `key` and `nonce`, as numbers. Section 2.3 of RFC 8439
+  defines the block function, with 20 rounds."
+  [key nonce counter]
+  (let [state (vec (concat chacha20-constants
+                           (words key)
+                           [(word counter)]
+                           (words nonce)))
+        mixed (nth (iterate #(reduce quarter % chacha20-rounds) state) 10)]
+    (for [w (map #(word (+ %1 %2)) mixed state)
+          i (range 4)]
+      (bit-and (unsigned-bit-shift-right w (* 8 i)) 0xff))))
+
+(defn ^:no-doc chacha20
+  "The bytes `data` under the bytes `key` and `nonce` by ChaCha20, with
+  `opts`, as bytes of the same number. Encrypting the result gives `data`
+  again.
+
+  The `key` has 32 bytes, and the `nonce` has 12 bytes, which no other
+  text under the key has. Section 2.4 of RFC 8439 defines the algorithm.
+  The :counter of `opts` is the number of the first block of the stream,
+  0 by default. The AEAD of RFC 8439 starts its text at 1."
+  ([key nonce data]
+   (chacha20 key nonce data {}))
+  ([key nonce data {:keys [counter] :or {counter 0} :as opts}]
+   {:pre [(map? opts)]}
+   (when-not (= 32 (bytes/length key))
+     (throw (ex-info "The key doesn't have 32 bytes"
+                     {:bytes (bytes/length key)})))
+   (when-not (= 12 (bytes/length nonce))
+     (throw (ex-info "The nonce doesn't have 12 bytes"
+                     {:bytes (bytes/length nonce)})))
+   (let [stream (mapcat #(chacha20-block key nonce (+ counter %)) (range))
+         xored  (map #(bit-xor (bytes/at data %1) %2)
+                     (range (bytes/length data))
+                     stream)]
+     (bytes/of xored))))
+
 (defn encrypt
   "The payload of the text `plaintext` under `conversation-key`, with
   `nonce` and `opts`. The key and the nonce are hexadecimal text of 32
@@ -189,7 +280,7 @@
              (message-keys conversation-key nonce)
 
              nonce  (bytes/from-hex nonce)
-             sealed (chacha20/encrypt cipher-key cipher-nonce (padded text))
+             sealed (chacha20 cipher-key cipher-nonce (padded text))
              parts  [(bytes/of [version])
                      nonce
                      sealed
@@ -239,7 +330,7 @@
              {:keys [cipher-key cipher-nonce check-key]}
              (message-keys conversation-key (bytes/hex nonce))]
          (when (bytes/same? (check check-key nonce sealed) mac)
-           (let [opened (chacha20/encrypt cipher-key cipher-nonce sealed)]
+           (let [opened (chacha20 cipher-key cipher-nonce sealed)]
              (when-let [text (unpadded opened)]
                (bytes/decode text :utf8)))))))))
 

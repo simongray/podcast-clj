@@ -35,7 +35,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.schedule :as schedule]
-            [dk.simongray.podcast.updates.podping :as podping]
+            [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]
             [dk.simongray.wary-fetch :as http]

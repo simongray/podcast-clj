@@ -71,7 +71,7 @@ These principles guide the design of podcast-clj, its API and its code.
 ## Code
 
 - **Layers without cycles.** A namespace only requires namespaces in its
-  own [layer](architecture.md#layers) or below, e.g. `util` and `crypto`
+  own [layer](architecture.md#layers) or below, e.g. `util` and `nostr`
   are at the bottom and know nothing about podcasts. A test enforces it.
 - **Cite the spec.** Where code implements a standard, a short comment or
   the docstring names the spec and its section.

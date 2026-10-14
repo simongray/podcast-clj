@@ -6,7 +6,7 @@
   as a relay gives it. Show no event whose id and signature aren't
   verified, since a relay can send anything."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
             #?(:clj [dk.simongray.podcast.util.client :as client])

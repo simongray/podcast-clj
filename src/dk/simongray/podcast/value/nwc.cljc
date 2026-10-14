@@ -17,10 +17,10 @@
   wallet names the commands that it takes in its info event."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.crypto.nip44 :as nip44]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.nip44 :as nip44]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]

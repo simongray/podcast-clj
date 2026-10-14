@@ -15,10 +15,10 @@
   A secret key is a hidden text of dk.simongray.wary-fetch.secret, so it
   doesn't show in a log or at a REPL."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.crypto.nip44 :as nip44]
-            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.nip44 :as nip44]
+            [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]

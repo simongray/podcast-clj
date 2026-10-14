@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.updates.podping
+(ns dk.simongray.podcast.podping
   "Podping: word that a feed has changed, which hosts write to the Hive
   blockchain and anyone can read. A client then fetches the feed that
   changed instead of polling every feed on a schedule.

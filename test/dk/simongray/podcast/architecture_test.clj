@@ -18,13 +18,13 @@
   and the high level under app, the only namespaces that require the root
   namespace."
   {"diagnostics" 0 "feed.guid" 0 "nostr" 0 "nostr.signer" 0
+   "nostr.nip44" 0 "nostr.secp256k1" 0
    "util.bech32" 0 "util.bytes" 0 "util.bytes.view" 0 "util.bytes.ranges" 0
    "util.client" 0
    "util.json" 0 "util.ring" 0
    "util.time" 0
    "util.time.rrule" 0
    "util.entities" 0 "util.names" 0 "testing" 0
-   "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "feed.spec" 1 "feed.repair" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "feed.resolve" 3 "feed.schedule" 3 "feed.check" 3 "feed.check.facts" 3 "feed.check.rules" 3
@@ -39,7 +39,7 @@
    "profile.player" 3 "profile.payments" 3 "criteria" 3 "downloads" 3
    "gpodder" 3 "gpodder.api" 3 "gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
-   "updates.podping" 3
+   "podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "comments.nostr" 3
    "analytics" 3 "analytics.logs" 3 "analytics.op3" 3
@@ -122,8 +122,8 @@
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)
-          :when (re-find #"^(util|crypto)\.|^nostr$" ns)]
-    (is (zero? (get layers ns -1)) (str ns " is under util or crypto, or is nostr, so it is a primitive"))))
+          :when (re-find #"^util\.|^nostr(\.|$)" ns)]
+    (is (zero? (get layers ns -1)) (str ns " is nostr or under util or nostr, so it is a primitive"))))
 
 (deftest a-name-shows-the-high-level
   (doseq [ns (keys @graph)]

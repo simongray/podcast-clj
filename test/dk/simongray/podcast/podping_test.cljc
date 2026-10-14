@@ -1,12 +1,12 @@
-(ns dk.simongray.podcast.updates.podping-test
+(ns dk.simongray.podcast.podping-test
   "The podping consumer: the calls to a Hive node, the pings read out of
   blocks, the writers, the URLs a ping concerns, the fallback across
   nodes, and on the JVM the poll."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]))
