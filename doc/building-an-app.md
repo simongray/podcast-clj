@@ -98,11 +98,10 @@ podcast-clj. It depends on them, so they come with it:
   e.g. `podping/poll!`, and [Namespaces](namespaces.md) says which.
 - **In a browser**, the requests go through a proxy on your server, as the
   next section shows, and the rest runs in the page.
-- **In Node**, install a `DOMParser`, e.g. that of `@xmldom/xmldom` as
-  `globalThis.DOMParser`. The folder store needs Node 20.16 or 22.3 and
-  later, and Nostr comments and wallets need the global `WebSocket` of
-  Node 22. A web worker has no `DOMParser` either, so install one there
-  too.
+- **In Node** 20.16 or 22.3 and later, install a `DOMParser`, e.g. that
+  of `@xmldom/xmldom` as `globalThis.DOMParser`. Nostr comments and
+  wallets need the global `WebSocket` of Node 22. A web worker has no
+  `DOMParser` either, so install one there too.
 - **On a server of your own**, run the proxy of a web page, the callbacks
   of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
 - **In a desktop app on Electron**, the main process is Node and the
@@ -110,14 +109,14 @@ podcast-clj. It depends on them, so they come with it:
   browser. Rather than a proxy, give the `:send` of wary-fetch's
   `electron/sender`, which sends through the main process, or of
   `capacitor/sender`, which sends through the native HTTP of Capacitor.
-- **In React Native**, give the stores of like-minded's `store.kv` and
-  `store.folder` the functions of your key-value store and file system,
-  e.g. MMKV and expo-file-system, since there's no IndexedDB or folder
-  of its own.
+- **In React Native**, install a `DOMParser` as in Node. Give the stores
+  of like-minded's `store.kv` and `store.folder` the functions of your
+  key-value store and file system, e.g. MMKV and expo-file-system, since
+  there's no IndexedDB or folder of its own. The requests need no proxy.
 
 In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
-it with `:deps true`. A browser needs no npm packages, and Node and web
-workers only the `DOMParser` above.
+it with `:deps true`. A browser needs no npm packages, and Node, web
+workers and React Native only the `DOMParser` above.
 
 A few feeds aren't well-formed XML even after the repairs that
 podcast-clj makes, e.g. with a tag that's never closed. On the JVM, jsoup
