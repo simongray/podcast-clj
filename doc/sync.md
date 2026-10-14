@@ -1,7 +1,7 @@
 # Syncing
 
 This page explains how a listener's devices stay in step, and why it's
-safe. The sync and the stores are those of
+safe. The sync and the stores come from
 [like-minded](https://github.com/simongray/like-minded), whose
 [reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md)
 explains the backends, the strategies and the documents. This page is
@@ -31,14 +31,13 @@ The merge gives the same result in any order, any number of times, which
 a generative test checks. In CRDT terms, it's commutative, associative and
 idempotent, so it's a join, and the profile is a CRDT. Nobody has to
 resolve a conflict, so the place that the devices sync through only has
-to store documents. By default, each device writes a document of its own
-into a folder that a sync client such as Dropbox mirrors, or into a
-WebDAV collection, which like-minded reaches through
-[webdav-clj](https://github.com/simongray/webdav-clj), and reads the
-documents of the others. A saved library
-goes into the same kind of store, so an app needs only one. A gpodder
-server is different, since it merges on the server, as [The gpodder
-API](#the-gpodder-api) explains.
+to store documents. Each device writes a document of its own, e.g. into a
+folder that a sync client such as Dropbox mirrors, or into a WebDAV
+collection through [webdav-clj](https://github.com/simongray/webdav-clj),
+and reads the documents of the others. A saved library goes into the same
+kind of store, so an app needs only one. A gpodder server is different,
+since it merges on the server, as [The gpodder API](#the-gpodder-api)
+explains.
 
 
 ## The documents
@@ -144,8 +143,8 @@ than by day keeps the document small.
 The preferences have one entry per field, and the settings of a
 subscription are one entry that mind-meld merges field by field, so a skip
 amount changed on one device and a playback rate changed on another both
-survive. The settings of a subscription are kept apart from
-it, so they survive an unsubscription. The folder is one of these settings,
+survive. The settings of a subscription are kept apart from it, so they
+survive an unsubscription. The folder is one of these settings,
 so a show that two devices move at the same time ends up in the later
 folder, never in two. Likewise, an episode's position and its played mark
 are separate entries, so a position from a device that hasn't seen the mark
@@ -286,10 +285,11 @@ dynamic ad insertion gives a new media URL for every request. The profile
 names them by guid, so the backend maps between the two.
 
 A show is found by its URL among the subscriptions, whatever the scheme,
-case and trailing slashes, then by the key that the library keeps its feed
-under, and then by the guid derived from the URL. An episode is found by the guid of its
-item, which AntennaPod, Kasts and the Nextcloud app send with each action,
-and otherwise by its media URL in your parsed feeds, through `identities`.
+case and trailing slashes, then by the key that the library keeps its
+feed under, and then by the guid derived from the URL. An episode is
+found by the guid of its item, which AntennaPod, Kasts and the Nextcloud
+app send with each action, and otherwise by its media URL in your parsed
+feeds, through `identities`.
 An action for a feed that isn't fetched yet waits in the cursor until the
 next pull.
 

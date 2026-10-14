@@ -37,7 +37,7 @@ are relative to `dk.simongray.podcast`.
 | The limits of a gpodder server | `gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
-| The categories of Apple Podcasts, which `validate` checks those of a podcast by | `feed.spec/categories` and `feed.spec/renamed-categories` | `:categories` and `:renamed-categories` | the [categories below](#the-categories-of-apple-podcasts) |
+| The categories of Apple Podcasts, which the validator checks a podcast's against | `feed.spec/categories` and `feed.spec/renamed-categories` | `:categories` and `:renamed-categories` | the [categories below](#the-categories-of-apple-podcasts) |
 | The requirements of a directory for artwork and media files | `feed.check.rules/requirements` | `:requirements`, as a name or a map | none |
 | The folder that an app writes around a whole OPML list | `profile.opml/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
@@ -142,6 +142,7 @@ path of a URL, whose one group is the id.
 | `/@USER/ID` | Mastodon |
 | `/@USER/statuses/ID` | GoToSocial |
 | `/users/USER/statuses/ID` | The ActivityPub id of a status of Mastodon and GoToSocial |
+| `/ap/users/ACCOUNT/statuses/ID` | The numeric ActivityPub id of a status on newer Mastodon servers, e.g. infosec.exchange on 14 October 2026 |
 | `/notice/ID` | Pleroma and Akkoma |
 
 
@@ -315,22 +316,23 @@ the table gives the rules of each app as its help pages described them on
 
 | App | The rule of the app | In `downloads` |
 |---|---|---|
-| [Apple Podcasts](https://support.apple.com/en-us/102243) | Automatic downloads of a number of episodes, or of the episodes of a time | `:limit` and `:age` of `:episodes` |
+| [Apple Podcasts](https://support.apple.com/en-us/102243) | Automatic downloads of a number of episodes, or of the episodes of a time | `:limit` of `:episodes`, or `:age` in its `:where` |
 | Apple Podcasts | No automatic downloads for one show | `:download?` of the rule of the show |
 | Apple Podcasts | A played episode goes 24 hours after it's played | `:played` |
 | [Pocket Casts](https://support.pocketcasts.com/knowledge-base/archiving-episodes/) | A played episode goes when it's played, or some time later | `:played` |
 | Pocket Casts | An episode goes when the listener hasn't played or downloaded it for some time | `:inactive` |
 | Pocket Casts | Starred episodes stay, if the listener wants | `:keep` |
 | Pocket Casts | A show keeps its newest 1, 2, 5 or 10 episodes | `:limit` of `:episodes`, with `:trim?` |
-| [AntennaPod](https://antennapod.org/documentation/automation/automatic-downloads) | Automatic downloads of the episodes in the inbox, for each show | `:download?`, and `:inbox?` of `:episodes` |
-| AntennaPod | A filter for a show: a minimum length, and words to include or exclude | `:duration`, `:text` and `:not` of `:episodes` |
+| [AntennaPod](https://antennapod.org/documentation/automation/automatic-downloads) | Automatic downloads of the episodes in the inbox, for each show | `:download?`, and `:inbox?` in the `:where` of `:episodes` |
+| AntennaPod | A filter for a show: a minimum length, and words to include or exclude | `:duration`, `:text` and `:not` in the `:where` of `:episodes` |
 | AntennaPod | 50 episodes at most, unless the listener sets another number | `:max-episodes` |
 | [AntennaPod](https://antennapod.org/documentation/automation/deletion) | A file goes when its episode is played | `:played` of 0 |
 | AntennaPod | Old files go when a download needs room, except those in the queue and the favourites | `:make-room?`, and `:keep` |
 
 The defaults are in `downloads/default-rule` and
-`downloads/default-rules`, and they download and delete nothing until
-the listener sets a rule.
+`downloads/default-rules`. Until the listener sets a rule, they download
+nothing, and only delete the files of a show that the listener
+unsubscribed from.
 
 
 ## The folder around an OPML list

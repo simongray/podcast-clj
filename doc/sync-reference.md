@@ -54,19 +54,19 @@ profile of its device as its `:state`.
 
 ## A sync of a library
 
-A sync of a library keeps the step under `:sync`, without the `:state`,
+A sync of a library keeps the step under `:sync`, without its `:state`,
 which went into the profile, and with the `:at`, `:clock` and `:failures`
-that `library/next-sync` reads. Put it into the library as it is by then
-with
-`library/merge`, which merges the profiles with `profile/merge`, and then
-compacts with `profile/compact`, since the merge brings back the
-tombstones that the step dropped. The `:compact` option of a sync is
-false to keep every tombstone, or the options of `profile/compact`.
+that `library/next-sync` reads. Merge the result into the library as it
+is by then with `library/merge`. It merges the profiles with
+`profile/merge` and then compacts with `profile/compact`, since the merge
+brings back the tombstones that the step dropped. The `:compact` option of
+a sync is false to keep every tombstone, or else the options of
+`profile/compact`.
 
 
 ## The gpodder backend
 
-The backend of `gpodder` speaks the gpodder API on both
+The backend that `gpodder/backend` makes speaks the gpodder API on both
 platforms, and takes these options:
 
 | Option | Meaning | Default |
@@ -80,7 +80,8 @@ platforms, and takes these options:
 | `:name` | The name of the backend | the domain of the server |
 | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |
 | `:timeout-seconds` | How long each request can take | 30 |
-| `:send` | A function that sends a request map, in place of `http/send!` | `http/send!` |
+| `:user-agent` | The User-Agent of each request | that of podcast-clj |
+| `:send` | A function that sends a request map, in place of `client/send!` | `client/send!` |
 
 What crosses, in each direction:
 
