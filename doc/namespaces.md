@@ -47,6 +47,8 @@ Libraries in repositories of their own do some of the work:
   media files, and writes them too
 - [webvtt-clj](https://github.com/simongray/webvtt-clj) reads and writes
   WebVTT transcripts, as a browser reads them
+- [ical-clj](https://github.com/simongray/ical-clj) parses the recurrence
+  rules of podcast:updateFrequency and works out when they recur
 
 The tables below follow the order of the three kinds. Names in them are
 relative to the root, and everything runs on the JVM and in ClojureScript
@@ -194,7 +196,6 @@ key-value store, memory, and an encrypted form of any of them.
 |---|---|
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
-| `util.time.rrule` | RFC 5545 recurrence rules. |
 | `util.client` | The User-Agent of podcast-clj, and `send!`, the `:send` of every function that sends unless you give another. |
 | `util.ring` | The Ring requests that the handlers answer, and their responses: `body-bytes` and `body-text` read their bodies within a limit, `credentials` reads their Authorization header, `not-modified?` their conditions and `addressed-to?` their Host header, and `response` and `text-response` make the responses. |
 | `util.bytes.view` | Views of files whose bytes come in parts, which a reader of media files or images reads. |

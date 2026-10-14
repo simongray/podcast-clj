@@ -133,8 +133,9 @@
                    "written in UTC")]
    ["duration" (str "seconds as a number, read from seconds or from clock "
                     "notation, written as seconds")]
-   ["rrule" (str "an RFC 5545 recurrence rule, a map of its parts in the "
-                 "model, written with the parts in the order of the RFC")]
+   ["rrule" (str "an RFC 5545 recurrence rule, in the model a map of its "
+                 "parts as ical-clj parses it, e.g. `{:freq \"WEEKLY\" "
+                 ":byday [\"MO\"]}`")]
    ["geo" (str "a geo URI, in the model a map of `:lat`, `:lon`, and "
                "optionally `:altitude` and `:uncertainty`")]
    ["osm" (str "an OpenStreetMap reference such as R113314#4, in the model a "

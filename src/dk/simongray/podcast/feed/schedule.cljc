@@ -5,9 +5,10 @@
   its syndication period, or else the dates of its recent items, and a
   feed that says it's complete changes no more."
   (:require [clojure.string :as str]
+            [dk.simongray.ical.rrule :as rrule]
+            [dk.simongray.ical.tz :as tz]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.time.rrule :as rrule]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn- dates
   "The instants of the items of `feed` dated no later than `at-ms`, newest
@@ -23,6 +24,27 @@
        (remove #(> % at-ms))
        (sort >)))
 
+(def ^:no-doc utc
+  "The zone that the rules of podcast:updateFrequency are evaluated in,
+  since the model keeps their dtstart as an instant."
+  (tz/zone "UTC"))
+
+(def ^:no-doc max-occurrences
+  "The most occurrences of a rule that next-episode reads: a century of
+  daily episodes, so that a rule of every second from long ago can't hold
+  up a refresh."
+  36525)
+
+(defn- occurrences-after
+  "The first occurrence after `at` of the recurrence `rule` that starts at
+  `start`, or nil when it has none among the first max-occurrences."
+  [rule start at]
+  (->> (rrule/occurrences rule (tz/local utc start) utc)
+       (take max-occurrences)
+       (map #(tz/instant utc %))
+       (drop-while #(<= (inst-ms %) (inst-ms at)))
+       first))
+
 (defn next-episode
   "When `feed` says that its next episode is due after `at`.
 
@@ -30,16 +52,16 @@
   podcast:updateFrequency, on the days of UTC. The rule is anchored at its
   dtstart, or else at the date of the latest item published by then, or
   else at `at`. It's nil when the feed is complete, has no rule, or has
-  one that the library doesn't evaluate."
+  one that breaks RFC 5545 or runs out."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
         latest (some-> (first (dates feed (inst-ms at))) time/->inst)
         anchor (or (when (inst? dtstart) dtstart)
                    latest
                    at)]
-    (when (and (map? rrule)
+    (when (and (rrule/valid? rrule)
                (not (resolve/complete? feed)))
-      (rrule/next-occurrence rrule anchor at))))
+      (occurrences-after rrule anchor at))))
 
 (def ^:no-doc syndication-periods
   "The milliseconds of each period that sy:updatePeriod can name."

@@ -12,25 +12,35 @@
   a parsed feed against them tells you where a value was kept as a
   string. Enumerations stay strings, since feeds vary their case."
   (:require [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.names :as names]
-            [dk.simongray.podcast.util.time.rrule :as time.rrule]))
+            [dk.simongray.podcast.util.names :as names]))
 
+(def ^:no-doc rrule-examples
+  "The recurrence rules that the schema of a rule generates. A map schema
+  can't say which parts may go together, e.g. not COUNT with UNTIL."
+  [{:freq "WEEKLY" :byday ["MO" "WE"]}
+   {:freq "WEEKLY" :interval 2 :wkst "SU"}
+   {:freq "MONTHLY" :byday ["-1FR"] :until "2026-12-31T00:00:00Z"}
+   {:freq "MONTHLY" :bymonthday [1 15]}
+   {:freq "DAILY" :count 10}
+   {:freq "YEARLY" :bymonth [12] :bymonthday [24]}])
+
+;; RFC 5545, section 3.3.10, as ical-clj parses it
 (def ^:no-doc rrule
-  "The Malli schema of a parsed recurrence rule, from the tables of the
-  parser."
-  (let [weekdays time.rrule/weekday-codes
-        byday    [:re {:gen/elements (conj weekdays "1MO" "-1FR")}
-                  time.rrule/byday-pattern]
+  "The Malli schema of a parsed recurrence rule."
+  (let [weekdays ["SU" "MO" "TU" "WE" "TH" "FR" "SA"]
+        byday    [:re #"^(-?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$"]
+        until    [:re #"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$"]
         monthday [:or [:int {:min 1 :max 31}] [:int {:min -31 :max -1}]]
         month    [:int {:min 1 :max 12}]]
-    [:map
-     [:freq (into [:enum] (sort time.rrule/freq-values))]
+    [:map {:gen/elements rrule-examples}
+     [:freq [:enum "SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY"
+             "YEARLY"]]
      [:interval {:optional true} 'pos-int?]
      [:count {:optional true} 'pos-int?]
-     [:until {:optional true} 'inst?]
-     [:byday {:optional true} [:vector {:gen/max 3} byday]]
-     [:bymonthday {:optional true} [:vector {:gen/max 3} monthday]]
-     [:bymonth {:optional true} [:vector {:gen/max 3} month]]
+     [:until {:optional true} until]
+     [:byday {:optional true} [:vector byday]]
+     [:bymonthday {:optional true} [:vector monthday]]
+     [:bymonth {:optional true} [:vector month]]
      [:wkst {:optional true} (into [:enum] weekdays)]]))
 
 (def types

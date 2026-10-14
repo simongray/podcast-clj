@@ -23,7 +23,6 @@
    "util.client" 0
    "util.json" 0 "util.ring" 0
    "util.time" 0
-   "util.time.rrule" 0
    "util.entities" 0 "util.names" 0 "testing" 0
    "feed.spec" 1 "feed.repair" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2

@@ -300,7 +300,7 @@
                            <podcast:updateFrequency rrule=\"FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261231T000000Z\" dtstart=\"2026-01-05T18:00:00Z\">Twice a week</podcast:updateFrequency>
                            <podcast:location geo=\"geo:30.2672,-97.7431;u=100\" osm=\"R113314#4\">Austin, TX</podcast:location>
                            <item><title>E</title><podcast:location geo=\"geo:nowhere\">Nowhere</podcast:location></item></channel></rss>")]
-    (is (= {:freq "WEEKLY" :byday ["MO" "WE"] :until #inst "2026-12-31T00:00:00Z"}
+    (is (= {:freq "WEEKLY" :byday ["MO" "WE"] :until "2026-12-31T00:00:00Z"}
            (:rrule (:podcast/update-frequency f))))
     (is (= {:lat 30.2672 :lon -97.7431 :uncertainty 100} (:geo (first (:podcast/locations f)))))
     (is (= {:type "R" :id 113314 :revision 4} (:osm (first (:podcast/locations f)))))

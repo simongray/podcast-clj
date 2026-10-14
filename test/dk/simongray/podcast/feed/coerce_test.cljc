@@ -20,7 +20,9 @@
     (is (= {:type "R" :id 113314 :revision 3} (coerce/parse :osm "R113314#3"))))
   (testing "what does not read is marked, never thrown"
     (doseq [[type s] [[:integer "seven"] [:decimal "1,5"] [:boolean "yes"] [:yes-no "true"]
-                      [:rfc2822 "yesterday"] [:duration "long"] [:geo "30,-97"] [:osm "X1"]]]
+                      [:rfc2822 "yesterday"] [:duration "long"] [:geo "30,-97"] [:osm "X1"]
+                      [:rrule "FREQ=FORTNIGHTLY"] [:rrule "FREQ=MONTHLY;BYMONTH=13"]
+                      [:rrule "FREQ=WEEKLY;COUNT=3;UNTIL=20261231"]]]
       (is (coerce/invalid? (coerce/parse type s)) (str type " " (pr-str s)))))
   (testing "a number beyond what both platforms hold exactly"
     (is (coerce/invalid? (coerce/parse :integer "99999999999999999999")))

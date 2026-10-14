@@ -3,8 +3,8 @@
   the value types of the tag registry."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
+            [dk.simongray.ical.rrule :as rrule]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.time.rrule :as rrule]
             [dk.simongray.qname-hiccup :as xml]))
 
 (def coerced-types
@@ -93,6 +93,14 @@
       (when (every? #(and (number? %) (pos? %)) (vals (dissoc m :type)))
         m))))
 
+(defn- read-rrule
+  "The recurrence rule `s` as a map, or nil when it doesn't parse or breaks
+  RFC 5545, e.g. with both COUNT and UNTIL."
+  [s]
+  (let [rule (rrule/parse s)]
+    (when (rrule/valid? rule)
+      rule)))
+
 (defn- or-invalid
   [x]
   (if (nil? x) ::invalid x))
@@ -116,7 +124,7 @@
       :rfc2822  (or-invalid (some-> (time/parse-date s) time/floor-seconds))
       :iso8601  (or-invalid (time/parse-date s))
       :duration (or-invalid (time/parse-duration s))
-      :rrule    (or-invalid (rrule/parse s))
+      :rrule    (or-invalid (read-rrule s))
       :geo      (or-invalid (read-geo s))
       :osm      (or-invalid (read-osm s))
       s)))
@@ -135,7 +143,7 @@
   - :boolean and :yes-no, a boolean
   - :presence, true, since a feed without the element has no value for it
   - :rfc2822 and :iso8601, an instant
-  - :rrule, the map of a rule
+  - :rrule, the map of a rule that RFC 5545 allows
   - :geo and :osm, the map of a geo URI or an OSM reference
   - any other type, a string"
   [type v]
@@ -145,7 +153,7 @@
     (:boolean :yes-no)   (boolean? v)
     :presence            (true? v)
     (:rfc2822 :iso8601)  (inst? v)
-    :rrule               (and (map? v) (contains? rrule/freq-values (:freq v)))
+    :rrule               (rrule/valid? v)
     :geo                 (and (map? v)
                               (time/finite? (:lat v))
                               (time/finite? (:lon v)))
@@ -202,7 +210,7 @@
       :rfc2822             (time/format-rfc2822 v)
       :iso8601             (time/format-iso8601 v)
       (:duration :decimal) (plain-decimal v)
-      :rrule               (rrule/format v)
+      :rrule               (rrule/serialize v)
       :geo                 (format-geo v)
       :osm                 (format-osm v)
       (str v))))

@@ -20,7 +20,12 @@
                                      :rss/items [{:rss/pub-date #inst "2062-01-12T09:00:00Z"}
                                                  {:rss/pub-date #inst "2026-01-12T09:00:00Z"}]}
                                     #inst "2026-01-12T10:00:00Z"))
-          "but not an item dated after the moment asked about"))))
+          "but not an item dated after the moment asked about"))
+    (testing "nil for a rule of the wrong shape, and for one whose next occurrence is too many occurrences ahead"
+      (is (nil? (schedule/next-episode (assoc-in feed [:podcast/update-frequency :rrule :until] #inst "2026-12-31T00:00:00Z")
+                                       #inst "2026-01-06T00:00:00Z")))
+      (is (nil? (schedule/next-episode {:podcast/update-frequency {:rrule {:freq "SECONDLY"} :dtstart #inst "2016-01-01T00:00:00Z"}}
+                                       #inst "2026-01-06T00:00:00Z"))))))
 
 (deftest when-to-check-again
   (let [at     #inst "2026-03-01T12:00:00Z"

@@ -44,7 +44,7 @@ identity of a feed and of an item comes from `guid/feed-guid` and `guid/item-gui
 | rfc2822 | an RFC 2822 date, read leniently, an `#inst` in the model, written in GMT |
 | iso8601 | an ISO 8601 date or date-time, an `#inst` in the model, written in UTC |
 | duration | seconds as a number, read from seconds or from clock notation, written as seconds |
-| rrule | an RFC 5545 recurrence rule, a map of its parts in the model, written with the parts in the order of the RFC |
+| rrule | an RFC 5545 recurrence rule, in the model a map of its parts as ical-clj parses it, e.g. `{:freq "WEEKLY" :byday ["MO"]}` |
 | geo | a geo URI, in the model a map of `:lat`, `:lon`, and optionally `:altitude` and `:uncertainty` |
 | osm | an OpenStreetMap reference such as R113314#4, in the model a map of `:type`, `:id`, and optionally `:revision` |
 
