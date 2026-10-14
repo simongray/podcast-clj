@@ -32,8 +32,10 @@
   "The search document of `item` in `feed`, with the `opts` below.
 
   Its fields are :title, :show, :description, :people, :keywords,
-  :chapters and :transcript. A result has the title, show, guid,
-  publication date, duration and URL. The `opts` are:
+  :chapters and :transcript. A result has the title, show, publication
+  date and duration, and its id names the show and the item, as
+  feed.guid/episode-id gives it. The URL of the feed is in the document of
+  the show. The `opts` are:
 
   - :url, where the feed was fetched, which a feed without a podcast:guid
     needs, or it throws
@@ -60,11 +62,11 @@
                         :keywords    (:itunes/keywords item)
                         :chapters    (str/join " " titles)
                         :transcript  (some-> transcript transcript/text)})
+      ;; what a list of results shows, as an index holds it for each of
+      ;; thousands of episodes
       :stored (into {} (filter (comp some? val))
                     {:title     title
                      :show      show
-                     :guid      (guid/item-guid item)
-                     :url       url
                      :published (resolve/published item)
                      :duration  (resolve/duration item)})})))
 
@@ -101,14 +103,23 @@
   notes:clojure for a word in the description."
   {"notes" :description})
 
+(def without-positions
+  "The fields that an index holds without the positions of their words: the
+  description, the longest, so that a phrase finds its words anywhere in
+  the notes, and the index takes far less memory."
+  #{:description})
+
 (defn index
   "An index of the search documents `docs` for dk.simongray.drop-in-search,
-  with boosts and aliases as the defaults of its queries, or an empty one
-  to add to."
+  with boosts and aliases as the defaults of its queries, and the fields
+  of without-positions indexed without positions, or an empty one to add
+  to."
   ([]
    (index []))
   ([docs]
-   (search/index docs {:boosts boosts :aliases aliases})))
+   (search/index docs {:boosts            boosts
+                       :aliases           aliases
+                       :without-positions without-positions})))
 
 (defn feed-documents
   "The search documents of the show `feed`, fetched from `url`, and of each
@@ -184,8 +195,9 @@
   dk.simongray.drop-in-search/snippet, e.g. :width."
   ([index result q]
    (snippet index result q {}))
-  ([index {:keys [feed item stored] :as result} q opts]
-   (let [doc-opts {:url (:url stored)}
+  ([index {:keys [id feed item] :as result} q opts]
+   (let [show     (search/document index (feed-guid-of id))
+         doc-opts {:url (:url (:stored show))}
          fields   (:fields (if item
                              (item-document feed item doc-opts)
                              (feed-document feed doc-opts)))]

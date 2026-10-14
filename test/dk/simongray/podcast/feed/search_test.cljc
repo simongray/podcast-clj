@@ -23,9 +23,9 @@
     (is (= "A look into the future of podcasting and how we get to Podcasting 2.0!" (get-in doc [:fields :description])))
     (is (= "Adam Curry Dave Jones Becky Smith" (get-in doc [:fields :people])))
     (is (= {:title "Episode 3 - The Future" :show "Podcasting 2.0 Namespace Example"
-            :guid "https://example.com/ep0003" :url "https://example.com/feed.xml"
             :published #inst "2020-10-09T04:30:38Z"}
-           (:stored doc)))
+           (:stored doc))
+        "what a list of results shows, and no more, since the id names the item")
     (is (= "Rain Dawn" (get-in (feed.search/item-document feed item {:chapters {:chapters [{:title "Rain"} {:title "Dawn"}]}})
                                [:fields :chapters]))
         "chapters handed in are indexed by title")
@@ -49,7 +49,11 @@
                                 {:id 2 :fields {:title "Clojure" :description "Other"}}])]
     (is (= [2 1] (mapv :id (search/query idx "clojure"))) "a title weighs more than the notes")
     (is (= [1] (mapv :id (search/query idx "notes:clojure"))) "notes is a name of the description")
-    (is (= idx (search/restore (edn/read-string (pr-str idx)))) "the defaults print with the index")))
+    (is (= idx (search/restore (edn/read-string (pr-str idx)))) "the defaults print with the index"))
+  (let [idx (feed.search/index [{:id 1 :fields {:description "the future of podcasting"}}
+                                {:id 2 :fields {:title "the future of podcasting"}}])]
+    (is (= [1] (mapv :id (search/query idx "\"podcasting future\"")))
+        "a phrase finds its words anywhere in the notes, which are indexed without positions, and in order elsewhere")))
 
 (deftest the-shows-of-an-index
   (let [url   "https://example.com/show.xml"

@@ -704,7 +704,12 @@
         render (fn [index feeds url]
                  (let [found   (search/query index q {:limit page/result-limit})
                        locate  (feed.search/located (by-guid feeds))
-                       results (map locate found)]
+                       urls    (into {}
+                                     (map (fn [[u feed]]
+                                            [(feed.guid/feed-guid feed u) u]))
+                                     feeds)
+                       results (for [{:keys [id] :as result} (map locate found)]
+                                 (assoc result :url (urls (first id))))]
                    (html (page/search-page {:q       q
                                             :url     url
                                             :index   index

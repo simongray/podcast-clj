@@ -859,8 +859,8 @@
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one. Each of the `results` of the
   drop-in-search query of the `index` has the :item it came from, for a
-  snippet of its notes. The `typos` are the words of `q` that matched
-  others with typos."
+  snippet of its notes, and the :url of its feed. The `typos` are the
+  words of `q` that matched others with typos."
   [{:keys [q url index results typos]}]
   (layout (str "Search: " q)
           (when url
@@ -893,9 +893,9 @@
                         "Type something to search for."
                         "Nothing matched.")]
             [:ol.results
-             (for [{:keys [score stored item] :as result} results
-                   :let [{:keys [title show published duration url guid]}
-                         stored]]
+             (for [{:keys [id score stored item url] :as result} results
+                   :let [{:keys [title show published duration]} stored
+                         guid (when (vector? id) (second id))]]
                [:li
                 [:strong [:a {:href (feed-href "/item" url {:guid guid})}
                           (or title "(untitled)")]]

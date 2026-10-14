@@ -1185,15 +1185,18 @@ The results are the episodes and shows, best first, and `:offset 10`
 gives the next page. The last word counts as a prefix, so this works for
 search as you type. A query can also have:
 
-- `"a phrase"`
+- `"a phrase"`, whose words must come in a row, though in the notes they
+  can be anywhere, since the index holds the notes without the positions
+  of their words
 - `OR` or `|` between words, `NOT`, `!` or `-` before one, and parentheses
 - `word~` for a word with typos
 - `title:word` or `notes:word` for one field
 
 The docstring of `search.queries/parse` has the rest. The index takes
-about two kilobytes per episode, so 50 shows with 28,000 episodes take
-about 60 megabytes. To leave it out, e.g. on a watch, give `:search?
-false` in the config.
+about a kilobyte per episode, so 50 shows with 28,000 episodes take
+about 30 megabytes. A result holds what a list of results shows, and its
+id names the show and the episode. To leave the index out, e.g. on a
+watch, give `:search? false` in the config.
 
 A word that no episode holds also matches words with typos: one in a
 word of three to five letters, and two in a longer one, which the option
