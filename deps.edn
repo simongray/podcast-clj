@@ -110,8 +110,12 @@
                           dk.simongray/play-nice {:mvn/version "0.1.0"}}
           :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
 
-  ;; clojure -T:build jar | install | deploy  (see build.clj)
+  ;; clojure -T:build jar | install | deploy  (see build.clj). The
+  ;; tools.deps of tools.build 0.10.14 shares no resolver session across
+  ;; threads, which 0.31.1638 fixed, and a CI build of the server failed
+  ;; on a HashMap that two threads changed at once.
   :build {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.14"}
+                       org.clojure/tools.deps        {:mvn/version "0.31.1646"}
                        slipset/deps-deploy            {:mvn/version "0.2.5"}}
           :ns-default build}
 
