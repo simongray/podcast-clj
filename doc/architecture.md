@@ -10,10 +10,14 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds  app.media-session
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  podping  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  gpodder  gpodder.*
+  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*
+                  feed.discovery  feed.publish  feed.search  feed.integrity
+                  feed.local  format.*  value  value.*  directory  directory.*
+                  podping  comments  comments.*  analytics  analytics.*
+                  profile  profile.*  criteria  downloads  gpodder  gpodder.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.repair  feed.quirks
-  0  primitives   util.*  nostr  nostr.*  feed.guid  diagnostics
+  0  primitives   util.*  nostr  nostr.*  feed.guid  diagnostics  testing
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -21,9 +25,10 @@ registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
 The `app` namespaces are the only ones that require the root namespace,
 because they call `fetch!`. The names show two of the layers: `app` holds
-the top layer and nothing else, and `util` and `nostr` are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
-fails on a require that points up a layer, on a cycle, or on a name in the
-wrong layer.
+the top layer and nothing else, and `util` and `nostr` are primitives. A
+test in `architecture_test.clj` reads the `ns` forms, and fails on a
+require that points up a layer, on a cycle, or on a name in the wrong
+layer.
 
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
@@ -51,17 +56,18 @@ canonical alias of its namespace URI, so RSS 2.0 elements have none. The
 aliases come from a table that the caller gives, so qname-hiccup knows
 nothing of podcasts: the table of a feed's namespaces is in `feed.spec`.
 
-The platform parser (StAX on the JVM, `DOMParser` in JavaScript) doesn't
-resolve namespaces. A pure function does that afterwards, which gives the
-same result on both platforms and lets it forgive what real feeds get wrong,
-such as variant URIs and undeclared prefixes. The Atom default namespace
-that several large hosts put on `<rss>` is a quirk of its own, since RSS
-2.0 has no namespace.
+The namespaces aren't left to the platform's parser (StAX on the JVM,
+`DOMParser` in JavaScript). A pure function resolves them afterwards,
+which gives the same result on both platforms and lets it forgive what
+real feeds get wrong, such as variant URIs and undeclared prefixes. The
+Atom default namespace that several large hosts put on `<rss>` is a quirk
+of its own, since RSS 2.0 has no namespace.
 
 
 ## The tag registry
 
-`feed.spec` describes each element that podcast-clj understands as a map:
+The registry in `feed.spec` describes each element that podcast-clj
+understands as a map:
 
 ```clojure
 {:tag     :podcast/transcript          ; the XML name
@@ -88,7 +94,7 @@ host's own elements, or a new tag that podcast-clj doesn't know yet, can be
 added without a fork, and they're read, written and validated like the
 standard ones. A change to a spec is a change to data.
 
-The schemas describe what `emit` accepts. `parse` is lenient, so it can
+The schemas describe what `emit` accepts. The parser is lenient, so it can
 return a map that doesn't match, and the validator says why. The schemas
 are for writing feeds and the validator is for judging them.
 
@@ -111,8 +117,9 @@ and the report names every other loss, e.g. a second copy of an element
 that the spec allows once.
 
 A producer can write shorthand, e.g. `{:rss/guid "x"}`, or a single value
-where the model has a vector. `feed/normalize` expands it, and `emit` and
-`validate` call it first, so the rest of podcast-clj only knows one shape.
+where the model has a vector. The function `feed/normalize` expands it,
+and `emit` and `validate` call it first, so the rest of podcast-clj only
+knows one shape.
 
 Identity is a function, not a field, and has a namespace of its own,
 `feed.guid`, so that comparing feeds needs no parser. Its `feed-guid`
@@ -136,10 +143,9 @@ other pages, or a host serves them nowhere. So a library keeps the items
 that a fetch no longer brings back, after the fresh ones, with a fact of
 each beside the feed rather than in it. An item counts as taken out by
 the host when it's later than the oldest fresh item, since a capped feed
-loses its oldest items first. The kept items
-stay on the device and out of the profile, as the downloads do, since
-they're a copy of what the host once served, not something the listener
-did.
+loses its oldest items first. The kept items stay on the device and out
+of the profile, as the downloads do, since they're a copy of what the
+host once served, not something the listener did.
 
 An episode's guid should never change, but a host migration can rewrite
 them all, e.g. in a feed whose guids are URLs. So `diff` pairs a removed
@@ -162,7 +168,7 @@ settles the overlaps in pure functions, and the docstring of each accessor
 gives its precedence. Where the specs let an item inherit from its channel,
 the accessor takes both the feed and the item.
 
-`sources` tells where each answer came from, as paths like
+The function `sources` tells where each answer came from, as paths like
 `[:item :rss/title]`. It has no table of precedences of its own: it calls
 the accessor on one field at a time and keeps the fields that give the same
 answer alone. So it can't disagree with the accessor.
@@ -181,11 +187,11 @@ all later steps are shared. JavaScript has no such parser, so an app can
 install one of its own with `repair/use-lenient-parser!`, which gives
 the same raw Hiccup.
 
-`{:quirks? false}` gives the strict path, and `:except` leaves out the
-repairs and normalisations it names. Each layer reports only what it did, and `rss/parse`
-joins the reports in order. Metadata doesn't survive printing, transit or
-`into {}`, so an app that stores a parsed feed must store its report next
-to it.
+The option `{:quirks? false}` gives the strict path, and `:except` leaves
+out the repairs and normalisations that it names. Each layer reports only
+what it did, and `rss/parse` joins the reports in order. Metadata doesn't
+survive printing, transit or `into {}`, so an app that stores a parsed
+feed must store its report next to it.
 
 Diagnostic ids are part of the API, since apps match on them. The
 `diagnostics` namespace lists each id with its level and meaning, and a test
@@ -199,9 +205,11 @@ keeps the list and the source in sync.
   have such a list than link a chapters file. The report marks inferred
   chapters.
 - **Transcripts** are read from SRT, WebVTT, JSON, HTML and plain text into
-  one segment model. Real files taught the reader a few things, e.g. caption
-  files only name the speaker when it changes, so the reader carries the
-  name over.
+  one segment model. WebVTT is read by
+  [webvtt-clj](https://github.com/simongray/webvtt-clj) as a browser reads
+  it, with the word timing of its inline timestamps. Real files taught the
+  reader a few things, e.g. caption files only name the speaker when it
+  changes, so the reader carries the name over.
 - **OPML** carries the profile in the parts of OPML 2.0 that already
   fit it: tags as categories, the time of subscription as `created`, and
   followed lists as includes. Other apps read the rest as they always did.
@@ -211,24 +219,25 @@ keeps the list and the source in sync.
   Hiccup, since a Clojure app gives Hiccup straight to its renderer.
 - **Media files and images** are read without I/O. A reader works on the
   parts of a file that have arrived, and when it needs more, it throws the
-  byte ranges it needs. `ranges/read!` fetches them and reads again. So the
-  readers are pure, and one loop does the fetching, with futures on the
-  JVM and promises in JavaScript. A host that inserts ads can send a
+  byte ranges it needs. Then `ranges/read!` fetches them and reads again.
+  So the readers are pure, and one loop does the fetching, with futures on
+  the JVM and promises in JavaScript. A host that inserts ads can send a
   different file to each request, so a duration is that of the file that
-  came.
+  came. The ID3v2 tags of MP3 and AAC files are read by
+  [id3-clj](https://github.com/simongray/id3-clj).
 
 
 ## The network
 
-podcast-clj asks a server for as little as it can:
+Every request asks a server for as little as it can:
 
-- `podcast/fetch!` sends the ETag and Last-Modified of the last fetch, so an
-  unchanged feed costs a 304, and a poller waits as long as the server and
-  the feed ask.
+- A fetch of a feed sends the ETag and Last-Modified of the last fetch, so
+  an unchanged feed costs a 304, and a poller waits as long as the server
+  and the feed ask.
 - The media and image readers use byte ranges and stop when they know
   enough. Most media files take one or two requests and a few hundred
   kilobytes.
-- `check/check-files!` probes each file that a feed links to with a HEAD
+- A check of the files that a feed links to probes each with a HEAD
   request and two bytes, and reads more only when asked.
 
 The requests go through
@@ -248,14 +257,15 @@ count. At one host, a dead network looks like a dead server, so it takes
 failures at more than one, and an app that knows from the platform says
 so with `:online?`.
 
-`feed.check` is split like the rest of podcast-clj: `files` lists what to
-fetch, `feed.check.facts` gathers what came back, and `feed.check.rules`
-turns the facts into diagnostics. Only the gathering sends, so `report`
-can judge the same facts again by other requirements. The rules come from
-the standards first (RFC 9110, RSS 2.0, the podcast namespace, and the
-Fetch standard for CORS), and the requirements of PSP-1 and the
-directories add theirs on top. A browser hides much of an answer from a page, so a
-check sees most on the JVM or in Node.
+The check of files is split like the rest of podcast-clj: `check/files`
+lists what to fetch, `feed.check.facts` gathers what came back, and
+`feed.check.rules` turns the facts into diagnostics. Only the gathering
+sends, so `check/report` can judge the same facts again by other
+requirements. The rules come from the standards first (RFC 9110, RSS 2.0,
+the podcast namespace, and the Fetch standard for CORS), and the
+requirements of PSP-1 and the directories add theirs on top. A browser
+hides much of an answer from a page, so a check sees most on the JVM or
+in Node.
 
 
 ## Security
@@ -355,8 +365,8 @@ what stops them.
 
 ## Directories and the Podcast Index
 
-`directory` puts Apple Podcasts, fyyd, gpodder.net and the Podcast Index
-behind one shape. The results have the keys of a parsed feed, so
+The `directory` namespace puts Apple Podcasts, fyyd, gpodder.net and the
+Podcast Index behind one shape. The results have the keys of a parsed feed, so
 `feed.resolve` works on them, and what only a directory knows goes under
 `:directory/*`. `combine` merges the answers of several sources into one
 entry per show, so a chart entry, which names no feed, gets its feed URL
@@ -376,9 +386,10 @@ result only has the guid that the directory says the feed declares, and
 `combine` tells feeds apart by that guid and by the one that the URL
 gives.
 
-`directory.podcastindex` signs its requests for an instant the caller gives,
-and maps the objects of the index onto the model, so a feed from the index
-works like a parsed one. Its own fields are under `:index/*`.
+The client of the Podcast Index signs its requests for an instant that the
+caller gives, and maps the objects of the index onto the model, so a feed
+from the index works like a parsed one. Its own fields are under
+`:index/*`.
 
 
 ## Podping and WebSub
@@ -396,8 +407,9 @@ With WebSub, a hub sends the feed to each subscriber when it changes, so a
 subscriber must be a server with a public URL. An app on a phone uses
 Podping instead, and a server that keeps the feeds of many listeners can use
 both. WebSub isn't specific to podcasts, so it's a library of its own,
-[websub-clj](https://github.com/simongray/websub-clj), and `fetch!` uses it
-to give the hubs that a feed names.
+[websub-clj](https://github.com/simongray/websub-clj). With it, `fetch!`
+gives the hubs that a feed names, and `library/hub-requests` keeps a
+server subscribed to them.
 
 
 ## Links to the apps
@@ -439,7 +451,8 @@ Each protocol has its own idea of who speaks for a post:
   (FEP-fe34), so the posts of other servers are fetched from those servers.
   When a server won't give the root post to the reader, e.g. because it only
   answers signed requests, `fetch!` reads the thread through the server's
-  Mastodon API instead.
+  Mastodon API instead. A `:send` that signs its requests reads the whole
+  thread, as the podcast server's proxy does.
 - On the AT Protocol, only an AppView knows the replies to a post, and the
   app chooses the AppView. The labels of the protocol apply, so replies that
   a moderation service hid, or whose authors only want signed-in users to
@@ -452,9 +465,9 @@ Each protocol has its own idea of who speaks for a post:
 
 ## Nostr
 
-`nostr` holds the protocol that both the comments and the wallets speak,
-and it knows nothing about podcasts. An event stays the plain data
-that a relay sends. Its id is the SHA-256 of a text that NIP-01 defines to
+The `nostr` namespace holds the protocol that both the comments and the
+wallets speak, and it knows nothing about podcasts. An event stays the
+plain data that a relay sends. Its id is the SHA-256 of a text that NIP-01 defines to
 the character, and a JSON writer escapes more than NIP-01 allows, so
 `event-id` writes that text itself.
 
@@ -549,12 +562,12 @@ The parts of the profile have namespaces of their own: `profile.queue`
 for the queue, the inbox and the playlists, `profile.marks` for stars,
 bookmarks, clips and ratings, and `profile.opml` for the followed lists
 and OPML. In `profile.player`, `step` takes the events of a player
-(`:progress`, `:ended`, `:play`, `:skip` and `:chapter`) and returns the
-new state with effects for the app,
-such as to seek, stop or play the next episode. It's the only place where
+(`:progress`, `:ended`, `:play`, `:next`, `:previous`, `:skip` and
+`:chapter`) and returns the new state with effects for the app, such as
+to seek, stop or play the next episode. It's the only place where
 behaviour is composed, and it's kept short on purpose.
 
-`refresh` puts the new episodes of a subscription into the queue or the
+A refresh puts the new episodes of a subscription into the queue or the
 inbox, as its settings say. A followed OPML list adds the shows that join it
 as subscriptions, but never unsubscribes, since a show that leaves a list
 can still be one the listener likes.
@@ -615,7 +628,7 @@ a late download.
 | SHA-1 (guid, Podcast Index) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` | `js/Date` |
 | Deferred values (`async`) | futures | promises |
-| HTTP (`http`) | `java.net.http` | `fetch` |
+| HTTP (`http`) | `java.net.http` | `fetch` in a browser, `node:http` in Node |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`
 or js-joda, so they give the same result everywhere. The JavaScript XML
