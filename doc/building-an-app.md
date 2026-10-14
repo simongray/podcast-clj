@@ -652,18 +652,30 @@ An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.
 
-To tint a page by its artwork, as Apple Podcasts does, give
-`image/dominant-color` the bytes of the image. It gives the colour that
-most of the image has, and in ClojureScript a promise of it:
+To colour a page by its artwork, as Apple Podcasts does, give
+`image/colors` the bytes of the image. It gives the colours of a UI, and
+in ClojureScript a promise of them:
 
 ```clojure
-(image/dominant-color (:body (http/send! {:url (:artwork show-page) :as :bytes})))
-;; => "#a90000", for the artwork of Podcasting 2.0
+(image/colors (:body (http/send! {:url (:artwork show-page) :as :bytes})))
+;; => {:background  "#a90000"   ; for the artwork of Podcasting 2.0
+;;     :text        "#ffffff"
+;;     :accent      "#fefefe"
+;;     :accent-text "#000000"
+;;     :complement  "#00a9a9"
+;;     :palette     ["#a90000" "#fefefe" "#bd3e3a" "#cf706c" "#e0a09e"]}
 ```
+
+The background is the colour that most of the image has, and the text
+is black or white, whichever reads better on it. The accent is the next
+colour of the image that stands apart from the background enough for a
+control, or else the complement of the background, or else the text
+colour. For one of them alone, there's `image/dominant-color`,
+`image/palette`, `image/complementary-color` and `image/contrast-color`.
 
 The platform decodes the image: ImageIO on the JVM and the browser in
 ClojureScript, where you send the request through the proxy. Node has no
-decoder, so the colour is nil there.
+decoder, so the colours are nil there.
 
 To keep the chapters files and transcripts on the device, set `:cache`
 in the config to a document store of like-minded, e.g. one in IndexedDB.

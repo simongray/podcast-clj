@@ -14,8 +14,8 @@
   dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
   that it still needs. An image embedded in text, e.g. the artwork of a
   chapter, is a data URL, which data-url and from-data-url write and read.
-  Only dominant-color decodes an image, through the platform, for the
-  colour that most of it has."
+  Only colors, palette and dominant-color decode an image, through the
+  platform, for the colours that an app can colour its UI by."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
@@ -465,20 +465,95 @@
   (let [digits "0123456789abcdef"]
     (str (nth digits (quot n 16)) (nth digits (rem n 16)))))
 
-(defn ^:no-doc dominant
-  "The colour that the most of the `pixels` have, each a vector of red,
-  green, blue and alpha from 0 to 255, as a CSS hex colour, or nil when
-  none is opaque. Pixels count together when they agree in the top three
-  bits of each channel, and the colour is their average."
-  [pixels]
+(defn- hex-of
+  "The red, green and blue `rgb`, each from 0 to 255, as a CSS hex colour."
+  [rgb]
+  (apply str "#" (map hex-pair rgb)))
+
+(defn- rgb-of
+  "The red, green and blue of the CSS hex colour `hex`, #rrggbb, each from
+  0 to 255, or nil when it isn't one."
+  [hex]
+  (when-let [[_ & pairs] (and (string? hex)
+                              (re-matches #"#([0-9a-fA-F]{2}){3}" hex)
+                              (re-matches #"#(..)(..)(..)" hex))]
+    (mapv #(#?(:clj Integer/parseInt :cljs js/parseInt) % 16) pairs)))
+
+(defn ^:no-doc palette-of
+  "The colours that the most of the `pixels` have, at most `n`, the most
+  common first, as CSS hex colours. Each pixel is a vector of red, green,
+  blue and alpha from 0 to 255, and only the opaque ones count.
+
+  Pixels count together when they agree in the top three bits of each
+  channel, and a colour is their average."
+  [pixels n]
   (let [opaque (filter #(>= (nth % 3) 128) pixels)
         bucket (fn [[r g b]] [(quot r 32) (quot g 32) (quot b 32)])
-        groups (vals (group-by bucket opaque))]
-    (when (seq groups)
-      (let [most (first (sort-by (juxt (comp - count) (comp bucket first))
-                                 groups))
-            mean #(quot (reduce + (map (fn [p] (nth p %)) most)) (count most))]
-        (apply str "#" (map (comp hex-pair mean) [0 1 2]))))))
+        groups (sort-by (juxt (comp - count) (comp bucket first))
+                        (vals (group-by bucket opaque)))
+        mean   (fn [group i]
+                 (quot (reduce + (map #(nth % i) group)) (count group)))]
+    (mapv (fn [group] (hex-of (map #(mean group %) [0 1 2])))
+          (take n groups))))
+
+;; CSS Color 4, section 7.1: a hue turned halfway round, at the same
+;; saturation and lightness, is each channel taken from the sum of the
+;; largest and the smallest
+(defn complementary-color
+  "The complement of the CSS hex colour `hex`, #rrggbb: the colour of the
+  opposite hue, e.g. #00a9a9 of #a90000, or nil when `hex` isn't one. A
+  grey has no hue, so it's its own complement."
+  [hex]
+  (when-let [rgb (rgb-of hex)]
+    (let [sum (+ (apply max rgb) (apply min rgb))]
+      (hex-of (map #(- sum %) rgb)))))
+
+;; WCAG 2.2, the definitions of relative luminance and contrast ratio
+(defn- luminance
+  "The relative luminance of the red, green and blue `rgb`."
+  [rgb]
+  (let [linear #(let [c (/ % 255.0)]
+                  (if (<= c 0.04045)
+                    (/ c 12.92)
+                    (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
+        [r g b] (map linear rgb)]
+    (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))))
+
+(defn ^:no-doc contrast
+  "The contrast ratio of the CSS hex colours `a` and `b`, from 1 to 21."
+  [a b]
+  (let [[l1 l2] (sort > (map (comp luminance rgb-of) [a b]))]
+    (/ (+ l1 0.05) (+ l2 0.05))))
+
+;; CSS Color 5, section 8, Editor's Draft of 8 October 2026: contrast-color()
+;; leaves the measure to the browser, and resolves a tie to white
+(defn contrast-color
+  "Black or white, whichever reads better as text on the CSS hex colour
+  `hex`, #rrggbb, by the contrast ratio of WCAG 2.2, or nil when `hex`
+  isn't one. A tie goes to white, as with contrast-color() of CSS."
+  [hex]
+  (when (rgb-of hex)
+    (if (> (contrast hex "#000000") (contrast hex "#ffffff"))
+      "#000000"
+      "#ffffff")))
+
+;; WCAG 2.2, success criterion 1.4.11: a control has a contrast of 3:1
+(defn ^:no-doc scheme
+  "The colours of a UI by the `palette` of an image, the most common
+  colour first, as colors gives them, or nil for an empty palette."
+  [palette]
+  (when-let [background (first palette)]
+    (let [complement (complementary-color background)
+          apart?     #(>= (contrast background %) 3)
+          accent     (or (first (filter apart? (rest palette)))
+                         (when (apart? complement) complement)
+                         (contrast-color background))]
+      {:background  background
+       :text        (contrast-color background)
+       :accent      accent
+       :accent-text (contrast-color accent)
+       :complement  complement
+       :palette     palette})))
 
 #?(:clj
    (defn- decoded-pixels
@@ -524,6 +599,24 @@
            (.catch (constantly nil)))
        (js/Promise.resolve nil))))
 
+(defn- with-pixels
+  "What `f` gives for the pixels of the image in the bytes `b`, decoded at
+  a small size by the platform, or nil where it can't decode them, in
+  ClojureScript a promise of it."
+  [b f]
+  #?(:clj  (some-> (decoded-pixels b 64) f)
+     :cljs (.then (drawn-pixels b 32) #(some-> % f))))
+
+(defn palette
+  "The colours that the most of the image in the bytes `b` has, at most
+  `n`, by default 5, the most common first, as CSS hex colours. On the JVM
+  it gives them, and in ClojureScript a promise of them. They're nil
+  where the platform can't decode the image, as dominant-color says."
+  ([b]
+   (palette b 5))
+  ([b n]
+   (with-pixels b #(not-empty (palette-of % n)))))
+
 (defn dominant-color
   "The colour that most of the image in the bytes `b` has, as a CSS hex
   colour, e.g. #1e3a5f, for a player to tint its screen by the artwork.
@@ -534,8 +627,26 @@
   platform can't decode the image, e.g. WebP on the JVM, or anything in
   Node, which has no decoder, and for an image that's all transparent."
   [b]
-  #?(:clj  (some-> (decoded-pixels b 64) dominant)
-     :cljs (.then (drawn-pixels b 32) #(some-> % dominant))))
+  (with-pixels b #(first (palette-of % 1))))
+
+(defn colors
+  "The colours for an app to colour its UI by the image in the bytes `b`,
+  e.g. the artwork of a show, as a map. On the JVM it gives the map, and
+  in ClojureScript a promise of it.
+
+      {:background  \"#a90000\"     ; the dominant colour, to tint by
+       :text        \"#ffffff\"     ; black or white, whichever reads better
+       :accent      \"#e8c070\"     ; for controls, e.g. a progress bar
+       :accent-text \"#000000\"     ; for text on the accent
+       :complement  \"#00a9a9\"     ; the opposite hue of the background
+       :palette     [\"#a90000\" …]} ; the most common colours, most first
+
+  The accent is the first other colour of the palette that stands apart
+  from the background by a contrast of 3:1, as WCAG 2.2 asks of controls,
+  or else the complement when it does, or else the text colour. The map is
+  nil where the platform can't decode the image, as dominant-color says."
+  [b]
+  (with-pixels b #(scheme (palette-of % 5))))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the

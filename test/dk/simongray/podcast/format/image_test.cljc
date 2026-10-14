@@ -204,14 +204,32 @@
       (let [b (bytes/of (repeat 300000 7))]
         (is (true? (bytes/same? b (:data (image/from-data-url (image/data-url "image/png" b))))))))))
 
-(deftest the-colour-of-the-most-pixels
-  (is (= "#2244a2" (image/dominant (concat (repeat 6 [0x20 0x40 0xa0 255]) (repeat 6 [0x24 0x48 0xa4 255])
-                                           (repeat 5 [0xc0 0x30 0x20 255]))))
-      "the average of the shades that count together")
-  (is (= "#c03020" (image/dominant (concat (repeat 6 [0x20 0x40 0xa0 0]) (repeat 5 [0xc0 0x30 0x20 255]))))
+(deftest the-colours-of-the-most-pixels
+  (is (= ["#2244a2" "#c03020"] (image/palette-of (concat (repeat 6 [0x20 0x40 0xa0 255]) (repeat 6 [0x24 0x48 0xa4 255])
+                                                         (repeat 5 [0xc0 0x30 0x20 255]))
+                                                 5))
+      "the average of the shades that count together, the most common first")
+  (is (= ["#c03020"] (image/palette-of (concat (repeat 6 [0x20 0x40 0xa0 0]) (repeat 5 [0xc0 0x30 0x20 255])) 5))
       "the transparent pixels left out")
-  (is (nil? (image/dominant [[0 0 0 0]])))
-  (is (= "#000000" (image/dominant [[0 0 0 255] [255 255 255 255]])) "a tie settled the same way on each platform"))
+  (is (= [] (image/palette-of [[0 0 0 0]] 5)))
+  (is (= ["#000000"] (image/palette-of [[0 0 0 255] [255 255 255 255]] 1)) "a tie settled the same way on each platform"))
+
+(deftest colours-by-colours
+  (is (= ["#00a9a9" "#a08020" "#808080"] (map image/complementary-color ["#a90000" "#2040A0" "#808080"]))
+      "the opposite hue, and a grey its own")
+  (is (= ["#ffffff" "#000000" "#ffffff"] (map image/contrast-color ["#a90000" "#f0c040" "#000000"])))
+  (is (= [nil nil] [(image/complementary-color "red") (image/contrast-color "#abc")]) "only #rrggbb")
+  (is (= 21.0 (image/contrast "#000000" "#ffffff")))
+  (is (= {:background "#a90000" :text "#ffffff" :accent "#f0c040" :accent-text "#000000" :complement "#00a9a9"
+          :palette ["#a90000" "#1a1a1a" "#f0c040"]}
+         (image/scheme ["#a90000" "#1a1a1a" "#f0c040"]))
+      "an accent that stands apart from the background, where the dark grey doesn't")
+  (is (= ["#002fff" "#ffffff"] ((juxt :accent :accent-text) (image/scheme ["#ffd000" "#ffc010"])))
+      "or else the complement, when it stands apart")
+  (is (= "#ffffff" (:accent (image/scheme ["#a90000" "#a01010"])))
+      "or else the colour of the text, as the complement of dark red is only 2.7:1")
+  (is (= "#000000" (:accent (image/scheme ["#f4f4f4" "#eeeeee"]))) "and a grey its own complement")
+  (is (nil? (image/scheme []))))
 
 #?(:clj
    (deftest the-colour-of-an-image
@@ -222,11 +240,17 @@
                      (.setRGB img x y (unchecked-int (f x))))
                    (javax.imageio.ImageIO/write img "png" out)
                    (.toByteArray out)))]
-       (is (= "#2040a0" (image/dominant-color (png 300 200 #(if (< % 210) 0xFF2040A0 0xFFC03020)
-                                                   java.awt.image.BufferedImage/TYPE_INT_RGB))))
+       (let [b (png 300 200 #(if (< % 210) 0xFF2040A0 0xFFC03020) java.awt.image.BufferedImage/TYPE_INT_RGB)]
+         (is (= "#2040a0" (image/dominant-color b)))
+         (is (= ["#2040a0" "#c03020"] (image/palette b)))
+         (is (= {:background "#2040a0" :text "#ffffff" :accent "#ffffff" :accent-text "#000000" :complement "#a08020"
+                 :palette ["#2040a0" "#c03020"]}
+                (image/colors b))
+             "white for the accent, as the red is only 1.6:1 against the blue"))
        (is (nil? (image/dominant-color (png 10 10 (constantly 0x00FF0000) java.awt.image.BufferedImage/TYPE_INT_ARGB)))
            "an image that's all transparent")
-       (is (nil? (image/dominant-color (bytes/of [1 2 3]))) "bytes that aren't an image"))))
+       (is (= [nil nil] [(image/dominant-color (bytes/of [1 2 3])) (image/colors (bytes/of [1 2 3]))])
+           "bytes that aren't an image"))))
 
 #?(:cljs
    (defn- drawn-png
@@ -248,10 +272,12 @@
      (async done
        (-> (if (exists? js/OffscreenCanvas)
              (-> (drawn-png)
-                 (.then image/dominant-color)
-                 (.then #(is (= "#2040a0" %) "drawn by the browser")))
-             (.then (image/dominant-color (bytes/of [0x89 0x50 0x4E 0x47]))
-                    #(is (nil? %) "no colour in Node, which has no decoder")))
+                 (.then image/colors)
+                 (.then #(is (= ["#2040a0" "#ffffff" ["#2040a0" "#c03020"]]
+                                ((juxt :background :text (comp vec (partial take 2) :palette)) %))
+                             "drawn by the browser, which blends the edge of the colours as it shrinks the image")))
+             (.then (image/colors (bytes/of [0x89 0x50 0x4E 0x47]))
+                    #(is (nil? %) "no colours in Node, which has no decoder")))
            (.catch (fn [e] (is false (str "rejected: " e))))
            (.finally done)))))
 
