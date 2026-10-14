@@ -49,8 +49,9 @@ dev/devices/run.sh expo
 ```
 
 The script builds the app, runs it, prints each check and exits with 1
-when one fails. The iOS tests need Xcode with an iOS simulator, and Expo
-needs CocoaPods too, e.g. from `brew install cocoapods`. The first run of
+when one fails. CI runs the Electron test on every push. The iOS tests
+need Xcode with an iOS simulator, and Expo needs CocoaPods too, e.g. from
+`brew install cocoapods`. The first run of
 each installs its npm packages and makes its iOS project, which takes a
 few minutes. Run them before a release that changes how podcast-clj or
 its siblings send requests or keep documents.

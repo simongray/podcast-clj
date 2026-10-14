@@ -63,6 +63,45 @@ jobs:
       - name: Server jar
         run: clojure -T:build server
 
+  electron:
+    name: Electron, in a virtual display
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: latest
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('deps.edn', 'dev/devices/electron/deps.edn', 'dev/devices/electron/package.json') }}
+
+      # Ubuntu 24.04 keeps unprivileged user namespaces from processes
+      # without an AppArmor profile, and Chromium's sandbox needs them
+      - name: Let Electron's sandbox run
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: The Electron test
+        run: xvfb-run --auto-servernum dev/devices/run.sh electron
+
+      - name: The local server's log
+        if: failure()
+        run: cat dev/devices/electron/server.log
+
   floor:
     name: Java 11, Clojure 1.11, the floor the library declares
     runs-on: ubuntu-24.04
