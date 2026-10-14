@@ -6,13 +6,11 @@ to build a podcast app](building-an-app.md) explains each call in more
 depth, and what to use when you need more control. The feed is live, so
 your outputs will show newer episodes than these.
 
-Add podcast-clj to your `deps.edn` as a Git dependency, with the SHA of the
-latest commit on `master`:
+Add the latest release of podcast-clj from
+[Clojars](https://clojars.org/dk.simongray/podcast-clj) to your `deps.edn`:
 
 ```clojure
-dk.simongray/podcast-clj
-{:git/url "https://github.com/simongray/podcast-clj"
- :git/sha "…"}
+dk.simongray/podcast-clj {:mvn/version "0.1.0"}
 ```
 
 ## The library

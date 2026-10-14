@@ -1,6 +1,8 @@
 podcast-clj
 ===========
 
+[![Clojars Project](https://img.shields.io/clojars/v/dk.simongray/podcast-clj.svg)](https://clojars.org/dk.simongray/podcast-clj)
+
 This is a library for making podcast software in Clojure or ClojureScript.
 
 - It both parses and writes podcast feeds & associated files according to the
@@ -87,16 +89,16 @@ and a local search index for fast search results.
 Feeds as data
 -------------
 
-Add it to the `:deps` in your `deps.edn` as a Git dependency,
-with the SHA of the latest commit on `master`
+Add the latest release from [Clojars](https://clojars.org/dk.simongray/podcast-clj)
+to the `:deps` in your `deps.edn`
 (requires Clojure 1.11+ & Java 11+):
 
 ```clojure
-dk.simongray/podcast-clj
-{:git/url "https://github.com/simongray/podcast-clj"
- :git/sha "…"}
+dk.simongray/podcast-clj {:mvn/version "0.1.0"}
 ```
 
+For changes that aren't released yet, use a Git dependency
+with the SHA of the latest commit on `master` instead.
 For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`,
 since shadow-cljs only reads Git dependencies from `deps.edn`.
 

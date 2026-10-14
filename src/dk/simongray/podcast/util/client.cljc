@@ -7,7 +7,7 @@
 ;; Cloudflare refuse an agent with a URL in it, as of 2026-10-11.
 (def user-agent
   "The User-Agent of a request unless the request or the options set one."
-  "podcast-clj/0.1.0-SNAPSHOT")
+  "podcast-clj/0.1.0")
 
 (defn send!
   "Send the `request` as http/send! does, with user-agent as its

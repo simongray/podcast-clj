@@ -16,7 +16,7 @@
 (def version
   "The version to build; bump it with each release on GitHub, and in the
   user-agent of util.client."
-  "0.1.0-SNAPSHOT")
+  "0.1.0")
 
 (def class-dir
   "Where the jar's contents are staged."
