@@ -35,7 +35,7 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `id3`, `mp3`, `mp4` and `file`: the media files and the images
 - `validate`: the validator
 - `check`: the checks over the network
-- `sync`: the sync between devices, through like-minded
+- `sync`: the sync between devices, through [like-minded](https://github.com/simongray/like-minded)
 - `gpodder`: a sync through the gpodder API
 - `library`: a saved library
 - `podping`: a poll of the Hive chain

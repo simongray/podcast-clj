@@ -14,7 +14,7 @@
 (def layers
   "The layer of each namespace, by its name under `prefix`: the primitives,
   the vocabulary, the feed model with its interpreters, the companions with
-  the formats, the profile, sync and the directories, the root namespace,
+  the formats, the profile, gpodder and the directories, the root namespace,
   and the high level under app, the only namespaces that require the root
   namespace."
   {"diagnostics" 0 "feed.guid" 0 "nostr" 0 "nostr.signer" 0
@@ -37,7 +37,7 @@
    "value.payment" 3 "value.webln" 3 "value.recipients" 3
    "profile" 3 "profile.queue" 3 "profile.marks" 3 "profile.opml" 3
    "profile.player" 3 "profile.payments" 3 "criteria" 3 "downloads" 3
-   "sync" 3 "sync.gpodder" 3 "sync.gpodder.api" 3 "sync.gpodder.server" 3
+   "gpodder" 3 "gpodder.api" 3 "gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "updates.podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3

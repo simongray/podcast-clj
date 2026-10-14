@@ -1297,8 +1297,10 @@ first:
 
 Each device writes its whole profile as one document to a store, and
 reads the documents of the other devices. The stores and the sync are
-those of [like-minded](https://github.com/simongray/like-minded), to which
-`sync` gives the profile. [Syncing](sync.md) explains why this is safe.
+those of [like-minded](https://github.com/simongray/like-minded), and the
+profile they sync is a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld). [Syncing](sync.md)
+explains why this is safe.
 
 ```clojure
 (def creds {:username "simon" :password (secret/hide "app-password")})
@@ -1310,21 +1312,22 @@ those of [like-minded](https://github.com/simongray/like-minded), to which
 ;; => {:ok? true :checks [{:id :store/reachable …} …]}
 
 (def backends
-  [(sync/backend cloud {:opml? true :app "my-app"})
-   (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")
-                 {:app "my-app"})])
+  [(library/backend cloud {:opml? true :app "my-app"})
+   (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")
+                    {:app "my-app"})])
 
 (swap! lib library/merge (library/sync! @lib backends))
 (library/next-sync @lib)  ; when to sync again
 ```
 
-A store can be a WebDAV collection or a folder that a sync client such as
-Dropbox mirrors. The [providers
+A store can be a WebDAV collection, which like-minded reaches through
+[webdav-clj](https://github.com/simongray/webdav-clj), or a folder that a
+sync client such as Dropbox mirrors. The [providers
 page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)
 of like-minded has the URLs and paths of some of them. With
-`sync/backend`, a store becomes the
-backend of a sync: `:app` names your app in the documents, and `:opml?`
-also writes the subscriptions as OPML for other apps.
+`library/backend`, a store becomes the backend of a sync: `:app` names
+your app in the documents, and `:opml?` also writes the subscriptions as
+OPML for other apps.
 
 Sync when the app starts, when it goes to the background, and after a
 series of changes. After any change, the position of a playing episode
@@ -1343,10 +1346,10 @@ To keep the documents encrypted on the server, wrap the store with
 `:except` to leave the subscription list readable for other apps:
 
 ```clojure
-(sync/backend (encrypted/store cloud
-                               from-keychain
-                               {:except #{sync/opml-name}})
-              {:opml? true :app "my-app"})
+(library/backend (encrypted/store cloud
+                                  from-keychain
+                                  {:except #{library/opml-name}})
+                 {:opml? true :app "my-app"})
 ```
 
 Each sync removes the tombstones that every device has seen, once they're
@@ -1379,7 +1382,7 @@ app of Nextcloud, give `:api :nextcloud`:
 
 To serve a store from your own Clojure server, mount the Ring handler of
 `store.webdav.server`, and for the gpodder API that of
-`sync.gpodder.server`. Each serves one listener, so give each listener a
+`gpodder.server`. Each serves one listener, so give each listener a
 handler of their own behind your login, as their docstrings show. To sync
 through a service that has no store yet, write one: like-minded's
 [reference](https://github.com/simongray/like-minded/blob/master/doc/reference.md#the-store-contract)
@@ -1395,7 +1398,7 @@ The browser asks the listener for permission, and only during a click:
   "Ask the listener for a sync folder, and give a promise of its backend."
   []
   (.then (js/showDirectoryPicker #js {:mode "readwrite"})
-         #(sync/backend (folder/store %) {:opml? true :app "my-app"})))
+         #(library/backend (folder/store %) {:opml? true :app "my-app"})))
 ```
 
 Keep the handle in IndexedDB for the next visit, since it can't go in
@@ -1414,7 +1417,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 ```clojure
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
 
-(.then (library/sync! @lib [(sync/backend (folder/store (.-files input)))])
+(.then (library/sync! @lib [(library/backend (folder/store (.-files input)))])
        #(swap! lib library/merge %))
 ```
 
@@ -1442,7 +1445,7 @@ needs no CORS:
     ((webdav-server/handler store "/dav/") request)))
 
 ;; in the page
-(sync/backend (webdav/store (str js/location.origin "/dav/")))
+(library/backend (webdav/store (str js/location.origin "/dav/")))
 ```
 
 Here `user-id` is your own function that gives the id that your login
@@ -2086,14 +2089,13 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.gpodder :as gpodder]
             [dk.simongray.podcast.nostr.signer :as signer]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.payments :as profile.payments]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.testing :as testing]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]

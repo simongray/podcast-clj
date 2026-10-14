@@ -9,9 +9,9 @@
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a failed same? with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a failed same? sync! with-temp-dir]]
             [dk.simongray.wary-fetch :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
@@ -91,13 +91,13 @@
 
 (deftest two-devices-through-the-inspector
   (with-redefs [http/send! through-the-inspector]
-    (let [backend (sync/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
-          phone   (sync/sync! (-> (profile/make "phone")
-                                  (crdt/identify {:name "Phone"} t1)
-                                  (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
-                              [backend] {:at t2})
-          laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] {:at t3})
-          phone2  (sync/sync! (:state phone) [backend] {:at t4 :cursors (:cursors phone)})]
+    (let [backend (library/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
+          phone   (sync! (-> (profile/make "phone")
+                             (crdt/identify {:name "Phone"} t1)
+                             (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
+                         [backend] {:at t2})
+          laptop  (sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] {:at t3})
+          phone2  (sync! (:state phone) [backend] {:at t4 :cursors (:cursors phone)})]
       (is (nil? (failed phone)))
       (is (nil? (failed laptop)))
       (is (= [] (:report phone2)))
@@ -105,4 +105,4 @@
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
       (is (same? (:state laptop) (:state phone2)))
       (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
-      (is (= "test" (:app (document/decode (slurp (io/file *dir* "sync" "laptop.edn")) sync/defaults)))))))
+      (is (= "test" (:app (document/decode (slurp (io/file *dir* "sync" "laptop.edn")) profile/sync-options)))))))

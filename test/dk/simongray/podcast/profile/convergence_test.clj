@@ -1,10 +1,11 @@
-(ns dk.simongray.podcast.sync.convergence-test
+(ns dk.simongray.podcast.profile.convergence-test
   "Devices that apply random operations and sync in random orders through
   a store end in the same state, one document per device or one shared
-  document: the merge's properties carried through the engine."
+  document: the merge's properties carried through like-minded."
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
+            [dk.simongray.like-minded :as like-minded]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -12,8 +13,7 @@
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
-            [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.sync :as sync]))
+            [dk.simongray.podcast.profile.queue :as profile.queue]))
 
 (def devices
   ["phone" "laptop" "car"])
@@ -133,14 +133,16 @@
   [strategy steps opts]
   (let [documents (atom {})
         store     (cond-> (store/memory documents) (= :shared strategy) (dissoc :list))
-        backend   (sync/backend store)
+        backend   (like-minded/backend store profile/sync-options)
         ticks     (atom 100)
         now!      (fn [] (java.util.Date. (* 1000 (long (swap! ticks inc)))))
         world     (atom (mapv (fn [d] {:state (profile/make d) :cursors nil}) devices))
         sync-one! (fn [i]
                     (swap! world update i
                            (fn [{:keys [state cursors]}]
-                             (let [r (sync/sync! state [backend] (assoc opts :at (now!) :cursors cursors))]
+                             (let [r (like-minded/sync! state [backend]
+                                                        (merge profile/sync-options opts
+                                                               {:at (now!) :cursors cursors}))]
                                (when (some #(= :sync/backend-failed (:id %)) (:report r))
                                  (throw (ex-info "a backend failed" r)))
                                {:state (:state r) :cursors (:cursors r)}))))]

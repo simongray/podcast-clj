@@ -6,10 +6,10 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [dk.simongray.like-minded.store.webdav :as webdav]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.test-support :refer [failed with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [failed sync! with-temp-dir]]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch :as http]
             [inspector.service :as service]
@@ -64,14 +64,14 @@
                              "device" "antennapod"}]))))
     (is (.isFile (io/file *dir* "sync" "inspector-gpodder.edn")) "the server writes its document to the folder")
     (with-redefs [http/send! through-the-inspector]
-      (let [backend (sync/backend (webdav/store "http://inspector/dav/"))
-            browser (sync/sync! (profile/make "browser") [backend] {:at #inst "2026-01-01T02:00:00Z"})
+      (let [backend (library/backend (webdav/store "http://inspector/dav/"))
+            browser (sync! (profile/make "browser") [backend] {:at #inst "2026-01-01T02:00:00Z"})
             s       (:state browser)]
         (is (nil? (failed browser)))
         (is (profile/subscribed? s g) "the other app's subscription, over WebDAV")
         (is (= 300 (:position (profile/episode-entry s [g "a1"]))))
         (let [s'      (profile/progress s [g "a1"] 1200 3600 #inst "2026-01-01T03:00:00Z")
-              browser (sync/sync! s' [backend] {:at #inst "2026-01-01T03:00:00Z" :cursors (:cursors browser)})]
+              browser (sync! s' [backend] {:at #inst "2026-01-01T03:00:00Z" :cursors (:cursors browser)})]
           (is (nil? (failed browser)))
           (is (= [["a1" 1200]]
                  (map (juxt #(get % "guid") #(get % "position"))
@@ -85,11 +85,11 @@
         login  (call :post "/api/2/auth/simon/login.json" :headers {"Authorization" "Basic c2ltb246eA=="})
         cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
     (with-redefs [http/send! through-the-inspector]
-      (let [backend (sync/backend (webdav/store "http://inspector/dav/"))
+      (let [backend (library/backend (webdav/store "http://inspector/dav/"))
             state   (-> (profile/make "browser")
                         (profile/add-remote-item id {:feed-url feed} #inst "2026-01-01T01:00:00Z")
                         (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))]
-        (is (nil? (failed (sync/sync! state [backend] {:at #inst "2026-01-01T01:00:02Z"}))))))
+        (is (nil? (failed (sync! state [backend] {:at #inst "2026-01-01T01:00:02Z"}))))))
     (let [rss    (str "<rss version=\"2.0\"><channel><title>B</title>"
                       "<item><title>One</title><guid>b1</guid>"
                       "<enclosure url=\"https://b.example/1.mp3\" length=\"1\" type=\"audio/mpeg\"/>"

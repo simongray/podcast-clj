@@ -33,7 +33,9 @@ idempotent, so it's a join, and the profile is a CRDT. Nobody has to
 resolve a conflict, so the place that the devices sync through only has
 to store documents. By default, each device writes a document of its own
 into a folder that a sync client such as Dropbox mirrors, or into a
-WebDAV collection, and reads the documents of the others. A saved library
+WebDAV collection, which like-minded reaches through
+[webdav-clj](https://github.com/simongray/webdav-clj), and reads the
+documents of the others. A saved library
 goes into the same kind of store, so an app needs only one. A gpodder
 server is different, since it merges on the server, as [The gpodder
 API](#the-gpodder-api) explains.
@@ -232,8 +234,8 @@ keep it outside the profile.
 AntennaPod, Kasts, gPodder and most other open-source podcast apps sync
 through the gpodder API, which gpodder.net and several self-hosted servers
 speak. It's a backend rather than a store, because the server keeps a model
-of its own. The client is `sync.gpodder`, and `sync.gpodder.server`
-serves the API over a profile.
+of its own. The client is `gpodder`, and `gpodder.server` serves the API
+over a profile.
 
 Only subscriptions and episode actions cross. A played mark is sent as a
 play to the end, as AntennaPod writes it, and the action `new` marks an

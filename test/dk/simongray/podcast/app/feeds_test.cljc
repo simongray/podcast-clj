@@ -11,7 +11,7 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.schedule :as schedule]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.qname-hiccup :as xml]

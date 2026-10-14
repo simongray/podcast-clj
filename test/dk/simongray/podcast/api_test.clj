@@ -21,9 +21,9 @@
     "as value.nwc/request-event"
     dk.simongray.podcast.value.recipients/pay!
     "it pays through the listener's wallet, whose functions the options give"
-    dk.simongray.podcast.sync.gpodder.api/request
+    dk.simongray.podcast.gpodder.api/request
     "a call names the listener and the device, which the options give"
-    dk.simongray.podcast.sync.gpodder.server/handler
+    dk.simongray.podcast.gpodder.server/handler
     "a handler serves the :state and checks credentials with :authorized-pred"
     dk.simongray.podcast.comments.activitypub/requests
     "comments/requests calls it with the limits"

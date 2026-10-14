@@ -78,7 +78,7 @@ credentials, compared through their SHA-256 in constant time
 gpodder API checks the same password itself, for a session cookie or
 Basic credentials, and refuses a user name in the path that isn't the
 one that logged in
-([server.cljc:321](../../src/dk/simongray/podcast/sync/gpodder/server.cljc#L321)).
+([server.cljc:369](../../src/dk/simongray/podcast/gpodder/server.cljc#L369)).
 Nothing slows down guesses, which the README says and the needs report
 lists; the password's 16-character floor is the defence.
 
@@ -128,7 +128,7 @@ another site can write through them depends on the browser: on whether
 it sends the Basic credentials it cached for the server with a cross-site
 request, and on the gpodder session cookie, which is HttpOnly but names
 no SameSite and no Secure attribute
-([server.cljc:58](../../src/dk/simongray/podcast/sync/gpodder/server.cljc#L58)),
+([server.cljc:57](../../src/dk/simongray/podcast/gpodder/server.cljc#L57)),
 so the browser's default of Lax applies. The same-origin check that the
 proxy has belongs on every write.
 

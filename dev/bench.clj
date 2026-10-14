@@ -23,7 +23,6 @@
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.time :as time]))
 
@@ -242,7 +241,7 @@
                                                         {:load :none}))]
                       #(library/load! @none @saved-many [@largest-feed]))]
    [:sync-round     #(let [{:keys [store a b]} (synced-pair)
-                           backend (sync/backend store)]
+                           backend (library/backend store)]
                        (library/sync! (library/merge b (library/sync! a [backend]))
                                       [backend]))]
    [:profile-merge  #(profile/merge (:a @profiles) (:b @profiles))]

@@ -51,6 +51,7 @@
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.like-minded :as like-minded]
+            [dk.simongray.like-minded.document :as like-minded.document]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
@@ -65,12 +66,12 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.search :as feed.search]
+            [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
@@ -1509,6 +1510,40 @@
   [library f & args]
   (update library :profile #(apply f % (concat args [(time-of library {})]))))
 
+(def opml-name
+  "The name of the subscription list that a backend with :opml? writes
+  beside the documents, for any podcast app to import."
+  "subscriptions.opml")
+
+(defn- with-subscription-list
+  "The options `opts` of a backend, with the subscription list of the
+  profile among the documents that their :extra-documents-fn gives. The
+  list has the shows in their folders and with their tags, and the lists
+  that the listener follows."
+  [{:keys [extra-documents-fn] :as opts}]
+  (assoc opts :extra-documents-fn
+         (fn [state]
+           (clojure.core/merge
+            {opml-name (opml/emit (profile.opml/to-opml state))}
+            (when extra-documents-fn
+              (extra-documents-fn state))))))
+
+(defn backend
+  "A backend that syncs the profiles of libraries through `store`, a
+  document store of dk.simongray.like-minded, with `opts`.
+
+  It's like-minded/backend with profile/sync-options under the `opts`,
+  which can also have :opml?, true to write subscriptions.opml beside
+  the documents."
+  ([store]
+   (backend store {}))
+  ([store {:keys [opml?] :as opts}]
+   {:pre [(map? opts)]}
+   (like-minded/backend store
+                        (cond-> (clojure.core/merge profile/sync-options
+                                                    (dissoc opts :opml?))
+                          opml? with-subscription-list))))
+
 (defn- compacting
   "The :compact option of a sync of `library` with `opts`: false, or the
   options of profile/compact, with the :archive-after of `opts` or of the
@@ -1521,7 +1556,7 @@
 
 (defn sync!
   "Sync `library` with the listener's other devices through `backends`,
-  with the `opts` of sync/sync! except :cursors and :failures.
+  with the `opts` of like-minded/sync! except :cursors and :failures.
 
   It keeps the cursors for the next sync, and compacts the profile as
   profile/compact does, with the :archive-after of the config. It returns
@@ -1539,12 +1574,16 @@
    (let [before    (:profile library)
          opts      (assoc opts :compact (compacting library opts))
          sync-opts (clojure.core/merge
+                    profile/sync-options
                     opts
                     {:at (time-of library opts)}
                     (select-keys (:sync library) [:cursors :failures]))]
-     (async/then (sync/sync! before backends sync-opts)
+     (async/then (like-minded/sync! before backends sync-opts)
                  (fn [step]
-                   (let [profile (sync/finish before step opts)]
+                   (let [profile (like-minded/finish
+                                  before step
+                                  (clojure.core/merge profile/sync-options
+                                                      opts))]
                      (assoc library
                             :profile profile
                             :sync    (-> (dissoc step :state)
@@ -1552,7 +1591,7 @@
 
 (defn leave!
   "Retire this device of `library` from the listener's sync through
-  `backends`, with the `opts` of sync/leave! except :cursors and
+  `backends`, with the `opts` of like-minded/leave! except :cursors and
   :failures, e.g. when the listener turns sync off.
 
   It writes the retirement through each backend once more, so that the
@@ -1566,10 +1605,11 @@
   ([library backends opts]
    {:pre [(map? opts)]}
    (let [sync-opts (clojure.core/merge
+                    profile/sync-options
                     opts
                     {:at (time-of library opts)}
                     (select-keys (:sync library) [:cursors :failures]))]
-     (async/then (sync/leave! (:profile library) backends sync-opts)
+     (async/then (like-minded/leave! (:profile library) backends sync-opts)
                  (fn [{:keys [state] :as step}]
                    (assoc library
                           :profile state
@@ -1683,7 +1723,10 @@
    (document library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (sync/device-document (:profile library) (time-of library opts) opts)))
+   (like-minded.document/for-device (:profile library)
+                                    (time-of library opts)
+                                    (clojure.core/merge profile/sync-options
+                                                        opts))))
 
 (def saved-name
   "The name of the document of a saved library."

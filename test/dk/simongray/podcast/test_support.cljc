@@ -1,13 +1,15 @@
 (ns dk.simongray.podcast.test-support
   "What the tests share: fixtures inlined from the classpath, a test of
   steps that give promises in ClojureScript, the instants and the two
-  devices the sync tests put through a store, the bytes of files built by
+  devices the sync tests put through a store and a sync of a profile
+  alone, the bytes of files built by
   hand, and on the JVM a temporary directory, a server of a file on
   localhost and the feeds of the corpus."
   #?(:cljs (:require-macros [dk.simongray.podcast.test-support]))
   (:require #?(:clj [clojure.java.io :as io])
             #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
+            [dk.simongray.like-minded :as like-minded]
             [dk.simongray.mind-meld :as crdt]
             #?(:clj [dk.simongray.podcast.feed.rss :as rss])
             [dk.simongray.podcast.nostr :as nostr]
@@ -100,6 +102,15 @@
   (-> (profile/make "laptop")
       (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
       (profile/progress a 900 3600 t2)))
+
+(defn sync!
+  "Sync the profile `state` through `backends` with `opts`, as
+  like-minded/sync! does with profile/sync-options, as an app that keeps
+  no library does."
+  ([state backends]
+   (sync! state backends {}))
+  ([state backends opts]
+   (like-minded/sync! state backends (merge profile/sync-options opts))))
 
 (defn same?
   "Whether two states agree on all the listener sees: everything but whose

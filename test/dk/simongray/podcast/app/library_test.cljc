@@ -22,7 +22,6 @@
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [fixture ranges run]]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
@@ -124,7 +123,7 @@
       (is (= "tablet" (:device (library/make "tablet")))))
     (run
      (fn []
-       (async/then (library/sync! clocked [(sync/backend (store/memory (atom {})) {:app "test"})])
+       (async/then (library/sync! clocked [(library/backend (store/memory (atom {})) {:app "test"})])
                    (fn [lib] (is (= (at 60) (get-in lib [:sync :at])))))))))
 
 (deftest subscribing
@@ -858,7 +857,7 @@
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
-        backend   (sync/backend (store/memory documents) {:app "test"})
+        backend   (library/backend (store/memory documents) {:app "test"})
         laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
                       (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
@@ -878,7 +877,7 @@
 
 (deftest leaving-the-sync-and-coming-back
   (let [documents (atom {})
-        backend   (sync/backend (store/memory documents) {:app "test"})
+        backend   (library/backend (store/memory documents) {:app "test"})
         laptop    (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
         devices   #(set (keys (crdt/devices (:profile %))))]
     (run
@@ -915,7 +914,7 @@
   (let [id      [guid "old"]
         played  (update library :profile profile/mark-played id (at 10))
         horizon (assoc-in played [:config :archive-after] 60000)
-        backend #(sync/backend (store/memory (atom {})) {:app "test"})]
+        backend #(library/backend (store/memory (atom {})) {:app "test"})]
     (run #(async/then (library/sync! played [(backend)] {:at (at 100)})
                       (fn [lib]
                         (is (= [id] (keys (get-in lib [:profile :played]))) "a mark stays for a year")
@@ -932,7 +931,7 @@
 
 (deftest syncs-that-fail-in-a-row
   (let [broken {:name "broken" :pull (fn [_ _ _] (throw (ex-info "down" {}))) :push (fn [_ _ _] {:cursor {}})}
-        good   (sync/backend (store/memory (atom {})) {:app "test"})]
+        good   (library/backend (store/memory (atom {})) {:app "test"})]
     (run #(async/then (library/sync! library [broken] {:at (at 10)})
                       (fn [lib]
                         (async/then (library/sync! lib [broken] {:at (at 20)})
@@ -944,7 +943,7 @@
                                                     (is (= 0 (:failures (:sync lib))) "until one works"))))))))))
 
 (deftest a-show-left-on-another-device
-  (let [backend (sync/backend (store/memory (atom {})) {:app "test"})
+  (let [backend (library/backend (store/memory (atom {})) {:app "test"})
         laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
         phone   (library/unsubscribe library guid {:at (at 10)})]
@@ -967,7 +966,7 @@
         fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})
         indexed (-> (library/make "phone" {:config {:search? true :now-fn (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
-        backend (sync/backend (store/memory (atom {})) {:app "test"})]
+        backend (library/backend (store/memory (atom {})) {:app "test"})]
     (run
      (fn []
        (async/then (library/refresh! indexed {:at (at 86400) :fetch fetch})
@@ -1292,7 +1291,7 @@
 
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
-        written             (document/decode body sync/defaults)]
+        written             (document/decode body profile/sync-options)]
     (is (= (str (:device library) ".edn") name) "the name that a backend gives it")
     (is (= (:profile library) (:state written)))
     (is (= ["test" now] ((juxt :app :written-at) written)) "written now, by the clock of the library")))

@@ -1,9 +1,9 @@
-(ns dk.simongray.podcast.sync.gpodder.api-test
+(ns dk.simongray.podcast.gpodder.api-test
   "The gpodder API as data: the calls as request maps, and the answers read
   as gpodder.net and the GPodder Sync app for Nextcloud write them."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
+            [dk.simongray.podcast.gpodder.api :as gpodder.api]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.secret :as secret]))
 

@@ -59,7 +59,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!` with a `backend`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. |
 | `app.media-session` | The Media Session of a browser for the episode that plays: which `actions` do something, and the `events` of `library/step` for each. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, the value blocks that its time splits point at from `fetch-remote-values!`, and the metadata of the Media Session from `metadata`. |
@@ -69,7 +69,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `profile` | The listener's profile, a CRDT that syncs between their devices: the subscriptions and their settings, the preferences, single episodes of other shows, progress, saved filters, listening counts and devices. Use `merge` to combine two profiles, and `compact` to drop old tombstones and archive old played episodes. |
+| `profile` | The listener's profile, a CRDT that syncs between their devices: the subscriptions and their settings, the preferences, single episodes of other shows, progress, saved filters, listening counts and devices. Use `merge` to combine two profiles, `compact` to drop old tombstones and archive old played episodes, and `sync-options` to sync it through like-minded. |
 | `profile.queue` | The queue, the inbox and the playlists of the profile, with `to-list-feed` for a playlist as a list feed, and `refresh` for the new episodes of a feed. |
 | `profile.marks` | The stars, bookmarks, clips and ratings of the profile. |
 | `profile.payments` | The record of the listener's payments in the profile, with `unsettled` for those that went to the wallet with no answer, which mustn't be sent again. |
@@ -80,16 +80,21 @@ option replaces the function that sends.
 
 ## Sync
 
+The sync between devices is that of
+[like-minded](https://github.com/simongray/like-minded), and the state it
+syncs is the profile, a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld). `library/sync!` and a
+backend of `library/backend` give like-minded the profile's
+`sync-options`. The stores that the sync and a saved library share are
+those of like-minded: a folder, a WebDAV collection through
+[webdav-clj](https://github.com/simongray/webdav-clj), IndexedDB, memory,
+and any of them encrypted.
+
 | Namespace | Contents |
 |---|---|
-| `sync` | Sync between devices through like-minded, with the profile as the state: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `device-document`. |
-| `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
-| `sync.gpodder.api` | The gpodder API as data: `request` for the request map of a call, `response` for what its answer says, and `apis` for the paths of each server. |
-| `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
-
-The stores that the sync and a saved library share are those of
-[like-minded](https://github.com/simongray/like-minded): a folder, a
-WebDAV collection, IndexedDB, memory, and any of them encrypted.
+| `gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
+| `gpodder.api` | The gpodder API as data: `request` for the request map of a call, `response` for what its answer says, and `apis` for the paths of each server. |
+| `gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder, with `stepper` to sync that profile through other backends. |
 
 ## Feeds
 

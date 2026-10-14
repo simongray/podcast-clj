@@ -38,7 +38,7 @@ through the folder:
   (atom (library/make device-id {:config {:send (proxy/sender "/proxy")}})))
 
 (def backends
-  [(sync/backend (webdav/store (str js/location.origin "/dav/")))])
+  [(library/backend (webdav/store (str js/location.origin "/dav/")))])
 
 (.then (library/sync! @lib backends) #(swap! lib library/merge %))
 ```

@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.sync.gpodder.api
+(ns dk.simongray.podcast.gpodder.api
   "The gpodder API as data: the request map of each call, and what the
   answer to it says, for any HTTP client to send and receive.
 

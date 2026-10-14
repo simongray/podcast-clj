@@ -16,10 +16,9 @@
   (:require [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.gpodder :as gpodder]
+            [dk.simongray.podcast.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.url :as url]
             [io.pedestal.log :as log])
@@ -139,7 +138,7 @@
   `data-store` when its feeds change. Returns the executor that runs the
   steps."
   [lib sync-store data-store]
-  (let [backend (sync/backend sync-store)
+  (let [backend (library/backend sync-store)
         step    (fn []
                   (try
                     (let [before (select-keys @lib saved-keys)
@@ -192,4 +191,4 @@
      {:state           state
       :authorized-pred authorized-pred
       :identities-fn   (identities lib)
-      :sync            (sync/stepper [(sync/backend sync-store)])})))
+      :sync            (gpodder-server/stepper [(library/backend sync-store)])})))

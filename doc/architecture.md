@@ -10,7 +10,7 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds  app.media-session
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  profile.*  criteria  downloads  gpodder  gpodder.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.repair  feed.quirks
   0  primitives   util.*  crypto.*  nostr  feed.guid  diagnostics
@@ -539,7 +539,11 @@ profile must only change through the functions of `profile` and
 spun out of podcast-clj and knows nothing of podcasts: `profile` gives it
 the schema of its collections. The sync and the stores are its companion,
 [like-minded](https://github.com/simongray/like-minded), spun out too, to
-which `sync` gives the profile as the state.
+which `profile/sync-options` gives the profile as the state, and its
+WebDAV store is [webdav-clj](https://github.com/simongray/webdav-clj). A
+sync is a step of the library, so an app syncs with `library/sync!` and a
+`library/backend`, and no namespace in between only passes its calls on
+to like-minded.
 
 The parts of the profile have namespaces of their own: `profile.queue`
 for the queue, the inbox and the playlists, `profile.marks` for stars,

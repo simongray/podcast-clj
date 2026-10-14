@@ -35,7 +35,8 @@
 
   A profile is a CRDT of dk.simongray.mind-meld: each write takes the time
   it happens at, and stamps what it changed with that time and the :device
-  of the profile. A feed is identified by its key, the guid that its first
+  of the profile. It syncs through dk.simongray.like-minded with the
+  sync-options. A feed is identified by its key, the guid that its first
   fetch settled on, and an episode by its id, [feed-guid item-guid].
   Once nothing has changed a played episode for a year, compact moves it
   from :episodes and :played to the :archive of its show.
@@ -1124,6 +1125,23 @@
   (or (crdt/problem collections profile)
       (crdt.list/problem collections profile)
       (some #(% profile) checks)))
+
+(def sync-options
+  "The options of the state of dk.simongray.like-minded that a profile is,
+  which syncs between the listener's devices:
+
+  - :crdt, the merge, compact and problem of profiles
+  - :version, of the format, 2 since an episode without a played mark can
+    be played by the archive. It changes only when the meaning of a key
+    changes, since a device merges the keys it doesn't know by their shape.
+  - :kind, so that an app that syncs another state through the same
+    folder leaves the profiles alone
+  - :document, the name of the one document that a store without a
+    listing shares"
+  {:crdt     {:merge merge :compact compact :problem problem}
+   :version  2
+   :kind     "podcast-clj/profile"
+   :document "podcast.edn"})
 
 (comment
   (def sample

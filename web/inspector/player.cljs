@@ -30,7 +30,6 @@
             [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
-            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
             [inspector.shared :as shared]
@@ -138,7 +137,7 @@
   "The inspector's WebDAV folder on this origin, as a backend."
   []
   (let [dav (webdav/store (str js/location.origin "/dav/") {:name "inspector"})]
-    (sync/backend dav {:opml? true :app "inspector"})))
+    (library/backend dav {:opml? true :app "inspector"})))
 
 (defn- backends
   "The backends of a sync: the inspector's folder, and the sync folder of
@@ -147,7 +146,7 @@
   (let [{:keys [handle permission]} (:folder @app)]
     (cond-> [(backend)]
       (= :granted permission)
-      (conj (sync/backend (folder/store handle) {:name  "sync folder"
+      (conj (library/backend (folder/store handle) {:name  "sync folder"
                                                :opml? true
                                                :app   "inspector"})))))
 
@@ -250,7 +249,7 @@
                  #(swap! app with-synced %))))
        (.catch (fn [e]
                  (let [message "The sync through the inspector failed."
-                       failed  {:id      :sync/backend-failed
+                       failed  {:id      :library/backend-failed
                                 :backend "inspector"
                                 :reason  (str e)
                                 :message message}]
@@ -333,7 +332,7 @@
   [input]
   (let [files (js/Array.from (.-files input))]
     (set! (.-value input) "")
-    (sync! [(sync/backend (folder/store files) {:name "loaded folder"})])))
+    (sync! [(library/backend (folder/store files) {:name "loaded folder"})])))
 
 (defn- perform!
   "Carry out the `effects` of a player event: seek the audio element to

@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.sync.gpodder.server
+(ns dk.simongray.podcast.gpodder.server
   "The gpodder API served over a profile, so that apps such as
   AntennaPod, Kasts and gPodder sync with a server of the listener.
 
@@ -11,14 +11,16 @@
   that an action that a device sends late still reaches the other
   devices."
   (:require [clojure.string :as str]
+            [dk.simongray.like-minded :as like-minded]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
+            [dk.simongray.podcast.gpodder :as gpodder]
+            [dk.simongray.podcast.gpodder.api :as gpodder.api]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url])
   #?(:clj (:import [java.util.concurrent.locks ReentrantLock])))
@@ -391,6 +393,23 @@
                           (assoc [k id] [stamp at-ms]))))]
     (reduce note index stamped)))
 
+(defn stepper
+  "A :sync for handler, which syncs a profile through `backends` with
+  `opts`, as like-minded/sync! does with profile/sync-options, and gives
+  the profile that results, in ClojureScript as a promise. It keeps the
+  cursors of each step for the next."
+  ([backends]
+   (stepper backends {}))
+  ([backends opts]
+   (let [cursors (atom (:cursors opts))]
+     (fn [state]
+       (async/then (like-minded/sync! state backends
+                                      (merge profile/sync-options
+                                             (assoc opts :cursors @cursors)))
+                   (fn [result]
+                     (reset! cursors (:cursors result))
+                     (:state result)))))))
+
 (defn handler
   "A Ring handler that serves the gpodder API over the profile in the
   atom :state of `opts`, for one listener:
@@ -419,7 +438,7 @@
   scheme of the request or the X-Forwarded-Proto of a proxy. The calls run
   one at a time, as sync steps must, so :sync can be:
 
-      (sync/stepper [backend])
+      (stepper [backend])
 
   A :sync gives a state, not a promise of one, so in ClojureScript, sync
   in the app and merge the result into the atom. The server merges what

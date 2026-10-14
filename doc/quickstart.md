@@ -25,8 +25,7 @@ subscribe to a show:
 (require '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.profile.queue :as profile.queue]
-         '[dk.simongray.podcast.sync :as sync])
+         '[dk.simongray.podcast.profile.queue :as profile.queue])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
 
@@ -146,17 +145,20 @@ waits longer before the next try.
 
 ## The other devices
 
-Each device writes its profile to a store as one document, and reads
-the documents of the other devices. A folder that a sync client mirrors is
-a store, and so is a WebDAV collection. The stores come from
-[like-minded](https://github.com/simongray/like-minded), which podcast-clj
-syncs through and brings along. With `sync/backend`, a store becomes the
-backend of a sync, here with the app's name in its document:
+Each device writes its profile, a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld), to a store as one
+document, and reads the documents of the other devices. A folder that a
+sync client mirrors is a store, and so is a WebDAV collection, reached
+through [webdav-clj](https://github.com/simongray/webdav-clj). The stores
+come from [like-minded](https://github.com/simongray/like-minded), which
+podcast-clj syncs through and brings along. With `library/backend`, a
+store becomes the backend of a sync, here with the app's name in its
+document:
 
 ```clojure
 (def dropbox
-  (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")
-                {:app "quickstart"}))
+  (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")
+                   {:app "quickstart"}))
 
 (-> (swap! lib library/merge (library/sync! @lib [dropbox]))
     :sync

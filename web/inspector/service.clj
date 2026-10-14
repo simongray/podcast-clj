@@ -9,6 +9,7 @@
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
@@ -20,10 +21,9 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.feed.validate :as validate]
+            [dk.simongray.podcast.gpodder :as gpodder]
+            [dk.simongray.podcast.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.client :as client]
@@ -879,7 +879,7 @@
      {:state           state
       :authorized-pred (constantly true)
       :identities-fn   names
-      :sync            (sync/stepper [(sync/backend sync-store)])})))
+      :sync            (gpodder-server/stepper [(library/backend sync-store)])})))
 
 (defn routes
   "The inspector's routes in Pedestal's set syntax, with the WebDAV ones

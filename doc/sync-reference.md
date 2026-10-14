@@ -10,29 +10,32 @@ the design.
 
 ## The options of the profile
 
-The functions of `sync` are those of like-minded, with the options of the
-profile, `sync/defaults`, under the options of each call:
+A profile syncs as a state of like-minded with the options of
+`profile/sync-options`:
 
 | Option | Value |
 |---|---|
-| `:crdt` | `sync/default-crdt`, of `profile/merge`, `profile/compact` and `profile/problem` |
-| `:version` | `sync/version`, which is 1 |
-| `:kind` | `sync/kind`, which is `"podcast-clj/profile"` |
+| `:crdt` | `profile/merge`, `profile/compact` and `profile/problem`, which keep the rules of [mind-meld](https://github.com/simongray/mind-meld) |
+| `:version` | 2 |
+| `:kind` | `"podcast-clj/profile"` |
 | `:document` | `"podcast.edn"`, the name of a shared document |
 
-- Each function has the name of its counterpart in like-minded, except
-  `sync/device-document`, which is like-minded's `document/for-device`.
-- To read a document of a profile, give `sync/defaults` to the functions
-  of like-minded's `document`, e.g. `(document/decode body sync/defaults)`.
-- To sync another state than the profile, call like-minded itself with
-  the options of that state.
+- In a library, `library/sync!`, `library/leave!` and `library/document`
+  give these options to like-minded, and so does a backend of
+  `library/backend`.
+- To sync a profile without a library, or to read the document of one,
+  give `profile/sync-options` to like-minded, e.g.
+  `(like-minded/sync! profile backends profile/sync-options)` or
+  `(document/decode body profile/sync-options)`.
+- To sync another state than the profile, call like-minded with the
+  options of that state.
 
-With `:opml?`, a backend of `sync/backend` also writes the listener's
+With `:opml?`, a backend of `library/backend` also writes the listener's
 subscription list beside the documents as `subscriptions.opml`, for any
 podcast app to import. It holds what `profile.opml/to-opml` gives: the shows
 with their folders and tags, and the followed lists. It's an extra
 document of like-minded, so it's written when it changes. To leave it
-readable in an encrypted store, give its name, `sync/opml-name`, in the
+readable in an encrypted store, give its name, `library/opml-name`, in the
 `:except` of `encrypted/store`.
 
 
@@ -63,7 +66,7 @@ false to keep every tombstone, or the options of `profile/compact`.
 
 ## The gpodder backend
 
-The backend of `sync.gpodder` speaks the gpodder API on both
+The backend of `gpodder` speaks the gpodder API on both
 platforms, and takes these options:
 
 | Option | Meaning | Default |
@@ -108,13 +111,14 @@ its `:device`, e.g. `gpodder:antennapod`. Some servers want the session of
 a login and others Basic authentication on every request, so the backend
 sends both.
 
-On both platforms, `sync.gpodder.server/handler` serves the API as a
+On both platforms, `gpodder.server/handler` serves the API as a
 Ring handler under `/api/2`: the login, the devices, the subscription
 changes and the episode actions. It takes the atom of the server's state,
-`:authorized-pred`, a `:sync` function that syncs the state, and the same
-lookups as the backend. The `:sync` function returns a state, not a
-promise, so in ClojureScript, where `sync!` returns a promise, sync
-separately and merge the result into the atom.
+`:authorized-pred`, a `:sync` function that syncs the state, e.g. one of
+`gpodder.server/stepper`, and the same lookups as the backend. The `:sync`
+function returns a state, not a promise, so in ClojureScript, where
+like-minded's `sync!` returns a promise, sync separately and merge the
+result into the atom.
 
 
 ## gpodder servers, as of October 2026

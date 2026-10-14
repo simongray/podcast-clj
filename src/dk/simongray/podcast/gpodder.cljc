@@ -1,6 +1,6 @@
-(ns dk.simongray.podcast.sync.gpodder
-  "The gpodder API as a sync backend, for the subscriptions and episode
-  actions that a gpodder server keeps.
+(ns dk.simongray.podcast.gpodder
+  "The gpodder API as a sync backend of like-minded, for the subscriptions
+  and episode actions that a gpodder server keeps.
 
   Such servers are gpodder.net, the GPodder Sync app for Nextcloud,
   oPodSync and PinePods. They keep the data of apps such as AntennaPod,
@@ -8,7 +8,8 @@
 
   The API names a show by its feed URL, and an episode by the URL of its
   media, where podcast-clj names them by guid. The requests and the
-  answers of the API are in dk.simongray.podcast.sync.gpodder.api."
+  answers of the API are in dk.simongray.podcast.gpodder.api, and a
+  server of it is in dk.simongray.podcast.gpodder.server."
   (:require [clojure.string :as str]
             [dk.simongray.like-minded.document :as document]
             [dk.simongray.mind-meld :as crdt]
@@ -16,7 +17,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync.gpodder.api :as gpodder.api]
+            [dk.simongray.podcast.gpodder.api :as gpodder.api]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]

@@ -78,7 +78,8 @@ are mostly named after the part of podcasting they cover, e.g. `directory`,
 `comments`, `value` for payments and `analytics` for download counts.
 
 The things a typical listener will do (subscribing, queueing, playing, etc.)
-go into their `profile`, which can then be synced between their devices.
+go into their `profile`, a CRDT of [mind-meld](https://github.com/simongray/mind-meld),
+which [like-minded](https://github.com/simongray/like-minded) syncs between their devices.
 Each device has its own `library`, a piece of state which includes:
 the aforementioned profile, the podcast feeds that the device has fetched,
 and a local search index for fast search results.
@@ -145,7 +146,7 @@ An app in a few lines
 ---------------------
 
 You can create a full-featured podcast app with the `app.*` namespaces, and
-sync the listener's devices through `sync.*` and the stores of
+sync the listener's devices through the stores of
 [like-minded](https://github.com/simongray/like-minded), e.g. a folder,
 WebDAV or the gpodder API. Subscribing, playing, refreshing, searching,
 saving, and syncing are each one function call.
@@ -155,8 +156,7 @@ and syncing also record what they did in it:
 ```clojure
 (require '[dk.simongray.like-minded.store.folder :as folder]
          '[dk.simongray.podcast :as podcast]
-         '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.sync :as sync])
+         '[dk.simongray.podcast.app.library :as library])
 
 ;; make a library for this device, and subscribe to a show
 (def url "https://feeds.podcastindex.org/pc20.xml")
@@ -188,7 +188,7 @@ and syncing also record what they did in it:
 
 ;; sync the profile with the listener's other devices through a Dropbox folder,
 ;; and see what failed and what the step reported
-(def dropbox (sync/backend (folder/store "/Users/simon/Dropbox/Podcasts")))
+(def dropbox (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")))
 (-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
 ;; => []
 
@@ -209,8 +209,9 @@ other sites don't let a page read, and a folder to sync through. The
 [podcast server](server/README.md) in `server/` is that server for one
 listener. It serves the Ring handlers of the proxy of
 [wary-fetch](https://github.com/simongray/wary-fetch), the WebDAV server of
-[like-minded](https://github.com/simongray/like-minded) and
-`sync.gpodder.server`, which you can also mount in a server of your own.
+[like-minded](https://github.com/simongray/like-minded), built on
+[webdav-clj](https://github.com/simongray/webdav-clj), and `gpodder.server`,
+which you can also mount in a server of your own.
 
 Documentation
 -------------
