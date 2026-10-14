@@ -246,8 +246,8 @@
   (apply str (filter string? (tree-seq sequential? seq nodes))))
 
 (defn- account
-  "The user name and the domain in the name `s` of an account, such as
-  @dave or @dave@example.social, in lower case, as a pair. It's nil for
+  "The user name and the domain in the name `s` of an account, in lower
+  case, as a pair, e.g. from @dave or @dave@example.social. It's nil for
   another text."
   [s]
   (let [lower (str/lower-case (str s))]

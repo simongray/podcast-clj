@@ -40,8 +40,8 @@
   lower case, or nil when `s` isn't one.
 
   A user name holds the letters a to z, the digits, and the characters
-  minus, underscore, dot and plus, as LUD-16 allows. An address of
-  @domain alone is short for the default identifier of the domain, with
+  minus, underscore, dot and plus, as LUD-16 allows. An address that's
+  only @domain is short for the default identifier of the domain, with
   the user name underscore, as LUD-16 has it.
 
   The domain is a name on the public internet. It isn't an IP address,
