@@ -24,18 +24,11 @@ core of the library over the corpus before and after a change, run
 with the dates of two runs. For the memory that a library holds with all
 its feeds and with none, run `(bench/footprints)`.
 
-To change [wary-fetch](https://github.com/simongray/wary-fetch),
-[qname-hiccup](https://github.com/simongray/qname-hiccup),
-[html-pieces](https://github.com/simongray/html-pieces),
-[drop-in-search](https://github.com/simongray/drop-in-search),
-[mind-meld](https://github.com/simongray/mind-meld),
-[like-minded](https://github.com/simongray/like-minded) or
-[websub-clj](https://github.com/simongray/websub-clj) and podcast-clj at
-once, check them out beside this one, in `../wary-fetch`,
-`../qname-hiccup`, `../html-pieces`, `../drop-in-search`, `../mind-meld`,
-`../like-minded` and `../websub-clj`, and add the `:local` alias, e.g.
-`clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
-deps.edn, or its version once it's released on Clojars.
+To change a sibling library and podcast-clj at once, use the `:local`
+alias, e.g. `clojure -M:dev:local:nrepl`. It takes each sibling that it
+lists in deps.edn from a checkout beside this one, e.g. `../wary-fetch`,
+so all of them must be checked out. Once the change is pushed, put its
+commit in deps.edn, or its version once it's released on Clojars.
 
 
 ## The inspector

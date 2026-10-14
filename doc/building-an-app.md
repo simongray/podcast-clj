@@ -831,6 +831,29 @@ asked again on the next fetch. To see new comments, start again from
 which gives the comments `:added`, `:edited` and `:deleted` since, e.g.
 for a notification of new replies.
 
+Some fediverse servers answer only signed requests, e.g. Mastodon with
+authorized fetch, and GoToSocial. When the root post is on such a server,
+`fetch!` reads the thread through its Mastodon API, which only has the
+replies that server knows, and leaves out the replies on such servers. In
+a browser, the podcast server's proxy can sign for you, as its
+[README](../server/README.md#comment-threads-on-servers-that-ask-for-signatures)
+says. Elsewhere, sign with
+[httpsig-clj](https://github.com/simongray/httpsig-clj) and the key of an
+actor that you publish:
+
+```clojure
+(def send-signed!
+  (httpsig/sender comments/send! actor-key
+                  {:signers [cavage/sign httpsig/sign]}))
+
+(comments/fetch! thread {:send send-signed!})
+```
+
+This signs with draft-cavage, which every fediverse server takes, and
+signs again with RFC 9421 for a server that refuses it. A server checks
+the signature by fetching the actor and looking up its account with
+WebFinger, on port 443 of the actor's domain.
+
 On Nostr, people also write about episodes that name no thread, and
 `nostr-comments/about` gives the thread of those notes, for an episode or
 a show:
@@ -2144,8 +2167,9 @@ downloads needs no files either.
 ## The namespaces of the examples
 
 The namespaces outside `dk.simongray.podcast` are those of the libraries
-that [Before you start](#before-you-start) lists, and those of play-nice,
-which [Play episodes](#play-episodes) adds.
+that [Before you start](#before-you-start) lists, those of play-nice,
+which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
+[Show the comments on an episode](#show-the-comments-on-an-episode) adds.
 
 ```clojure
 (ns my.app
@@ -2153,6 +2177,8 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
+            [dk.simongray.httpsig :as httpsig]
+            [dk.simongray.httpsig.cavage :as cavage]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
             [dk.simongray.like-minded.store.folder :as folder]

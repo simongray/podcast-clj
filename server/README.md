@@ -159,6 +159,41 @@ alone for a year (HSTS). That covers the server's own name only. To
 cover the names below it too, set the header at the server in front.
 
 
+Comment threads on servers that ask for signatures
+--------------------------------------------------
+
+Some fediverse servers answer only signed requests, e.g. Mastodon with
+authorized fetch, and GoToSocial always. When the root post is on such a
+server, the client reads the thread through that server's Mastodon API,
+which only has the replies that server knows. Replies on such servers are
+left out altogether.
+
+To sign the requests, give the server a public URL for an ActivityPub
+actor:
+
+```bash
+PODCAST_SERVER_ACTOR=https://podcasts.example.org/actor
+```
+
+The proxy then signs the client's requests for ActivityPub documents with
+the actor's key. The server makes the key at its first start and keeps it
+in the data folder as `actor-key.edn`, so keep that folder as safe as a
+password.
+
+A server checks a signature by fetching the actor and then looking up its
+account with WebFinger, so both must be on the public internet: the
+actor's path and `/.well-known/webfinger`, on port 443 of the actor's
+domain, since that's where Mastodon asks. The server answers both without
+a password, and answers to the actor's domain. Behind Caddy, use Caddy's
+domain, e.g. https://podcasts.example.org/actor. On a tailnet, Tailscale
+Funnel can bring the public internet to the server on port 443 of its
+name, e.g. https://pi.example.ts.net/actor. Without a password, the
+server answers Funnel for those two paths alone.
+
+The remote servers see the actor's domain on each request, and some may
+block it.
+
+
 Settings
 --------
 
@@ -177,13 +212,14 @@ Each setting is an environment variable.
 | `PODCAST_SERVER_MAX_SYNC_BYTES` | 536870912 (512 MB) | The most bytes that the documents of the sync folder add up to |
 | `PODCAST_SERVER_PODCASTINDEX_KEY` and `PODCAST_SERVER_PODCASTINDEX_SECRET` | none | The credentials of an account of the Podcast Index, with which the proxy signs the client's requests to it, so that the client gives `:index {}` |
 | `PODCAST_SERVER_OP3_TOKEN` | none | The token of an API key of OP3, which the proxy adds to the client's requests to its API, so that the client calls with a nil token |
+| `PODCAST_SERVER_ACTOR` | none | The public https URL of the server's ActivityPub actor, whose path is a name that the server has no other use for, e.g. https://podcasts.example.org/actor. The proxy signs the client's requests for ActivityPub documents with its key. |
 
 The server refuses a request that names it by any other name, as a page
 that points a domain of its own at the server would. Any other client can
 send the name it likes, so the check only keeps out web pages. It refuses
 a write from a page of another site, e.g. a form that posts to the gpodder
 API. Without a password, it also refuses whatever Tailscale Funnel brings
-from the public internet.
+from the public internet, except the actor's two paths.
 
 Whoever has the password is the listener, so the server limits what a
 leaked one can cost: the sync folder holds no more than its settings

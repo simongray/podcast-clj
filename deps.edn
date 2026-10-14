@@ -26,7 +26,7 @@
          dk.simongray/like-minded    {:mvn/version "0.4.2"}
          dk.simongray/whatwg-mime    {:mvn/version "0.2.1"}
          dk.simongray/langtag-clj    {:mvn/version "0.2.0"}
-         dk.simongray/webcrypto-clj  {:mvn/version "0.1.2"}
+         dk.simongray/webcrypto-clj  {:mvn/version "0.1.3"}
          dk.simongray/id3-clj        {:mvn/version "0.1.1"}}
 
  :aliases
@@ -43,12 +43,14 @@
 
   ;; The self-hosted podcast server: the parts of a podcast app that must
   ;; run on a server, for a client that runs in the browser. It reads the
-  ;; feeds that aren't well-formed XML with jsoup, and logs to stderr
-  ;; through slf4j-simple.
+  ;; feeds that aren't well-formed XML with jsoup, signs its requests for
+  ;; ActivityPub documents with httpsig-clj, and logs to stderr through
+  ;; slf4j-simple.
   :server {:extra-paths   ["server"]
            :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
            :extra-deps    {io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-11"}
                            io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-11"}
+                           dk.simongray/httpsig-clj     {:mvn/version "0.1.1"}
                            org.jsoup/jsoup              {:mvn/version "1.23.2"}
                            org.slf4j/slf4j-simple       {:mvn/version "2.0.18"}}
            :main-opts     ["-m" "podcast-server.service"]}
@@ -61,6 +63,7 @@
           :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
           :extra-deps    {io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-11"}
                           io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-11"}
+                          dk.simongray/httpsig-clj     {:mvn/version "0.1.1"}
                           no.cjohansen/replicant       {:mvn/version "2026.07.1"}
                           org.jsoup/jsoup              {:mvn/version "1.23.2"}
                           metosin/malli                {:mvn/version "0.20.2"}
@@ -77,6 +80,7 @@
                           {:git/tag "v0.5.1" :git/sha "dfb30dd"}
                           io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-11"}
                           io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-11"}
+                          dk.simongray/httpsig-clj     {:mvn/version "0.1.1"}
                           no.cjohansen/replicant       {:mvn/version "2026.07.1"}
                           org.jsoup/jsoup              {:mvn/version "1.23.2"}
                           metosin/malli                {:mvn/version "0.20.2"}
@@ -112,9 +116,9 @@
           :ns-default build}
 
   ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
-  ;; like-minded, websub-clj, whatwg-mime, langtag-clj, webcrypto-clj and
-  ;; id3-clj from checkouts beside this one, to change them and podcast-clj
-  ;; at once, e.g. clojure -M:dev:local:nrepl
+  ;; like-minded, websub-clj, whatwg-mime, langtag-clj, webcrypto-clj,
+  ;; id3-clj and httpsig-clj from checkouts beside this one, to change them
+  ;; and podcast-clj at once, e.g. clojure -M:dev:local:nrepl
   :local {:override-deps
           {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
            dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
@@ -126,7 +130,8 @@
            dk.simongray/whatwg-mime    {:local/root "../whatwg-mime"}
            dk.simongray/langtag-clj    {:local/root "../langtag-clj"}
            dk.simongray/webcrypto-clj  {:local/root "../webcrypto-clj"}
-           dk.simongray/id3-clj        {:local/root "../id3-clj"}}}
+           dk.simongray/id3-clj        {:local/root "../id3-clj"}
+           dk.simongray/httpsig-clj    {:local/root "../httpsig-clj"}}}
 
   ;; clojure -M:dev:nrepl
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}}

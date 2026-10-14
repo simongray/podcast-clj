@@ -12,6 +12,8 @@
   - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
     server have the same origin
+  - the document of its ActivityPub actor and WebFinger, without a
+    password, when it has an actor
 
   The server is one of the listener's devices too, so that it keeps the
   listener's feeds current. Without a password, it checks no credentials,
@@ -38,6 +40,7 @@
             [io.pedestal.interceptor :as interceptor]
             [io.pedestal.service.interceptors :as interceptors]
             [io.pedestal.service.resources :as resources]
+            [podcast-server.actor :as actor]
             [podcast-server.device :as device])
   (:import [java.io File]
            [java.util.concurrent Executors Semaphore TimeUnit])
@@ -64,7 +67,10 @@
     account of the Podcast Index, with which the proxy signs the client's
     requests to it, or nil
   - :op3-token, the token of an API key of OP3, which the proxy adds to
-    the client's requests to its API, or nil"
+    the client's requests to its API, or nil
+  - :actor, the public https URL of the server's ActivityPub actor, or
+    nil. The proxy signs the client's requests for ActivityPub documents
+    with its key."
   {:port                8400
    :host                "localhost"
    :names               #{}
@@ -76,7 +82,8 @@
    :max-sync-bytes      (* 512 1024 1024)
    :podcastindex-key    nil
    :podcastindex-secret nil
-   :op3-token           nil})
+   :op3-token           nil
+   :actor               nil})
 
 (def environment
   "The environment variable of each setting. The names are separated by
@@ -92,7 +99,21 @@
    :max-sync-bytes      "PODCAST_SERVER_MAX_SYNC_BYTES"
    :podcastindex-key    "PODCAST_SERVER_PODCASTINDEX_KEY"
    :podcastindex-secret "PODCAST_SERVER_PODCASTINDEX_SECRET"
-   :op3-token           "PODCAST_SERVER_OP3_TOKEN"})
+   :op3-token           "PODCAST_SERVER_OP3_TOKEN"
+   :actor               "PODCAST_SERVER_ACTOR"})
+
+;; the server answers the actor's path without a password, so it can't be
+;; one that the server uses for anything else
+(defn- actor-url?
+  "Whether `s` is an https URL whose path is one name, which the server
+  uses for nothing else, e.g. https://podcasts.example/actor."
+  [s]
+  (let [path     (actor/url-path s)
+        username (actor/username s)]
+    (boolean (and (= "https" (url/scheme s))
+                  username
+                  (= path (str "/" username))
+                  (not (#{"/proxy" "/media" "/dav"} path))))))
 
 (defn- setting
   "The setting `k` from the value `v` of its environment variable `var`. A
@@ -127,6 +148,15 @@
 
     (:podcastindex-secret :op3-token)
     (secret/hide v)
+
+    :actor            (if (actor-url? v)
+                        v
+                        (throw (ex-info (str var " is not an https URL whose "
+                                             "path is a name that the server "
+                                             "has no other use for, e.g. "
+                                             "https://podcasts.example/actor: "
+                                             v)
+                                        {var v})))
 
     v))
 
@@ -183,13 +213,16 @@
 
 ;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
 ;; and sets it on the requests that Funnel brings, as of October 2026
-(def no-funnel
+(defn no-funnel
   "An interceptor that answers nothing that came through Tailscale Funnel
-  from the public internet, for a server without a password."
+  from the public internet, for a server without a password, but for the
+  `open-paths`, e.g. those of the actor."
+  [open-paths]
   (interceptor/interceptor
    {:name  ::no-funnel
     :enter (fn [{:keys [request] :as context}]
-             (if (get-in request [:headers "tailscale-funnel-request"])
+             (if (and (get-in request [:headers "tailscale-funnel-request"])
+                      (not (contains? open-paths (:uri request))))
                (let [message "The server doesn't answer the public internet."]
                  (assoc context :response (refused message)))
                context))}))
@@ -304,11 +337,12 @@
 ;; RFC 7617, section 2
 (defn login
   "An interceptor that lets in only requests with the `password` in their
-  Basic credentials, whatever the user name.
+  Basic credentials, whatever the user name, and those for the
+  `open-paths`, e.g. those of the actor.
 
   The gpodder API checks the credentials itself, since its apps log in
   once and then send a cookie."
-  [password]
+  [password open-paths]
   (let [realm     "Basic realm=\"Podcast server\", charset=\"UTF-8\""
         challenge (ring/text-response 401 "The server asks for its password."
                                       {"WWW-Authenticate" realm})]
@@ -317,8 +351,9 @@
       :enter (fn [{:keys [request] :as context}]
                (let [authorization (get-in request [:headers "authorization"])
                      given         (:password (ring/credentials authorization))
-                     gpodder?      (str/starts-with? (:uri request) "/api/2/")]
-                 (if (or gpodder? (and given (password? password given)))
+                     gpodder?      (str/starts-with? (:uri request) "/api/2/")
+                     open?         (contains? open-paths (:uri request))]
+                 (if (or gpodder? open? (and given (password? password given)))
                    context
                    (assoc context :response challenge))))})))
 
@@ -418,15 +453,22 @@
 
 (defn proxy-send
   "The :send of the proxy, which signs the requests to the Podcast Index
-  and to OP3 with the credentials of `settings`, where they give them."
-  [{:keys [podcastindex-key podcastindex-secret op3-token] :as settings}]
-  (let [index {:key podcastindex-key :secret podcastindex-secret}]
-    (cond-> client/send!
-      op3-token
-      (as-> send (op3/sender op3-token {:send send}))
+  and to OP3 with the credentials of `settings`, where they give them, and
+  the requests for ActivityPub documents with the `actor-key`, or nil."
+  ([settings]
+   (proxy-send settings nil))
+  ([{:keys [podcastindex-key podcastindex-secret op3-token] :as settings}
+    actor-key]
+   (let [index {:key podcastindex-key :secret podcastindex-secret}]
+     (cond-> client/send!
+       actor-key
+       (actor/signing actor-key)
 
-      podcastindex-key
-      (as-> send (podcastindex/sender index {:send send})))))
+       op3-token
+       (as-> send (op3/sender op3-token {:send send}))
+
+       podcastindex-key
+       (as-> send (podcastindex/sender index {:send send}))))))
 
 (defn media-urls
   "The URLs of the media files of the episodes of the feeds in `library`,
@@ -477,10 +519,14 @@
   app when it's nil, and the sync folder holds no more than their
   :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
   once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
-  with proxy-send. The media files pass through as they arrive."
-  [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
+  with proxy-send. The media files pass through as they arrive. With an
+  :actor, there are the routes of its document and WebFinger too, and its
+  key is kept in the data folder."
+  [sync-store lib {:keys [password max-sync-documents max-sync-bytes actor]
                    :as   settings}]
-  (let [dav         (within-quota (sync-dir settings)
+  (let [actor-key   (when actor
+                      (actor/key! (data-store settings) actor))
+        dav         (within-quota (sync-dir settings)
                                   max-sync-documents
                                   max-sync-bytes
                                   (webdav-server/handler
@@ -493,13 +539,16 @@
                                             (data-store settings)
                                             lib
                                             authorized?)
-        proxy       (at-most 4 30 (proxy/handler {:user-agent client/user-agent
-                                                  :send (proxy-send settings)}))]
-    #{["/proxy" :any proxy :route-name ::proxy]
-      ["/media" :any (media-handler lib) :route-name ::media]
-      ["/dav" :any dav :route-name ::dav-collection]
-      ["/dav/*path" :any dav :route-name ::dav]
-      ["/api/2/*path" :any gpodder :route-name ::gpodder]}))
+        proxy       (at-most 4 30 (proxy/handler
+                                   {:user-agent client/user-agent
+                                    :send       (proxy-send settings
+                                                            actor-key)}))]
+    (cond-> #{["/proxy" :any proxy :route-name ::proxy]
+              ["/media" :any (media-handler lib) :route-name ::media]
+              ["/dav" :any dav :route-name ::dav-collection]
+              ["/dav/*path" :any dav :route-name ::dav]
+              ["/api/2/*path" :any gpodder :route-name ::gpodder]}
+      actor (into (actor/routes actor (:public-pem actor-key))))))
 
 (def no-dotfiles
   "An interceptor that answers 404 for a file or folder whose name starts
@@ -530,12 +579,17 @@
 
 (defn connector
   "A Jetty connector of the server with `settings`, over the sync folder
-  `sync-store` and the server's library `lib`, an atom; not yet started."
-  [{:keys [host port names password client-dir] :as settings} sync-store lib]
+  `sync-store` and the server's library `lib`, an atom; not yet started.
+  It answers to the host of the :actor too."
+  [{:keys [host port names password client-dir actor] :as settings}
+   sync-store lib]
   (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}
+        open   (if actor (actor/paths actor) #{})
+        names  (cond-> names actor (conj (:host (url/parts actor))))
         guard  (if password
-                 [(wrong-guesses #(System/currentTimeMillis)) (login password)]
-                 [no-funnel])]
+                 [(wrong-guesses #(System/currentTimeMillis))
+                  (login password open)]
+                 [(no-funnel open)])]
     (-> (conn/default-connector-map host port)
         (conn/with-interceptors
           (-> [hidden-credentials
