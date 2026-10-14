@@ -31,11 +31,11 @@ and keep it.
 
 Each function returns the library along with what it did: `:effects`
 after `step`, `:refresh` after `refresh!`, `:sync` after `sync!` and
-`:restore` after `restore!`. The
-`:config` given to `make` holds the options that the other library
-functions use, and the docstring of `app.library` lists them. Keep the
-library between runs with `library/save!` and `library/restore!`, as
-[Keep the library between runs](#keep-the-library-between-runs) shows.
+`:restore` after `restore!`. The `:config` given to `make` holds the
+options that the other library functions use, and the docstring of
+`app.library` lists them. Keep the library between runs with
+`library/save!` and `library/restore!`, as [Keep the library between
+runs](#keep-the-library-between-runs) shows.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile`, and of its parts such as `profile.queue`,
@@ -55,10 +55,10 @@ options, call the function of `profile` with that time instead, e.g.
 The examples call each namespace by the last part of its name, e.g.
 `library` for `dk.simongray.podcast.app.library`, or by a longer name
 where that part would be unclear, e.g. `feed.guid`, `profile.queue` or
-`nostr-comments`.
-[The last section](#the-namespaces-of-the-examples) requires them all.
-The examples run on the JVM, except those for a browser, and in
-ClojureScript the functions that send requests return promises.
+`nostr-comments`. [The last section](#the-namespaces-of-the-examples)
+requires them all. The examples run on the JVM, except those for a
+browser, and in ClojureScript the functions that send requests return
+promises.
 
 Some of the namespaces come from libraries that were spun out of
 podcast-clj. It depends on them, so they come with it:
@@ -193,8 +193,8 @@ credentials, and combines the results into one entry per show:
 (def found (:results (directory/search! "podcasting 2.0" {:limit 5})))
 
 (map (juxt resolve/title resolve/author :directory/sources) found)
-;; => (["Podcasting 2.0" "Podcast Index LLC"
-;;      {:apple "1584274529" :fyyd 61003 :gpodder "https://…"}] …)
+;; => (["Podcasting 2.0" "Podcast Index LLC" {:apple "1584274529" :fyyd 61003}]
+;;     …)
 
 (def url (resolve/self-url (first found)))
 ```
@@ -308,9 +308,10 @@ which `library/subscribe` takes in place of the result of `fetch!`. Give
 
 A page can name several feeds of megabytes each, as Freak Show's does, and
 `:heads? true` fetches only the start of each, most often 64 KB. For one
-feed, `discovery/fetch-head!` does the same. A start is enough to show a
-show, and `library/subscribe` takes it for the title, the artwork and the
-guid, while `refresh!` fetches the whole feed.
+feed, `discovery/fetch-head!` does the same. The start of a feed is
+enough for a preview, and `library/subscribe` takes it for the title, the
+artwork and the guid, while `refresh!` fetches the whole feed.
+
 When the page names no podcast feed, `:search [:apple]` also asks a
 directory for the shows whose website is on that domain. It's off by
 default, since it sends the name of the page to the directory.
@@ -413,10 +414,10 @@ after a new subscription. After a refresh that found the device offline,
 it waits five minutes, the config's `:offline-seconds`.
 
 A platform gives a task in the background little time, e.g. half a
-minute. Give `refresh!` that budget as `:max-seconds`, or a most number
-of feeds as `:max-feeds`, and the feeds that it doesn't reach stay due
-for the next refresh, as the `:left` of the counts says. To show
-progress, give it `:on-feed-fn`, which hears of each fetch as it ends.
+minute. Give `refresh!` that budget as `:max-seconds`, or a maximum
+number of feeds as `:max-feeds`, and the feeds that it doesn't reach stay
+due for the next refresh, as the `:left` of the counts says. To show
+progress, give it `:on-feed-fn`, which is called as each fetch ends.
 To let the listener cancel it, give it a `:signal`: an AbortSignal in
 ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
@@ -439,8 +440,8 @@ worker is a shadow-cljs module with `:web-worker true`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
-each refresh. It gives the new episodes that the listener hasn't played,
-by show:
+each refresh. It returns the new episodes that the listener hasn't
+played, by show:
 
 ```clojure
 (swap! lib library/update-profile profile/prefer {:notify? true})
@@ -584,8 +585,8 @@ on the normal schedule too, since a hub can fail.
 
 A network or a critic can publish a list of shows as OPML. When a listener
 follows it, the shows that join the list become subscriptions. Fetch the
-list with `podcast/fetch-list!`, which gives it as `:list`, or an `:error`
-as `fetch!` does:
+list with `podcast/fetch-list!`, which returns it as `:list`, or an
+`:error` as `fetch!` does:
 
 ```clojure
 (def fetched (podcast/fetch-list! list-url))
@@ -665,12 +666,12 @@ Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:
 
 - **On the JVM and in Node,** a folder, as above.
-- **In a browser,** IndexedDB, `(indexeddb/store "my-app")`, or the origin private
-  file system, `(.then (.getDirectory js/navigator.storage) folder/store)`.
-  A browser can clear both when the disk runs low, unless the page asked
-  for `navigator.storage.persist()` and got it. If it does, `restore!`
-  gives the library as `make` made it, and the next sync brings the
-  profile back from the other devices.
+- **In a browser,** IndexedDB, `(indexeddb/store "my-app")`, or the
+  origin private file system, `(.then (.getDirectory js/navigator.storage)
+  folder/store)`. A browser can clear both when the disk runs low, unless
+  the page asked for `navigator.storage.persist()` and got it. If the
+  browser clears them, `restore!` returns the library as `make` made it,
+  and the next sync brings the profile back from the other devices.
 
 
 ## Build the show and episode pages
@@ -700,8 +701,8 @@ route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.
 
 To colour a page by its artwork, as Apple Podcasts does, give
-`image/colors` the bytes of the image. It gives the colours of a UI, and
-in ClojureScript a promise of them:
+`image/colors` the bytes of the image. It returns the colours of a UI,
+and in ClojureScript a promise of them:
 
 ```clojure
 (image/colors (:body (http/send! {:url (:artwork show-page) :as :bytes})))
@@ -751,11 +752,11 @@ can be watched, e.g. on YouTube.
 Links and images in the notes are made absolute against the web page of
 the episode or the show, and a link written as a bare domain, as many
 feeds do, gets `https://`. To do it your own way, give `:notes-url-fn` a
-function of the page and the URL, which gives the URL to keep or nil.
+function of the page and the URL, which returns the URL to keep or nil.
 
 To make the times in the notes, e.g. 12:34, play the episode from there,
 give `:timestamp-fn` a function of the seconds and the text of a time.
-It gives the Hiccup in its place, or nil to leave the text, e.g.
+It returns the Hiccup in its place, or nil to leave the text, e.g.
 `(fn [seconds text] [:a {:href (str "#t=" seconds)} text])`. A time in a
 link, or past the end of the episode, stays text.
 
@@ -784,7 +785,7 @@ value for each property, and each accessor of `feed.resolve`, such as
 
 A feed can name a thread of comments about an episode on ActivityPub, the
 AT Protocol or Nostr, and `comments/thread` picks the first one that
-podcast-clj can read. It gives nil when there is none, or when the
+podcast-clj can read. It returns nil when there is none, or when the
 podcaster turned comments off. For the AT Protocol, give the AppView to
 ask for replies:
 
