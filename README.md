@@ -65,7 +65,8 @@ service that stores its audio, serves at a URL. The feed describes the show in
 its `<channel>`, and each episode in an `<item>`, which links to the audio file
 in an `<enclosure>` and holds the show notes. Most feeds also use tags that RSS
 doesn't define, mainly Apple's `itunes:` tags and the `podcast:` tags of
-Podcasting 2.0. Listeners find shows in directories, e.g. Apple Podcasts or the
+Podcasting 2.0 (see [an introduction](https://podnews.net/article/podcasting-2-dot-0-fringe)
+on Podnews). Listeners find shows in directories, e.g. Apple Podcasts or the
 Podcast Index, and subscribe to them in an app, which checks each feed now and
 then for new episodes.
 
