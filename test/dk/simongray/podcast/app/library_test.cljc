@@ -1358,7 +1358,8 @@
         "a subscription without a URL")
     (is (nil? (library/next-refresh phone)) "with nothing to fetch")
     (is (= [] (:download (library/plan phone))) "or to download, though it's queued")
-    (is (= [] (:subscriptions (profile.opml/to-opml (:profile phone)))) "and nothing for another app to import")
+    (is (= [[] ["Dune"]] ((juxt :subscriptions #(map :text (:comments %))) (profile.opml/to-opml (:profile phone))))
+        "and a comment in its OPML rather than a feed for another app to import")
     (is (= ["file:///Users/ann/Books/Dune/01.mp3" true] ((juxt :src :local?) (library/playback phone id)))
         "a file on the device to play")
     (testing "the files as they are now"

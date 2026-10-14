@@ -358,8 +358,11 @@ as long as the page, so build the show again when the page loads.
 
 The same files give the same guids, so a device with the same files
 shares the listener's progress. The other devices get the subscription
-by sync without a URL, and list it by its title. To read the chapters of
-a local episode, give `episode/read-files!` the same `:fetch`.
+by sync without a URL, and list it by its title. In OPML, the show is an
+outline with `isComment="true"`, which other apps skip, and
+`profile.opml/from-opml` reads it back as such a subscription. To read
+the chapters of a local episode, give `episode/read-files!` the same
+`:fetch`.
 
 
 ## Keep the feeds current

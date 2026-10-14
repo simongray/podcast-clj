@@ -170,8 +170,9 @@
   listener's order, and the followed lists are includes. Each outline has
   the listener's title of the show as its text, the guid of its feed, the
   tags as categories, and the time of subscribing as its creation time. A
-  subscription without a URL, e.g. to a show of local files, is left out,
-  since another app has no feed to fetch.
+  subscription without a URL, e.g. to a show of local files, is one of the
+  :comments instead, which other apps skip, since they have no feed to
+  fetch.
 
   With the :media-url-fn of `opts`, a function of an episode id that
   gives the URL of its media or nil, each outline also has the :episodes
@@ -201,13 +202,16 @@
          include (fn [[url {:keys [title folder]}]]
                    (cond-> {:url url}
                      title  (assoc :text title)
-                     folder (assoc :path [folder])))]
+                     folder (assoc :path [folder])))
+         all     (for [[folder feed-guids] ordered
+                       feed-guid           feed-guids]
+                   (outline folder feed-guid))
+         [fed bare] ((juxt filter remove) :xml-url all)]
      (cond-> {:title         "Subscriptions"
-              :subscriptions (vec (for [[folder feed-guids] ordered
-                                        feed-guid           feed-guids
-                                        :when (:url (get subs feed-guid))]
-                                    (outline folder feed-guid)))}
-       (seq ls) (assoc :includes (mapv include (sort-by key ls)))))))
+              :subscriptions (vec fed)}
+       (seq ls)   (assoc :includes (mapv include (sort-by key ls)))
+       (seq bare) (assoc :comments (mapv #(dissoc % :xml-url :episodes)
+                                         bare))))))
 
 ;; Pocket Casts and Overcast write <outline text="feeds"> around the feeds.
 ;; Seen in September 2026, in an export file of each app:
@@ -242,7 +246,8 @@
                              :added-at (when (inst? created) created)}
                             outline g)
         categories (when (sequential? category) category)]
-    {:names   (assoc names (guid/normal-url xml-url) g)
+    {:names   (cond-> names
+                xml-url (assoc (guid/normal-url xml-url) g))
      :profile (as-> (profile/subscribe profile g details at) profile
                 (if folder
                   (profile/configure profile g {:folder folder} at)
@@ -262,7 +267,11 @@
   case is one of the :wrappers of `opts`, a set or a predicate, by default
   \"feeds\". An outline with subscribed=\"0\", as Overcast writes for a
   show that the listener left, is left out unless `opts` have
-  :unsubscribed? true."
+  :unsubscribed? true.
+
+  A comment with a guid and no feed URL, as to-opml writes for a show of
+  local files, becomes a subscription without a URL, unless the profile
+  has it. A device with the same files fills it, as their guids agree."
   ([profile list at]
    (from-opml profile list at {}))
   ([profile list at {:keys [unsubscribed?] :as opts}]
@@ -273,11 +282,16 @@
                            (rest path)
                            path)))
          left?   #(and (not unsubscribed?) (= "0" (:subscribed %)))
+         local?  #(and (outline-guid %)
+                       (str/blank? (:xml-url %))
+                       (not (profile/subscribed? profile (outline-guid %))))
          feeds   (fn [profile]
                    (:profile (reduce #(imported %1 %2 (folder (:path %2)) at)
                                      {:profile profile
                                       :names   (profile/by-url profile)}
-                                     (remove left? (outlines list)))))
+                                     (concat (remove left? (outlines list))
+                                             (filter local?
+                                                     (:comments list))))))
          include (fn [profile {:keys [url text path]}]
                    (if (contains? (lists profile) url)
                      profile

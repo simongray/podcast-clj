@@ -14,7 +14,9 @@
                         :created  #inst \"…\"}]
        :includes      [{:text \"A list\"
                         :url  \"https://example.org/list.opml\"
-                        :path [\"News\"]}]}
+                        :path [\"News\"]}]
+       :comments      [{:text \"An audiobook\"
+                        :guid \"…\"}]}
 
   The folders of the OPML become the :path of the subscriptions inside
   them, and back again. In an outline:
@@ -30,7 +32,13 @@
 
   An outline that includes another OPML list becomes one of the :includes,
   with the :path of its folders. It has the type include, or the type link
-  to a URL that ends in .opml."
+  to a URL that ends in .opml.
+
+  An outline with isComment=\"true\" is commented out, and so is all that's
+  inside it. It becomes one of the :comments, with its attributes and the
+  :path of its folders, and never a subscription, even with an xmlUrl.
+  Other apps skip a comment, so it can name a show that they can't fetch,
+  e.g. one of local files."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.names :as names]
@@ -50,7 +58,7 @@
 
 (def ^:no-doc attr-names
   "The OPML attribute name of each model key that's camelCase in OPML."
-  {:xml-url :xmlUrl :html-url :htmlUrl})
+  {:xml-url :xmlUrl :html-url :htmlUrl :is-comment :isComment})
 
 (defn ^:no-doc outline-key
   "The model key of the outline attribute `k`, kebab-cased. The camelCase
@@ -113,18 +121,31 @@
       (cond-> {:url url}
         (or text title) (assoc :text (or text title))))))
 
-(defn- outlines
-  "The subscriptions and the inclusions in the outline children of
-  `element`, under the `path` of their folders, recursing into folders.
+;; OPML 2.0, the attributes of <outline>: isComment, which by convention
+;; comments out all the outlines inside it too
+(defn- comment?
+  "Whether the outline with the attributes `m` is commented out."
+  [{:keys [is-comment] :as m}]
+  (= "true" (some-> is-comment str/trim str/lower-case)))
 
-  An outline is a subscription when its xmlUrl isn't blank, and an
-  inclusion when it includes another list. An inclusion is marked
-  ::include."
+(defn- outlines
+  "The subscriptions, the inclusions and the comments in the outline
+  children of `element`, under the `path` of their folders, recursing into
+  folders.
+
+  An outline is a comment when it's commented out, a subscription when
+  its xmlUrl isn't blank, and an inclusion when it includes another list.
+  An inclusion is marked ::include, and a comment ::comment."
   [path element]
   (mapcat (fn [outline]
             (let [{:keys [xml-url text title] :as m} (attributes outline)
                   included (inclusion m)]
               (cond
+                (comment? m)
+                [(-> (subscription path outline (dissoc m :is-comment))
+                     (dissoc :episodes)
+                     (assoc ::comment true))]
+
                 (not (str/blank? xml-url))
                 [(subscription path outline m)]
 
@@ -149,16 +170,21 @@
         text     #(some-> head (xml/element %) xml/text str/trim not-empty)
         title    (text :title)
         entries  (outlines [] body)
-        includes (into []
-                       (comp (filter ::include) (map #(dissoc % ::include)))
-                       entries)
+        marked   (fn [k]
+                   (into [] (comp (filter k) (map #(dissoc % k))) entries))
+        includes (marked ::include)
+        comments (marked ::comment)
         value    (fn [k v]
                    (if (#{:date-created :date-modified} k)
                      (or (time/parse-rfc2822 v) v)
                      v))]
-    (into (cond-> {:subscriptions (into [] (remove ::include) entries)}
+    (into (cond-> {:subscriptions (into []
+                                        (remove #(or (::include %)
+                                                     (::comment %)))
+                                        entries)}
             title          (assoc :title title)
-            (seq includes) (assoc :includes includes))
+            (seq includes) (assoc :includes includes)
+            (seq comments) (assoc :comments comments))
           (for [[k tag] head-elements
                 :let  [v (text tag)]
                 :when v]
@@ -210,10 +236,18 @@
 
 (defn- outline
   "The outline element of `entry`: a subscription, with the outlines of
-  its :episodes inside, or an inclusion when it's marked ::include."
+  its :episodes inside, an inclusion when it's marked ::include, or a
+  comment when it's marked ::comment."
   [{:keys [url text episodes] :as entry}]
-  (if (::include entry)
+  (cond
+    (::include entry)
     [:outline {:type "include" :text (or text url) :url url}]
+
+    (::comment entry)
+    [:outline (merge (attrs-of (dissoc entry :path :episodes ::comment))
+                     {:isComment "true"})]
+
+    :else
     (into [:outline (merge {:type "rss"}
                            (attrs-of (dissoc entry :path :episodes)))]
           (for [episode episodes]
@@ -232,13 +266,14 @@
 
 (defn emit
   "The OPML 2.0 document of the `subscription-list`, with the inclusions
-  after the subscriptions of their folder.
+  and then the comments after the subscriptions of their folder.
 
   OPML separates the categories of an outline with commas, and it can't
   escape a comma. So a comma in a category goes out as an underscore."
   [subscription-list]
   (let [includes (map #(assoc % ::include true) (:includes subscription-list))
-        entries  (concat (:subscriptions subscription-list) includes)
+        comments (map #(assoc % ::comment true) (:comments subscription-list))
+        entries  (concat (:subscriptions subscription-list) includes comments)
         top      (comp first :path)
         tops     (distinct (map top entries))
         by-top   (group-by top entries)

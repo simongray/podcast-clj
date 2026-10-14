@@ -424,6 +424,25 @@
       (is (= ["A" "B"] (map :text (:subscriptions list))))
       (is (= list (opml/parse (opml/emit list))))
       (is (= 1 (count (re-seq #"text=\"News\"" (opml/emit list)))) "a folder once, its inclusion after its subscriptions")))
+  (testing "comments, which OPML 2.0 marks with isComment and other apps skip"
+    (let [list (opml/parse "<opml version=\"2.0\"><head><title>Mine</title></head><body>
+                              <outline text=\"Books\">
+                                <outline text=\"Dune\" isComment=\"true\" guid=\"g-1\" category=\"Fiction,Audiobooks\"/>
+                              </outline>
+                              <outline type=\"rss\" text=\"Off\" xmlUrl=\"https://off/rss\" iscomment=\"TRUE\"/>
+                              <outline text=\"Old\" isComment=\"true\">
+                                <outline type=\"rss\" text=\"Inner\" xmlUrl=\"https://inner/rss\"/>
+                              </outline>
+                              <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\" isComment=\"false\"/>
+                            </body></opml>")]
+      (is (= [{:text "Dune" :guid "g-1" :category ["Fiction" "Audiobooks"] :path ["Books"]}
+              {:type "rss" :text "Off" :xml-url "https://off/rss"}
+              {:text "Old"}]
+             (:comments list))
+          "a show that other apps can't fetch, a feed that was switched off, and a folder with all inside it")
+      (is (= ["B"] (map :text (:subscriptions list))) "none of them a subscription")
+      (is (= (set (:comments list)) (set (:comments (opml/parse (opml/emit list))))))
+      (is (re-find #"isComment=\"true\"" (opml/emit list)))))
   (testing "a list from somewhere else, read as data"
     (is (= {:list {:subscriptions []}} (opml/try-parse "<opml version=\"2.0\"><body/></opml>")))
     (is (= [:fetch/malformed "https://x.example/l.opml"]

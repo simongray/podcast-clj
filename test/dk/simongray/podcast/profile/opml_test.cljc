@@ -176,3 +176,21 @@
         (is (= ["https://a.example/rss" "https://simon:secret@members.example/rss"]
                (map #(get-in back [:subscriptions % :url]) ["declared" "private"]))
             "and its URL, so a private feed keeps its password")))))
+
+(deftest a-show-of-local-files-in-opml
+  (let [g    "e6fbfb24-a72d-5894-9453-adfa5dae5740"
+        s    (-> (profile/make "phone")
+                 (profile/subscribe g {:url nil :title "Dune" :guid g} t0)
+                 (profile/configure g {:folder "Books"} t0))
+        list (profile.opml/to-opml s)
+        back (profile.opml/from-opml (profile/make "laptop") (opml/parse (opml/emit list)) t1)]
+    (is (= [] (:subscriptions list)))
+    (is (= [{:text "Dune" :title "Dune" :guid g :path ["Books"] :created t0}] (:comments list))
+        "a comment, which names the show for the listener and for other devices")
+    (is (= {:url nil :title "Dune" :guid g} (select-keys (get (profile/subscriptions back) g) [:url :title :guid]))
+        "a subscription without a URL, for a device with the same files to fill")
+    (is (= {"Books" [g]} (profile/folders back)))
+    (is (= (:subscriptions s) (:subscriptions (profile.opml/from-opml s (opml/parse (opml/emit list)) t1)))
+        "nothing changes for a profile that has it")
+    (is (empty? (profile/subscriptions (profile.opml/from-opml (profile/make "x") {:comments [{:text "Off" :xml-url "https://off/rss" :guid g}]} t1)))
+        "a feed that was commented out stays out")))
