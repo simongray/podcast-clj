@@ -218,9 +218,9 @@ category for each source: `{:category {:apple "Tech News" :podcastindex
 "Technology,News"}}`.
 
 To show the categories in the listener's language, fetch Apple's names
-for them once and keep them, since they rarely change. Look each one up by
-its English name, which is also what the charts and `resolve/categories`
-use, and show the English name when there's no other:
+for them once and keep them, since they rarely change. They're keyed by
+the English names that the charts and `resolve/categories` use. Show the
+English name when there's no localised one:
 
 ```clojure
 (def names
@@ -526,29 +526,56 @@ so the next poll continues from there. ClojureScript has no `poll!`, but
 the nodes answer a web page, so read the blocks with `podping/call!` and
 their pings with `podping/pings`.
 
-A server can instead have the feeds pushed to it by a WebSub hub, which
-needs a public callback URL. The result of `fetch!` has `:websub` when the
-feed names a hub. Subscribe with a secret that nobody can guess, one for
-each subscription, e.g. from `websub/token`, and handle the callback with
-`websub/handler`:
+A server with a public URL can also have its feeds pushed to it by their
+WebSub hubs. Keep the hub subscriptions in a map of websub-clj's next to
+the library. After each refresh, send the hubs the requests that
+`library/hub-requests` returns:
 
 ```clojure
-(let [{:keys [hubs topic]} (:websub result)]
-  (websub/call! (websub/request :subscribe (first hubs) topic
-                                "https://app.example.net/websub/4f1c9e2a"
-                                {:secret secret :lease-seconds 864000})))
+(def hub-subscriptions (atom {}))
 
-(def callback
-  (websub/handler
-    {:wanted-pred (fn [{:keys [mode topic]}] (= topic (pending mode)))
-     :deliver!    (fn [{:keys [topic body]}] (swap! inbox conj [topic body]))
-     :secret      secret}))
+(defn callback-url
+  "A new callback URL for the hub subscription of a show, which nobody can
+  guess."
+  [_feed-guid _subscription]
+  (str "https://app.example.net/websub/" (websub/token)))
+
+(defn ask-hubs!
+  "Send the WebSub hubs the requests that the shows of `lib` need."
+  [lib]
+  (doseq [[feed-guid request] (library/hub-requests @lib
+                                                    @hub-subscriptions
+                                                    callback-url)]
+    (swap! hub-subscriptions websub/asked feed-guid request (time/now))
+    (websub/call! request)))
 ```
 
-The `:deliver!` function only gets feeds with the right signature. Return
-from it quickly, and parse the feed afterwards. Renew the subscription
-before the lease runs out, at `websub/next-renewal`, and keep polling on
-the normal schedule too, since a hub can fail.
+They include a subscription for each show whose feed names a hub, an
+unsubscription for each show the listener left, and the renewals. Each
+subscription gets a secret of its own, so save the map with
+`websub/format-subscriptions` and keep the text as safe as a password.
+
+Serve the callback URLs with `websub/handler`, which only passes on a feed
+with the hub's signature:
+
+```clojure
+(def callback
+  (websub/handler
+   (assoc (websub/handler-options #(deref hub-subscriptions))
+          :verified! #(swap! hub-subscriptions websub/verified % (time/now))
+          :denied!   #(swap! hub-subscriptions websub/denied % (time/now))
+          :deliver!  (fn [{:keys [request] :as delivery}]
+                       (let [[feed-guid] (websub/subscription-of
+                                          @hub-subscriptions request)]
+                         (future
+                           (swap! lib library/pushed feed-guid delivery)))))))
+```
+
+The hub waits for the answer, so `:deliver!` applies the push on another
+thread. A push adds new episodes to the queue as a refresh does, and
+`:refresh` says what changed. Since a hub can push only what changed, a
+push never removes an episode; the next fetch does that. Keep refreshing
+on the normal schedule too, since a hub can fail.
 
 
 ## Follow lists of shows

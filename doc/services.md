@@ -98,12 +98,12 @@ with a category for each source.
 
 ### The names of the categories in other languages
 
-Apple's genre service names its genres in the language of a store, e.g.
-`?id=26&cc=dk&l=da` gives Danish, and `directory/fetch-category-names!`
-reads its answer. Apple doesn't document the service, but it answered on
-14 October 2026. The categories of the Podcast Index and of the podcast
-namespace are in English only, so the English lists stay as the
-fallback.
+Apple's genre service returns the names of its genres in the language of
+a store, e.g. Danish for `?id=26&cc=dk&l=da`. Fetch them with
+`directory/fetch-category-names!`. Apple doesn't document the service,
+but it answered on 14 October 2026. The categories of the Podcast Index
+and of the podcast namespace are in English only, so the English lists
+stay as the fallback.
 
 
 ## The gpodder API

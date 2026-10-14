@@ -5,6 +5,7 @@
   downloads."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.like-minded.document :as document]
@@ -26,7 +27,9 @@
             [dk.simongray.podcast.test-support :refer [fixture ranges run]]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
-            [dk.simongray.wary-fetch.async :as async]))
+            [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.websub :as websub]))
 
 (def now #inst "2026-09-30T12:00:00Z")
 
@@ -494,6 +497,62 @@
                       (fn [lib]
                         (is (= [[guid "new"]] (:added (:refresh lib))))
                         (is (= [] (library/notifications lib)) "silent unless the listener says"))))))
+
+(deftest pushes-from-a-websub-hub
+  (let [hubs     {:hubs ["https://hub.example.org/"] :topic url}
+        lib      (atom (-> (library/make "server" {:config {:now-fn (constantly now)}})
+                           (library/subscribe url (assoc fresh :websub hubs) {:auto-queue? true})
+                           (library/subscribe other-url {:status 200 :url other-url :feed other})))
+        websubs  (atom {})
+        origin   "https://app.example.net"
+        callback (fn [_ _] (str origin "/websub/" (websub/token)))
+        handler  (websub/handler
+                  (assoc (websub/handler-options #(deref websubs))
+                         :verified! #(swap! websubs websub/verified % now)
+                         :deliver!  (fn [{:keys [request] :as delivery}]
+                                      (let [[feed-guid] (websub/subscription-of @websubs request)]
+                                        (swap! lib library/pushed feed-guid delivery)))))
+        asked    (library/hub-requests @lib @websubs callback)
+        _        (swap! websubs websub/asked guid (get asked guid) now)
+        {:keys [hub topic secret] :as pending} (get-in @websubs [guid :pending])
+        uri      (str/replace-first (:callback pending) origin "")
+        push!    (fn [xml]
+                   (let [body (bytes/encode xml)]
+                     (:status (handler {:request-method :post
+                                        :uri            uri
+                                        :headers        {"content-type"    "application/rss+xml"
+                                                         "x-hub-signature" (websub/signature "sha256" secret body)}
+                                        :body           body}))))
+        new-item (str "<item><title>Pushed</title><guid>pushed</guid>"
+                      "<pubDate>Wed, 30 Sep 2026 11:00:00 GMT</pubDate></item>")]
+    (testing "a subscription for the show whose feed names a hub, at its first hub, with a secret"
+      (is (= [guid] (keys asked)))
+      (is (= ["https://hub.example.org/" url] [hub topic]))
+      (is (some? secret))
+      (is (false? ((:allow-pred (get asked guid)) "http://127.0.0.1/admin"))
+          "a feed chooses its hub, so no request goes to a private network"))
+    (testing "confirmed when the hub checks it, and then nothing more until its renewal"
+      (is (= "c1" (:body (handler {:request-method :get
+                                   :uri            uri
+                                   :query-string   (str "hub.mode=subscribe&hub.topic=" url
+                                                        "&hub.challenge=c1&hub.lease_seconds=864000")}))))
+      (is (= :active (get-in @websubs [guid :state])))
+      (is (= {} (library/hub-requests @lib @websubs callback)))
+      (is (= [guid] (keys (library/hub-requests @lib @websubs callback {:at (get-in @websubs [guid :renew-at])})))))
+    (testing "a pushed feed applied as a refresh is, with its new episode queued"
+      (is (= 200 (push! (str/replace-first (fixture "feeds/namespace-example.xml") "<item>" (str new-item "<item>")))))
+      (is (= [[guid "pushed"]] (:added (:refresh @lib))))
+      (is (= [[guid "pushed"]] (profile.queue/queue (:profile @lib)))))
+    (testing "a body that's no feed makes the feed due at once"
+      (is (= 200 (push! "<html></html>")))
+      (is (= [:library/push-not-applied] (map :id (:report (:refresh @lib)))))
+      (is (= now (get-in @lib [:feeds guid :next-check]))))
+    (testing "an unsubscription once the listener leaves the show"
+      (let [left (library/hub-requests (library/unsubscribe @lib guid) @websubs callback)]
+        (is (= :unsubscribe (get-in (websub/asked @websubs guid (get left guid) now) [guid :pending :mode])))))
+    (testing "a subscription at the new hub when the feed names another"
+      (let [moved (assoc-in @lib [:feeds guid :websub :hubs] ["https://other.example.org/"])]
+        (is (= "https://other.example.org/" (:url (get (library/hub-requests moved @websubs callback) guid))))))))
 
 (deftest what-a-player-needs
   (let [id    [guid "https://example.com/ep0003"]

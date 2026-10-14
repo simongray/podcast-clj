@@ -356,6 +356,47 @@
        (failure (diagnostics/fetch-failure {:url    url
                                             :status (:status result)}))))))
 
+(defn- with-pushed
+  "The feed of the `old` entry updated by the `pushed` feed, whose details
+  replace the old ones. Its items come first, then those of the last fetch
+  that it doesn't have. The retained items stay retained."
+  [old pushed]
+  (let [ids   (into #{} (map guid/item-guid) (:rss/items pushed))
+        kept? (fn [item]
+                (let [g (guid/item-guid item)]
+                  (not (or (contains? ids g)
+                           (contains? (:retained old) g)))))
+        items (into (vec (:rss/items pushed))
+                    (filter kept?)
+                    (get-in old [:feed :rss/items]))]
+    (-> (merge (:feed old) pushed)
+        (with-meta (meta pushed))
+        (assoc :rss/items items))))
+
+;; WebSub 7: a hub can push a diff in place of the whole feed
+(defn pushed
+  "The `feeds` after a WebSub hub pushed `feed` for the feed `feed-guid` at
+  `at`, with `cadence`, and what it changed, as refresh returns it.
+
+  A hub can push only what changed, so a push adds and updates episodes
+  and the feed's details but removes nothing; the next fetch does that.
+  The entry keeps its ETag, Last-Modified and hubs, and must hold its
+  feed."
+  ([feeds feed-guid feed at]
+   (pushed feeds feed-guid feed at {}))
+  ([feeds feed-guid feed at cadence]
+   {:pre [(map? cadence)]}
+   (let [old (get feeds feed-guid)]
+     (when-not (:feed old)
+       (throw (ex-info (str "No feed of the guid " feed-guid " is held")
+                       {:feed-guid feed-guid})))
+     (refresh feeds
+              feed-guid
+              (-> (select-keys old [:etag :last-modified :websub])
+                  (assoc :status 200 :feed (with-pushed old feed)))
+              at
+              cadence))))
+
 (defn- unreachable
   "The result of a fetch of `url` that threw `error`, with the :type of the
   failure when wary-fetch gives one."

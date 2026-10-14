@@ -65,6 +65,7 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
@@ -75,7 +76,10 @@
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.webcrypto.bytes :as bytes]))
+            [dk.simongray.wary-fetch.encoding :as encoding]
+            [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes]
+            [dk.simongray.websub :as websub]))
 
 (def default-config
   "The config of a library when none is given. The :list-seconds is how
@@ -1086,6 +1090,144 @@
                     (apply time/earliest checks)
                     (when offline?
                       (time/later last-at offline-seconds)))))))
+
+(defn- pushable
+  "The hubs and topic of each feed in `library` that a WebSub hub can push,
+  by guid: the feeds of the listener's shows that name a usable hub and
+  aren't gone."
+  [library]
+  (let [profile (:profile library)]
+    (into {}
+          (keep (fn [[feed-guid {:keys [websub gone?]}]]
+                  (let [{:keys [hubs topic]} websub]
+                    (when (and (url/web-url? (first hubs))
+                               (url/web-url? topic)
+                               (not gone?)
+                               (profile/subscribed? profile feed-guid))
+                      [feed-guid websub]))))
+          (:feeds library))))
+
+;; WebSub 5.1: a subscriber can subscribe at any of the hubs of a topic
+(defn hub-requests
+  "The requests to send the WebSub hubs of the feeds in `library`, by feed
+  guid, given the `subscriptions` that websub-clj keeps by feed guid, with
+  callback URLs from `callback-fn` and `opts`:
+
+  - a subscription at the first hub of each show's feed, when the show has
+    no subscription, or one that ended or is at another hub or topic
+  - an unsubscription for each show that the listener left, or whose feed
+    names no hub or is gone
+  - the renewals and retries that websub/due returns
+
+  The `callback-fn` takes a feed guid and its subscription, which is nil
+  for a new one, and returns a new callback URL, as in websub/due. A new
+  subscription gets a secret from websub/token. Give each request to
+  websub/asked before websub/call! sends it. The `opts` are those of
+  websub/due, :at, and :allow-pred, which url/public? is by default, since
+  the feeds choose the hubs."
+  ([library subscriptions callback-fn]
+   (hub-requests library subscriptions callback-fn {}))
+  ([library subscriptions callback-fn opts]
+   {:pre [(map? opts)]}
+   (let [at       (time-of library opts)
+         opts     (dissoc opts :at)
+         wanted   (pushable library)
+         leaving? (fn [feed-guid]
+                    (= :unsubscribe
+                       (get-in subscriptions [feed-guid :pending :mode])))
+         ask      (fn [[feed-guid {:keys [hubs topic]}]]
+                    (let [{:keys [state hub pending] :as s}
+                          (get subscriptions feed-guid)]
+                      (when (and (not pending)
+                                 (or (nil? s)
+                                     (= :ended state)
+                                     (not= topic (:topic s))
+                                     (not (some #{hub} hubs))))
+                        [feed-guid
+                         (websub/request :subscribe (first hubs) topic
+                                         (callback-fn feed-guid s)
+                                         (assoc opts
+                                                :secret (websub/token)))])))
+         leave    (fn [[feed-guid {:keys [state hub topic callback]}]]
+                    (when (and (not (contains? wanted feed-guid))
+                               (#{:active :asked} state)
+                               (not (leaving? feed-guid)))
+                      [feed-guid
+                       (websub/request :unsubscribe hub topic callback
+                                       (dissoc opts :secret :lease-seconds))]))
+         due      (filter (fn [[feed-guid]]
+                            (or (contains? wanted feed-guid)
+                                (leaving? feed-guid)))
+                          (websub/due subscriptions at callback-fn opts))
+         ;; the feeds choose the hubs, so no request goes to a private
+         ;; network unless the call says so
+         guarded  (fn [[feed-guid request]]
+                    [feed-guid (assoc request :allow-pred
+                                      (:allow-pred opts url/public?))])]
+     (into {}
+           (map guarded)
+           (concat due (keep ask wanted) (keep leave subscriptions))))))
+
+(defn pushed
+  "The `library` after a WebSub hub pushed the feed `feed-guid` in
+  `delivery`, the map that :deliver! of websub/handler receives, with
+  `opts`.
+
+  The body is parsed as fetch! parses a feed. The new episodes join the
+  queue or the inbox as after a refresh, and :refresh holds the result.
+  Since a hub can push only what changed, a push removes no episode (see
+  app.feeds/pushed). When a push can't be applied, the feed is due at once,
+  so the next refresh fetches it, and the report says why. A push of a
+  feed that the library doesn't have changes nothing."
+  ([library feed-guid delivery]
+   (pushed library feed-guid delivery {}))
+  ([library feed-guid {:keys [body content-type] :as delivery} opts]
+   {:pre [(map? opts)]}
+   (let [at        (time-of library opts)
+         opts      (options library opts)
+         entry     (get-in library [:feeds feed-guid])
+         parsed    (when (:feed entry)
+                     (rss/try-parse (encoding/decode body {"content-type"
+                                                           content-type})
+                                    {:url (:url entry)}))
+         error     (:error parsed)
+         reason    (cond
+                     (unloaded? entry)
+                     "the library holds the feed only in its document"
+
+                     (nil? (:feed entry))
+                     "the feed hasn't been fetched yet"
+
+                     error
+                     (or (:reason error) (:message error)))
+         refreshed (fn [done step]
+                     (-> {:at at}
+                         (into (select-keys done [:added :backfilled :renamed
+                                                  :moved]))
+                         (assoc :counts (counted step)
+                                :report (into (vec (:report step))
+                                              (:report done)))))]
+     (cond
+       (or (nil? entry) (:local? entry))
+       library
+
+       reason
+       (-> library
+           (assoc-in [:feeds feed-guid :next-check] at)
+           (assoc :refresh
+                  {:at     at
+                   :report [(diagnostics/describe
+                             {:id        :library/push-not-applied
+                              :feed-guid feed-guid
+                              :url       (:url entry)
+                              :reason    reason})]}))
+
+       :else
+       (let [step (-> (feeds/pushed (:feeds library) feed-guid (:feed parsed)
+                                    at (:cadence opts {}))
+                      (assoc :checked [feed-guid]))
+             done (applied library step at opts)]
+         (assoc (:library done) :refresh (refreshed done step)))))))
 
 (defn identify!
   "Ask the directories for the ids of the shows of `library` that have

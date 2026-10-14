@@ -990,11 +990,12 @@
   26)
 
 (defn category-names-request
-  "The request for the names of the categories of Apple Podcasts in the
-  `language` of the store of `country`, each two letters, e.g. \"da\" and
-  \"dk\", to the genre service at the :genre-names of the entry of Apple in
-  sources, or of the :source of `opts`, an entry of that shape. Apple
-  doesn't document the service."
+  "The request to Apple's genre service for the names of the categories of
+  Apple Podcasts in `language`, as the store of `country` has them, with
+  `opts`. Both are two letters, e.g. \"da\" and \"dk\".
+
+  The service is at the :genre-names of Apple's entry in sources, or of
+  the :source of `opts`. Apple doesn't document it."
   ([country language]
    (category-names-request country language {}))
   ([country language {:keys [source] :or {source :apple} :as opts}]
@@ -1017,14 +1018,14 @@
         (vals genres)))
 
 (defn category-names
-  "The names of the categories of Apple Podcasts in the JSON `body` of an
-  answer of its genre service, as a map from the name of each in
-  itunes:category, in English, to its name in the language of the answer,
-  e.g. {\"Society & Culture\" \"Samfund og kultur\"}, with `opts`.
+  "The localised names of the categories of Apple Podcasts in `body`, the
+  JSON that the genre service answered, with `opts`. It's a map from the
+  English name that itunes:category uses to the localised one, e.g.
+  {\"Society & Culture\" \"Samfund og kultur\"}.
 
-  The names in English are those of the :genres of the entry of Apple in
-  sources, or of the :source of `opts`, so a category that it lacks, or
-  that the answer lacks, is left out. Show its English name in its place."
+  The English names are the :genres of Apple's entry in sources, or of the
+  :source of `opts`. A category missing from either is left out, so show
+  its English name instead."
   ([body]
    (category-names body {}))
   ([body {:keys [source] :or {source :apple} :as opts}]
@@ -1037,13 +1038,13 @@
            (:genres (entry source))))))
 
 (defn fetch-category-names!
-  "Fetch the names of the categories of Apple Podcasts in the `language` of
-  the store of `country` with `opts`, as a map of the :names that
-  category-names gives, in ClojureScript as a promise. Keep them, since
-  they rarely change.
+  "Fetch the localised names of the categories of Apple Podcasts in
+  `language`, as the store of `country` has them, with `opts`. It returns
+  a map with the :names that category-names returns, in ClojureScript as a
+  promise. Keep the names, since they rarely change.
 
   The `opts` are those of category-names-request and call!. Nothing that
-  the network or Apple does throws, and when the names don't come, the
+  the network or Apple does throws. When the names don't arrive, the
   result has the diagnostic :directory/source-failed under :error."
   ([country language]
    (fetch-category-names! country language {}))

@@ -644,6 +644,11 @@
     {:id :library/index-rebuilt :level :info
      :doc "The search index was built again from the feeds, since some of its
            documents were missing or didn't read. The :reason says why."}
+    {:id :library/push-not-applied :level :info
+     :doc "A WebSub hub pushed a feed that couldn't be applied, so the feed is
+           due at once and the next refresh fetches it. The :reason says why,
+           e.g. that the body isn't a feed, or that the library holds the feed
+           only in its document."}
 
     ;; podping: a poll of the Hive chain
     {:id :podping/unavailable :level :warning

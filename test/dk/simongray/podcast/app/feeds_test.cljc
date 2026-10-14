@@ -234,6 +234,35 @@
       (is (nil? (:report r)) "but a show that has none yet can stay so")
       (is (nil? (:changed r)) "and then it changed nothing"))))
 
+(deftest a-pushed-feed
+  (let [[ep3 ep2 ep1] (:rss/items show)
+        hubs    {:hubs ["https://hub.example.org/"] :topic url}
+        stored  (feeds/add {} url (assoc fresh :websub hubs) now)
+        new     (assoc ep3 :rss/guid {:content "new"} :rss/title "New one")
+        diff    {:rss/title "Renamed" :rss/items [new (assoc ep2 :rss/title "Two, again")]}
+        r       (feeds/pushed stored guid diff (at 60))
+        entry   (get-in r [:feeds guid])]
+    (testing "a push adds and updates episodes, and takes none out, since a hub can push a diff"
+      (is (= [{:content "new"} (:rss/guid ep2) (:rss/guid ep3) (:rss/guid ep1)]
+             (map :rss/guid (:rss/items (:feed entry)))))
+      (is (= "Two, again" (:rss/title (second (:rss/items (:feed entry))))))
+      (is (nil? (:retained entry)))
+      (is (= [guid] (:changed r))))
+    (testing "and the details of the feed that it lacks stay"
+      (is (= "Renamed" (:rss/title (:feed entry))))
+      (is (= (:itunes/image show) (:itunes/image (:feed entry)))))
+    (testing "the entry keeps its validators and hubs"
+      (is (= ["\"v1\"" "Tue, 29 Sep 2026 10:00:00 GMT" hubs (at 60)]
+             ((juxt :etag :last-modified :websub :fetched-at) entry))))
+    (testing "an item that a fetch no longer brought stays retained"
+      (let [fetched (:feeds (feeds/refresh stored guid (assoc fresh :feed (assoc show :rss/items [ep3 ep2])) (at 60)))
+            e       (get-in (feeds/pushed fetched guid {:rss/items [new]} (at 120)) [:feeds guid])]
+        (is (= [{:content "new"} (:rss/guid ep3) (:rss/guid ep2) (:rss/guid ep1)]
+               (map :rss/guid (:rss/items (:feed e)))))
+        (is (= {(feed.guid/item-guid ep1) {:missed-at (at 60)}} (:retained e)))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (feeds/pushed {guid {:url url}} guid diff now))
+        "a feed that was never fetched has nothing to add to")))
+
 (deftest an-offline-device
   (let [three  (-> feeds
                    (feeds/add "https://example.org/b.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)
