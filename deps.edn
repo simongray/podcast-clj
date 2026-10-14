@@ -30,7 +30,7 @@
          dk.simongray/webcrypto-clj  {:mvn/version "0.1.3"}
          dk.simongray/id3-clj        {:mvn/version "0.1.1"}
          dk.simongray/webvtt-clj     {:mvn/version "0.1.0"}
-         dk.simongray/ical-clj       {:mvn/version "0.1.0"}}
+         dk.simongray/ical-clj       {:mvn/version "0.2.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

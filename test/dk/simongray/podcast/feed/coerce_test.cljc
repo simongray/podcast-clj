@@ -22,7 +22,8 @@
     (doseq [[type s] [[:integer "seven"] [:decimal "1,5"] [:boolean "yes"] [:yes-no "true"]
                       [:rfc2822 "yesterday"] [:duration "long"] [:geo "30,-97"] [:osm "X1"]
                       [:rrule "FREQ=FORTNIGHTLY"] [:rrule "FREQ=MONTHLY;BYMONTH=13"]
-                      [:rrule "FREQ=WEEKLY;COUNT=3;UNTIL=20261231"]]]
+                      [:rrule "FREQ=WEEKLY;COUNT=3;UNTIL=20261231"] [:rrule "FREQ=WEEKLY;BYMONTHDAY=3"]
+                      [:rrule "FREQ=MONTHLY;BYYEARDAY=100"] [:rrule "FREQ=DAILY;COUNT=0"]]]
       (is (coerce/invalid? (coerce/parse type s)) (str type " " (pr-str s)))))
   (testing "a number beyond what both platforms hold exactly"
     (is (coerce/invalid? (coerce/parse :integer "99999999999999999999")))
