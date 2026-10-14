@@ -1,0 +1,8 @@
+{:builds
+ {:main     {:target    :node-script
+             :main      probe.main/main
+             :output-to "out/main.js"}
+  :renderer {:target     :browser
+             :output-dir "out/renderer"
+             :asset-path "out/renderer"
+             :modules    {:main {:init-fn probe.renderer/init}}}}}

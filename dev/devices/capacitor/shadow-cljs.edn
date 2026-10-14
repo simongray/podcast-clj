@@ -1,0 +1,5 @@
+{:builds
+ {:page {:target     :browser
+         :output-dir "www/js"
+         :asset-path "js"
+         :modules    {:main {:init-fn probe.page/init}}}}}

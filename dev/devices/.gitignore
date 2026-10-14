@@ -1,0 +1,12 @@
+# what the device tests build and download
+.cpcache/
+build/
+package-lock.json
+results.json
+server.log
+electron/out/
+capacitor/ios/
+capacitor/www/js/
+expo/.expo/
+expo/app/
+expo/ios/

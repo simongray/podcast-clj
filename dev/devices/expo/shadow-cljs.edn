@@ -1,0 +1,4 @@
+{:builds
+ {:app {:target     :react-native
+        :init-fn    probe.app/init
+        :output-dir "app"}}}

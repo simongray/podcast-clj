@@ -34,6 +34,38 @@ so all of them must be checked out. Once the change is pushed, put its
 commit in deps.edn, or its version once it's released on Clojars.
 
 
+## On devices
+
+The tests in `dev/devices/` run podcast-clj from this checkout in an
+Electron app, and in a Capacitor app and an Expo app in an iOS simulator.
+Each checks the library on a real feed, the document stores, and requests
+to a local server: redirects, limits, bodies and the User-Agent. Run one
+with:
+
+```bash
+dev/devices/run.sh electron
+dev/devices/run.sh capacitor
+dev/devices/run.sh expo
+```
+
+The script builds the app, runs it, prints each check and exits with 1
+when one fails. The iOS tests need Xcode with an iOS simulator, and Expo
+needs CocoaPods too, e.g. from `brew install cocoapods`. The first run of
+each installs its npm packages and makes its iOS project, which takes a
+few minutes. Run them before a release that changes how podcast-clj or
+its siblings send requests or keep documents.
+
+
+## Releases
+
+The version comes from the Git tag on the commit. To release, set the
+version in the install snippets of the README and the quickstart, commit,
+push and wait for CI. Then tag the commit, e.g. `git tag -a v0.1.2 -m
+0.1.2`, push the tag and run `clojure -T:build deploy`. It refuses a
+commit without a version tag, with changes, or with a snippet that names
+another version.
+
+
 ## The inspector
 
 The inspector in `web/` is an example app that uses only the public API.

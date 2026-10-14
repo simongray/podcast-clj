@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Probe",
+    "slug": "probe",
+    "ios": {
+      "bundleIdentifier": "dk.simongray.probe.expo"
+    }
+  }
+}
