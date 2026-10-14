@@ -15,7 +15,7 @@ Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
 The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
 to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
 To measure a larger sample of real feeds, see
-[the corpus study](corpus-study-2026.md) and `dev/study.clj`. The
+[the corpus study](background/corpus-study-2026.md) and `dev/study.clj`. The
 conformance test checks the rules of the parse, the validator and the
 refresh against the feeds that the study chose as exhibits, when its
 sample is in `dev-resources/corpus/study/`. To time the

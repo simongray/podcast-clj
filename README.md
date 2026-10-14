@@ -238,36 +238,9 @@ Understand:
 
 Background:
 
-- [Podcasting and Clojure, September 2026](doc/podcasting-and-clojure-2026.md):
-  the ecosystem that podcast-clj was built for, from Podcasting 2.0 to its
-  directories and services, and how its features compared.
-- [iOS apps, October 2026](doc/ios-apps-2026.md): the ways to build an iOS
-  app with podcast-clj, from a web view or React Native to a GraalVM native
-  image or ClojureDart.
-- [Video podcasts, October 2026](doc/video-podcasts-2026.md): where video
-  podcasts are, what apps need to handle them, and what podcast-clj lacks.
-- [The needs of podcast-clj, October 2026](doc/needs-2026.md): what essential
-  podcast software still needs from the library, and what is only nice to have,
-  each scored by difficulty and gain.
-- [What real feeds look like, October 2026](doc/corpus-study-2026.md): the
-  Podcast Index and a sample of 5,000 feeds, measured with the library.
-- [A threat model of the server and the handlers, October 2026](doc/threat-model-2026.md):
-  who can attack a podcast server built on the library, through what, and
-  what holds.
-- [Standards currency, October 2026](doc/standards-currency-2026.md): what
-  moved in the specs and services the library implements since September.
-- [Hosts, validators and public servers, October 2026](doc/hosts-and-servers-2026.md):
-  three more walks through the library, and what they found.
-- [A subtractive review, October 2026](doc/subtractive-review-2026.md): what
-  the library can lose without a reader losing anything.
-- [The needs of the sibling libraries, October 2026](doc/siblings-2026.md):
-  what the seven libraries podcast-clj is built on still need for their
-  own audiences, and what a 1.0 of each takes.
-- [What to do next, October 2026](doc/next-steps-2026.md): the reports
-  above as one plan, ranked by harm and then by cost.
-- [What to do later, October 2026](doc/later-steps-2026.md): what that plan
-  left for later, checked against the code again and ranked the same way.
-
+- [Reports](doc/background): the dated studies and plans behind the
+  design, e.g. of real feeds, of what podcast software needs, and of the
+  threats to a podcast server.
 
 Development
 -----------

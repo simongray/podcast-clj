@@ -156,7 +156,7 @@ the server walk.
 ### 3. Wrong answers on real feeds
 
 - Check the form of the language, email and media-type values, which
-  [the feed model page](feed-model.md) says the validator checks and it
+  [the feed model page](../feed-model.md) says the validator checks and it
   doesn't. Today only URLs are checked.
 - List an episode once when a feed lists its guid twice, keeping the
   first, in `resolve/episodes`, the criteria and the search documents.

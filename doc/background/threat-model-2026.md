@@ -10,7 +10,7 @@ where they decided a point.
 
 The earlier reviews covered the money code and the parsers under hostile
 input in September. This one adds the server, which the "Without
-Tailscale" section of [its README](../server/README.md) puts on the
+Tailscale" section of [its README](../../server/README.md) puts on the
 public internet, and the composition of the handlers.
 
 
@@ -66,19 +66,19 @@ Without a password the server is meant for a private network, and two
 guards keep it there: it refuses any request whose Host header isn't
 localhost or one of its names, which stops a web page from pointing a
 name of its own at the server's address (DNS rebinding,
-[service.clj:102](../server/podcast_server/service.clj#L102)), and it
+[service.clj:102](../../server/podcast_server/service.clj#L102)), and it
 refuses whatever Tailscale Funnel brings from the public internet
-([service.clj:125](../server/podcast_server/service.clj#L125)). A request
+([service.clj:125](../../server/podcast_server/service.clj#L125)). A request
 without a Host header passes the first guard, which only matters for a
 client that isn't a browser on the same network.
 
 With a password, every request outside `/api/2/` must carry it in Basic
 credentials, compared through their SHA-256 in constant time
-([service.clj:136](../server/podcast_server/service.clj#L136)). The
+([service.clj:136](../../server/podcast_server/service.clj#L136)). The
 gpodder API checks the same password itself, for a session cookie or
 Basic credentials, and refuses a user name in the path that isn't the
 one that logged in
-([server.cljc:321](../src/dk/simongray/podcast/sync/gpodder/server.cljc#L321)).
+([server.cljc:321](../../src/dk/simongray/podcast/sync/gpodder/server.cljc#L321)).
 Nothing slows down guesses, which the README says and the needs report
 lists; the password's 16-character floor is the defence.
 
@@ -128,14 +128,14 @@ another site can write through them depends on the browser: on whether
 it sends the Basic credentials it cached for the server with a cross-site
 request, and on the gpodder session cookie, which is HttpOnly but names
 no SameSite and no Secure attribute
-([server.cljc:58](../src/dk/simongray/podcast/sync/gpodder/server.cljc#L58)),
+([server.cljc:58](../../src/dk/simongray/podcast/sync/gpodder/server.cljc#L58)),
 so the browser's default of Lax applies. The same-origin check that the
 proxy has belongs on every write.
 
 Show notes are the other way in. The views give them as Hiccup through
 html-pieces, which keeps only the tags and attributes of its allowed
 lists and drops scripts, styles, frames and forms
-([episode.cljc:100](../src/dk/simongray/podcast/app/episode.cljc#L100),
+([episode.cljc:100](../../src/dk/simongray/podcast/app/episode.cljc#L100),
 [html_pieces.cljc:51](https://github.com/simongray/html-pieces/blob/master/src/dk/simongray/html_pieces.cljc#L51)),
 and the comments go through the same sanitising. A client that renders
 the raw description of the feed instead has to sanitise it itself.
@@ -156,7 +156,7 @@ validator. The defences are in wary-fetch and in the parsers:
   default allows everything, which is right for an app on a phone and
   wrong for a server, and the guide says so for the checker. The
   inspector allows everything
-  ([service.clj:518](../web/inspector/service.clj#L518)); it's a
+  ([service.clj:518](../../web/inspector/service.clj#L518)); it's a
   development tool, and its docs should say that it mustn't face the
   internet.
 - **Redirects.** A redirect from https to http isn't followed, and the
@@ -181,7 +181,7 @@ validator. The defences are in wary-fetch and in the parsers:
   catches it as a malformed sync document. The server's sync loop
   catches anything a step throws and logs it, so one bad document
   doesn't stop the loop
-  ([device.clj:108](../server/podcast_server/device.clj#L108)).
+  ([device.clj:108](../../server/podcast_server/device.clj#L108)).
 - **Media files.** The readers ask for byte ranges and read within a
   budget of 32 MB, so a box or a frame that claims a huge size can't make
   them read it.
@@ -226,7 +226,7 @@ report lists bounded growth as a nice-to-have; for a server with a
 friend it's the one way a peer hurts the others.
 
 A peer can also set its clock ahead, and its writes then win every tie
-until the others catch up; [Syncing](sync.md) says so, and seconds of
+until the others catch up; [Syncing](../sync.md) says so, and seconds of
 skew are harmless.
 
 

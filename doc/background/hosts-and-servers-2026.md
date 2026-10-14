@@ -109,7 +109,7 @@ as IAB v2.3 says; and the check of a real feed came back clean.
 - **OP3's preview token is only in a comment.** The API refuses reads
   without a token, the guide says a key is needed, and the token that
   OP3 publishes for trying its API appears nowhere in the docs. Two
-  dated sentences in [Services](services.md). An hour.
+  dated sentences in [Services](../services.md). An hour.
 
 ### What the host still writes
 

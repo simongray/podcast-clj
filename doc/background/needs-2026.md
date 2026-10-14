@@ -17,7 +17,7 @@ Overcast, AntennaPod, Castro, Podcast Addict), every host or validator
 Livewire), or every sync server does, and that someone building on the
 library would otherwise have to write as a sizeable piece of
 podcast-specific code. When in doubt, an item went to the nice-to-haves.
-What the [principles](principles.md) rule out (audio processing, machine
+What the [principles](../principles.md) rule out (audio processing, machine
 learning, platform features, services with accounts, the download and
 playback themselves) isn't listed at all.
 
@@ -89,7 +89,7 @@ Addict check on fixed schedules.
 The library sets the next check from the feed alone: the
 `podcast:updateFrequency` rule, the ttl, the syndication period, or else
 the median gap between recent items, capped only at a year
-([schedule.cljc:93](../src/dk/simongray/podcast/feed/schedule.cljc#L93)).
+([schedule.cljc:93](../../src/dk/simongray/podcast/feed/schedule.cljc#L93)).
 The wait of a day in `app.feeds/default-cadence` applies only when the feed
 gives no time at all. So a weekly show is checked once a week and a
 monthly show once a month. Most real checks come after the expected time,
@@ -122,10 +122,10 @@ AntennaPod, Pocket Casts, Apple Podcasts, Castro, Podcast Addict and
 gPodder all do.
 
 The library replaces the stored feed with the fresh one on every refresh
-([feeds.cljc:54](../src/dk/simongray/podcast/app/feeds.cljc#L54), and the
+([feeds.cljc:54](../../src/dk/simongray/podcast/app/feeds.cljc#L54), and the
 docstring of `refresh` says so). A due feed is fetched without
 `:max-pages`, and a subscription that arrives by sync is fetched with a
-bare URL ([library.cljc:419](../src/dk/simongray/podcast/app/library.cljc#L419)),
+bare URL ([library.cljc:419](../../src/dk/simongray/podcast/app/library.cljc#L419)),
 so the pages read at subscription vanish at the first refresh, and a
 second device never sees them. An episode that fell out of the feed can't
 be viewed or played, since `item-of` looks only in the stored feed, and
@@ -133,7 +133,7 @@ the download plan deletes its file as trimmed. A 200 with an empty
 channel, which hosts serve during outages, wipes every item the same way
 and counts as changed, so the plan then deletes the show's files. The
 guide even says that `:max-pages` "is only needed on the first fetch"
-([the guide](building-an-app.md#subscribe-to-a-show)), which implies that
+([the guide](../building-an-app.md#subscribe-to-a-show)), which implies that
 the pages are kept.
 
 **What it takes.** Build on RSS 2.0, where a feed is a window on the
@@ -164,7 +164,7 @@ Casts and AntennaPod key shows by an internal id that survives a move, and
 Fountain, Podverse and CurioCaster follow `podcast:guid`.
 
 The library rekeys only on the first fetch of a subscription
-([library.cljc:435](../src/dk/simongray/podcast/app/library.cljc#L435)). A
+([library.cljc:435](../../src/dk/simongray/podcast/app/library.cljc#L435)). A
 later refresh keeps the entry under the old key and changes only its URL,
 while every episode id is derived afresh from the feed and that URL, in
 `episode-id` and in `profile.queue/refresh`. After a move, `item-of` finds
@@ -197,11 +197,11 @@ Every app, directory and sync server keys an episode by its guid, and RSS
 2.0, Apple's guide and PSP-1 all say that it must be unique. Two items
 with one guid collapse into one episode: the library's own `diff` keeps
 the first of the items that share an identity
-([feed.cljc:435](../src/dk/simongray/podcast/feed.cljc#L435)), and
+([feed.cljc:435](../../src/dk/simongray/podcast/feed.cljc#L435)), and
 `join-pages` drops the later one, so a host that serves such a feed sees
 the second episode vanish from every app built on the library. The
 validator never notices: it checks each item alone
-([validate.cljc:276](../src/dk/simongray/podcast/feed/validate.cljc#L276)),
+([validate.cljc:276](../../src/dk/simongray/podcast/feed/validate.cljc#L276)),
 so a feed with the same guid on two items passes as valid even under the
 Apple requirements. Cast Feed Validator, Podbase, Livewire and Apple
 Podcasts Connect all report a duplicate guid, so a validator built on the
@@ -232,7 +232,7 @@ from the host. The library holds the names already: `apple-genres` in
 `directory` maps all 110 names to Apple's genre ids for the charts. The
 validator never uses them. The registry entry types the text attribute as
 plain text with no values
-([spec.cljc:340](../src/dk/simongray/podcast/feed/spec.cljc#L340)), the
+([spec.cljc:340](../../src/dk/simongray/podcast/feed/spec.cljc#L340)), the
 Apple requirements only ask that categories exist, and the registry lets a
 category nest to any depth, while Apple allows one subcategory. A probe
 with the category "Not A Category" and a third level passed as valid.
@@ -250,7 +250,7 @@ and `:validate/category-depth` for a third level, all warnings, and a
 predicate requirement makes them errors under the Apple and PSP-1
 requirements. Add the ids to the catalogue, regenerate the docs, test in
 `validate_test.cljc` and `directory_test.cljc`, and date the table in
-[Services](services.md). A day, since `apple-genres` is flat and the
+[Services](../services.md). A day, since `apple-genres` is flat and the
 parent of each subcategory has to be added.
 
 
@@ -262,7 +262,7 @@ Every app that ships updates must read the data that an older version of
 itself saved. The saved library carries no version of its format. The
 function `save!` prints the profile, the feeds, the followed lists and the
 last sync into one EDN document with no version key
-([library.cljc:862](../src/dk/simongray/podcast/app/library.cljc#L862)),
+([library.cljc:862](../../src/dk/simongray/podcast/app/library.cljc#L862)),
 and `restore!` reads back whatever map it finds: its helper merges the
 named keys over the live library and checks only that the document is a
 map, so a document of a newer format replaces the CRDT profile without a
@@ -271,7 +271,7 @@ word. An agent confirmed at the REPL that a library.edn holding
 only migration in the code is `profile/migrated`, which moves a played
 mark of an older version lazily, and the inspector writes its own
 migration of the profile at start
-([player.cljs:591](../web/inspector/player.cljs#L591)), which shows that
+([player.cljs:591](../../web/inspector/player.cljs#L591)), which shows that
 apps end up writing this themselves. The sync documents already carry a
 version, and like-minded reports `:sync/newer-format` for a newer one, so
 the pattern is set. AntennaPod runs SQLite migrations on each update, and
@@ -300,7 +300,7 @@ refresh, and the library counts each as a failure of the feed. In
 `app.feeds`, `failed` adds one to the failures on any error and sets the
 next check by the failure cadence, whose waits are 15 minutes, an hour,
 four hours and then a day
-([feeds.cljc:85](../src/dk/simongray/podcast/app/feeds.cljc#L85)). After
+([feeds.cljc:85](../../src/dk/simongray/podcast/app/feeds.cljc#L85)). After
 four attempts offline every feed waits a day, and when the network returns
 nothing is due until tomorrow. Every exception of a fetch becomes
 `:fetch/unreachable`, which covers a failed connection, a timeout, a
@@ -341,11 +341,11 @@ Podcasts doesn't, which is why Apple tells podcasters never to change
 guids.
 
 The library identifies an item by its guid, or else its enclosure URL
-([guid.cljc:58](../src/dk/simongray/podcast/feed/guid.cljc#L58)), and by
+([guid.cljc:58](../../src/dk/simongray/podcast/feed/guid.cljc#L58)), and by
 nothing else. The diff compares items by that id alone, `new-episodes`
 reports every added item, and the refresh of the profile skips only the
 ids it already knows, then queues every other added id at its publication
-date ([queue.cljc:279](../src/dk/simongray/podcast/profile/queue.cljc#L279)).
+date ([queue.cljc:279](../../src/dk/simongray/podcast/profile/queue.cljc#L279)).
 A changed guid so makes every item a new episode, and a show of hundreds
 appends them all to the queue of a show that queues automatically, which
 an agent reproduced at the REPL.
@@ -409,7 +409,7 @@ download progress and the space a file takes, and the type to pick a
 player and to know that the file is audio or video at all. Apple Podcasts
 Connect rejects a feed whose enclosure lacks a type. The registry marks
 only url as required
-([spec.cljc:278](../src/dk/simongray/podcast/feed/spec.cljc#L278)), so the
+([spec.cljc:278](../../src/dk/simongray/podcast/feed/spec.cljc#L278)), so the
 validator reports a missing url alone; the Apple requirements only ask
 that an enclosure exists; and a media type isn't a coerced type, so any
 string passes as one. A probe confirmed it: an enclosure with only a url,
@@ -444,8 +444,8 @@ nice-to-haves, marked "documented".
 
 ### The record of downloaded files in the library
 
-Difficulty 2, gain 3. Documented in [How to build a podcast app](building-an-app.md#what-you-build-yourself)
-and [Syncing](sync.md#what-stays-out).
+Difficulty 2, gain 3. Documented in [How to build a podcast app](../building-an-app.md#what-you-build-yourself)
+and [Syncing](../sync.md#what-stays-out).
 
 The download plan takes the files on the device as a map that you keep
 yourself: which episodes have a file, its bytes, when it came, whether the
@@ -497,8 +497,8 @@ with tests on both platforms.
 
 ### Many listeners on one server
 
-Difficulty 4, gain 2. Documented in the [server's README](../server/README.md),
-[Syncing](sync.md#the-server) and the docstring of the gpodder handler.
+Difficulty 4, gain 2. Documented in the [server's README](../../server/README.md),
+[Syncing](../sync.md#the-server) and the docstring of the gpodder handler.
 
 The self-hosted server serves one listener: one sync folder, one gpodder
 state, one library that refreshes that listener's feeds, and a single
@@ -524,13 +524,13 @@ two listeners and one shared feed.
 
 ### A lenient XML parser for JavaScript
 
-Difficulty 4, gain 2. Documented in [Architecture](architecture.md#not-built-yet).
+Difficulty 4, gain 2. Documented in [Architecture](../architecture.md#not-built-yet).
 
 A share of real feeds isn't well-formed XML. The library repairs the
 common faults on both platforms (bare ampersands, HTML entities, control
 characters, undeclared prefixes, junk around the document) and falls back
 on jsoup for the rest, but only on the JVM: in a browser or Node the
-fallback is nil ([repair.cljc:243](../src/dk/simongray/podcast/feed/repair.cljc#L243)),
+fallback is nil ([repair.cljc:243](../../src/dk/simongray/podcast/feed/repair.cljc#L243)),
 so such a feed is refused as malformed and can't be subscribed or
 refreshed. What's left after the repairs is mismatched or unclosed tags
 and a raw `<` in text. The calibrating agent ran the 31 corpus feeds in a
@@ -550,13 +550,13 @@ with the corpus of broken feeds and the JVM results as the expected trees.
 ### Ogg Opus and ADTS AAC readers
 
 Difficulty 3, gain 2. Documented in the working note on the media reader
-reorganisation, and [Diagnostics](diagnostics.md) says that media files
+reorganisation, and [Diagnostics](../diagnostics.md) says that media files
 are MP3 or MP4.
 
 Files in Ogg Opus and raw AAC in ADTS give `:file/unknown-format`, or
 `:mp3/no-audio` for ADTS files that start with an ID3 tag, since the
 sniffing knows only ID3, ftyp and an MPEG frame
-([media.cljc:27](../src/dk/simongray/podcast/format/media.cljc#L27)). An
+([media.cljc:27](../../src/dk/simongray/podcast/format/media.cljc#L27)). An
 app gets no duration, tags or artwork from them. Opus is the usual second
 format of an alternate enclosure, which Podlove Publisher and some
 independent feeds offer, and a few hosts serve .aac files. AntennaPod,
@@ -575,7 +575,7 @@ the same Ogg walker.
 
 ### Stores over the APIs of cloud services
 
-Difficulty 3, gain 2. Documented in [Architecture](architecture.md#not-built-yet).
+Difficulty 3, gain 2. Documented in [Architecture](../architecture.md#not-built-yet).
 
 On a phone there is often no synced folder and no WebDAV server, only an
 account on Dropbox, Google Drive or iCloud. The folder sync needs a place
@@ -594,7 +594,7 @@ days each, and each needs an account to test against.
 ### Read only the head of a feed for previews
 
 Difficulty 2, gain 2. Documented in a TODO in
-[show.cljc:136](../src/dk/simongray/podcast/app/show.cljc#L136).
+[show.cljc:136](../../src/dk/simongray/podcast/app/show.cljc#L136).
 
 The podroll reads the first 64 KB of each feed, but `find-feeds!`, an OPML
 preview and the guid check before subscribing fetch and parse whole feeds
@@ -630,14 +630,14 @@ test. A day or two each, and each needs a device to test on.
 ### Counts of likes, reposts and replies on a comment
 
 Difficulty 2, gain 2. Documented in a TODO in
-[comments.cljc:64](../src/dk/simongray/podcast/comments.cljc#L64).
+[comments.cljc:64](../../src/dk/simongray/podcast/comments.cljc#L64).
 
 Comment views show how many people liked, reposted or replied. The AppView
 already gives the like and repost counts with each post, ActivityPub posts
 carry likes and shares collections with their totals, and Nostr has kind 7
 reactions and kind 6 reposts. The thread shape has no counts: only the AT
 Protocol reply count is read, and only to decide whether to fetch more
-([atproto.cljc:270](../src/dk/simongray/podcast/comments/atproto.cljc#L270)).
+([atproto.cljc:270](../../src/dk/simongray/podcast/comments/atproto.cljc#L270)).
 Podverse and Castamatic show Mastodon counts, and Fountain shows reactions
 and zaps.
 
@@ -654,7 +654,7 @@ Difficulty 2, gain 2. Documented through the `fidelity="word"` proposal in
 
 Word-level transcripts in WebVTT carry a timestamp before each word inside
 the cue, which the reader strips along with the tags
-([transcript.cljc:165](../src/dk/simongray/podcast/format/transcript.cljc#L165)),
+([transcript.cljc:165](../../src/dk/simongray/podcast/format/transcript.cljc#L165)),
 so a karaoke-style highlight or a precise seek to a word is lost. JSON
 transcripts with a segment per word are read. Apple Podcasts highlights
 words as they are spoken, and Whisper and Deepgram write inline
@@ -667,7 +667,7 @@ reading.
 
 ### Parsing server logs into request maps
 
-Difficulty 2, gain 2. Documented in [How to build a podcast app](building-an-app.md#count-the-downloads-of-a-show)
+Difficulty 2, gain 2. Documented in [How to build a podcast app](../building-an-app.md#count-the-downloads-of-a-show)
 as the host's job.
 
 Counting downloads takes request maps, and the guide tells the host to
@@ -686,12 +686,12 @@ line that doesn't read, with tests on real lines. A day.
 ### A bsky.app link as the root of a thread
 
 Difficulty 1, gain 2. Documented in the same TODO in
-[comments.cljc:64](../src/dk/simongray/podcast/comments.cljc#L64).
+[comments.cljc:64](../../src/dk/simongray/podcast/comments.cljc#L64).
 
 Feeds and listeners paste the web form of a post,
 `https://bsky.app/profile/handle/post/rkey`, rather than an at URI. The AT
 Protocol reader takes only at URIs
-([atproto.cljc:41](../src/dk/simongray/podcast/comments/atproto.cljc#L41)),
+([atproto.cljc:41](../../src/dk/simongray/podcast/comments/atproto.cljc#L41)),
 so the thread of such a `socialInteract` is skipped, and a feed with a
 bsky.app link gets no comments today. The reverse is also missing: a
 Bluesky comment has no URL, so an app can't offer "open on Bluesky"

@@ -503,7 +503,7 @@ block. Then, from a REPL with the `:dev` alias:
 
 The Node run is a scratch test namespace that reads every file of the
 sample with `rss/try-parse` under the shadow-cljs test build, as
-[Development](development.md) describes for the suite.
+[Development](../development.md) describes for the suite.
 
 
 ## Sources

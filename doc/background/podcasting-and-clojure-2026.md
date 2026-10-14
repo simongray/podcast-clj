@@ -3,7 +3,7 @@
 This report describes the podcasting ecosystem that podcast-clj was built
 for, and how the features of apps, hosts and other libraries compared with
 podcast-clj at the time. It's frozen as of September 2026 and won't be
-updated. The [README](../README.md) says what podcast-clj has now.
+updated. The [README](../../README.md) says what podcast-clj has now.
 
 The first part was put together on 20 September 2026, partly from existing
 knowledge of the ecosystem and partly from live checks. Facts that weren't
