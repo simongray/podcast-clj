@@ -169,7 +169,9 @@
   The folders come first, then the shows in no folder, each in the
   listener's order, and the followed lists are includes. Each outline has
   the listener's title of the show as its text, the guid of its feed, the
-  tags as categories, and the time of subscribing as its creation time.
+  tags as categories, and the time of subscribing as its creation time. A
+  subscription without a URL, e.g. to a show of local files, is left out,
+  since another app has no feed to fetch.
 
   With the :media-url-fn of `opts`, a function of an episode id that
   gives the URL of its media or nil, each outline also has the :episodes
@@ -202,7 +204,8 @@
                      folder (assoc :path [folder])))]
      (cond-> {:title         "Subscriptions"
               :subscriptions (vec (for [[folder feed-guids] ordered
-                                        feed-guid           feed-guids]
+                                        feed-guid           feed-guids
+                                        :when (:url (get subs feed-guid))]
                                     (outline folder feed-guid)))}
        (seq ls) (assoc :includes (mapv include (sort-by key ls)))))))
 

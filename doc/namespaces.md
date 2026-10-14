@@ -61,7 +61,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!` with a `backend`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `next-refresh`, `merge`, `episodes`, `show`, `episode`, `playback`, `step`, `update-profile`, `search`, `sync!` with a `backend`, `plan`, `save!` and `restore!`, and `notifications` to announce new episodes. For an episode of a show without a subscription, there's `add-episode`, for a show of local files, `subscribe-local`, and for a library of hundreds of shows, `load!` and `unload!` keep only some feeds in memory. |
 | `app.media-session` | The Media Session of a browser for the episode that plays: which `actions` do something, and the `events` of `library/step` for each. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, the value blocks that its time splits point at from `fetch-remote-values!`, and the metadata of the Media Session from `metadata`. |
@@ -115,6 +115,7 @@ and any of them encrypted.
 | `feed.search` | The shows and episodes of feeds as documents for full-text search, with `index` for an index of them that weighs the title most, `with-feed` and `without-feed` to change it a feed at a time, and `located` to give each result its feed and item. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
 | `feed.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
+| `feed.local` | A show of local files that no feed serves, e.g. an audiobook: `feed` builds its feed from what each file says about itself, for `library/subscribe-local`. |
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations of the specs, and the URIs of the namespaces. |
 | `feed.repair` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails. |
 | `feed.quirks` | The normalisations of the tree, and the variant namespace URIs that feeds use. |

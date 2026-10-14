@@ -27,7 +27,8 @@
 
   An entry with only its :url is a feed to fetch for the first time, e.g.
   of a new subscription, and it's due at once. An entry that's :gone? is
-  never due, as default-cadence says."
+  never due, as default-cadence says, and nor is one that's :local?, the
+  feed of a show of local files, which has no URL."
   (:require [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -242,10 +243,12 @@
 
 (defn due
   "The guids of the feeds of `feeds` that are due at `at`, the earliest
-  first. A feed that's gone is never due."
+  first. A feed that's gone is never due, and nor is one of local files,
+  which no fetch brings."
   [feeds at]
-  (let [due?  (fn [[_ {:keys [next-check gone?]}]]
+  (let [due?  (fn [[_ {:keys [next-check gone? local?]}]]
                 (and (not gone?)
+                     (not local?)
                      (or (nil? next-check)
                          (<= (inst-ms next-check) (inst-ms at)))))
         order (fn [[_ {:keys [next-check]}]]
@@ -467,7 +470,7 @@
 
   - :at, the instant of the refresh, the time of the clock by default
   - :feed-guids, the feeds to fetch instead of the due ones, e.g. those
-    that a Podping names
+    that a Podping names, but for those of local files
   - :fetch, in place of dk.simongray.podcast/fetch!
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none
@@ -516,7 +519,8 @@
    {:pre [(map? opts)]}
    (let [at     (or at (now-fn))
          start  (now-fn)
-         wanted (vec (or feed-guids (due feeds at)))
+         wanted (vec (remove (comp :local? feeds)
+                             (or feed-guids (due feeds at))))
          guids  (cond-> wanted
                   max-feeds (subvec 0 (min max-feeds (count wanted))))
          ;; a fetch that the :signal stopped says to start no more

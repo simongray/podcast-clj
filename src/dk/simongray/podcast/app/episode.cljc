@@ -316,7 +316,7 @@
   :report as data, or an :error, in a future or a promise."
   [url opts]
   (let [read-opts (select-keys opts [:send :allow-pred :timeout-seconds :headers
-                                     :except])]
+                                     :except :fetch])]
     (async/then (media/read! url read-opts)
                 (fn [file]
                   (if (:error file)
@@ -394,6 +394,9 @@
   that couldn't be read has an :error. The `opts` are:
 
   - :send, :allow-pred and :headers, as for any request
+  - :fetch, a function that reads the media file by its ranges in place
+    of a request, as format.media/read! takes it, e.g. the file fetcher of
+    util.bytes.ranges for a downloaded file or one of a show of local files
   - :timeout-seconds and :max-bytes, over default-limits
   - :except, a set of the parts to leave unread
   - :cache, a document store of like-minded that keeps the chapters files

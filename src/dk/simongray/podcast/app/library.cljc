@@ -427,6 +427,48 @@
                                          settings at)
            (and feed (not head?)) with-feed)))))
 
+(defn subscribe-local
+  "The `library` subscribed to the show of local files `feed`, which
+  feed.local/feed built, with the settings in `opts`, besides :at.
+
+  The feed stays on this device, as its files do, and no refresh fetches
+  it, so subscribe again with the files as they are when they change. The
+  profile syncs the subscription and the progress of the episodes, so a
+  device with the same files, which make the same guids, shares them, and
+  one without them lists the show by its title. An image that's a data URL
+  stays out of the profile."
+  ([library feed]
+   (subscribe-local library feed {}))
+  ([library feed opts]
+   {:pre [(map? opts)]}
+   (let [at        (time-of library opts)
+         settings  (dissoc opts :at :now-fn)
+         feed-guid (:podcast/guid feed)
+         image     (resolve/artwork feed)
+         details   (cond-> {:url   nil
+                            :title (resolve/title feed)
+                            :guid  feed-guid}
+                     (and image (not (str/starts-with? image "data:")))
+                     (assoc :image image))
+         old       (get-in library [:feeds feed-guid])
+         keyed     (guid/with-key feed feed-guid)
+         entry     {:local?     true
+                    :guid       feed-guid
+                    :feed       keyed
+                    :changed-at (if (= keyed (:feed old))
+                                  (:changed-at old at)
+                                  at)
+                    :fetched-at at}]
+     (when-let [taken (profile/takeover (:profile library) feed-guid nil)]
+       (throw (ex-info (:message taken) taken)))
+     (-> library
+         (update :profile profile/subscribe feed-guid details at)
+         (cond->
+           (seq settings) (update :profile profile/configure feed-guid
+                                  settings at))
+         (assoc-in [:feeds feed-guid] entry)
+         (settled feed-guid (:config library))))))
+
 (defn unsubscribe
   "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The
   feed and its search documents go, but for the episodes of its remote
@@ -1014,8 +1056,8 @@
   The feed of a subscription that was never fetched is due at once, unless
   the last refresh failed to fetch it. Then it waits the first wait of the
   :after-failure of the cadence, as a feed that failed once does. A feed
-  that's gone or held for remote items alone is never due. After a
-  refresh that found the device offline, the next waits the
+  that's gone, of local files or held for remote items alone is never
+  due. After a refresh that found the device offline, the next waits the
   :offline-seconds of the config."
   ([library]
    (next-refresh library {}))
@@ -1031,7 +1073,9 @@
          retry    #(if (contains? failed %) (time/later last-at wait) at)
          check    #(or (:next-check %) at)
          checked? (fn [[feed-guid entry]]
-                    (not (or (:gone? entry) (alone? library feed-guid))))
+                    (not (or (:gone? entry)
+                             (:local? entry)
+                             (alone? library feed-guid))))
          checks   (concat (map (comp check val)
                                (filter checked? (:feeds library)))
                           (map check (vals (:fetched-lists library)))
@@ -1054,8 +1098,9 @@
   The Podcast Index is asked with the credentials of the :index of the
   config. The shows are asked about two at a time, since Apple limits how
   often it answers, and a show whose directory failed is asked again
-  next time. The `opts` are the config for this call, and :feed-guids,
-  the shows to ask about, ids or not."
+  next time. A show of local files is never asked about, since no
+  directory lists it. The `opts` are the config for this call, and
+  :feed-guids, the shows to ask about, ids or not."
   ([library]
    (identify! library {}))
   ([library opts]
@@ -1064,7 +1109,8 @@
          asking (cond-> (select-keys opts [:send :timeout-seconds
                                            :user-agent :country])
                   index (assoc :credentials index))
-         fed?   #(get-in library [:feeds % :feed])
+         fed?   #(let [{:keys [feed local?]} (get-in library [:feeds %])]
+                   (and feed (not local?)))
          guids  (filter fed? (or feed-guids
                                  (remove #(get-in library [:feeds % :ids])
                                          (keys (:feeds library)))))
@@ -1294,7 +1340,7 @@
 
       {:id         [feed-guid item-guid]
        :src        \"https://…/7.mp3\"   ; the file to play
-       :local?     false                ; whether it's a downloaded file
+       :local?     false                ; whether the file is on the device
        :enclosure  {:url \"…\" :type \"audio/mpeg\" …}
        :position   754.0                ; where to start, in seconds
        :duration   3612.0               ; when it's known
@@ -1309,10 +1355,11 @@
 
   The file to play is the downloaded one, which the :local-file-fn of the
   options gives for the id, e.g. an object URL, or else the record of the
-  files in the library, and otherwise the enclosure. With :read, what
-  read-files! gave for the episode, its chapters and measured duration go
-  over those of the feed. The keys without a value are left out, and
-  app.episode/metadata gives the metadata."
+  files in the library, and otherwise the enclosure, which is on the
+  device for a show of local files. With :read, what read-files! gave for
+  the episode, its chapters and measured duration go over those of the
+  feed. The keys without a value are left out, and app.episode/metadata
+  gives the metadata."
   ([library id]
    (playback library id {}))
   ([library id {:keys [read] :as opts}]
@@ -1332,7 +1379,8 @@
                            (:duration read)
                            (:duration view))]
        (into {:id       id
-              :local?   (some? local-file)
+              :local?   (or (some? local-file)
+                            (true? (get-in library [:feeds feed-guid :local?])))
               :position (profile/resume-position profile feed-guid id
                                                  (time-of library opts))
               :rate     (profile/playback-rate profile feed-guid)
@@ -2180,7 +2228,8 @@
 
   It plans with the feeds that the library holds in memory. The files of
   the episodes of a feed that it doesn't hold are kept, so load! every
-  feed first for a plan of them all."
+  feed first for a plan of them all. A show of local files has nothing to
+  download."
   ([library]
    (plan library nil {}))
   ([library files]
@@ -2192,7 +2241,9 @@
                    [(key %) (assoc (val %) :keep? true)]
                    %)]
      (downloads/plan (:profile library)
-                     (shown-feeds library)
+                     (shown-feeds (update library :feeds
+                                          #(into {} (remove (comp :local? val))
+                                                 %)))
                      (into {} (map kept) (or files (:files library)))
                      (time-of library opts)
                      (assoc opts :url (urls library))))))

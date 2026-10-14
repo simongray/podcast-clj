@@ -16,6 +16,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
+            [dk.simongray.podcast.feed.local :as local]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
@@ -1333,3 +1334,42 @@
                         (async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
                                     (fn [lib]
                                       (is (= (:files filed) (:files lib)) "saved and read back"))))))))
+
+(defn- dune
+  "The show of the local files `names` of an audiobook, as feed.local
+  builds it."
+  [& names]
+  (local/feed (for [n names]
+                {:url   (str "file:///Users/ann/Books/Dune/" n)
+                 :name  n
+                 :media {:format :mp3 :duration 600 :tags {:album "Dune" :artist "Frank Herbert"}}})))
+
+(deftest a-show-of-local-files
+  (let [show    (dune "01.mp3" "02.mp3")
+        g       (:podcast/guid show)
+        id      [g "01.mp3"]
+        fetched (atom [])
+        fetch   (fn [u _] (swap! fetched conj u) fresh)
+        phone   (-> (library/make "phone" {:config {:now-fn (constantly now) :fetch fetch}})
+                    (library/subscribe-local show)
+                    (update :profile profile.queue/enqueue id now)
+                    (update :profile profile/prefer {:downloads {:queue 1}} now))]
+    (is (= {:url nil :title "Dune"} (select-keys (get (profile/subscriptions (:profile phone)) g) [:url :title]))
+        "a subscription without a URL")
+    (is (nil? (library/next-refresh phone)) "with nothing to fetch")
+    (is (= [] (:download (library/plan phone))) "or to download, though it's queued")
+    (is (= [] (:subscriptions (profile.opml/to-opml (:profile phone)))) "and nothing for another app to import")
+    (is (= ["file:///Users/ann/Books/Dune/01.mp3" true] ((juxt :src :local?) (library/playback phone id)))
+        "a file on the device to play")
+    (testing "the files as they are now"
+      (let [more (library/subscribe-local (library/update-profile phone profile/progress id 300) (dune "01.mp3" "02.mp3" "03.mp3"))]
+        (is (= ["01" "02" "03"] (map :rss/title (get-in more [:feeds g :feed :rss/items]))))
+        (is (= 300 (:position (library/playback more id))) "and the progress of an episode stays")))
+    (testing "another device with the same files"
+      (let [laptop (-> (library/make "laptop" {:config {:now-fn (constantly now)}})
+                       (library/subscribe-local (dune "02.mp3" "01.mp3"))
+                       (update :profile profile/merge (:profile (library/update-profile phone profile/progress id 300))))]
+        (is (= 300 (:position (library/playback laptop id))) "shares the progress, by the guids that the files give")))
+    (run #(async/then (library/refresh! phone {:feed-guids [g]})
+                      (fn [_]
+                        (is (= [] @fetched) "a refresh never fetches it, even when asked to"))))))

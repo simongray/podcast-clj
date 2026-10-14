@@ -327,6 +327,40 @@ another, e.g. after a move. `feeds/add` puts the key on the feed with
 feed can declare the guid of another subscription and take it over, so
 check a new feed with `profile/takeover` first.
 
+### A show of local files
+
+A folder of audio files, e.g. an audiobook or a set of recordings, can be
+a show of its own. Read each file with `media/read!` through the file
+fetcher of `util.bytes.ranges`, build the show with `local/feed`, and
+subscribe to it:
+
+```clojure
+(defn local-show
+  "The show of the audio files `names` in the folder `dir`."
+  [dir names]
+  (local/feed (for [name names
+                    :let [path (str dir "/" name)]]
+                {:url   (str "file://" path)
+                 :name  name
+                 :media (media/read! path {:fetch (ranges/file-fetcher path)})})))
+
+(swap! lib library/subscribe-local
+       (local-show "/Users/ann/Books/Dune" ["01.mp3" "02.mp3"]))
+```
+
+The episodes go in the order of their file names, and their titles,
+dates and durations come from the tags of the files. The show is titled
+by the album that the files name, so give `local/feed` a `:title` for
+files without one. No refresh fetches the show, so subscribe again when
+the files change. In a browser, read a File that the listener picked
+with `ranges/blob-fetcher`, and give it an object URL, which lasts only
+as long as the page, so build the show again when the page loads.
+
+The same files give the same guids, so a device with the same files
+shares the listener's progress. The other devices get the subscription
+by sync without a URL, and list it by its title. To read the chapters of
+a local episode, give `episode/read-files!` the same `:fetch`.
+
 
 ## Keep the feeds current
 
@@ -2079,6 +2113,7 @@ which [Play episodes](#play-episodes) adds.
             [dk.simongray.podcast.feed.check.rules :as check.rules]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
+            [dk.simongray.podcast.feed.local :as local]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.schedule :as schedule]

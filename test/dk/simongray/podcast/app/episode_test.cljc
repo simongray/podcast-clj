@@ -5,9 +5,11 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.podcast.app.episode :as episode]
+            [dk.simongray.podcast.feed.local :as local]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.test-support :refer [example-guid fixture run]]
+            [dk.simongray.podcast.test-support :refer [example-guid fetch-from fixture run]]
+            [dk.simongray.podcast.test-support.media :refer [audio-frame chap ctoc tag text xing-frame]]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.webcrypto.bytes :as bytes]))
@@ -138,6 +140,18 @@
                        (is (= "text/plain" (:type (:transcript v))))
                        (is (= :file/unreachable (:id (:error (:transcript v)))) "the plain transcript has no route")
                        (is (= [[:transcript :file/unreachable]] (map (juxt :part :id) (episode/report v)))))))))))
+
+(deftest the-files-of-a-local-episode
+  (let [b     (bytes/of (concat (tag 3 (ctoc 3 "t" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "Opening")))
+                                (xing-frame 10) (audio-frame)))
+        feed  (local/feed [{:url "file:///Users/ann/Books/Dune/01.mp3" :name "01.mp3" :media {:format :mp3 :tags {:album "Dune"}}}])
+        log   (atom [])
+        opts  {:fetch (fetch-from b log) :send (fn [_] (throw (ex-info "No request" {})))}]
+    (run #(async/then (episode/read-files! (episode/view feed (first (:rss/items feed))) opts)
+                      (fn [{:keys [chapters]}]
+                        (is (= [:media ["Opening"]] [(:source chapters) (map :title (:chapters (:document chapters)))])
+                            "the chapters of the file, read through the fetch of the app")
+                        (is (seq @log)))))))
 
 (deftest what-a-stream-says
   (let [log     (atom [])
