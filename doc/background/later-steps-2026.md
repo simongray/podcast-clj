@@ -532,8 +532,9 @@ those files anyway, and a release is a good time.
   2026, and the ID3 writer is in
   [id3-clj](https://github.com/simongray/id3-clj).
 - **The nice-to-haves of gain 1**, of both reports.
-- **The proposals of the podcast namespace**, among them phase 9 (#789)
-  and `podcast:socialAccount` (#784), once a maintainer answers.
+- **The proposed tags of the podcast namespace**, once they're adopted,
+  which [issue #3](https://github.com/simongray/podcast-clj/issues/3)
+  lists.
 - **F5 to F7 of the video report**: alternates grouped by rel, HLS
   downloads counted, and the play position tied to its file, each waiting
   for the evidence that report asks for.
