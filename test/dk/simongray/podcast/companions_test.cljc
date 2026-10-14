@@ -170,7 +170,29 @@
         "read in linear time"))
   (testing "a cue full of stray angle brackets is read in linear time"
     (let [text (str (apply str (repeat 50000 "a <v b ")) "c")]
-      (is (= [text] (map :body (:segments (transcript/parse-vtt (str "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n" text)))))))))
+      (is (= ["a"] (map :body (:segments (transcript/parse-vtt (str "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n" text)))))
+          "the annotation of an unclosed voice span runs to the end of the cue, as WebVTT, section 6.4, reads it"))))
+
+(deftest word-timing-in-webvtt
+  (let [file    (str "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n"
+                     "<v Bob>Never <00:00:01.500>drink <00:00:02.000>water\n")
+        segment (first (:segments (transcript/parse file)))]
+    (testing "the inline timestamps of a cue split its text into timed runs"
+      (is (= {:start-time 1.0 :end-time 3.0 :speaker "Bob" :body "Never drink water"
+              :runs [{:start-time 1.0 :text "Never "} {:start-time 1.5 :text "drink "} {:start-time 2.0 :text "water"}]}
+             segment)))
+    (testing "which are written back as timestamps"
+      (is (= [segment] (:segments (transcript/parse (transcript/emit-vtt {:segments [segment]})))))))
+  (testing "a \"Name:\" prefix leaves the first run too"
+    (let [file "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nBob: Never <00:00:01.500>drink\n"]
+      (is (= [{:start-time 1.0 :text "Never "} {:start-time 1.5 :text "drink"}]
+             (:runs (first (:segments (transcript/parse file)))))))))
+
+(deftest webvtt-cues-that-dont-parse
+  (let [t (transcript/parse (str "WEBVTT\n\n00:00:01.1000 --> 00:00:02.000\nGone\n\n"
+                                 "00:00:03.000 --> 00:00:04.000\nKept\n"))]
+    (is (= ["Kept"] (map :body (:segments t))) "a cue with 1000 milliseconds is left out, as a browser leaves it")
+    (is (= [[:transcript/cues-dropped 1]] (map (juxt :id :count) (transcript/report t))))))
 
 (deftest one-list-of-transcript-types
   (is (= spec/transcript-types
@@ -187,7 +209,7 @@
         js   (transcript/parse json-text)
         html (transcript/parse html-text)]
     (is (= :vtt (:format vtt)))
-    (is (= {:start-time 0 :end-time 2.76 :speaker "Sarah" :body "In today's episode, you'll learn whether or not you"}
+    (is (= {:start-time 0.0 :end-time 2.76 :speaker "Sarah" :body "In today's episode, you'll learn whether or not you"}
            (first (:segments vtt))))
     (is (= :srt (:format srt)))
     (is (= 222 (count (:segments srt))))
@@ -280,9 +302,10 @@
     (doseq [emit [transcript/emit-srt transcript/emit-vtt]]
       (is (= ["one\ntwo"] (map :body (:segments (transcript/parse (emit {:segments [{:start-time 1 :end-time 2 :body "one\n\ntwo"}]}))))))))
   (testing "an ampersand and the signs of a tag in a cue of WebVTT go as character references"
-    (let [segment {:start-time 1 :end-time 2 :speaker "R&D <team>" :body "a < b & c > d"}
+    (let [segment {:start-time 1.0 :end-time 2.0 :speaker "R&D <team>" :body "a < b & c > d"}
           written (transcript/emit-vtt {:segments [segment]})]
-      (is (str/includes? written "<v R&amp;D &lt;team&gt;>a &lt; b &amp; c &gt; d"))
+      (is (str/includes? written "<v R&amp;D <team&gt;>a &lt; b &amp; c &gt; d</v>")
+          "WebVTT, section 4.2.2, allows a < in an annotation")
       (is (= [segment] (:segments (transcript/parse written))))))
   (testing "text that only looks like JSON is read as text, and a byte order mark is no text"
     (doseq [type [nil "text/plain"]]

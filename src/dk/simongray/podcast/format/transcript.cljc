@@ -14,7 +14,9 @@
                    :body \"…\"}]}
 
   Times are seconds, and :end-time and :speaker are there when the source
-  had them. Speakers are read from these:
+  had them. A WebVTT cue with inline timestamps has the :runs of its text
+  too, each with its :start-time and :text, e.g. a word each in a
+  word-level transcript. Speakers are read from these:
 
   - the voice spans of WebVTT, which name the speaker of their cue, or of
     the cues that follow too in a file that marks only the changes of
@@ -32,7 +34,8 @@
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.podcast.util.entities :as entities]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.webvtt :as webvtt]))
 
 ;; podcast:transcript names five types. application/srt is of Apple's
 ;; guide, and text/srt is in feeds.
@@ -203,27 +206,32 @@
                        (cue-body body)))]
     (str/join "\n\n" (map-indexed srt-cue (timed-segments transcript)))))
 
+(defn- first-voice
+  "The voice of the first voice span in the cue text `nodes`, as Hiccup
+  from webvtt/hiccup, or nil."
+  [nodes]
+  (->> (tree-seq sequential? #(if (keyword? (first %)) (drop 2 %) %) nodes)
+       (some #(when (and (vector? %) (= :v (first %)))
+                (:voice (second %))))))
+
 (defn- vtt-cue
-  "The segment of the WebVTT cue block `lines`, with its speaker from a
-  voice span or else from a \"Name:\" prefix, which counts in `stats`."
-  [stats lines]
-  (let [[timing & payload] (if (re-find timing-pattern (first lines))
-                             lines
-                             (rest lines))]
-    (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
-      (let [voice-span      #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>"
-            text            (str/join "\n" payload)
-            voice           (some-> (re-find voice-span text)
-                                    second
-                                    entities/decode-entities)
-            plain           (-> text strip-tags str/trim entities/decode-entities)
-            [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
-            speaker         (or voice prefixed)]
-        (cond-> {:start-time (time/parse-clock from)
-                 :end-time   (time/parse-clock to)
-                 :body       body}
-          speaker (assoc :speaker speaker)
-          voice   (assoc ::voice? true))))))
+  "The segment of the WebVTT `cue`. Its speaker comes from its first voice
+  span, or else from a \"Name:\" prefix, which counts in `stats`. A cue
+  with inline timestamps gives the timed runs of its text too."
+  [stats cue]
+  (let [voice           (first-voice (webvtt/hiccup cue))
+        plain           (str/trim (webvtt/text cue))
+        [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
+        speaker         (or voice prefixed)
+        unprefixed      #(second (speaker-prefix (volatile! {}) (str/triml %)))
+        runs            (webvtt/runs cue)]
+    (cond-> {:start-time (:start-time cue)
+             :end-time   (:end-time cue)
+             :body       body}
+      speaker     (assoc :speaker speaker)
+      voice       (assoc ::voice? true)
+      (next runs) (assoc :runs (cond-> (vec runs)
+                                 prefixed (update-in [0 :text] unprefixed))))))
 
 ;; WebVTT, section 4.2.2, scopes a voice span to its cue, but some hosts,
 ;; e.g. Transistor, write one only where the speaker changes. A file that
@@ -249,18 +257,30 @@
                       "the speaker before it")
                  :count n)]))
 
+(defn- dropped-diagnostics
+  "The diagnostic for `n` cues whose timings don't parse."
+  [n]
+  (when (pos? n)
+    [(diagnostic :transcript/cues-dropped :warning
+                 (str n " cues have timings that don't parse, so they were "
+                      "left out, as a browser leaves them out")
+                 :count n)]))
+
 (defn parse-vtt
-  "The transcript map of the WebVTT text `s`, without its NOTE, STYLE and
-  REGION blocks.
+  "The transcript map of the WebVTT text `s`, whose cues webvtt-clj reads
+  as a browser does.
 
   A voice span names the speaker of its cue alone, unless the file marks
   only where the speaker changes, when the speaker carries over the cues
   that follow, and the report says so. A \"Name:\" prefix always carries
-  over."
+  over. A cue whose timings don't parse is left out, and the report counts
+  those."
   [s]
   (let [stats    (volatile! {})
-        cue?     #(not (re-find #"^(?:WEBVTT|NOTE|STYLE|REGION)" (first %)))
-        cues     (->> (blocks s) (filter cue?) (keep #(vtt-cue stats %)) vec)
+        cues     (mapv #(vtt-cue stats %) (:cues (webvtt/parse s)))
+        dropped  (->> (webvtt/conformance-errors s :metadata)
+                      (filter (comp #{:timings} :type))
+                      count)
         turns?   (turn-marked? cues)
         carried  (carry-speakers cues (if turns? (constantly true)
                                           (complement ::voice?)))
@@ -270,29 +290,37 @@
                                              cues carried))))
         segments (mapv #(dissoc % ::voice?) carried)]
     (with-report {:format :vtt :segments segments}
-      (concat (prefix-diagnostics (:prefixes @stats 0))
+      (concat (dropped-diagnostics dropped)
+              (prefix-diagnostics (:prefixes @stats 0))
               (voices-diagnostics (or voiced 0))))))
 
-;; WebVTT, section 4.2.2: cue text has no & or <, and the annotation of a
-;; voice span no & or >, so those go as the character references of HTML
-(defn- vtt-text
-  "The text `s` as the payload of a cue writes it."
-  [s]
-  (str/escape s {\& "&amp;" \< "&lt;" \> "&gt;"}))
+;; WebVTT, section 4.2.2: a voice annotation is one line
+(defn- cue-nodes
+  "The cue text of the `segment` as Hiccup: its timed runs as inline
+  timestamps, or else its body, in a voice span of its speaker."
+  [{:keys [speaker body runs] :as segment}]
+  (let [content (if (seq runs)
+                  (into [(:text (first runs))]
+                        (mapcat (fn [{:keys [start-time text]}]
+                                  [[:timestamp {:time start-time}] text]))
+                        (rest runs))
+                  [(cue-body body)])]
+    (if speaker
+      [(into [:v {:voice (str/join " " (str/split (str/trim speaker) #"\s+"))}]
+             content)]
+      content)))
 
 (defn emit-vtt
-  "The `transcript` as WebVTT, with the speakers as voice spans. Segments
-  without a start time are left out."
+  "The `transcript` as WebVTT, with the speakers as voice spans and the
+  timed runs of a segment as inline timestamps. Segments without a start
+  time are left out."
   [transcript]
-  (str "WEBVTT\n\n"
-       (str/join "\n\n"
-                 (for [{:keys [start-time end-time speaker body]}
-                       (timed-segments transcript)]
-                   (str (time/format-timestamp start-time) " --> "
-                        (time/format-timestamp (or end-time start-time)) "\n"
-                        (when speaker (str "<v " (vtt-text speaker) ">"))
-                        (vtt-text (cue-body body)))))
-       "\n"))
+  (webvtt/emit {:cues (mapv (fn [{:keys [start-time end-time] :as segment}]
+                              {:start-time start-time
+                               :end-time   (or end-time start-time)
+                               :text       (webvtt/cue-text
+                                            (cue-nodes segment))})
+                            (timed-segments transcript))}))
 
 (defn parse-json
   "The transcript map of the JSON transcript `s`, whose segments have a

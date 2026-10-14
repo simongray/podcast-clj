@@ -690,6 +690,11 @@ add what the episode's chapters file, transcript and media file say:
 (transcript/at (:document (:transcript page)) 754)  ; the segment at 12:34
 ```
 
+A segment from a WebVTT cue with timestamps inside it, as word-level
+transcripts have, also has the timed `:runs` of its text, e.g.
+`[{:start-time 1.0 :text "Never "} {:start-time 1.5 :text "drink"}]`, to
+highlight each word as it's spoken.
+
 An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.

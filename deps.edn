@@ -7,8 +7,8 @@
  ;; full-text search, mind-meld for the CRDT of the listener's profile,
  ;; like-minded for syncing it and for the stores, websub-clj for WebSub,
  ;; whatwg-mime for media types, langtag-clj for language tags,
- ;; webcrypto-clj for bytes, their encodings, hashes and HMACs, and id3-clj
- ;; for the ID3v2 tags of media files.
+ ;; webcrypto-clj for bytes, their encodings, hashes and HMACs, id3-clj for
+ ;; the ID3v2 tags of media files, and webvtt-clj for WebVTT transcripts.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -27,7 +27,8 @@
          dk.simongray/whatwg-mime    {:mvn/version "0.2.1"}
          dk.simongray/langtag-clj    {:mvn/version "0.2.0"}
          dk.simongray/webcrypto-clj  {:mvn/version "0.1.3"}
-         dk.simongray/id3-clj        {:mvn/version "0.1.1"}}
+         dk.simongray/id3-clj        {:mvn/version "0.1.1"}
+         dk.simongray/webvtt-clj     {:mvn/version "0.1.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
@@ -121,8 +122,8 @@
 
   ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
   ;; like-minded, websub-clj, whatwg-mime, langtag-clj, webcrypto-clj,
-  ;; id3-clj and httpsig-clj from checkouts beside this one, to change them
-  ;; and podcast-clj at once, e.g. clojure -M:dev:local:nrepl
+  ;; id3-clj, webvtt-clj and httpsig-clj from checkouts beside this one, to
+  ;; change them and podcast-clj at once, e.g. clojure -M:dev:local:nrepl
   :local {:override-deps
           {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
            dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
@@ -135,6 +136,7 @@
            dk.simongray/langtag-clj    {:local/root "../langtag-clj"}
            dk.simongray/webcrypto-clj  {:local/root "../webcrypto-clj"}
            dk.simongray/id3-clj        {:local/root "../id3-clj"}
+           dk.simongray/webvtt-clj     {:local/root "../webvtt-clj"}
            dk.simongray/httpsig-clj    {:local/root "../httpsig-clj"}}}
 
   ;; clojure -M:dev:nrepl

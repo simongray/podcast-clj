@@ -45,6 +45,8 @@ Some of the work is done by libraries in repositories of their own:
   their encodings and hashes
 - [id3-clj](https://github.com/simongray/id3-clj) reads the ID3v2 tags of
   media files, and writes them too
+- [webvtt-clj](https://github.com/simongray/webvtt-clj) reads and writes
+  WebVTT transcripts, as a browser reads them
 
 The tables follow the same order. Names in them are relative to the root,
 and everything runs on the JVM and in ClojureScript unless the table says
@@ -144,7 +146,7 @@ and any of them encrypted.
 | Namespace | Contents |
 |---|---|
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
-| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
+| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers and the word timing of WebVTT, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL, and `colors`, the colours of a UI by an image, which the platform decodes, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one of them alone. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |

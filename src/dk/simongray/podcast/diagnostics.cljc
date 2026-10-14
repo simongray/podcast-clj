@@ -237,6 +237,10 @@
      :doc "A WebVTT file gives a voice span only where the speaker changes,
            so the cues without one took the speaker before them. The :count
            is the number of such cues."}
+    {:id :transcript/cues-dropped :level :warning
+     :doc "Cues of a WebVTT file have timings that don't parse, e.g. 1000
+           milliseconds, so they were left out, as a browser leaves them out.
+           The :count is the number of such cues."}
     {:id :transcript/srt-tags :level :info
      :doc "SRT cues held the formatting tags of HTML, e.g. for italics or a
            font, which SRT doesn't define, and the text was read without them.
