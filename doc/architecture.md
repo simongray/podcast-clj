@@ -467,9 +467,9 @@ Each protocol has its own idea of who speaks for a post:
 
 The `nostr` namespace holds the protocol that both the comments and the
 wallets speak, and it knows nothing about podcasts. An event stays the
-plain data that a relay sends. Its id is the SHA-256 of a text that NIP-01 defines to
-the character, and a JSON writer escapes more than NIP-01 allows, so
-`event-id` writes that text itself.
+plain data that a relay sends. Its id is the SHA-256 of a text that
+NIP-01 defines to the character, and a JSON writer escapes more than
+NIP-01 allows, so `event-id` writes that text itself.
 
 Neither the JDK nor the Web Crypto API has the curve secp256k1 or the cipher
 ChaCha20. So `nostr.secp256k1` (the Schnorr signatures of BIP-340) and
