@@ -1,7 +1,8 @@
 (ns dk.simongray.podcast.util.client-test
   "The sender of podcast-clj: the User-Agent that it gives a request, and
   the option that names another."
-  (:require [clojure.test :refer [deftest is]]
+  (:require #?(:clj [clojure.string :as str])
+            [clojure.test :refer [deftest is]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.test-support :refer [run]]
             [dk.simongray.podcast.util.client :as client]
@@ -16,10 +17,8 @@
 
 #?(:clj
    (deftest the-version-in-the-user-agent
-     (let [version #"\(def version\s+\"[^\"]*\"\s+\"([^\"]+)\""]
-       (is (= (str "podcast-clj/" (second (re-find version (slurp "build.clj"))))
-              client/user-agent)
-           "the version that build.clj builds"))))
+     (is (str/includes? (slurp "build.clj") (pr-str client/user-agent))
+         "the User-Agent that the jar names with the version of its tag")))
 
 (deftest the-user-agent-option
   (let [sent (atom [])

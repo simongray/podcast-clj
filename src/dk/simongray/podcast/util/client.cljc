@@ -4,10 +4,11 @@
   (:require [dk.simongray.wary-fetch :as http]))
 
 ;; RFC 9110, section 10.1.5: a product and its version. Hosts behind
-;; Cloudflare refuse an agent with a URL in it, as of 2026-10-11.
+;; Cloudflare refuse an agent with a URL in it, as of 2026-10-11. The jar
+;; names its version in place of dev.
 (def user-agent
   "The User-Agent of a request unless the request or the options set one."
-  "podcast-clj/0.1.0")
+  "podcast-clj/dev")
 
 (defn send!
   "Send the `request` as http/send! does, with user-agent as its
