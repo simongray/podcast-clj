@@ -652,6 +652,19 @@ An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.
 
+To tint a page by its artwork, as Apple Podcasts does, give
+`image/dominant-color` the bytes of the image. It gives the colour that
+most of the image has, and in ClojureScript a promise of it:
+
+```clojure
+(image/dominant-color (:body (http/send! {:url (:artwork show-page) :as :bytes})))
+;; => "#a90000", for the artwork of Podcasting 2.0
+```
+
+The platform decodes the image: ImageIO on the JVM and the browser in
+ClojureScript, where you send the request through the proxy. Node has no
+decoder, so the colour is nil there.
+
 To keep the chapters files and transcripts on the device, set `:cache`
 in the config to a document store of like-minded, e.g. one in IndexedDB.
 A file it keeps is asked for again with its ETag, so an unchanged one

@@ -13,12 +13,17 @@
   A reading takes a view of the parts of the file at hand, as in
   dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
   that it still needs. An image embedded in text, e.g. the artwork of a
-  chapter, is a data URL, which data-url and from-data-url write and read."
+  chapter, is a data URL, which data-url and from-data-url write and read.
+  Only dominant-color decodes an image, through the platform, for the
+  colour that most of it has."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
-            [dk.simongray.webcrypto.bytes :as bytes]))
+            [dk.simongray.webcrypto.bytes :as bytes])
+  #?(:clj (:import [java.io ByteArrayInputStream]
+                   [javax.imageio ImageIO ImageReader]
+                   [javax.imageio.stream MemoryCacheImageInputStream])))
 
 ;; WHATWG MIME Sniffing Standard, section 6.1
 (def ^:no-doc signatures
@@ -453,6 +458,84 @@
                (str/starts-with? type ";") (str "text/plain" type)
                :else                       type)
        :data data})))
+
+(defn- hex-pair
+  "The byte `n` as two hexadecimal digits."
+  [n]
+  (let [digits "0123456789abcdef"]
+    (str (nth digits (quot n 16)) (nth digits (rem n 16)))))
+
+(defn ^:no-doc dominant
+  "The colour that the most of the `pixels` have, each a vector of red,
+  green, blue and alpha from 0 to 255, as a CSS hex colour, or nil when
+  none is opaque. Pixels count together when they agree in the top three
+  bits of each channel, and the colour is their average."
+  [pixels]
+  (let [opaque (filter #(>= (nth % 3) 128) pixels)
+        bucket (fn [[r g b]] [(quot r 32) (quot g 32) (quot b 32)])
+        groups (vals (group-by bucket opaque))]
+    (when (seq groups)
+      (let [most (first (sort-by (juxt (comp - count) (comp bucket first))
+                                 groups))
+            mean #(quot (reduce + (map (fn [p] (nth p %)) most)) (count most))]
+        (apply str "#" (map (comp hex-pair mean) [0 1 2]))))))
+
+#?(:clj
+   (defn- decoded-pixels
+     "The pixels of the image in the bytes `b`, which ImageIO decodes at
+     about `n` pixels a side, or nil when it can't decode it."
+     [b n]
+     (try
+       (with-open [in (MemoryCacheImageInputStream. (ByteArrayInputStream. b))]
+         (when-let [^ImageReader reader (first (iterator-seq
+                                                (ImageIO/getImageReaders in)))]
+           (try
+             (.setInput reader in)
+             (let [side  (max (.getWidth reader 0) (.getHeight reader 0))
+                   step  (max 1 (quot side n))
+                   param (doto (.getDefaultReadParam reader)
+                           (.setSourceSubsampling step step 0 0))
+                   image (.read reader 0 param)]
+               (vec (for [y (range (.getHeight image))
+                          x (range (.getWidth image))
+                          :let [argb (.getRGB image x y)]]
+                      (mapv #(bit-and (bit-shift-right argb %) 255)
+                            [16 8 0 24]))))
+             (finally
+               (.dispose reader)))))
+       (catch Exception _
+         nil))))
+
+#?(:cljs
+   (defn- drawn-pixels
+     "A promise of the pixels of the image in the bytes `b`, which the
+     browser draws at `n` pixels a side, or of nil where it can't, e.g. in
+     Node, which has no decoder."
+     [b n]
+     (if (and (exists? js/createImageBitmap) (exists? js/OffscreenCanvas))
+       (-> (js/createImageBitmap (js/Blob. #js [b]))
+           (.then (fn [bitmap]
+                    (let [context (.getContext (js/OffscreenCanvas. n n) "2d")]
+                      (.drawImage context bitmap 0 0 n n)
+                      (.close bitmap)
+                      (let [data (.-data (.getImageData context 0 0 n n))]
+                        (mapv (fn [i] (mapv #(aget data (+ i %)) [0 1 2 3]))
+                              (range 0 (.-length data) 4))))))
+           (.catch (constantly nil)))
+       (js/Promise.resolve nil))))
+
+(defn dominant-color
+  "The colour that most of the image in the bytes `b` has, as a CSS hex
+  colour, e.g. #1e3a5f, for a player to tint its screen by the artwork.
+  On the JVM it gives the colour, and in ClojureScript a promise of it.
+
+  The platform decodes the image at a small size: ImageIO on the JVM, and
+  the browser's own decoder in ClojureScript. The colour is nil where the
+  platform can't decode the image, e.g. WebP on the JVM, or anything in
+  Node, which has no decoder, and for an image that's all transparent."
+  [b]
+  #?(:clj  (some-> (decoded-pixels b 64) dominant)
+     :cljs (.then (drawn-pixels b 32) #(some-> % dominant))))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the

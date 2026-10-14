@@ -139,7 +139,7 @@ and any of them encrypted.
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL. |
+| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url`, which write and read an image as a data URL, and `dominant-color`, the colour that most of an image has, which the platform decodes. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |

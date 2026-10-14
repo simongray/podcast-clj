@@ -204,6 +204,57 @@
       (let [b (bytes/of (repeat 300000 7))]
         (is (true? (bytes/same? b (:data (image/from-data-url (image/data-url "image/png" b))))))))))
 
+(deftest the-colour-of-the-most-pixels
+  (is (= "#2244a2" (image/dominant (concat (repeat 6 [0x20 0x40 0xa0 255]) (repeat 6 [0x24 0x48 0xa4 255])
+                                           (repeat 5 [0xc0 0x30 0x20 255]))))
+      "the average of the shades that count together")
+  (is (= "#c03020" (image/dominant (concat (repeat 6 [0x20 0x40 0xa0 0]) (repeat 5 [0xc0 0x30 0x20 255]))))
+      "the transparent pixels left out")
+  (is (nil? (image/dominant [[0 0 0 0]])))
+  (is (= "#000000" (image/dominant [[0 0 0 255] [255 255 255 255]])) "a tie settled the same way on each platform"))
+
+#?(:clj
+   (deftest the-colour-of-an-image
+     (let [png (fn [w h f type]
+                 (let [img (java.awt.image.BufferedImage. w h type)
+                       out (java.io.ByteArrayOutputStream.)]
+                   (doseq [x (range w) y (range h)]
+                     (.setRGB img x y (unchecked-int (f x))))
+                   (javax.imageio.ImageIO/write img "png" out)
+                   (.toByteArray out)))]
+       (is (= "#2040a0" (image/dominant-color (png 300 200 #(if (< % 210) 0xFF2040A0 0xFFC03020)
+                                                   java.awt.image.BufferedImage/TYPE_INT_RGB))))
+       (is (nil? (image/dominant-color (png 10 10 (constantly 0x00FF0000) java.awt.image.BufferedImage/TYPE_INT_ARGB)))
+           "an image that's all transparent")
+       (is (nil? (image/dominant-color (bytes/of [1 2 3]))) "bytes that aren't an image"))))
+
+#?(:cljs
+   (defn- drawn-png
+     "A promise of the bytes of a PNG image that the browser draws, 300 by
+     200 pixels, of which 70% are blue."
+     []
+     (let [canvas  (js/OffscreenCanvas. 300 200)
+           context (.getContext canvas "2d")]
+       (set! (.-fillStyle context) "#c03020")
+       (.fillRect context 0 0 300 200)
+       (set! (.-fillStyle context) "#2040a0")
+       (.fillRect context 0 0 210 200)
+       (-> (.convertToBlob canvas)
+           (.then #(.arrayBuffer %))
+           (.then #(js/Uint8Array. %))))))
+
+#?(:cljs
+   (deftest the-colour-of-an-image
+     (async done
+       (-> (if (exists? js/OffscreenCanvas)
+             (-> (drawn-png)
+                 (.then image/dominant-color)
+                 (.then #(is (= "#2040a0" %) "drawn by the browser")))
+             (.then (image/dominant-color (bytes/of [0x89 0x50 0x4E 0x47]))
+                    #(is (nil? %) "no colour in Node, which has no decoder")))
+           (.catch (fn [e] (is false (str "rejected: " e))))
+           (.finally done)))))
+
 (deftest a-jpeg-of-many-segments
   (let [b     (bytes/of (apply jpeg 0xC0 1400 1400 3 (repeat 9 (segment 0xE2 (repeat 65533 0)))))
         log   (atom [])
