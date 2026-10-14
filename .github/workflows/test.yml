@@ -8,7 +8,7 @@ on:
 jobs:
   test:
     name: Java 25, Clojure 1.12, Node 24
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -65,7 +65,7 @@ jobs:
 
   floor:
     name: Java 11, Clojure 1.11, the floor the library declares
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
