@@ -22,8 +22,8 @@ services:
       PODCAST_SERVER_PODCASTINDEX_KEY: ${PODCAST_SERVER_PODCASTINDEX_KEY:-}
       PODCAST_SERVER_PODCASTINDEX_SECRET: ${PODCAST_SERVER_PODCASTINDEX_SECRET:-}
       PODCAST_SERVER_OP3_TOKEN: ${PODCAST_SERVER_OP3_TOKEN:-}
-      # the public URL of the actor that signs requests for ActivityPub, if any
-      PODCAST_SERVER_ACTOR: ${PODCAST_SERVER_ACTOR:-}
+      # where the public internet reaches it, for signed requests and WebSub
+      PODCAST_SERVER_PUBLIC_URL: ${PODCAST_SERVER_PUBLIC_URL:-}
       JDK_JAVA_OPTIONS: -Xmx256m
     volumes:
       - data:/data

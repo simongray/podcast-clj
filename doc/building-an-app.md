@@ -527,8 +527,10 @@ the nodes answer a web page, so read the blocks with `podping/call!` and
 their pings with `podping/pings`.
 
 A server with a public URL can also have its feeds pushed to it by their
-WebSub hubs. Keep the hub subscriptions in a map of websub-clj's next to
-the library. After each refresh, send the hubs the requests that
+WebSub hubs. The podcast server does this itself, as its
+[README](../server/README.md#feeds-pushed-by-websub-hubs) says. In a
+server of your own, keep the hub subscriptions in a map of websub-clj's
+next to the library. After each refresh, send the hubs the requests that
 `library/hub-requests` returns:
 
 ```clojure

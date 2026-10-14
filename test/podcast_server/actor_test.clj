@@ -23,11 +23,11 @@
 (def password "correct horse battery staple")
 
 (defn- settings
-  "The settings of a server with the actor over the folders in `dir`, and
-  the `more` settings."
+  "The settings of a server with a public URL over the folders in `dir`,
+  and the `more` settings."
   [dir more]
   (merge service/defaults
-         {:port 0 :data-dir (io/file dir "data") :actor actor-url}
+         {:port 0 :data-dir (io/file dir "data") :public-url "https://podcasts.example"}
          more))
 
 (defn- connector
@@ -43,16 +43,16 @@
   ([c path headers]
    (response-for c :get path :headers (merge {"host" "podcasts.example"} headers))))
 
-(deftest the-setting
-  (is (= actor-url (:actor (service/settings {"PODCAST_SERVER_ACTOR" actor-url}))))
-  (doseq [bad ["http://podcasts.example/actor" "https://podcasts.example/" "https://podcasts.example/a%20b"
-               "https://podcasts.example/users/actor"]]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_ACTOR is not an https URL whose path is a name"
-                          (service/settings {"PODCAST_SERVER_ACTOR" bad}))
+(deftest the-public-url
+  (is (= ["https://podcasts.example" "https://pi.example.ts.net:8443"]
+         (map #(:public-url (service/settings {"PODCAST_SERVER_PUBLIC_URL" %}))
+              ["https://podcasts.example/" "https://pi.example.ts.net:8443"])))
+  (doseq [bad ["http://podcasts.example" "https://podcasts.example/actor" "https://podcasts.example/?a=1"
+               "https://user@podcasts.example"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_PUBLIC_URL is not the https URL of a host alone"
+                          (service/settings {"PODCAST_SERVER_PUBLIC_URL" bad}))
         bad))
-  (doseq [taken ["https://podcasts.example/proxy" "https://podcasts.example/dav" "https://podcasts.example/media"]]
-    (is (thrown? clojure.lang.ExceptionInfo (service/settings {"PODCAST_SERVER_ACTOR" taken}))
-        "a path of the server's own, which the actor would open to anyone")))
+  (is (= actor-url (service/actor-url {:public-url "https://podcasts.example"}))))
 
 (deftest the-actor-in-public
   (with-temp-dir

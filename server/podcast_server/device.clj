@@ -4,8 +4,9 @@
   those feeds.
 
   Each writes a sync document of its own to the server's sync folder. The
-  library syncs every minute, then fetches the feeds that are due. The
-  gpodder API syncs before and after each call.
+  library syncs every minute, then fetches the feeds that are due and
+  those that WebSub hubs pushed. The gpodder API syncs before and after
+  each call.
 
   The library saves the slim part of each feed to its data folder, so that
   a restart doesn't fetch them all again, and keeps no feed in memory
@@ -26,7 +27,8 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.url :as url]
-            [io.pedestal.log :as log])
+            [io.pedestal.log :as log]
+            [podcast-server.hubs :as hubs])
   (:import [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
 
 (def step-seconds
@@ -109,15 +111,17 @@
 
 (defn step!
   "Sync `lib`, an atom of the server's library, through `backend`, fetch
-  the feeds that are due, and sync again when that changed the profile.
-  Returns the library, which holds the feeds that it fetched, and the
-  skeletons of all of them."
-  [lib backend]
-  (swap! lib library/merge (library/sync! @lib [backend]))
-  (swap! lib library/merge (library/refresh! @lib))
-  (when (library/unsynced? @lib)
-    (swap! lib library/merge (library/sync! @lib [backend])))
-  (swap! lib remembered))
+  the feeds that are due, or those that the :feed-guids of `opts` name,
+  and sync again when that changed the profile. Returns the library, which
+  holds the feeds that it fetched, and the skeletons of all of them."
+  ([lib backend]
+   (step! lib backend {}))
+  ([lib backend opts]
+   (swap! lib library/merge (library/sync! @lib [backend]))
+   (swap! lib library/merge (library/refresh! @lib opts))
+   (when (library/unsynced? @lib)
+     (swap! lib library/merge (library/sync! @lib [backend])))
+   (swap! lib remembered)))
 
 (defn unload!
   "Let the feeds of `lib`, an atom of the server's library, go from memory,
@@ -140,25 +144,33 @@
 (defn start!
   "Run a step of `lib`, an atom of the server's library, through the sync
   folder `sync-store` now and every step-seconds after, and save it to
-  `data-store` when its feeds change. Returns the executor that runs the
-  steps."
-  [lib sync-store data-store]
-  (let [backend (library/backend sync-store)
-        step    (fn []
-                  (try
-                    (let [before (select-keys @lib saved-keys)
-                          after  (step! lib backend)]
-                      (log-problems! after)
-                      (when (not= before (select-keys after saved-keys))
-                        (save! after data-store))
-                      (unload! lib data-store))
-                    ;; the executor runs no more steps after one that throws
-                    (catch Throwable e
-                      (log/error :msg "A step of the library failed"
-                                 :exception e))))]
-    (doto (Executors/newSingleThreadScheduledExecutor)
-      (.scheduleWithFixedDelay ^Runnable step 0 step-seconds
-                               TimeUnit/SECONDS))))
+  `data-store` when its feeds change. With `hubs`, each step also fetches
+  the feeds that their hubs pushed, and then sends the hubs what the shows
+  need. Returns the executor that runs the steps."
+  ([lib sync-store data-store]
+   (start! lib sync-store data-store nil))
+  ([lib sync-store data-store hubs]
+   (let [backend (library/backend sync-store)
+         run     #(log-problems! (step! lib backend %))
+         step    (fn []
+                   (try
+                     (let [before (select-keys @lib saved-keys)
+                           pushed (some-> hubs hubs/pushed!)]
+                       (run {})
+                       (when (seq pushed)
+                         (run {:feed-guids (vec pushed)}))
+                       (when hubs
+                         (hubs/ask! @lib hubs))
+                       (when (not= before (select-keys @lib saved-keys))
+                         (save! @lib data-store))
+                       (unload! lib data-store))
+                     ;; the executor runs no more steps after one that throws
+                     (catch Throwable e
+                       (log/error :msg "A step of the library failed"
+                                  :exception e))))]
+     (doto (Executors/newSingleThreadScheduledExecutor)
+       (.scheduleWithFixedDelay ^Runnable step 0 step-seconds
+                                TimeUnit/SECONDS)))))
 
 (defn stop!
   "Stop the steps that `executor` runs."

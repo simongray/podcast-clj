@@ -12,8 +12,8 @@
   - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
     server have the same origin
-  - the document of its ActivityPub actor and WebFinger, without a
-    password, when it has an actor
+  - with a public URL, the document of its ActivityPub actor, WebFinger
+    and the callback URLs of WebSub, without a password
 
   The server is one of the listener's devices too, so that it keeps the
   listener's feeds current. Without a password, it checks no credentials,
@@ -41,7 +41,8 @@
             [io.pedestal.service.interceptors :as interceptors]
             [io.pedestal.service.resources :as resources]
             [podcast-server.actor :as actor]
-            [podcast-server.device :as device])
+            [podcast-server.device :as device]
+            [podcast-server.hubs :as hubs])
   (:import [java.io File]
            [java.util.concurrent Executors Semaphore TimeUnit])
   (:gen-class))
@@ -68,9 +69,10 @@
     requests to it, or nil
   - :op3-token, the token of an API key of OP3, which the proxy adds to
     the client's requests to its API, or nil
-  - :actor, the public https URL of the server's ActivityPub actor, or
-    nil. The proxy signs the client's requests for ActivityPub documents
-    with its key."
+  - :public-url, the https URL at which the public internet reaches the
+    server, e.g. https://pi.example.ts.net, or nil. With it, the proxy
+    signs the client's requests for ActivityPub documents as the server's
+    actor, and the server subscribes to the WebSub hubs of its feeds."
   {:port                8400
    :host                "localhost"
    :names               #{}
@@ -83,7 +85,7 @@
    :podcastindex-key    nil
    :podcastindex-secret nil
    :op3-token           nil
-   :actor               nil})
+   :public-url          nil})
 
 (def environment
   "The environment variable of each setting. The names are separated by
@@ -100,20 +102,19 @@
    :podcastindex-key    "PODCAST_SERVER_PODCASTINDEX_KEY"
    :podcastindex-secret "PODCAST_SERVER_PODCASTINDEX_SECRET"
    :op3-token           "PODCAST_SERVER_OP3_TOKEN"
-   :actor               "PODCAST_SERVER_ACTOR"})
+   :public-url          "PODCAST_SERVER_PUBLIC_URL"})
 
-;; the server answers the actor's path without a password, so it can't be
-;; one that the server uses for anything else
-(defn- actor-url?
-  "Whether `s` is an https URL whose path is one name, which the server
-  uses for nothing else, e.g. https://podcasts.example/actor."
+(defn- origin?
+  "Whether `s` is an https URL of a host alone, with no path but a slash,
+  e.g. https://pi.example.ts.net."
   [s]
-  (let [path     (actor/url-path s)
-        username (actor/username s)]
-    (boolean (and (= "https" (url/scheme s))
-                  username
-                  (= path (str "/" username))
-                  (not (#{"/proxy" "/media" "/dav"} path))))))
+  (let [{:keys [scheme host userinfo path query fragment]} (url/parts s)]
+    (boolean (and (= "https" scheme)
+                  (seq host)
+                  (nil? userinfo)
+                  (contains? #{nil "" "/"} path)
+                  (nil? query)
+                  (nil? fragment)))))
 
 (defn- setting
   "The setting `k` from the value `v` of its environment variable `var`. A
@@ -149,13 +150,11 @@
     (:podcastindex-secret :op3-token)
     (secret/hide v)
 
-    :actor            (if (actor-url? v)
-                        v
-                        (throw (ex-info (str var " is not an https URL whose "
-                                             "path is a name that the server "
-                                             "has no other use for, e.g. "
-                                             "https://podcasts.example/actor: "
-                                             v)
+    :public-url       (if (origin? v)
+                        (str/replace v #"/$" "")
+                        (throw (ex-info (str var " is not the https URL of a "
+                                             "host alone, e.g. "
+                                             "https://pi.example.ts.net: " v)
                                         {var v})))
 
     v))
@@ -216,13 +215,13 @@
 (defn no-funnel
   "An interceptor that answers nothing that came through Tailscale Funnel
   from the public internet, for a server without a password, but for the
-  `open-paths`, e.g. those of the actor."
-  [open-paths]
+  paths that `open-pred` says yes to, e.g. that of the actor."
+  [open-pred]
   (interceptor/interceptor
    {:name  ::no-funnel
     :enter (fn [{:keys [request] :as context}]
              (if (and (get-in request [:headers "tailscale-funnel-request"])
-                      (not (contains? open-paths (:uri request))))
+                      (not (open-pred (:uri request))))
                (let [message "The server doesn't answer the public internet."]
                  (assoc context :response (refused message)))
                context))}))
@@ -337,12 +336,12 @@
 ;; RFC 7617, section 2
 (defn login
   "An interceptor that lets in only requests with the `password` in their
-  Basic credentials, whatever the user name, and those for the
-  `open-paths`, e.g. those of the actor.
+  Basic credentials, whatever the user name, and those for the paths that
+  `open-pred` says yes to, e.g. that of the actor.
 
   The gpodder API checks the credentials itself, since its apps log in
   once and then send a cookie."
-  [password open-paths]
+  [password open-pred]
   (let [realm     "Basic realm=\"Podcast server\", charset=\"UTF-8\""
         challenge (ring/text-response 401 "The server asks for its password."
                                       {"WWW-Authenticate" realm})]
@@ -352,7 +351,7 @@
                (let [authorization (get-in request [:headers "authorization"])
                      given         (:password (ring/credentials authorization))
                      gpodder?      (str/starts-with? (:uri request) "/api/2/")
-                     open?         (contains? open-paths (:uri request))]
+                     open?         (open-pred (:uri request))]
                  (if (or gpodder? open? (and given (password? password given)))
                    context
                    (assoc context :response challenge))))})))
@@ -509,6 +508,12 @@
            (refused (str "The server streams the media files of the "
                          "episodes of its feeds alone."))))))))
 
+(defn actor-url
+  "The URL of the ActivityPub actor of a server with `settings`, or nil
+  without a :public-url."
+  [{:keys [public-url] :as settings}]
+  (some-> public-url (str "/actor")))
+
 (defn routes
   "The routes of the proxy, the media files, the sync folder `sync-store`
   and the gpodder API, in Pedestal's set syntax. The gpodder API names
@@ -519,12 +524,15 @@
   app when it's nil, and the sync folder holds no more than their
   :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
   once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
-  with proxy-send. The media files pass through as they arrive. With an
-  :actor, there are the routes of its document and WebFinger too, and its
-  key is kept in the data folder."
-  [sync-store lib {:keys [password max-sync-documents max-sync-bytes actor]
-                   :as   settings}]
-  (let [actor-key   (when actor
+  with proxy-send. The media files pass through as they arrive. With a
+  :public-url, there are the routes of the actor's document and WebFinger
+  too, with the actor's key kept in the data folder, and those of the
+  `hubs`, the server's WebSub hubs, when given."
+  [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
+                   :as   settings}
+   hubs]
+  (let [actor       (actor-url settings)
+        actor-key   (when actor
                       (actor/key! (data-store settings) actor))
         dav         (within-quota (sync-dir settings)
                                   max-sync-documents
@@ -548,7 +556,8 @@
               ["/dav" :any dav :route-name ::dav-collection]
               ["/dav/*path" :any dav :route-name ::dav]
               ["/api/2/*path" :any gpodder :route-name ::gpodder]}
-      actor (into (actor/routes actor (:public-pem actor-key))))))
+      actor (into (actor/routes actor (:public-pem actor-key)))
+      hubs  (into (hubs/routes hubs)))))
 
 (def no-dotfiles
   "An interceptor that answers 404 for a file or folder whose name starts
@@ -577,38 +586,53 @@
                                            (ring-middlewares/not-modified)]})
     #{}))
 
+(defn hubs-of
+  "The WebSub hubs of a server with `settings`, with their subscriptions
+  in its data folder, or nil without a :public-url."
+  [{:keys [public-url] :as settings}]
+  (when public-url
+    (hubs/make (data-store settings) public-url)))
+
 (defn connector
   "A Jetty connector of the server with `settings`, over the sync folder
-  `sync-store` and the server's library `lib`, an atom; not yet started.
-  It answers to the host of the :actor too."
-  [{:keys [host port names password client-dir actor] :as settings}
-   sync-store lib]
-  (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}
-        open   (if actor (actor/paths actor) #{})
-        names  (cond-> names actor (conj (:host (url/parts actor))))
-        guard  (if password
-                 [(wrong-guesses #(System/currentTimeMillis))
-                  (login password open)]
-                 [(no-funnel open)])]
-    (-> (conn/default-connector-map host port)
-        (conn/with-interceptors
-          (-> [hidden-credentials
-               interceptors/log-request
-               interceptors/not-found
-               ;; scripts from this server only, with eval for the
-               ;; development builds of shadow-cljs; art, media and the rest
-               ;; from any host; and no HSTS on plain HTTP
-               (secure-headers/secure-headers
-                {:content-security-policy-settings policy
-                 :hsts-settings                    nil})
-               transport-security
-               (known-names names)
-               same-origin-writes]
-              (into guard)
-              (conj folders)))
-        (conn/with-routes (routes sync-store lib settings)
-          (client-routes client-dir))
-        (jetty/create-connector nil))))
+  `sync-store` and the server's library `lib`, an atom, with the `hubs` of
+  hubs-of; not yet started. It answers to the host of the :public-url too,
+  and lets in the actor's paths and the callbacks of WebSub without a
+  password."
+  ([settings sync-store lib]
+   (connector settings sync-store lib (hubs-of settings)))
+  ([{:keys [host port names password client-dir public-url] :as settings}
+    sync-store lib hubs]
+   (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}
+         paths  (some-> (actor-url settings) actor/paths)
+         open   (if public-url
+                  #(or (contains? paths %) (hubs/callback? %))
+                  (constantly false))
+         names  (cond-> names
+                  public-url (conj (:host (url/parts public-url))))
+         guard  (if password
+                  [(wrong-guesses #(System/currentTimeMillis))
+                   (login password open)]
+                  [(no-funnel open)])]
+     (-> (conn/default-connector-map host port)
+         (conn/with-interceptors
+           (-> [hidden-credentials
+                interceptors/log-request
+                interceptors/not-found
+                ;; scripts from this server only, with eval for the
+                ;; development builds of shadow-cljs; art, media and the
+                ;; rest from any host; and no HSTS on plain HTTP
+                (secure-headers/secure-headers
+                 {:content-security-policy-settings policy
+                  :hsts-settings                    nil})
+                transport-security
+                (known-names names)
+                same-origin-writes]
+               (into guard)
+               (conj folders)))
+         (conn/with-routes (routes sync-store lib settings hubs)
+           (client-routes client-dir))
+         (jetty/create-connector nil)))))
 
 (defonce ^{:doc "The running server as its :connector, :library and the
   :steps that keep the library current, or nil when stopped."}
@@ -643,10 +667,12 @@
              data-store (data-store settings)
              lib        (atom (device/restore! (device/make {:store data-store})
                                                data-store))
-             running    (conn/start! (connector settings sync-store lib))]
+             hubs       (hubs-of settings)
+             running    (conn/start! (connector settings sync-store lib hubs))]
          (reset! server {:connector running
                          :library   lib
-                         :steps     (device/start! lib sync-store data-store)})
+                         :steps     (device/start! lib sync-store data-store
+                                                   hubs)})
          (println (str "Podcast server on http://" host ":" port "/"))))
      @server)))
 
