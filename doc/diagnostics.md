@@ -64,7 +64,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/guid-changed` | info | The feed gives itself another guid than before, from :old to :new, e.g. a new podcast:guid, or a new URL of a feed that declares none. Its subscription keeps its key, the :feed-guid, and notes the new guid. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
 | `:discovery/not-found` | warning | No feed was found: the page names none that could be read, and none of the other places that were tried has one. |
-| `:directory/source-failed` | warning | A directory gave no answer to a search, a chart or a lookup, so what it knows is missing from the results. The :source names it, and the :reason says why. |
+| `:directory/source-failed` | warning | A directory gave no answer to a search, a chart, a lookup or a call for the names of its categories, so what it knows is missing from the results. The :source names it, and the :reason says why. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters that XML forbids, and character references to them, were removed. |

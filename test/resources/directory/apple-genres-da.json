@@ -1,0 +1,478 @@
+{
+ "26": {
+  "name": "Podcasts",
+  "id": "26",
+  "subgenres": {
+   "1301": {
+    "name": "Kunst",
+    "id": "1301",
+    "subgenres": {
+     "1482": {
+      "name": "Bøger",
+      "id": "1482"
+     },
+     "1402": {
+      "name": "Design",
+      "id": "1402"
+     },
+     "1459": {
+      "name": "Mode & skønhed",
+      "id": "1459"
+     },
+     "1306": {
+      "name": "Mad",
+      "id": "1306"
+     },
+     "1405": {
+      "name": "Scenekunst",
+      "id": "1405"
+     },
+     "1406": {
+      "name": "Visuel kunst",
+      "id": "1406"
+     }
+    }
+   },
+   "1321": {
+    "name": "Erhverv",
+    "id": "1321",
+    "subgenres": {
+     "1410": {
+      "name": "Karrierer",
+      "id": "1410"
+     },
+     "1493": {
+      "name": "Iværksætteri",
+      "id": "1493"
+     },
+     "1412": {
+      "name": "Investering",
+      "id": "1412"
+     },
+     "1491": {
+      "name": "Administration",
+      "id": "1491"
+     },
+     "1492": {
+      "name": "Marketing",
+      "id": "1492"
+     },
+     "1494": {
+      "name": "Non-profit",
+      "id": "1494"
+     }
+    }
+   },
+   "1303": {
+    "name": "Komedie",
+    "id": "1303",
+    "subgenres": {
+     "1496": {
+      "name": "Komedieinterviews",
+      "id": "1496"
+     },
+     "1495": {
+      "name": "Improvisation",
+      "id": "1495"
+     },
+     "1497": {
+      "name": "Stand-up",
+      "id": "1497"
+     }
+    }
+   },
+   "1304": {
+    "name": "Uddannelse",
+    "id": "1304",
+    "subgenres": {
+     "1501": {
+      "name": "Kurser",
+      "id": "1501"
+     },
+     "1499": {
+      "name": "Sådan gør du",
+      "id": "1499"
+     },
+     "1498": {
+      "name": "Sprogundervisning",
+      "id": "1498"
+     },
+     "1500": {
+      "name": "Selvudvikling",
+      "id": "1500"
+     }
+    }
+   },
+   "1483": {
+    "name": "Fiktion",
+    "id": "1483",
+    "subgenres": {
+     "1486": {
+      "name": "Komediefiktion",
+      "id": "1486"
+     },
+     "1484": {
+      "name": "Drama",
+      "id": "1484"
+     },
+     "1485": {
+      "name": "Science fiction",
+      "id": "1485"
+     }
+    }
+   },
+   "1511": {
+    "name": "Regering",
+    "id": "1511"
+   },
+   "1512": {
+    "name": "Sundhed og fitness",
+    "id": "1512",
+    "subgenres": {
+     "1513": {
+      "name": "Alternativ sundhed",
+      "id": "1513"
+     },
+     "1514": {
+      "name": "Fitness",
+      "id": "1514"
+     },
+     "1518": {
+      "name": "Medicin",
+      "id": "1518"
+     },
+     "1517": {
+      "name": "Mental sundhed",
+      "id": "1517"
+     },
+     "1515": {
+      "name": "Ernæring",
+      "id": "1515"
+     },
+     "1516": {
+      "name": "Seksualitet",
+      "id": "1516"
+     }
+    }
+   },
+   "1487": {
+    "name": "Historie",
+    "id": "1487"
+   },
+   "1305": {
+    "name": "Børn og familie",
+    "id": "1305",
+    "subgenres": {
+     "1519": {
+      "name": "Uddannelse for børn",
+      "id": "1519"
+     },
+     "1521": {
+      "name": "Opdragelse",
+      "id": "1521"
+     },
+     "1522": {
+      "name": "Dyr og kæledyr",
+      "id": "1522"
+     },
+     "1520": {
+      "name": "Historier for børn",
+      "id": "1520"
+     }
+    }
+   },
+   "1502": {
+    "name": "Fritid",
+    "id": "1502",
+    "subgenres": {
+     "1510": {
+      "name": "Animation og manga",
+      "id": "1510"
+     },
+     "1503": {
+      "name": "Biler",
+      "id": "1503"
+     },
+     "1504": {
+      "name": "Luftfart",
+      "id": "1504"
+     },
+     "1506": {
+      "name": "Håndværk",
+      "id": "1506"
+     },
+     "1507": {
+      "name": "Spil",
+      "id": "1507"
+     },
+     "1505": {
+      "name": "Hobbyer",
+      "id": "1505"
+     },
+     "1508": {
+      "name": "Hus og have",
+      "id": "1508"
+     },
+     "1509": {
+      "name": "Videospil",
+      "id": "1509"
+     }
+    }
+   },
+   "1310": {
+    "name": "Musik",
+    "id": "1310",
+    "subgenres": {
+     "1523": {
+      "name": "Musikkommentarer",
+      "id": "1523"
+     },
+     "1524": {
+      "name": "Musikhistorie",
+      "id": "1524"
+     },
+     "1525": {
+      "name": "Musikinterviews",
+      "id": "1525"
+     }
+    }
+   },
+   "1489": {
+    "name": "Nyheder",
+    "id": "1489",
+    "subgenres": {
+     "1490": {
+      "name": "Erhvervsnyheder",
+      "id": "1490"
+     },
+     "1526": {
+      "name": "Daglige nyheder",
+      "id": "1526"
+     },
+     "1531": {
+      "name": "Underholdningsnyheder",
+      "id": "1531"
+     },
+     "1530": {
+      "name": "Nyhedskommentarer",
+      "id": "1530"
+     },
+     "1527": {
+      "name": "Politik",
+      "id": "1527"
+     },
+     "1529": {
+      "name": "Sportsnyheder",
+      "id": "1529"
+     },
+     "1528": {
+      "name": "Teknologinyheder",
+      "id": "1528"
+     }
+    }
+   },
+   "1314": {
+    "name": "Religion og åndelighed",
+    "id": "1314",
+    "subgenres": {
+     "1438": {
+      "name": "Buddhisme",
+      "id": "1438"
+     },
+     "1439": {
+      "name": "Kristendom",
+      "id": "1439"
+     },
+     "1463": {
+      "name": "Hinduisme",
+      "id": "1463"
+     },
+     "1440": {
+      "name": "Islam",
+      "id": "1440"
+     },
+     "1441": {
+      "name": "Jødedom",
+      "id": "1441"
+     },
+     "1532": {
+      "name": "Religion",
+      "id": "1532"
+     },
+     "1444": {
+      "name": "Åndelighed",
+      "id": "1444"
+     }
+    }
+   },
+   "1533": {
+    "name": "Videnskab",
+    "id": "1533",
+    "subgenres": {
+     "1538": {
+      "name": "Astronomi",
+      "id": "1538"
+     },
+     "1539": {
+      "name": "Kemi",
+      "id": "1539"
+     },
+     "1540": {
+      "name": "Geovidenskab",
+      "id": "1540"
+     },
+     "1541": {
+      "name": "Biovidenskab",
+      "id": "1541"
+     },
+     "1536": {
+      "name": "Matematik",
+      "id": "1536"
+     },
+     "1534": {
+      "name": "Naturvidenskab",
+      "id": "1534"
+     },
+     "1537": {
+      "name": "Natur",
+      "id": "1537"
+     },
+     "1542": {
+      "name": "Fysik",
+      "id": "1542"
+     },
+     "1535": {
+      "name": "Samfundsvidenskab",
+      "id": "1535"
+     }
+    }
+   },
+   "1324": {
+    "name": "Samfund og kultur",
+    "id": "1324",
+    "subgenres": {
+     "1543": {
+      "name": "Dokumentar",
+      "id": "1543"
+     },
+     "1302": {
+      "name": "Personlige fortællinger",
+      "id": "1302"
+     },
+     "1443": {
+      "name": "Filosofi",
+      "id": "1443"
+     },
+     "1320": {
+      "name": "Steder & rejse",
+      "id": "1320"
+     },
+     "1544": {
+      "name": "Forhold",
+      "id": "1544"
+     }
+    }
+   },
+   "1545": {
+    "name": "Sport",
+    "id": "1545",
+    "subgenres": {
+     "1549": {
+      "name": "Baseball",
+      "id": "1549"
+     },
+     "1548": {
+      "name": "Basketball",
+      "id": "1548"
+     },
+     "1554": {
+      "name": "Cricket",
+      "id": "1554"
+     },
+     "1560": {
+      "name": "Fantasisport",
+      "id": "1560"
+     },
+     "1547": {
+      "name": "Amerikansk fodbold",
+      "id": "1547"
+     },
+     "1553": {
+      "name": "Golf",
+      "id": "1553"
+     },
+     "1550": {
+      "name": "Hockey",
+      "id": "1550"
+     },
+     "1552": {
+      "name": "Rugby",
+      "id": "1552"
+     },
+     "1551": {
+      "name": "Løb",
+      "id": "1551"
+     },
+     "1546": {
+      "name": "Fodbold",
+      "id": "1546"
+     },
+     "1558": {
+      "name": "Svømning",
+      "id": "1558"
+     },
+     "1556": {
+      "name": "Tennis",
+      "id": "1556"
+     },
+     "1557": {
+      "name": "Volleyball",
+      "id": "1557"
+     },
+     "1559": {
+      "name": "Ødemarken",
+      "id": "1559"
+     },
+     "1555": {
+      "name": "Wrestling",
+      "id": "1555"
+     }
+    }
+   },
+   "1309": {
+    "name": "TV og film",
+    "id": "1309",
+    "subgenres": {
+     "1562": {
+      "name": "Aftershows",
+      "id": "1562"
+     },
+     "1564": {
+      "name": "Filmhistorie",
+      "id": "1564"
+     },
+     "1565": {
+      "name": "Filminterviews",
+      "id": "1565"
+     },
+     "1563": {
+      "name": "Filmanmeldelser",
+      "id": "1563"
+     },
+     "1561": {
+      "name": "TV-anmeldelser",
+      "id": "1561"
+     }
+    }
+   },
+   "1318": {
+    "name": "Teknologi",
+    "id": "1318"
+   },
+   "1488": {
+    "name": "True crime",
+    "id": "1488"
+   }
+  }
+ }
+}

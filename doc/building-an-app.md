@@ -217,6 +217,19 @@ The Podcast Index has no names for subcategories like Tech News, so give a
 category for each source: `{:category {:apple "Tech News" :podcastindex
 "Technology,News"}}`.
 
+To show the categories in the listener's language, fetch Apple's names
+for them once and keep them, since they rarely change. Look each one up by
+its English name, which is also what the charts and `resolve/categories`
+use, and show the English name when there's no other:
+
+```clojure
+(def names
+  (:names (directory/fetch-category-names! "dk" "da")))
+
+(map #(get names % %) ["News" "Tech News"])
+;; => ("Nyheder" "Teknologinyheder")
+```
+
 For episodes, ask one source with `directory/call!`. The `:episodes` of a
 show come from Apple, fyyd and the Podcast Index, the `:recent` episodes
 of any show from fyyd and the Podcast Index, and the episodes `:by-person`

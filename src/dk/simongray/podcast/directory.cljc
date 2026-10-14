@@ -130,7 +130,9 @@
                   :lookup       "https://itunes.apple.com/lookup"
                   :trending     "https://rss.marketingtools.apple.com/api/v2/"
                   :genre-charts "https://itunes.apple.com/"
-                  :genres       apple-genres}
+                  :genres       apple-genres
+                  :genre-names  (str "https://itunes.apple.com/WebObjects/"
+                                     "MZStoreServices.woa/ws/genres")}
    :fyyd         {:api          :fyyd
                   :name         "fyyd"
                   :credentials? false
@@ -982,8 +984,95 @@
                  (result (cond-> ids found (assoc :apple found))
                          (failed report :apple error))))))))))))
 
+(def ^:no-doc podcasts-genre
+  "The id of the genre Podcasts of Apple, whose subgenres are the
+  categories."
+  26)
+
+(defn category-names-request
+  "The request for the names of the categories of Apple Podcasts in the
+  `language` of the store of `country`, each two letters, e.g. \"da\" and
+  \"dk\", to the genre service at the :genre-names of the entry of Apple in
+  sources, or of the :source of `opts`, an entry of that shape. Apple
+  doesn't document the service."
+  ([country language]
+   (category-names-request country language {}))
+  ([country language {:keys [source] :or {source :apple} :as opts}]
+   {:pre [(map? opts)]}
+   (when-not (re-matches #"[a-z]{2}" (str language))
+     (throw (ex-info "A language is two letters" {:language language})))
+   (get-request (str (:genre-names (entry source))
+                     "?id=" podcasts-genre
+                     "&cc=" (country-code country)
+                     "&l=" language))))
+
+(defn- genre-names
+  "The names of the genres in the map `genres` of an answer of Apple's genre
+  service, and those of their subgenres, as a map by id."
+  [genres]
+  (into {}
+        (mapcat (fn [{:strs [id name subgenres]}]
+                  (cons [(parse-long (str id)) name]
+                        (genre-names subgenres))))
+        (vals genres)))
+
+(defn category-names
+  "The names of the categories of Apple Podcasts in the JSON `body` of an
+  answer of its genre service, as a map from the name of each in
+  itunes:category, in English, to its name in the language of the answer,
+  e.g. {\"Society & Culture\" \"Samfund og kultur\"}, with `opts`.
+
+  The names in English are those of the :genres of the entry of Apple in
+  sources, or of the :source of `opts`, so a category that it lacks, or
+  that the answer lacks, is left out. Show its English name in its place."
+  ([body]
+   (category-names body {}))
+  ([body {:keys [source] :or {source :apple} :as opts}]
+   {:pre [(map? opts)]}
+   (let [names (genre-names (json/read-str body))]
+     (into {}
+           (keep (fn [[english id]]
+                   (when-let [local (not-empty (get names id))]
+                     [english local])))
+           (:genres (entry source))))))
+
+(defn fetch-category-names!
+  "Fetch the names of the categories of Apple Podcasts in the `language` of
+  the store of `country` with `opts`, as a map of the :names that
+  category-names gives, in ClojureScript as a promise. Keep them, since
+  they rarely change.
+
+  The `opts` are those of category-names-request and call!. Nothing that
+  the network or Apple does throws, and when the names don't come, the
+  result has the diagnostic :directory/source-failed under :error."
+  ([country language]
+   (fetch-category-names! country language {}))
+  ([country language {:keys [send source]
+                      :or   {send client/send! source :apple}
+                      :as   opts}]
+   {:pre [(map? opts)]}
+   (let [req     (-> (category-names-request country language opts)
+                     (merge (select-keys opts [:user-agent]))
+                     (assoc :timeout-seconds (:timeout-seconds opts 15)))
+         names   (fn [{:keys [status body]}]
+                   (when-not (<= 200 status 299)
+                     (throw (ex-info (str "Apple answered " status)
+                                     {:status status})))
+                   (category-names body opts))
+         failure (fn [error]
+                   (diagnostics/failed {:id     :directory/source-failed
+                                        :source (source-id source)
+                                        :reason (async/explain error)}))]
+     (async/then (async/attempt #(async/then (send req) names))
+                 (fn [{:keys [value error]}]
+                   (if error
+                     (failure error)
+                     {:names value}))))))
+
 #?(:clj
    (comment
+     (category-names-request "dk" "da")
+     (:names (fetch-category-names! "dk" "da"))
      (request :apple :search {:q "podcasting 2.0" :limit 3})
      (call! :fyyd :search {:q "podcasting 2.0" :limit 3})
      (:results (search! "podcasting 2.0" {:limit 3}))

@@ -26,6 +26,11 @@
   September 2026, with its descriptions cut."
   (fixture "directory/apple-genre-chart.json"))
 
+(def apple-genres-da
+  "The genres of podcasts in Danish, as Apple gave them on 14 October 2026,
+  with all but their names and ids cut."
+  (fixture "directory/apple-genres-da.json"))
+
 (def fyyd-search
   (fixture "directory/fyyd-search.json"))
 
@@ -181,6 +186,29 @@
                              "the shows of the chart of Apple, looked up for their feeds")
                          (is (some #(str/ends-with? % "/api/2/tag/technology/2.json") @asked))
                          (is (= "Jagten på det evige liv" (:rss/title (first results))))))))))
+
+(deftest the-names-of-the-categories
+  (is (= "https://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/genres?id=26&cc=dk&l=da"
+         (:url (directory/category-names-request "dk" "da"))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (directory/category-names-request "dk" "Danish")))
+  (let [names (directory/category-names apple-genres-da)]
+    (is (= (count directory/apple-genres) (count names)) "each category of Apple")
+    (is (= "Samfund og kultur" (names "Society & Culture")))
+    (is (= "Bøger" (names "Books")) "and each under another"))
+  (is (= {"Arts" "Kunst"}
+         (directory/category-names "{\"26\": {\"id\": \"26\", \"name\": \"Podcasts\",
+                                     \"subgenres\": {\"1301\": {\"id\": \"1301\", \"name\": \"Kunst\"}}}}"))
+      "a category that the answer lacks is left out, to be shown in English")
+  (let [names! (fn [answer] (directory/fetch-category-names! "dk" "da" {:send (constantly answer)}))]
+    (run #(async/then (names! {:status 200 :body apple-genres-da})
+                      (fn [{:keys [names]}]
+                        (is (= "Kunst" (names "Arts")))))
+         #(async/then (names! {:status 503 :body ""})
+                      (fn [{:keys [error]}]
+                        (is (= :directory/source-failed (:id error)))))
+         #(async/then (names! {:status 200 :body "<html>"})
+                      (fn [{:keys [error]}]
+                        (is (= :directory/source-failed (:id error))))))))
 
 (deftest another-service
   (let [mirror (assoc (:fyyd directory/sources) :id :mirror :name "A mirror" :root "https://fyyd.example.org/0.2")

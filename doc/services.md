@@ -62,7 +62,7 @@ An entry of `directory/sources` says which API the directory speaks, which
 
 | Name | `:api` | URLs |
 |---|---|---|
-| `:apple` | `:apple` | `:search` and `:lookup`, the URLs of the two calls, and `:trending`, the root of the charts |
+| `:apple` | `:apple` | `:search` and `:lookup`, the URLs of the two calls, `:trending` and `:genre-charts`, the roots of the charts, and `:genre-names`, the URL of the genre service |
 | `:fyyd` | `:fyyd` | `:root` |
 | `:gpodder` | `:gpodder` | `:root` |
 | `:podcastindex` | `:podcastindex` | `:root`, and `:pages`, the URL of the pages of the shows |
@@ -95,6 +95,15 @@ Apple's top categories work for both, and `podcastindex/category-filter`
 reads a name with an ampersand as its parts. A second-level category of
 Apple, such as Tech News, has no name in the Podcast Index, so give a map
 with a category for each source.
+
+### The names of the categories in other languages
+
+Apple's genre service names its genres in the language of a store, e.g.
+`?id=26&cc=dk&l=da` gives Danish, and `directory/fetch-category-names!`
+reads its answer. Apple doesn't document the service, but it answered on
+14 October 2026. The categories of the Podcast Index and of the podcast
+namespace are in English only, so the English lists stay as the
+fallback.
 
 
 ## The gpodder API
