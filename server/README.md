@@ -237,5 +237,5 @@ Whoever has the password is the listener, so the server limits what a
 leaked one can cost: the sync folder holds no more than its settings
 allow, the proxy fetches four files at once and makes the others wait,
 `/media` streams only the files of the listener's episodes, and a gpodder
-app adds at most 1000 subscriptions at a time, of feeds on
-the public internet only.
+app adds at most 1000 subscriptions at a time, of feeds on the public
+internet only.

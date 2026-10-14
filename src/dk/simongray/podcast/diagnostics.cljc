@@ -96,8 +96,8 @@
            that succeeds brings it back."}
     {:id :fetch/move-unverified :level :warning
      :doc "The feed declares that it moved to the :new-url, but no feed of the
-           show answered there, as the :reason says, so the feed stays at its
-           old URL and the move is tried again at the next fetch."}
+           show answered there, as the :reason says. So the feed stays at its
+           old URL, and the move is tried again at the next fetch."}
     {:id :fetch/guid-taken :level :warning
      :doc "The feed declares the podcast:guid of another subscription, at
            another URL, and would take that subscription over, so it isn't
@@ -678,7 +678,7 @@
            read."}
     {:id :comments/unreachable :level :warning
      :doc "A post, a collection of replies or an author couldn't be fetched: the
-           request failed, or the server answered with an error. With `:retry?`,
+           request failed, or the server answered with an error. With :retry?,
            the next fetch of the thread asks again."}
     {:id :comments/refused :level :warning
      :doc "A server refused an unsigned request, as a server in secure mode
@@ -701,9 +701,9 @@
            the request asked for."}
     {:id :comments/truncated :level :warning
      :doc "A size limit cut some replies, which the diagnostic counts. Its
-           `:limit` names the limit: `:page` for the 1,000 items of a page of
-           replies, `:id` for the 2,048 characters of an id, `:thread` for the
-           10,000 comments of a thread, or `:depth` for the 64 levels of replies
+           :limit names the limit: :page for the 1,000 items of a page of
+           replies, :id for the 2,048 characters of an id, :thread for the
+           10,000 comments of a thread, or :depth for the 64 levels of replies
            of an AT Protocol thread."}
     {:id :comments/incomplete :level :info
      :doc "The fetch reached a limit before it read the whole thread, or a
@@ -855,9 +855,9 @@
            isn't known which commands the wallet accepts. The wallet says so
            when it gets a command that it doesn't accept."}
     {:id :value/wallet-unsupported :level :warning
-     :doc "The wallet doesn't accept the command: its `:methods` don't name the
-           `:method` of the command, or its `:encryption` lacks NIP-44 version
-           2, which is what podcast-clj writes. No request was sent."}
+     :doc "The wallet doesn't accept the command: its :methods don't name the
+           :method of the command, or its :encryption lacks NIP-44 version 2,
+           which is what podcast-clj writes. No request was sent."}
     {:id :value/command-too-large :level :warning
      :doc "The command is larger than the 65,535 bytes that a request to a
            wallet can hold. The record of a payment includes the titles of the
@@ -865,21 +865,21 @@
            sent."}
     {:id :value/wallet-unreachable :level :warning
      :doc "No relay of the connection took the request: each gave no connection,
-           refused the subscription or refused the event, and `:relays` says
+           refused the subscription or refused the event, and :relays says
            why. The request reached no wallet, so it's safe to try again."}
     {:id :value/wallet-silent :level :error
      :doc "The wallet didn't answer in time. The request went out, so the wallet
-           can still carry out the command until `:expires-at`. Don't send the
+           can still carry out the command until :expires-at. Don't send the
            payment again before then, and afterwards ask the wallet whether it
            paid."}
     {:id :value/wallet-refused :level :warning
      :doc "The wallet answered with an error and didn't carry out the command.
-           The `:code` is the code of NIP-47, such as INSUFFICIENT_BALANCE,
-           QUOTA_EXCEEDED or PAYMENT_FAILED, and `:reason` is the text of the
+           The :code is the code of NIP-47, such as INSUFFICIENT_BALANCE,
+           QUOTA_EXCEEDED or PAYMENT_FAILED, and :reason is the text of the
            wallet. A WebLN provider gives a text and no code, also when the user
            said no."}
     {:id :value/wallet-unreadable :level :error
-     :doc "The answer can't be read, and `:reason` says why: it isn't the signed
+     :doc "The answer can't be read, and :reason says why: it isn't the signed
            event of the wallet, it isn't encrypted for this connection, or it
            answers another request. The wallet may have carried out the command,
            so ask it before paying again."}
