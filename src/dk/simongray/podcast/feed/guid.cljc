@@ -7,7 +7,7 @@
             [dk.simongray.webcrypto.bytes :as bytes]
             [dk.simongray.webcrypto.hash :as hash]))
 
-(def ^:no-doc podcast-namespace
+(def podcast-namespace
   "The UUID namespace that every podcast:guid is derived in."
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
@@ -39,7 +39,7 @@
   [url]
   (uuid-v5 podcast-namespace (guid-name url)))
 
-(defn ^:no-doc normal-url
+(defn normal-url
   "The `url` in lower case without credentials, scheme or trailing
   slashes, so that two forms of one feed or media URL are equal."
   [url]

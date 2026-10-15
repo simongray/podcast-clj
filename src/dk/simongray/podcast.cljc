@@ -11,11 +11,11 @@
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.websub :as websub]))
 
-(def ^:no-doc feed-types
+(def feed-types
   "The Accept header of a request for a feed."
   "application/rss+xml, application/xml, text/xml, */*")
 
-(def ^:no-doc list-types
+(def list-types
   "The Accept header of a request for an OPML list."
   "text/x-opml, application/xml;q=0.9, */*;q=0.1")
 

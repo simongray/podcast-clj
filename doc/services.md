@@ -35,6 +35,7 @@ are relative to `dk.simongray.podcast`.
 | The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts-pred`, a predicate of a URL | the rules of op3.dev |
 | The paths of the gpodder API | `gpodder.api/apis` | `:api`, as a name or a map of paths | `:gpodder` |
 | The limits of a gpodder server | `gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
+| The feeds that an app can subscribe to through `gpodder.server/handler` | `gpodder.server/public-url?` | `:allow-pred`, a predicate of a feed URL | the public internet |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
 | The categories of Apple Podcasts, which the validator checks a podcast's against | `feed.spec/categories` and `feed.spec/renamed-categories` | `:categories` and `:renamed-categories` | the [categories below](#the-categories-of-apple-podcasts) |

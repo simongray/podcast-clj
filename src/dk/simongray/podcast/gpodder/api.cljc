@@ -38,7 +38,7 @@
                  :episodes             (str app "/episode_action")
                  :update-episodes      (str app "/episode_action/create")})})
 
-(defn ^:no-doc paths
+(defn paths
   "The paths of the calls of `api`, a name in apis or a map of paths. It
   throws for a name that apis doesn't have."
   [api]
@@ -132,7 +132,7 @@
   [v]
   (if (sequential? v) v []))
 
-(defn ^:no-doc read-action
+(defn read-action
   "The episode action `m`, as JSON reads it, or nil when it isn't a map.
 
   The keys are keywords, the action is in lower case, and the time is an

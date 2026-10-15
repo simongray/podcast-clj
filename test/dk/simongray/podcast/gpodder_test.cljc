@@ -11,9 +11,10 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.gpodder :as gpodder]
+            [dk.simongray.podcast.gpodder.impl :as gpodder.impl]
             [dk.simongray.podcast.gpodder.server :as server]
+            [dk.simongray.podcast.gpodder.server.impl :as server.impl]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.test-support :refer [failed fixture run sync!]]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
@@ -194,7 +195,7 @@
       (is (str/ends-with? (set-cookie basic) "; HttpOnly; SameSite=Strict") "a cookie that no page of another site sends")
       (is (str/ends-with? (set-cookie (assoc basic "X-Forwarded-Proto" "https")) "; SameSite=Strict; Secure")
           "nor plain HTTP, after a login over https"))
-    (reset! clock (time/->inst (+ (inst-ms t1) (* 1000 server/session-seconds))))
+    (reset! clock (time/->inst (+ (inst-ms t1) (* 1000 server.impl/session-seconds))))
     (is (= 401 (first (login {"Cookie" cookie}))) "a session ends after a day")))
 
 (deftest what-the-app-writes-during-a-call
@@ -236,13 +237,13 @@
 (deftest a-book-forgets-what-left-the-state
   (let [s    (profile/subscribe (profile/make "server") "a" {:url feed-a :title "A"} t1)
         gone ["a" "an episode that the profile archived"]
-        book (server/settled {:index {[:episodes gone] [0 0]} :urls {gone [feed-a "https://a.example/1.mp3"]}}
+        book (server.impl/settled {:index {[:episodes gone] [0 0]} :urls {gone [feed-a "https://a.example/1.mp3"]}}
                              s
                              (inst-ms t2))]
     (is (= [[:subscriptions "a"]] (keys (:index book))))
     (is (= {} (:urls book)))))
 
-(defn- phone
+(defn phone
   "A phone of podcast-clj subscribed to feed A, 100 seconds into its first
   episode, whose item guid is a1."
   []
@@ -265,7 +266,7 @@
                   (profile/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
                   (profile/unsubscribe "guid-of-url" t2)
                   (profile/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t3))
-        named (fn [state] ((:feed-guid-fn (gpodder/namer state {})) feed-a))]
+        named (fn [state] ((:feed-guid-fn (gpodder.impl/namer state {})) feed-a))]
     (is (= ["declared-guid" "declared-guid"]
            [(named state) (named (update state :subscriptions #(into (array-map) (reverse %))))])
         "of two subscriptions with one URL the live one, whatever their order")
@@ -379,20 +380,6 @@
             (is (= ["new"] (actions)) "goes out as a new episode, as other apps unplay one")
             (is (nil? (profile/episode-entry state id))
                 "and the older play that the pull brings back leaves it forgotten"))))))))
-
-(deftest the-time-of-an-action
-  (let [id     [g-a "a1"]
-        ;; a device with a fast clock, which moves the clock of the phone ahead
-        fast   (profile.marks/star (profile/make "laptop") [g-a "a9"] t4)
-        s      (-> (profile/merge (phone) fast) (profile/progress id 120 3600 t1))
-        action #(gpodder/entry-action id % "https://a.example/rss" "https://a.example/1.mp3" "phone")
-        told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (profile/episode-entry state id))))]
-    (is (pos? (compare (:updated-at (profile/episode-entry s id)) t4)) "the stamp is after the clock of the device")
-    (is (= ["play" "2026-01-01T01:00:00"] (told s)) "and the action names the time on that clock")
-    (is (= ["play" "2026-01-01T02:00:00"] (told (profile/mark-played s id t2))) "the time of the mark as played")
-    (is (= ["new" "2026-01-01T03:00:00"] (told (profile/mark-unplayed s id t3))))
-    (is (= "2026-01-01T01:00:00" (get (action {:position 10 :updated-at t1 :device "phone"}) "timestamp"))
-        "an entry that holds no time of the device tells its stamp")))
 
 (deftest what-came-from-a-server-stays
   (let [clock    (atom t2)
