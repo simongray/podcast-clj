@@ -540,3 +540,6 @@ those files anyway, and a release is a good time.
   for the evidence that report asks for.
 - **The gpodder book kept over a restart of the server.** Done on 14
   October 2026, in the server's data folder.
+- **Page metadata**, the tags in the head of a show page or an episode
+  page that link previews and podcast apps read, which
+  [Page metadata](page-metadata-2026.md) plans.
