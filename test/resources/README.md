@@ -5,8 +5,9 @@ copied verbatim from the podcast-namespace repository
 (https://github.com/Podcastindex-org/podcast-namespace). That repository is
 dedicated to the public domain under CC0 1.0.
 
-The other two feeds under `feeds/` are hand-written. `quirky.xml` combines many
-real-world quirks, and `broken.xml` is malformed in several ways.
+The other three feeds under `feeds/` are hand-written. `quirky.xml` combines many
+real-world quirks, `broken.xml` is malformed in several ways, and `tags.xml`
+has the tags that the criteria of episodes read.
 
 `directory/`, `index/` and `podping/` hold recorded answers of the services.
 `directory/apple-episodes.json`, `fyyd-episodes.json` and `fyyd-latest.json`

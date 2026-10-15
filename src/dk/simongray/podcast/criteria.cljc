@@ -6,6 +6,7 @@
             [dk.simongray.drop-in-search.analysis :as analysis]
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
+            [dk.simongray.langtag :as langtag]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
@@ -23,6 +24,33 @@
   (boolean (and (some? x)
                 (or (nil? lo) (<= lo x))
                 (or (nil? hi) (<= x hi)))))
+
+(defn- instants-within?
+  "Whether the instant `t` is in the range of instants from `lo` to `hi`,
+  where a nil end is open. A nil `t` is in no range."
+  [[lo hi] t]
+  (within? [(some-> lo inst-ms) (some-> hi inst-ms)] (some-> t inst-ms)))
+
+;; Feeds write en_US for en-US too
+(defn- language-match?
+  "Whether the language range `r` matches the language tag `tag` by the
+  basic filtering of RFC 4647."
+  [r tag]
+  (langtag/basic-match? (str r) (str/replace (str tag) "_" "-")))
+
+(defn- mentions?
+  "Whether the text `s` holds the text `q`, both folded, so that case and
+  accents don't count."
+  [q s]
+  (boolean (some-> s analysis/fold (str/includes? (analysis/fold q)))))
+
+(defn- category-names
+  "The categories of `item` of `feed`: those of Apple Podcasts of its show,
+  subcategories too, and those that the item or the feed name in RSS."
+  [feed item]
+  (concat (apply concat (resolve/categories feed))
+          (keep :content (:rss/categories item))
+          (keep :content (:rss/categories feed))))
 
 ;; memoize takes any arguments, so each call makes a seq of them and
 ;; hashes it, which costs a criterion of every episode a twentieth
@@ -186,14 +214,14 @@
   context that returns a predicate of a feed and an item."
   {:season      (fn [v _]
                   (fn [_ item] (in? v (:season (resolve/numbering item)))))
+   :episode     (fn [v _]
+                  (fn [_ item] (in? v (:episode (resolve/numbering item)))))
    :type        (fn [v _]
                   (fn [_ item] (in? v (:type (resolve/numbering item)))))
    :duration    (fn [v _]
                   (fn [_ item] (within? v (resolve/duration item))))
-   :published   (fn [[lo hi] _]
-                  (fn [_ item]
-                    (within? [(some-> lo inst-ms) (some-> hi inst-ms)]
-                             (some-> (resolve/published item) inst-ms))))
+   :published   (fn [v _]
+                  (fn [_ item] (instants-within? v (resolve/published item))))
    :age         (fn [v ctx]
                   (fn [_ item] (within? v (age item (:at ctx)))))
    :transcript? (fn [v _]
@@ -205,10 +233,72 @@
                   (fn [feed item]
                     (= (boolean v) (boolean (resolve/explicit? feed item)))))
    :person      (fn [v _]
-                  (let [q      (analysis/fold v)
-                        named? #(str/includes? (analysis/fold (:name %)) q)]
+                  (fn [feed item]
+                    (boolean (some #(mentions? v (:name %))
+                                   (resolve/people feed item)))))
+   :author      (fn [v _]
+                  (fn [feed item]
+                    (mentions? v (or (resolve/author item)
+                                     (resolve/author feed)))))
+   :location    (fn [v _]
+                  (let [place? (fn [{:keys [content country]}]
+                                 (or (mentions? v content)
+                                     (= (str/lower-case (str v))
+                                        (some-> country str/lower-case))))]
                     (fn [feed item]
-                      (boolean (some named? (resolve/people feed item))))))
+                      (boolean (some place? (resolve/locations feed item))))))
+   :language    (fn [v _]
+                  (let [ranges (if (set? v) v #{v})
+                        match? (fn [tag]
+                                 (some #(language-match? % tag) ranges))]
+                    (fn [feed item]
+                      (boolean (some match? (resolve/languages feed item))))))
+   :category    (fn [v _]
+                  (let [wanted (into #{}
+                                     (map analysis/fold)
+                                     (if (set? v) v #{v}))]
+                    (fn [feed item]
+                      (boolean (some #(contains? wanted (analysis/fold %))
+                                     (category-names feed item))))))
+   :medium      (fn [v _]
+                  (fn [feed _] (in? v (resolve/medium feed))))
+   :serial?     (fn [v _]
+                  (fn [feed _] (= (boolean v) (resolve/serial? feed))))
+   :complete?   (fn [v _]
+                  (fn [feed _] (= (boolean v) (resolve/complete? feed))))
+   :publisher   (fn [v _]
+                  (fn [feed _]
+                    (in? v (:feed-guid (resolve/publisher feed)))))
+   :license     (fn [v _]
+                  (let [wanted (into #{}
+                                     (map str/lower-case)
+                                     (if (set? v) v #{v}))]
+                    (fn [feed item]
+                      (contains? wanted
+                                 (some-> (resolve/license feed item)
+                                         :content
+                                         str/lower-case)))))
+   :soundbites? (fn [v _]
+                  (fn [_ item]
+                    (= (boolean v) (boolean (seq (resolve/soundbites item))))))
+   :value?      (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v) (some? (resolve/value feed item)))))
+   :comments?   (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v)
+                       (boolean (seq (resolve/social-interacts feed item))))))
+   :chat?       (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v) (some? (resolve/chat feed item)))))
+   :funding?    (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v)
+                       (boolean (seq (resolve/funding feed item))))))
+   :ai-content? (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v)
+                       (boolean (resolve/ai-content? feed item)))))
    :text        (fn [v ctx]
                   (if (:index ctx)
                     (indexed v ctx)
@@ -216,6 +306,13 @@
    :not         (fn [v ctx] (complement (where v ctx)))
    :status      (fn [v ctx]
                   (fn [feed item] (in? v (status (entry ctx feed item)))))
+   :progress    (fn [v ctx]
+                  (fn [feed item]
+                    (within? v (or (:position (entry ctx feed item)) 0))))
+   :heard       (fn [v ctx]
+                  (fn [feed item]
+                    (let [e (entry ctx feed item)]
+                      (instants-within? v (:reported-at e)))))
    :starred?    (fn [v ctx]
                   (fn [feed item]
                     (let [id (episode-id ctx feed item)]
@@ -265,40 +362,71 @@
 
 (defn where
   "The predicate of a feed and one of its items for `criteria` in the
-  context `ctx`. The criteria are a map whose entries must all hold:
+  context `ctx`. The criteria are a map whose entries must all hold, and
+  these are about the episode:
 
-  - :season, a season or a set of them
+  - :season and :episode, a number or a set of them
   - :type, \"full\", \"trailer\" or \"bonus\", or a set of them
   - :duration, a range of seconds, e.g. [600 nil], nil for an open end
   - :published, a range of instants
   - :age, a range of seconds since it came out, e.g. [nil 604800]
-  - :transcript?, :chapters? and :explicit?, where chapters count when
-    linked, embedded or listed in the notes
-  - :person, someone credited
   - :text, a query that the title and notes must match, in the language
     of dk.simongray.drop-in-search.queries/parse, e.g. \"coffee -decaf\".
     A set of queries matches when any of them does.
-  - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
+  - :person, someone credited, and :author, the episode's author or else
+    its show's
+  - :language, a language range of RFC 4647, e.g. \"en\" for any English,
+    or a set of them, that the show's language matches, or the language
+    of a file that the episode offers
+  - :category, a category or subcategory of Apple Podcasts, or one that
+    the feed names in RSS, or a set of them
+  - :location, a place that it's about or was made in, by its name or its
+    country code
+  - :license, the license of its content, e.g. \"cc-by-4.0\", or a set of
+    them
+  - :media, :audio or :video, or a set of them, which it offers
+  - :transcript?, :chapters?, :soundbites? and :explicit?, where chapters
+    count when linked, embedded or listed in the notes
+  - :value?, :comments?, :chat? and :funding?, whether it takes payments
+    by a value block, has public comments, a chat or funding links, its
+    own or its show's
+  - :ai-content?, whether its feed says that AI made some of it
+
+  These are about the show:
+
+  - :show, the feed guid of a show, or a set of them
+  - :medium, what the show is, e.g. \"podcast\", \"music\" or
+    \"audiobook\", or a set of them
+  - :serial? and :complete?, whether its episodes are meant to be heard in
+    order, and whether it says it will publish no more of them
+  - :publisher, the feed guid of the show's publisher, or a set of them
+
+  These are about the listener:
+
   - :status, :unplayed, :in-progress or :played, or a set of them
+  - :progress, a range of the seconds into it where the listener is, 0
+    for an episode not started
+  - :heard, a range of instants when the listener last heard it
   - :starred? and :inbox?
   - :rating, a range of the listener's ratings, which no unrated episode
     is in
   - :since-subscription?, whether it came out after the listener
     subscribed
-  - :show, the feed guid of a show, or a set of them
   - :folder and :tag, the folder or a tag that the listener gave its show,
     or a set of them, where a folder of nil is none
-  - :media, :audio or :video, or a set of them, which it offers
   - :queued?, whether it's in the queue
   - :download, the state of its file on the device, :downloaded,
     :downloading, :failed or :none, or a set of them
   - :hidden?, whether the listener hid it, or else the :hide-where of its
     show does, or #{true false} for either
 
-  An empty map takes every item. The criteria about the listener need the
-  profile as :profile in `ctx`, and :download needs the :files of the
-  device, as dk.simongray.podcast.downloads keeps them. For feeds without
-  a podcast:guid, the criteria also need the :url, a string or a function
+  And :not holds criteria that the item doesn't meet, e.g.
+  {:text #{\"rerun\"}}. An empty map takes every item.
+
+  The criteria about the listener need the profile as :profile in `ctx`,
+  and :download needs the :files of the device, as
+  dk.simongray.podcast.downloads keeps them. For feeds without a
+  podcast:guid, the criteria also need the :url, a string or a function
   of the feed. The :age needs the current time as :at, and with :scale,
   the :rating is in that scale. With an index of the documents of the
   items as :index, the :text reads it instead of each item's notes."
@@ -306,8 +434,8 @@
    (where criteria {}))
   ([criteria ctx]
    (let [unknown  (filter #(not (contains? criterion %)) (keys criteria))
-         personal #{:status :starred? :inbox? :rating :since-subscription?
-                    :folder :tag :queued? :hidden?}]
+         personal #{:status :progress :heard :starred? :inbox? :rating
+                    :since-subscription? :folder :tag :queued? :hidden?}]
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: "
                             (str/join ", " unknown))

@@ -5,9 +5,11 @@
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
-            [dk.simongray.podcast.profile.queue :as profile.queue]))
+            [dk.simongray.podcast.profile.queue :as profile.queue]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def t0 #inst "2026-03-01T00:00:00Z")
 (def t1 #inst "2026-03-02T00:00:00Z")
@@ -82,6 +84,13 @@
   (is (= ["Season one, episode one: Café"] (titles {:where {:status :in-progress} :profile listened})))
   (is (= ["Trailer" "Season two, episode one" "Bonus"] (titles {:where {:status :unplayed} :profile listened})))
   (is (= ["Season one, episode two"] (titles {:where {:status :played} :profile listened})))
+  (is (= ["Season one, episode one: Café"] (titles {:where {:progress [60 nil]} :profile listened})))
+  (is (= ["Trailer" "Season one, episode two" "Season two, episode one" "Bonus"]
+         (titles {:where {:progress [nil 60]} :profile listened}))
+      "an episode not started is 0 seconds into it")
+  (is (= ["Season one, episode one: Café"] (titles {:where {:heard [t1 nil]} :profile listened}))
+      "a mark of played isn't hearing it")
+  (is (= [] (titles {:where {:heard [nil t0]} :profile listened})))
   (is (= ["Season one, episode one: Café" "Season one, episode two"]
          (titles {:where {:status #{:played :in-progress} :season 1} :profile listened})))
   (is (thrown? #?(:clj Exception :cljs js/Error) (criteria/where {:colour "red"})))
@@ -153,6 +162,56 @@
           "without a subscription, no episode came out after it")
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:since-subscription\? needs the profile"
                             (criteria/where {:since-subscription? true}))))))
+
+(def tagged
+  "A serial music feed in en_US with three episodes, the first of which
+  has a Danish file, a soundbite, a license, a location and AI content,
+  and the second payments, comments and a chat."
+  (rss/parse (fixture "feeds/tags.xml")))
+
+(defn- tagged-titles
+  [where]
+  (mapv :rss/title (criteria/episodes tagged {:where where})))
+
+(deftest criteria-of-the-tags
+  (testing "the numbers of episodes"
+    (is (= ["Two"] (tagged-titles {:episode 2})))
+    (is (= ["One" "Three"] (tagged-titles {:episode #{1 3}}))))
+  (testing "languages, as RFC 4647 filters them"
+    (is (= ["One" "Two" "Three"] (tagged-titles {:language "en"})))
+    (is (= ["One" "Two" "Three"] (tagged-titles {:language "EN-us"}))
+        "the case doesn't count, nor an underscore for a hyphen")
+    (is (= [] (tagged-titles {:language "en-gb"})))
+    (is (= ["One"] (tagged-titles {:language "da"})) "a file in another language")
+    (is (= [] (tagged-titles {:language "de"})))
+    (is (= ["One" "Two" "Three"] (tagged-titles {:language #{"de" "*"}}))))
+  (testing "categories, of Apple Podcasts and of RSS"
+    (is (= ["One" "Two" "Three"] (tagged-titles {:category "tech news"})))
+    (is (= ["One"] (tagged-titles {:category #{"Coffee" "Comedy"}})))
+    (is (= [] (tagged-titles {:category "Comedy"}))))
+  (testing "the show"
+    (is (= ["One" "Two" "Three"] (tagged-titles {:medium "music"})))
+    (is (= [] (tagged-titles {:medium #{"podcast" "audiobook"}})))
+    (is (= ["One" "Two" "Three"] (tagged-titles {:serial? true :complete? true})))
+    (is (= [] (tagged-titles {:serial? false})))
+    (is (= ["One" "Two" "Three"]
+           (tagged-titles {:publisher "003af0a0-6a45-55cf-b765-68e3d349551a"}))))
+  (testing "people and places"
+    (is (= ["One"] (tagged-titles {:author "bo"})))
+    (is (= ["Two" "Three"] (tagged-titles {:author "ann"}))
+        "the show's author for an episode without one")
+    (is (= ["One"] (tagged-titles {:location "copenhagen"})))
+    (is (= ["One"] (tagged-titles {:location "dk"})) "a country code"))
+  (testing "what an episode has, its own or its show's"
+    (is (= ["One"] (tagged-titles {:license "CC-BY-4.0"})))
+    (is (= ["One"] (tagged-titles {:soundbites? true})))
+    (is (= ["Two"] (tagged-titles {:value? true})))
+    (is (= ["Two"] (tagged-titles {:comments? true})))
+    (is (= ["Two"] (tagged-titles {:chat? true})))
+    (is (= ["One" "Two" "Three"] (tagged-titles {:funding? true})))
+    (is (= ["One"] (tagged-titles {:ai-content? true})))
+    (is (= ["Two" "Three"] (tagged-titles {:ai-content? false}))
+        "an episode that doesn't say counts as false")))
 
 (deftest orders
   (is (= ["Bonus" "Season two, episode one" "Season one, episode two" "Season one, episode one: Café" "Trailer"]

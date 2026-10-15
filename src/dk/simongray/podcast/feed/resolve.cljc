@@ -391,6 +391,15 @@
         (keep #(case (video? %) true :video false :audio nil))
         (enclosures item)))
 
+(defn languages
+  "The languages that `item` of `feed` is in, as their tags are written:
+  the feed's, and those of the files that it offers in another, e.g. a
+  dubbed alternateEnclosure."
+  [feed item]
+  (into #{}
+        (remove str/blank?)
+        (cons (:rss/language feed) (keep :lang (enclosures item)))))
+
 (def ^:no-doc single-codec-types
   "The media types, in lower case, that imply their codec, and so take no
   codecs parameter."
@@ -985,7 +994,9 @@
   [feed]
   (vec (category-paths [] (:itunes/categories feed))))
 
-(defn- serial?
+(defn serial?
+  "Whether `feed` is serial, by its itunes:type, so that its episodes are
+  meant to be heard in order, the first first."
   [feed]
   (= "serial" (some-> (:itunes/type feed) str/lower-case)))
 

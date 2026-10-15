@@ -1,0 +1,37 @@
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+<channel>
+<title>Tags</title>
+<language>en_US</language>
+<itunes:type>serial</itunes:type>
+<itunes:complete>Yes</itunes:complete>
+<itunes:author>Ann Author</itunes:author>
+<itunes:category text="Technology"/>
+<itunes:category text="News"><itunes:category text="Tech News"/></itunes:category>
+<podcast:guid>917393e3-1b1e-5cef-ace4-edaa54e1f810</podcast:guid>
+<podcast:medium>music</podcast:medium>
+<podcast:funding url="https://example.com/support">Support the show</podcast:funding>
+<podcast:publisher><podcast:remoteItem medium="publisher" feedGuid="003af0a0-6a45-55cf-b765-68e3d349551a"/></podcast:publisher>
+<item>
+<title>One</title><guid>1</guid><itunes:episode>1</itunes:episode>
+<author>bo@example.com (Bo Builder)</author>
+<category>Coffee</category>
+<podcast:soundbite startTime="10" duration="30"/>
+<podcast:license url="https://creativecommons.org/licenses/by/4.0/">cc-by-4.0</podcast:license>
+<podcast:location country="DK">Copenhagen</podcast:location>
+<podcast:txt purpose="ai-content">true</podcast:txt>
+<enclosure url="https://example.com/1.mp3" type="audio/mpeg" length="1000"/>
+<podcast:alternateEnclosure type="audio/mpeg" lang="da"><podcast:source uri="https://example.com/1-da.mp3"/></podcast:alternateEnclosure>
+</item>
+<item>
+<title>Two</title><guid>2</guid><itunes:episode>2</itunes:episode>
+<podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Host" type="node" address="02d5c1bf8b940dc9cadca86d1b0a3c37fbe39cee4c7e839e33bef9174531d27f52" split="100"/></podcast:value>
+<podcast:socialInteract protocol="activitypub" uri="https://example.com/@show/2"/>
+<podcast:chat server="irc.example.com" protocol="irc" space="#show"/>
+<enclosure url="https://example.com/2.mp3" type="audio/mpeg" length="1000"/>
+</item>
+<item>
+<title>Three</title><guid>3</guid><itunes:episode>3</itunes:episode>
+<enclosure url="https://example.com/3.mp3" type="audio/mpeg" length="1000"/>
+</item>
+</channel>
+</rss>
