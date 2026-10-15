@@ -26,6 +26,7 @@
    "util.entities" 0 "util.names" 0 "testing" 0
    "feed.spec" 1 "feed.repair" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
+   "feed.impl" 2 "feed.validate.impl" 2
    "feed.resolve" 3 "feed.schedule" 3 "feed.check" 3 "feed.check.facts" 3 "feed.check.rules" 3
    "feed.discovery" 3 "feed.publish" 3 "feed.search" 3 "feed.integrity" 3
    "feed.local" 3

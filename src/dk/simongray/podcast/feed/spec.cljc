@@ -55,35 +55,36 @@
   #{"podcast" "music" "video" "film" "audiobook" "newsletter" "blog"
     "publisher" "course"})
 
-(def ^:no-doc list-mediums
-  "The list variants of mediums, and the mixed list."
+(def list-mediums
+  "The values of podcast:medium for a feed that lists other feeds: each of
+  mediums with an L appended, e.g. musicL, and mixed."
   (into #{"mixed"} (map #(str % "L")) mediums))
 
 ;; socialprotocols.txt of the podcast namespace, as of 2026-09-30
-(def ^:no-doc social-protocols
+(def social-protocols
   "The protocols that podcast:socialInteract can name."
   #{"disabled" "activitypub" "twitter" "lightning" "atproto" "hive" "matrix"
     "nostr"})
 
-(def ^:no-doc chat-protocols
+(def chat-protocols
   "The protocols that podcast:chat can name."
   #{"irc" "xmpp" "nostr" "matrix"})
 
-(def ^:no-doc value-types
+(def value-types
   "The payment networks that a podcast:value block can name."
   #{"lightning" "bitcoin"})
 
-(def ^:no-doc value-methods
+(def value-methods
   "The payment methods that a podcast:value block can name."
   #{"keysend" "amp" "lnaddress" "default"})
 
-(def ^:no-doc recipient-types
+(def recipient-types
   "The kinds of address that a podcast:valueRecipient can have."
   #{"node" "lnaddress" "wallet"})
 
 ;; serviceslugs.txt of the podcast namespace, as of 2026-09-30
-(def ^:no-doc service-slugs
-  "The platform slugs of podcast:block."
+(def service-slugs
+  "The platforms that the id of podcast:block can name, as slugs."
   #{"acast" "amazon" "anchor" "apple" "audible" "audioboom" "backtracks"
     "bitcoin" "blubrry" "buzzsprout" "captivate" "castos" "castopod" "facebook"
     "fireside" "fyyd" "google" "gpodder" "hypercatcher" "kasts" "libsyn"
