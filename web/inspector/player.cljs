@@ -534,10 +534,37 @@
   (let [path (.-pathname (js/URL. href js/location.href))]
     (boolean (re-find #"\.(edn|xml)$" path))))
 
+;; The server answers 202 while it makes the library that it recommends
+;; from, and the page asks again a few seconds later, unless it's gone
+(defn- fill-recommended!
+  "Fetch the episodes like the one of an item page into its element of
+  them, from the address that the element names, once the page is shown."
+  []
+  (when-let [el (js/document.getElementById "recommended")]
+    (let [shown? #(identical? el (js/document.getElementById "recommended"))
+          fill!  #(when (shown?) (set! (.-innerHTML el) %))]
+      (-> (js/fetch (.getAttribute el "data-src"))
+          (.then (fn [response]
+                   (if (.-ok response)
+                     (.then (.text response)
+                            (fn [html]
+                              (fill! html)
+                              (when (= 202 (.-status response))
+                                (js/setTimeout #(when (shown?)
+                                                  (fill-recommended!))
+                                               3000))))
+                     (fill! (str "<p class=\"muted\">Could not recommend "
+                                 "episodes: HTTP " (.-status response)
+                                 "</p>")))))
+          (.catch (fn [_]
+                    (fill! (str "<p class=\"muted\">Could not reach the "
+                                "inspector to recommend episodes.</p>"))))))))
+
 (defn- after-navigation!
   []
   (render! true)
-  (add-from-query!))
+  (add-from-query!)
+  (fill-recommended!))
 
 (defn- swap-content!
   "Fetch the page at `url` and put its content in place of the current
@@ -696,6 +723,7 @@
   - take over navigation and the other tabs' saves
   - take up the sync folder of the last visit
   - add an episode that the URL asks for
+  - fetch the episodes like the one of an item page
   - sync and refresh on its own"
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
@@ -722,5 +750,6 @@
   (render! true)
   (restore-folder!)
   (add-from-query!)
+  (fill-recommended!)
   (sync-on-its-own!)
   (refresh-on-its-own!))

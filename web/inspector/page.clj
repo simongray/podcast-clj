@@ -772,18 +772,17 @@
        (for [split timed]
          (time-split-section block remotes split))))))
 
-(defn- recommendations-section
-  "The episodes most like an episode, as the item page's `recommended`
-  holds them: the :results with the :url of each one's feed here, and the
-  :terms that found them, or :pending? or an :error."
-  [{:keys [results terms pending? error]}]
-  (list
-   [:h2 "Maybe you're also interested in…"]
+(defn recommendations
+  "The part of the item page with the episodes most like its episode, as
+  `recommended` holds them: the :results with the :url of each one's feed
+  here, and the :terms that found them, or :pending? or an :error."
+  [{:keys [results terms pending? error] :as recommended}]
+  [:div
    (cond
      pending?
      [:p.muted (str "The inspector is indexing the corpus to recommend "
-                    "from, which takes a few seconds. Reload the page in a "
-                    "moment.")]
+                    "from, which takes a few seconds. They show up here "
+                    "when it's done.")]
 
      error
      [:p.muted "Could not recommend episodes: " error]
@@ -810,13 +809,14 @@
           [:br]
           [:span.muted (inst-str published)
            (when duration (str " · " (time/format-clock duration)))
-           (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]])]))))
+           (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]])]))])
 
+;; Finding the episodes like one takes seconds when its feed is new to the
+;; inspector, so the player fetches them into the page once it's shown
 (defn item-page
   "The page for one `item` of `feed` at `url`, from its `view` with what
-  its files say merged in, the `remotes` of its time splits, and the
-  episodes most like it, `recommended`."
-  [{:keys [url feed item view remotes recommended]}]
+  its files say merged in, and the `remotes` of its time splits."
+  [{:keys [url feed item view remotes]}]
   (let [{:keys [title guid numbering published duration explicit? people
                 artwork notes enclosures value]} view
         into-player (fn [mode]
@@ -854,7 +854,10 @@
                   "Boost"])]]]
             [:h2 "Description"]
             [:div.notes notes]
-            (recommendations-section recommended)
+            [:h2 "Maybe you're also interested in…"]
+            [:div#recommended {:data-src (feed-href "/recommended" url
+                                                    {:guid guid})}
+             [:p.muted "Looking for episodes like this one…"]]
             [:h2 "Media"]
             [:table
              [:thead

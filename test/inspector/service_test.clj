@@ -348,10 +348,12 @@
         (is (string? (:title episode))))
       (is (= 404 (:status (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "nope")))))
     (testing "the compiled player is served when it exists and explained when it does not"
-      (let [{:keys [status body]} (get* "/js/player.js")]
+      (let [{:keys [status headers body]} (get* "/js/player.js")]
         (is (contains? #{200 404} status))
-        (when (= 404 status)
-          (is (str/includes? body "compile player"))))
+        (if (= 404 status)
+          (is (str/includes? body "compile player"))
+          (is (= "no-cache" (get headers "Cache-Control"))
+              "a browser asks again, so that it finds a new build")))
       (is (= 404 (:status (get* "/js/../deps.edn")))))))
 
 (def wallet-secret (secret-key 9))
@@ -507,21 +509,29 @@
     (show "b" "22222222-2222-5222-8222-222222222222" [["Grinders compared" "Conical burr grinders for espresso."]
                                                       ["Bicycles" "Gears."]])
     (show "c" "33333333-3333-5333-8333-333333333333" [["Gardening" "Tomatoes."]])
-    (with-redefs [service/corpus-dir dir]
-      (testing "a note while the library to recommend from is made"
-        (reset! service/recommender nil)
-        (with-redefs [service/making-recommender (delay nil)]
-          (is (str/includes? (:body (get* "/item" "url" "corpus/a" "guid" "0"))
-                             "Reload the page in a moment"))))
-      (testing "the episodes most like this one, of other shows, with links here"
+    (with-redefs [service/corpus-dir         dir
+                  service/making-recommender (delay nil)]
+      (testing "the item page leaves them to the player, which fetches them once it's shown"
         (reset! service/recommender (#'service/corpus-library))
-        (with-redefs [service/making-recommender (delay nil)]
-          (let [body (:body (get* "/item" "url" "corpus/a" "guid" "0"))]
-            (is (str/includes? body "Maybe you&apos;re also interested in…"))
-            (is (str/includes? body "<a href=\"/item?url=corpus%2Fb&amp;guid=0\">Grinders compared</a>"))
-            (is (not (str/includes? body "Bicycles")))
-            (is (str/includes? body "<em>espresso</em>")))))
-      (reset! service/recommender nil))))
+        (let [body (:body (get* "/item" "url" "corpus/a" "guid" "0"))]
+          (is (str/includes? body "Maybe you&apos;re also interested in…"))
+          (is (str/includes? body "data-src=\"/recommended?url=corpus%2Fa&amp;guid=0\""))
+          (is (not (str/includes? body "Grinders compared")))))
+      (testing "the episodes most like this one, of other shows, with links here"
+        (let [{:keys [status body]} (get* "/recommended" "url" "corpus/a" "guid" "0")]
+          (is (= 200 status))
+          (is (str/starts-with? body "<div>") "a part of a page")
+          (is (str/includes? body "<a href=\"/item?url=corpus%2Fb&amp;guid=0\">Grinders compared</a>"))
+          (is (not (str/includes? body "Bicycles")))
+          (is (str/includes? body "<em>espresso</em>"))))
+      (testing "a 202 while the library to recommend from is made, for the player to ask again"
+        (reset! service/recommender nil)
+        (let [{:keys [status body]} (get* "/recommended" "url" "corpus/a" "guid" "0")]
+          (is (= 202 status))
+          (is (str/includes? body "They show up here when it&apos;s done"))))
+      (testing "no such item"
+        (is (= 404 (:status (get* "/recommended" "url" "corpus/a" "guid" "9"))))))
+    (reset! service/recommender nil)))
 
 (deftest finding-the-feeds-of-a-text
   (let [feed     {:rss/title "Show"}

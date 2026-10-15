@@ -156,14 +156,22 @@
        :report   (rss/report value)
        :status   status})))
 
-(defn- html
+(defn- rendered
   [hiccup]
   ;; Replicant 2026.06.2 and later write a double quote as &#39;, which is
   ;; an apostrophe. They write an apostrophe as &apos; and an ampersand as
   ;; &amp;, so every &#39; stands for a double quote.
+  (str/replace (replicant/render hiccup) "&#39;" "&quot;"))
+
+(defn- html
+  [hiccup]
   (ring/response 200 "text/html; charset=utf-8"
-                 (->> (str/replace (replicant/render hiccup) "&#39;" "&quot;")
-                      (str "<!DOCTYPE html>\n"))))
+                 (str "<!DOCTYPE html>\n" (rendered hiccup))))
+
+(defn- part
+  "The Hiccup `hiccup` as a part of a page, without a document around it."
+  [hiccup]
+  (ring/response 200 "text/html; charset=utf-8" (rendered hiccup)))
 
 (defn- failure
   "The error page, with the status 502, for the failure `e` of what
@@ -460,8 +468,7 @@
 (defn item-page
   "The page of the item that the guid parameter of `request` names, in the
   feed that its url parameter names. The chapters, transcript, media file
-  and value block of the item are fetched and rendered, and the episodes
-  most like it are recommended."
+  and value block of the item are fetched and rendered."
   [request]
   (with-feed request
     (fn [{:keys [feed feed-url] :as loaded}]
@@ -469,15 +476,27 @@
             item (item-in feed guid)]
         (if item
           (let [view (episode-view feed feed-url item)]
-            (html (page/item-page
-                   (assoc loaded
-                          :item        item
-                          :view        view
-                          :remotes     (remotes view)
-                          :recommended (recommended feed
-                                                    (:url loaded)
-                                                    feed-url
-                                                    item)))))
+            (html (page/item-page (assoc loaded
+                                         :item    item
+                                         :view    view
+                                         :remotes (remotes view)))))
+          (no-item (:url loaded) guid))))))
+
+(defn recommended-page
+  "The episodes most like the item that the guid parameter of `request`
+  names, in the feed that its url parameter names, as the part of the item
+  page that the player fetches once the page is shown. Its status is 202
+  while the library to recommend from is made, so that the player asks
+  again."
+  [request]
+  (with-feed request
+    (fn [{:keys [feed feed-url] :as loaded}]
+      (let [guid (get-in request [:query-params :guid])
+            item (item-in feed guid)]
+        (if item
+          (let [found (recommended feed (:url loaded) feed-url item)]
+            (cond-> (part (page/recommendations found))
+              (:pending? found) (assoc :status 202)))
           (no-item (:url loaded) guid))))))
 
 (def appview
@@ -896,12 +915,16 @@
                                  "clojure -M:cljs compile player")))
 
       (= built (get-in request [:headers "if-modified-since"]))
-      {:status 304 :headers {"Last-Modified" built} :body ""}
+      {:status 304 :headers {"Last-Modified" built "Cache-Control" "no-cache"}
+       :body   ""}
 
+      ;; RFC 9111, section 4.2.2: without no-cache, a browser takes a file
+      ;; built long ago for fresh for a while, and misses a new build
       :else
       {:status  200
        :headers {"Content-Type"  content-type
-                 "Last-Modified" built}
+                 "Last-Modified" built
+                 "Cache-Control" "no-cache"}
        :body    file})))
 
 (def sync-dir
@@ -966,6 +989,7 @@
      ["/feed.xml" :get feed-xml :route-name :feed-xml]
      ["/check" :get check-page :route-name :check]
      ["/item" :get item-page :route-name :item]
+     ["/recommended" :get recommended-page :route-name :recommended]
      ["/comments" :get comments-page :route-name :comments]
      ["/thread" :get thread-page :route-name :thread]
      ["/find" :get find-page :route-name :find]
@@ -1060,12 +1084,14 @@
 
 (defn start!
   "Start the inspector on the :port of `opts`, 8300 by default, unless it
-  runs."
+  runs, and the making of the library that its item pages recommend
+  episodes from."
   ([]
    (start! {}))
   ([{:keys [port] :or {port 8300} :as opts}]
    (when-not @server
      (reset! server (conn/start! (connector port)))
+     (force making-recommender)
      (println (str "Inspector running on http://localhost:" port "/")))
    @server))
 
