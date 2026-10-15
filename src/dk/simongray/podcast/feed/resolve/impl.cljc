@@ -122,6 +122,19 @@
     (when-not (unknown-types essence)
       essence)))
 
+;; RFC 7587 registers audio/opus for RTP alone, while an .opus file is Ogg
+;; (RFC 7845), and the others are servers' own names for MP4 and MP3.
+;; Chrome 155, Firefox 157 and WebKit 27.2 answered better for the names
+;; on the right, and the corpus's files under each alias were of its format.
+(def format-aliases
+  "The media types, in lower case, that feeds give a format by and that
+  browsers don't know it by, each to the type they do know it by and the
+  codec that the alias implies, if any."
+  {"audio/opus"  ["audio/ogg" "opus"]
+   "audio/m4a"   ["audio/mp4" nil]
+   "audio/x-m4a" ["audio/mp4" nil]
+   "audio/mpeg3" ["audio/mpeg" nil]})
+
 (defn content-type
   "The media type `essence` as a content type of the `kind`, :audio or
   :video, with the `codec`, if any, as its codecs parameter."

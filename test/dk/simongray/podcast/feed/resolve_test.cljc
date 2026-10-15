@@ -302,6 +302,17 @@
     (is (= {:type :file :audio {:content-type "audio/mpeg"}}
            (resolve/decoding-configuration {:url "https://a/1.mp3" :type "audio/mpeg" :codecs "mp3"}))
         "but none for a type that implies its codec"))
+  (testing "a type that browsers know by another name"
+    (is (= {:type :file :audio {:content-type "audio/ogg; codecs=\"opus\"" :bitrate 12000}}
+           (resolve/decoding-configuration {:url "https://a/1.opus" :type "audio/opus" :bitrate 12000}))
+        "Ogg Opus, which feeds call by the RTP type")
+    (is (= {:type :file :audio {:content-type "audio/mp4"}}
+           (resolve/decoding-configuration {:url "https://a/1.m4a" :type "audio/x-m4a"})))
+    (is (= {:type :file :audio {:content-type "audio/mp4; codecs=\"mp4a.40.2\""}}
+           (resolve/decoding-configuration {:url "https://a/1.m4a" :type "Audio/M4A" :codecs "mp4a.40.2"}))
+        "in any case, with the codec that the feed declares")
+    (is (= {:type :file :audio {:content-type "audio/mpeg"}}
+           (resolve/decoding-configuration {:url "https://a/1.mp3" :type "audio/mpeg3"}))))
   (testing "a video, with one codec of each kind"
     (is (= {:type  :file
             :video {:content-type "video/mp4; codecs=\"avc1.42E01E\""}

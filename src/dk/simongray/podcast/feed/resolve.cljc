@@ -327,20 +327,26 @@
   rate of audio, and the width, height and frame rate of a video, which
   are left out unless the video has them all.
 
+  A type that browsers know by another name is written as they name it,
+  e.g. audio/opus, the RTP type that feeds use for Ogg Opus, as
+  audio/ogg; codecs=\"opus\", and audio/x-m4a as audio/mp4.
+
   It's nil when the type says nothing of the format: there's none, or
   it's e.g. application/octet-stream. Such a file is almost always an
   MP3, so a :playable-pred of enclosure can count it as playable."
   [{:keys [type bitrate width height framerate channels samplingrate]
     :as   enclosure}]
-  (when-let [essence (impl/format-type type)]
-    (let [as-video? (not (false? (video? enclosure)))
+  (when-let [declared (impl/format-type type)]
+    (let [[essence implied] (get impl/format-aliases declared [declared])
+          as-video? (not (false? (video? enclosure)))
           codecs    (impl/codec-list
                      (or (:codecs enclosure)
                          (second (re-find #"(?i)codecs=\"?([^\";]+)"
                                           (str type)))))
           of-kind   #(first (filter (comp #{%} impl/codec-kind) codecs))
           own       (or (of-kind (if as-video? :video :audio))
-                        (first (remove impl/codec-kind codecs)))
+                        (first (remove impl/codec-kind codecs))
+                        implied)
           rate      (when (positive? bitrate) (Math/round (double bitrate)))]
       (if as-video?
         (cond-> {:type  :file
