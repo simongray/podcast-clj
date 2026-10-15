@@ -6,6 +6,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.resolve.impl :as resolve.impl]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.util.ring :as ring]
             [dk.simongray.podcast.util.time :as time]
@@ -40,7 +41,7 @@
   relation without a URL is left out. They take the place of such links
   that the feed has."
   [feed url items links]
-  (let [type  (or (some :type (resolve/atom-links feed "self"))
+  (let [type  (or (some :type (resolve.impl/atom-links feed "self"))
                   "application/rss+xml")
         links (for [[rel href] (cons ["self" url] links)
                     :when href]

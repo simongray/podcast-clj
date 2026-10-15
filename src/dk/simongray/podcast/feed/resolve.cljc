@@ -7,10 +7,10 @@
   channel declares."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.resolve.impl :as impl]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
-            [dk.simongray.wary-fetch.url :as url]
-            [dk.simongray.whatwg-mime :as mime]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."
@@ -27,22 +27,6 @@
       (:itunes/summary x)
       (:googleplay/description x)))
 
-(defn- email-name
-  "The name in the RSS email field `s`, written as \"address (Name)\", or
-  else `s`."
-  [s]
-  ;; cut at the first parenthesis rather than matched whole, since one
-  ;; pattern for all of it backtracks quadratically over a long address
-  (let [t    (str/trim (str s))
-        open (str/index-of t "(")
-        end  (dec (count t))]
-    (if (and open
-             (< (inc open) end)
-             (str/ends-with? t ")")
-             (re-find #"^\S+@\S+$" (str/trimr (subs t 0 open))))
-      (subs t (inc open) end)
-      s)))
-
 (defn author
   "Who made `x`, with the name picked out of an \"address (Name)\" field.
 
@@ -54,7 +38,7 @@
               (:googleplay/author x)
               (:rss/author x)
               (:rss/managing-editor x))
-          email-name))
+          impl/email-name))
 
 (defn link
   "The web page of `x`: its link, or its guid when that's a permalink."
@@ -64,27 +48,6 @@
         (when (and (not (false? is-perma-link))
                    (re-find #"^https?://" (str content)))
           content))))
-
-(def ^:no-doc domain-pattern
-  "A domain with an optional port: labels of letters, digits and hyphens
-  between dots, and a top-level domain of letters."
-  (let [label "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"]
-    (re-pattern (str "(?i)(?:" label "\\.)+[a-z]{2,24}(?::[0-9]{1,5})?"))))
-
-(def ^:no-doc file-extension
-  "The extension of a file at the end of a name, which a top-level domain
-  of letters could be mistaken for."
-  (re-pattern (str "(?i)\\.(?:html?|php|aspx?|jsp|cgi|xml|json|rss|txt"
-                   "|pdf|mp3|m4a|mp4|jpe?g|png|gif)(?::|$)")))
-
-(defn- domain-first?
-  "Whether the URL `s`, which has no scheme, starts with a domain, as in
-  example.com/page, rather than a path: its first part is a domain and
-  doesn't end in the extension of a file."
-  [s]
-  (let [head (first (str/split s #"[/?#]" 2))]
-    (boolean (and (re-matches domain-pattern head)
-                  (not (re-find file-extension head))))))
 
 ;; Feeds often write a link as a domain without https://, which a browser
 ;; would read as a path on the page that shows it
@@ -100,7 +63,7 @@
     (cond
       (url/scheme t)              s
       (str/starts-with? t "//")   (str "https:" t)
-      (domain-first? t)           (str "https://" t)
+      (impl/domain-first? t)      (str "https://" t)
       base                        (url/absolute-url base t))))
 
 (defn published
@@ -147,38 +110,6 @@
        width  (assoc :width width)
        height (assoc :height height)))))
 
-(defn- square?
-  "Whether `image` is square, or says nothing about its shape."
-  [{:keys [aspect-ratio width height] :as image}]
-  (cond
-    aspect-ratio       (contains? #{"1/1" "1" "1:1"}
-                                  (str/replace aspect-ratio #"\s" ""))
-    (and width height) (= width height)
-    :else              true))
-
-(defn ^:no-doc picture?
-  "Whether the `image`, one of those that images gives, is a picture rather
-  than a video: its type is an image type, or it has none."
-  [{:keys [type]}]
-  (or (nil? type)
-      (str/starts-with? (str/lower-case type) "image/")))
-
-(defn- artwork?
-  "Whether the podcast:image `image` is meant as artwork: it's a picture,
-  and it says so, or it has no stated purpose and isn't another shape."
-  [image]
-  (and (picture? image)
-       (or (contains? (:purpose image) "artwork")
-           (and (empty? (:purpose image))
-                (square? image)))))
-
-(defn- largest
-  "The widest of the `images`, the first of those as wide, or nil for none.
-  An image without a width counts as the narrowest."
-  [images]
-  (let [width #(let [w (:width %)] (if (number? w) w 0))]
-    (first (sort-by #(- (width %)) images))))
-
 (defn artwork
   "The URL of the square artwork of `x`, or of an `item` of `feed`, with
   the item's own before the feed's.
@@ -188,7 +119,8 @@
   ([x]
    (let [candidates (images x)
          podcast?   #(= :podcast (:source %))]
-     (:href (or (largest (filter (every-pred podcast? artwork?) candidates))
+     (:href (or (impl/largest (filter (every-pred podcast? impl/artwork?)
+                                      candidates))
                 (first (remove podcast? candidates))))))
   ([feed item]
    (or (artwork item) (artwork feed))))
@@ -201,8 +133,8 @@
 
   It's the largest podcast:image whose purpose is poster."
   ([x]
-   (let [poster? #(and (contains? (:purpose %) "poster") (picture? %))]
-     (:href (largest (filter poster? (images x))))))
+   (let [poster? #(and (contains? (:purpose %) "poster") (impl/picture? %))]
+     (:href (impl/largest (filter poster? (images x))))))
   ([feed item]
    (or (poster item) (poster feed))))
 
@@ -255,11 +187,6 @@
    (let [flag (ai-content? item)]
      (if (some? flag) flag (ai-content? feed)))))
 
-(defn- media-contents
-  "The Media RSS contents of `item`, in the item and in its media:group."
-  [item]
-  (concat (:media/contents item) (:contents (:media/group item))))
-
 (defn duration
   "The duration of `item` in seconds, from iTunes or Media RSS, in the item
   or its media:group, or nil when neither gives a number."
@@ -268,7 +195,7 @@
     (if (number? d)
       d
       (some #(let [d (:duration %)] (when (number? d) d))
-            (media-contents item)))))
+            (impl/media-contents item)))))
 
 (defn numbering
   "The season and episode of `item`, from the podcast namespace first and
@@ -328,34 +255,12 @@
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
    ;; Media RSS 1.5.1, media:content: the bitrate is in kilobits per second
-   (for [{:keys [url file-size bitrate] :as content} (media-contents item)
+   (for [{:keys [url file-size bitrate] :as content}
+         (impl/media-contents item)
          :when (and url (playable? content))]
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
        file-size         (assoc :length file-size)
        (number? bitrate) (assoc :bitrate (* 1000 bitrate))))))
-
-;; RFC 6381, section 3.3; the sample entries of the MP4 Registration
-;; Authority, and the codecs of WebM
-(def ^:no-doc codec-kinds
-  "The kind of media of each codec that the first part of an RFC 6381
-  codecs string names, in lower case."
-  (merge (zipmap ["avc1" "avc3" "hvc1" "hev1" "dvh1" "dvhe" "dva1" "dvav"
-                  "av01" "vp08" "vp09" "vp8" "vp9" "vvc1" "vvi1" "mp4v"]
-                 (repeat :video))
-         (zipmap ["mp4a" "opus" "flac" "alac" "ac-3" "ec-3" "ac-4" "mha1"
-                  "mhm1" "mp3" "vorbis"]
-                 (repeat :audio))))
-
-(defn- codec-list
-  "The codecs of the RFC 6381 codecs string `s`, trimmed."
-  [s]
-  (into [] (comp (map str/trim) (remove str/blank?)) (str/split (str s) #",")))
-
-(defn- codec-kind
-  "The kind of media of the `codec`, :audio or :video, or nil when it isn't
-  known."
-  [codec]
-  (codec-kinds (first (str/split (str/lower-case codec) #"\."))))
 
 (defn video?
   "Whether the `enclosure` is a video, or nil when nothing tells.
@@ -368,7 +273,7 @@
   [{:keys [medium type codecs height]}]
   (let [kind  (some-> type str/lower-case (str/split #"/") first)
         kinds (when codecs
-                (set (map codec-kind (codec-list codecs))))]
+                (set (map impl/codec-kind (impl/codec-list codecs))))]
     (cond
       medium                               (= "video" (str/lower-case medium))
       (= "video" kind)                     true
@@ -400,36 +305,6 @@
         (remove str/blank?)
         (cons (:rss/language feed) (keep :lang (enclosures item)))))
 
-(def ^:no-doc single-codec-types
-  "The media types, in lower case, that imply their codec, and so take no
-  codecs parameter."
-  #{"audio/mpeg" "audio/mp3" "audio/aac" "audio/flac" "audio/x-flac"})
-
-;; RFC 2046, section 4.5.1: the type of data whose format isn't known
-(def ^:no-doc unknown-types
-  "The media types, in lower case, that say nothing of the format of a
-  file."
-  #{"application/octet-stream" "binary/octet-stream"})
-
-(defn- format-type
-  "The media type that the `type` attribute names, in lower case and without
-  its parameters, or nil when it says nothing of the format: there's none,
-  it isn't a type and a subtype, or it's one of unknown-types."
-  [type]
-  (let [essence (mime/essence type)]
-    (when-not (unknown-types essence)
-      essence)))
-
-(defn- content-type
-  "The media type `essence` as a content type of the `kind`, :audio or
-  :video, with the `codec`, if any, as its codecs parameter."
-  [essence kind codec]
-  (let [[top sub] (str/split essence #"/" 2)
-        top       (if (#{"audio" "video"} top) (name kind) top)]
-    (cond-> (str top "/" sub)
-      (and codec (not (single-codec-types essence)))
-      (str "; codecs=\"" codec "\""))))
-
 (defn- positive?
   "Whether `x` is a number above 0."
   [x]
@@ -457,38 +332,34 @@
   MP3, so a :playable-pred of enclosure can count it as playable."
   [{:keys [type bitrate width height framerate channels samplingrate]
     :as   enclosure}]
-  (when-let [essence (format-type type)]
+  (when-let [essence (impl/format-type type)]
     (let [as-video? (not (false? (video? enclosure)))
-          codecs    (codec-list (or (:codecs enclosure)
-                                    (second (re-find #"(?i)codecs=\"?([^\";]+)"
-                                                     (str type)))))
-          of-kind   #(first (filter (comp #{%} codec-kind) codecs))
+          codecs    (impl/codec-list
+                     (or (:codecs enclosure)
+                         (second (re-find #"(?i)codecs=\"?([^\";]+)"
+                                          (str type)))))
+          of-kind   #(first (filter (comp #{%} impl/codec-kind) codecs))
           own       (or (of-kind (if as-video? :video :audio))
-                        (first (remove codec-kind codecs)))
+                        (first (remove impl/codec-kind codecs)))
           rate      (when (positive? bitrate) (Math/round (double bitrate)))]
       (if as-video?
         (cond-> {:type  :file
-                 :video (cond-> {:content-type (content-type essence :video
-                                                             own)}
+                 :video (cond-> {:content-type
+                                 (impl/content-type essence :video own)}
                           (every? positive? [width height rate framerate])
                           (assoc :width width :height height :bitrate rate
                                  :framerate framerate))}
           (of-kind :audio)
-          (assoc :audio {:content-type (content-type essence :audio
-                                                     (of-kind :audio))}))
+          (assoc :audio {:content-type (impl/content-type essence :audio
+                                                          (of-kind :audio))}))
         {:type  :file
-         :audio (cond-> {:content-type (content-type essence :audio own)}
+         :audio (cond-> {:content-type
+                         (impl/content-type essence :audio own)}
                   rate                    (assoc :bitrate rate)
                   (positive? channels)    (assoc :channels (str channels))
                   (positive? samplingrate)
                   (assoc :samplerate
                          (Math/round (* 1000 (double samplingrate)))))}))))
-
-;; ISO/IEC 23009-1; the podcast namespace, source
-(def ^:no-doc manifest-types
-  "The types of a file that says where the media is rather than holds it,
-  in lower case, besides an HLS playlist: a DASH manifest and a torrent."
-  #{"application/dash+xml" "application/x-bittorrent"})
 
 (defn downloadable?
   "Whether the `enclosure`, one of those that enclosures gives, is one file
@@ -497,7 +368,7 @@
   [{:keys [url type transport] :as enclosure}]
   (let [served (some-> (or transport type) str/lower-case)]
     (boolean (and (url/web-url? url)
-                  (not (manifest-types served))
+                  (not (impl/manifest-types served))
                   (not (hls/playlist? enclosure))))))
 
 (defn language-tag
@@ -522,17 +393,6 @@
       (nil? language)    (count languages)
       :else              (or (first matches)
                              (inc (count languages))))))
-
-(defn- type-rank
-  "The position of `type` among the preferred `types`, ignoring case and
-  parameters such as a charset, or after them all when it isn't among
-  them."
-  [types type]
-  (let [type (mime/essence type)]
-    (or (first (keep-indexed (fn [i wanted]
-                               (when (= type (str/lower-case wanted)) i))
-                             types))
-        (count types))))
 
 (defn- source-rank
   "The order of the `source` of enclosures, when nothing else tells them
@@ -582,30 +442,19 @@
                              (= prefer-video? as-video))
                        0
                        1)
-                     (if types (type-rank types type) 0)
+                     (if types (impl/type-rank types type) 0)
                      (if over? 1 0)
                      (source-rank source)
                      (if default? 0 1)]))]
      (first (sort-by rank (filter playable-pred (enclosures item)))))))
 
-(def ^:no-doc transcript-preference
-  "The transcript types in the order that an app is best served by them:
+(def transcript-preference
+  "The transcript types in the order that an app is best served by them,
+  the default :types of transcript:
   WebVTT, which has timings and speakers and plays in browsers, then SRT,
   JSON, HTML and plain text."
   ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
    "application/json" "text/html" "text/plain"])
-
-(def ^:no-doc timed-transcript-types
-  "The transcript types whose files have timings as a rule."
-  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt"
-    "application/json"})
-
-(defn- timed-transcript?
-  "Whether the transcript reference `ref` has timings: rel=captions, or a
-  type that has them as a rule."
-  [{:keys [type rel] :as ref}]
-  (or (= "captions" (some-> rel str/lower-case))
-      (contains? timed-transcript-types (mime/essence type))))
 
 ;; Media RSS 1.5.1, sections 5 and 5.22: deeper subtitles come first
 (defn transcripts
@@ -620,7 +469,7 @@
   (concat
    (:podcast/transcripts item)
    (for [{:keys [href type lang]} (concat (mapcat :subtitles
-                                                  (media-contents item))
+                                                  (impl/media-contents item))
                                           (:subtitles (:media/group item))
                                           (:media/subtitles item))
          :when href]
@@ -633,8 +482,7 @@
   the `feed`, which can be nil, and the `opts` below. It's one of those
   that transcripts gives.
 
-  - :types, the wanted types, by default WebVTT, SRT, JSON, HTML and plain
-    text
+  - :types, the wanted types, by default transcript-preference
   - :languages, the wanted languages, most wanted first, e.g. [\"da\" \"en\"]
   - :timed?, whether to prefer rel=captions or a timed type
 
@@ -653,10 +501,11 @@
          rank             (fn [{:keys [type language] :as ref}]
                             (let [language (or language default-language)
                                   untimed? (and timed?
-                                                (not (timed-transcript? ref)))]
+                                                (not (impl/timed-transcript?
+                                                      ref)))]
                               [(language-rank languages language)
                                (if untimed? 1 0)
-                               (type-rank types type)]))]
+                               (impl/type-rank types type)]))]
      (first (sort-by rank (transcripts item))))))
 
 (defn chapters-url
@@ -730,42 +579,23 @@
      (people item)
      (people feed))))
 
-(defn- inherited
-  "The value of `k` on `item` when it declares one, or else that of `feed`."
-  [k feed item]
-  (let [v (get item k)]
-    (if (or (nil? v)
-            (and (coll? v) (empty? v)))
-      (get feed k)
-      v)))
-
 (defn funding
   "The funding links of `x`, or of an `item` of `feed`, which are the
   item's own or else the feed's."
   ([x] (:podcast/funding x))
-  ([feed item] (inherited :podcast/funding feed item)))
+  ([feed item] (impl/inherited :podcast/funding feed item)))
 
 (defn license
   "The license of `x`, or of an `item` of `feed`, which is the item's own
   or else the feed's."
   ([x] (:podcast/license x))
-  ([feed item] (inherited :podcast/license feed item)))
+  ([feed item] (impl/inherited :podcast/license feed item)))
 
 (defn chat
   "The chat of `x`, or of an `item` of `feed`, which is the item's own or
   else the feed's."
   ([x] (:podcast/chat x))
-  ([feed item] (inherited :podcast/chat feed item)))
-
-(defn- social-interact
-  "The podcast:socialInteract `interact` with its protocol in lower case, or
-  nil when it names no protocol and URI, and isn't the protocol disabled."
-  [{:keys [protocol uri] :as interact}]
-  (let [protocol (some-> protocol str/lower-case)]
-    (when (or (= "disabled" protocol)
-              (and protocol uri))
-      (-> (select-keys interact [:uri :account-id :account-url :priority])
-          (assoc :protocol protocol)))))
+  ([feed item] (impl/inherited :podcast/chat feed item)))
 
 (defn social-interacts
   "Where the public comments on `x`, or on an `item` of `feed`, are: the
@@ -780,7 +610,7 @@
   public comments shown, and the answer is [{:protocol \"disabled\"}]. An
   item without an answer has that of its feed."
   ([x]
-   (let [interacts (keep social-interact (:podcast/social-interacts x))
+   (let [interacts (keep impl/social-interact (:podcast/social-interacts x))
          priority  #(let [p (:priority %)] (if (number? p) p ##Inf))]
      (if (some #(= "disabled" (:protocol %)) interacts)
        [{:protocol "disabled"}]
@@ -793,23 +623,18 @@
   "The locations of `x`, or of an `item` of `feed`, which are the item's
   own or else the feed's."
   ([x] (:podcast/locations x))
-  ([feed item] (inherited :podcast/locations feed item)))
+  ([feed item] (impl/inherited :podcast/locations feed item)))
 
 (defn value
   "The value block of `x`, or the one that applies to an `item` of `feed`,
   which is the item's own when it declares one. With `type`, only blocks
   of that type count, e.g. \"lightning\"."
   ([x] (first (:podcast/values x)))
-  ([feed item] (first (inherited :podcast/values feed item)))
+  ([feed item] (first (impl/inherited :podcast/values feed item)))
   ([feed item type]
    (let [of-type #(filter (comp #{type} str/lower-case str :type) %)]
      (or (first (of-type (:podcast/values item)))
          (first (of-type (:podcast/values feed)))))))
-
-(def ^:no-doc live-status-order
-  "Live items in the order that a listener cares about: on air, then
-  upcoming, then over."
-  {"live" 0 "pending" 1 "ended" 2})
 
 (defn live-items
   "The live items of `feed`: on air first, then upcoming, the soonest
@@ -818,7 +643,7 @@
   (let [ms    #(if (inst? %) (inst-ms %) 0)
         order (fn [{:keys [status start]}]
                 (let [status (some-> status str/lower-case)
-                      rank   (get live-status-order status 3)]
+                      rank   (get impl/live-status-order status 3)]
                   [rank (if (= 2 rank) (- (ms start)) (ms start))]))]
     (sort-by order (:podcast/live-items feed))))
 
@@ -880,17 +705,10 @@
       (= slug "google") (true? (:googleplay/block x))
       :else             false)))
 
-(defn ^:no-doc atom-links
-  "The atom:links of `feed` with the link relation `rel`, given in lower
-  case, in the order of the feed."
-  [feed rel]
-  (filter #(= rel (some-> (:rel %) str/lower-case))
-          (:atom/links feed)))
-
 (defn self-url
   "The canonical URL of `feed`, from its atom:link rel=self."
   [feed]
-  (some :href (atom-links feed "self")))
+  (some :href (impl/atom-links feed "self")))
 
 (defn new-feed-url
   "Where `feed` says that it has moved to, if anywhere, judged by the
@@ -913,7 +731,7 @@
   "The URLs of the WebSub hubs of `feed`, from its atom:links with
   rel=hub, in the order of the feed."
   [feed]
-  (keep :href (atom-links feed "hub")))
+  (keep :href (impl/atom-links feed "hub")))
 
 (defn next-page
   "The URL of the page with the older items of `feed`, when the feed comes
@@ -923,7 +741,7 @@
   rel=prev-archive of an archived feed. It's as the feed writes it, so it
   can be relative to the URL of the page."
   [feed]
-  (let [href #(some :href (atom-links feed %))]
+  (let [href #(some :href (impl/atom-links feed %))]
     (or (href "next")
         (href "prev-archive"))))
 
@@ -975,24 +793,13 @@
       (some #(when (= "publisher" (some-> (:medium %) str/lower-case)) %)
             (remote-items feed)))))
 
-(defn- category-paths
-  "The paths of `categories` and of their subcategories, each below
-  `prefix`."
-  [prefix categories]
-  (mapcat (fn [{:keys [text categories]}]
-            (let [path (conj prefix text)]
-              (if (seq categories)
-                (category-paths path categories)
-                [path])))
-          categories))
-
 (defn categories
   "The Apple categories of `feed` as paths, subcategory after category,
   e.g.:
 
       [[\"News\" \"Tech News\"] [\"Technology\"]]"
   [feed]
-  (vec (category-paths [] (:itunes/categories feed))))
+  (vec (impl/category-paths [] (:itunes/categories feed))))
 
 (defn serial?
   "Whether `feed` is serial, by its itunes:type, so that its episodes are
@@ -1089,8 +896,13 @@
   [f]
   (fn [_ item] (f item)))
 
-(def ^:no-doc show-properties
-  "The accessors of a show by property."
+(def show-properties
+  "The accessors of a show by property, each a function of a feed.
+
+  These are the properties that properties answers for a feed, and an app
+  can read one of them by its key, even one without an answer:
+
+      ((:artwork show-properties) feed)"
   {:title title :description description :author author :link link
    :published published :images images :artwork artwork :explicit? explicit?
    :txt txt :ai-content? ai-content? :people people :funding funding
@@ -1100,9 +912,14 @@
    :new-feed-url new-feed-url :self-url self-url :hubs hubs :podroll podroll
    :remote-items remote-items :publisher publisher :categories categories})
 
-(def ^:no-doc episode-properties
-  "The accessors of an episode by property, each of the feed and the item,
-  inheriting as the forms with two arguments do."
+(def episode-properties
+  "The accessors of an episode by property, each a function of a feed and
+  an item that inherits as the forms with two arguments do.
+
+  These are the properties that properties answers for an item, and an
+  app can read one of them by its key, even one without an answer:
+
+      ((:artwork episode-properties) feed item)"
   (let [of-items {:title title :description description :author author
                   :link link :published published :images images
                   :duration duration :numbering numbering
@@ -1118,32 +935,14 @@
                   :locations locations :value value}]
     (merge (update-vals of-items of-item) of-both)))
 
-(defn- answer
-  "The value `v` of an accessor as a property: a sequence as a vector, and
-  nothing when it's nil or empty."
-  [v]
-  (cond (nil? v)  nil
-        (seq? v)  (when (seq v) (vec v))
-        (coll? v) (when (seq v) v)
-        :else     v))
-
-(defn- answers
-  "The properties that the accessors of `table` answer, each called with
-  `call`."
-  [table call]
-  (into {} (keep (fn [[k f]]
-                   (when-some [v (answer (call f))]
-                     [k v])))
-        table))
-
 (defn properties
   "Every property that the accessors answer for `feed`, or for its `item`,
   as one map with plain keys, without those that have no answer.
 
-  For a feed alone, the properties are those of the show, :title to
-  :categories. For a feed and an item, they're those of the episode,
-  inheriting from the feed as each accessor does. What needs a time or a
-  platform is left out, e.g. the next check.
+  For a feed alone, the properties are those of show-properties. For a feed
+  and an item, they're those of episode-properties, inheriting from the
+  feed as each accessor does. What needs a time or a platform is left out,
+  e.g. the next check.
 
       (merge item (properties feed item))
       ;; => {:rss/title \"…\" :title \"…\" :artwork \"…\" …}
@@ -1151,43 +950,9 @@
   A map merged like this is for reading, since writing it as a feed would
   take its plain keys with string values as attributes."
   ([feed]
-   (answers show-properties #(% feed)))
+   (impl/answers show-properties #(% feed)))
   ([feed item]
-   (answers episode-properties #(% feed item))))
-
-(defn- explains?
-  "Whether the accessor `f` gives `expected` from `args` alone."
-  [f expected args]
-  (= expected (answer (apply f args))))
-
-(defn- from-defaults?
-  "Whether `f`, given `arity` empty maps, answers with nothing to read
-  from: a default, which no field explains."
-  [f arity]
-  (some? (answer (apply f (repeat arity {})))))
-
-(defn- explaining-paths
-  "The paths into `m` of the keys whose entry alone makes the accessor `f`
-  give `expected`, in the order of the keys. A path is `prefix` and the
-  key, and `args-fn` makes the arguments of `f` of the map of the entry."
-  [f expected m prefix args-fn]
-  (for [k     (sort (keys m))
-        :when (explains? f expected (args-fn (select-keys m [k])))]
-    (conj prefix k)))
-
-(defn- paths-by-property
-  "The paths of each property in the answers `full` of the accessors of
-  `table`, as `paths-of` gives them for the accessor and its answer.
-
-  A property that the accessor answers from `arity` empty maps, a default,
-  is left out, and so is one without paths."
-  [table full arity paths-of]
-  (into {} (for [[k f] table
-                 :when (and (contains? full k)
-                            (not (from-defaults? f arity)))
-                 :let  [paths (vec (paths-of f (get full k)))]
-                 :when (seq paths)]
-             [k paths])))
+   (impl/answers episode-properties #(% feed item))))
 
 (defn sources
   "Where the properties of `feed`, or of its `item`, were read from.
@@ -1198,15 +963,17 @@
   paths mean that several fields agree. A property put together from more
   than one field, or answered by a default, is left out."
   ([feed]
-   (paths-by-property show-properties (properties feed) 1
-                      (fn [f expected]
-                        (explaining-paths f expected feed [] vector))))
+   (impl/paths-by-property
+    show-properties (properties feed) 1
+    (fn [f expected]
+      (impl/explaining-paths f expected feed [] vector))))
   ([feed item]
-   (paths-by-property episode-properties (properties feed item) 2
-                      (fn [f expected]
-                        (let [paths (partial explaining-paths f expected)]
-                          (concat (paths item [:item] #(vector {} %))
-                                  (paths feed [:feed] #(vector % {}))))))))
+   (impl/paths-by-property
+    episode-properties (properties feed item) 2
+    (fn [f expected]
+      (let [paths (partial impl/explaining-paths f expected)]
+        (concat (paths item [:item] #(vector {} %))
+                (paths feed [:feed] #(vector % {}))))))))
 
 #?(:clj
    (comment

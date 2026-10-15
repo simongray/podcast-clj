@@ -6,6 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.resolve.impl :as resolve.impl]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -199,7 +200,8 @@
          (set resolve/transcript-preference)
          (set (keys transcript/formats)))
       "the types that the feed names, that an app picks among, and that read")
-  (is (set/subset? resolve/timed-transcript-types spec/transcript-types))
+  (is (set/subset? resolve.impl/timed-transcript-types
+                   spec/transcript-types))
   (is (set/subset? (set (vals quirks/transcript-type-values)) spec/transcript-types)
       "and what the quirk respells a type to"))
 
