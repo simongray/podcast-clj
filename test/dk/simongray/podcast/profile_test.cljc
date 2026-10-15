@@ -33,7 +33,7 @@
         (is (profile/subscribed? back "feed-a"))
         (is (= 20 (:skip-intro (profile/settings back "feed-a"))))
         (is (= t3 (get-in back [:subscriptions "feed-a" :added-at])))))
-    (is (= s (profile/configure s "feed-b" {:rate 2.0} t1)) "settings for an unknown feed change nothing")
+    (is (= s (profile/configure s "feed-b" {:playback-rate 2.0} t1)) "settings for an unknown feed change nothing")
     (testing "a subscription known by the guid of its URL moves to the guid that the feed declares"
       (let [tagged (profile/tag s "feed-a" "tech" t1)
             moved  (profile/rekey tagged "feed-a" "declared" t2)
@@ -174,9 +174,9 @@
         (is (= [[:seek a 110]] (:effects (profile.player/step s [:skip a 10] t1))))))
     (testing "a feed's own rate overrides the listener's"
       (let [s (-> s
-                  (profile/prefer {:rate 1.5} t0)
+                  (profile/prefer {:playback-rate 1.5} t0)
                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
-                  (profile/configure "feed-a" {:rate 1.0} t0))]
+                  (profile/configure "feed-a" {:playback-rate 1.0} t0))]
         (is (= 1.0 (profile/playback-rate s "feed-a")))
         (is (= 1.5 (profile/playback-rate s "feed-b")))))
     (testing "a feed's own choice of video overrides the listener's"
@@ -251,10 +251,10 @@
   (let [base   (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
         phone  (-> base (profile/prefer {:skip-forward 45} t1) (profile/configure "feed-a" {:skip-intro 20} t1))
         laptop (-> (profile/merge (profile/make "laptop") base)
-                   (profile/prefer {:rate 1.5} t2)
+                   (profile/prefer {:playback-rate 1.5} t2)
                    (profile/configure "feed-a" {:auto-queue? true} t2))
         merged (profile/merge phone laptop)]
-    (is (= (assoc profile/default-preferences :skip-forward 45 :rate 1.5) (profile/preferences merged))
+    (is (= (assoc profile/default-preferences :skip-forward 45 :playback-rate 1.5) (profile/preferences merged))
         "preferences changed on different devices both survive")
     (is (= (assoc profile/default-settings :auto-queue? true :skip-intro 20) (profile/settings merged "feed-a"))
         "and so do a subscription's settings")
@@ -505,9 +505,9 @@
            (order (saved (turned other)) (saved one)))
         "the content decides, and not the order of the keys in a map of the entry")
     (testing "a whole number prints without a fraction on both platforms, so both pick the same entry"
-      (let [rate (fn [v] {:device "p" :preferences {:rate {:value v :updated-at t0 :device "p"}}})]
-        (is (== 1 (:rate (profile/preferences (profile/merge (rate 1.0) (rate 1.5))))))
-        (is (== 1 (:rate (profile/preferences (profile/merge (rate 1.5) (rate 1.0))))))))))
+      (let [rate (fn [v] {:device "p" :preferences {:playback-rate {:value v :updated-at t0 :device "p"}}})]
+        (is (== 1 (:playback-rate (profile/preferences (profile/merge (rate 1.0) (rate 1.5))))))
+        (is (== 1 (:playback-rate (profile/preferences (profile/merge (rate 1.5) (rate 1.0))))))))))
 
 (deftest devices-and-the-clock
   (let [s (-> (profile/make "phone-id")
@@ -639,7 +639,7 @@
 (deftest the-changes-since-a-state
   (let [taken   (-> (profile/make "phone")
                     (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
-                    (profile/prefer {:rate 1.5} t1))
+                    (profile/prefer {:playback-rate 1.5} t1))
         s       (-> taken
                     (profile/progress a 100 3600 t2)
                     (profile.queue/enqueue a t3))

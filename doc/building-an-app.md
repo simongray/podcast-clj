@@ -973,13 +973,13 @@ headphones send their events through `library/step` too:
 (defn play-episode!
   "Start the episode `id` of the library in the media element `audio`."
   [audio id]
-  (let [{:keys [src position rate metadata]} (library/playback @lib id)
+  (let [{:keys [src position playback-rate metadata]} (library/playback @lib id)
         step!  #(apply-effects! audio (:effects (swap! lib library/step %)))
         press! (fn [details]
                  (run! step! (media-session/events
                               @lib id (.-currentTime audio) details)))]
     (set! (.-src audio) src)
-    (set! (.-playbackRate audio) rate)
+    (set! (.-playbackRate audio) playback-rate)
     (.addEventListener audio "loadedmetadata"
                        #(set! (.-currentTime audio) position)
                        #js {:once true})

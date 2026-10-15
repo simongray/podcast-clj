@@ -672,23 +672,24 @@
   (let [id    [guid "https://example.com/ep0003"]
         lib   (-> library
                   (library/step [:progress id 754 3600] {:at (at 10)})
-                  (library/update-profile profile/configure guid {:rate 1.5}))
+                  (library/update-profile profile/configure guid {:playback-rate 1.5}))
         view  (library/playback lib id)
         files {:chapters {:source   :file
                           :document {:chapters [{:start-time 0 :title "Intro"}
                                                 {:start-time 60 :title "Ads" :toc false}
                                                 {:start-time 94 :title "Talk" :img "https://x/i.png"}]}}
                :duration 3599.5}]
-    (is (= {:id       id
-            :src      "https://example.com/file-03.mp3"
-            :local?   false
-            :position 754
-            :duration 3600
-            :rate     1.5
-            :played?  false
-            :title    "Episode 3 - The Future"
-            :show     "Podcasting 2.0 Namespace Example"}
-           (select-keys view [:id :src :local? :position :duration :rate :played? :title :show])))
+    (is (= {:id            id
+            :src           "https://example.com/file-03.mp3"
+            :local?        false
+            :position      754
+            :duration      3600
+            :playback-rate 1.5
+            :played?       false
+            :title         "Episode 3 - The Future"
+            :show          "Podcasting 2.0 Namespace Example"}
+           (select-keys view [:id :src :local? :position :duration :playback-rate
+                              :played? :title :show])))
     (is (= ["https://example.com/ep3_chapters.json" "text/vtt"] [(:chapters-url view) (:type (:transcript view))]))
     (is (= {:title        "Episode 3 - The Future"
             :artist       "John Doe"

@@ -936,7 +936,7 @@
        :enclosure  {:url \"…\" :type \"audio/mpeg\" …}
        :position   754.0                ; where to start, in seconds
        :duration   3612.0               ; when it's known
-       :rate       1.5
+       :playback-rate 1.5               ; the rate of the show
        :played?    false
        :title      \"…\" :show \"…\" :artwork \"https://…\"
        :poster     \"https://…\"         ; of a video, before it plays
@@ -951,7 +951,10 @@
   device for a show of local files. With :read, what read-files! gave for
   the episode, its chapters and measured duration go over those of the
   feed. The keys without a value are left out, and app.episode/metadata
-  gives the metadata."
+  gives the metadata.
+
+  The :src, :position and :playback-rate are the keys that media/source!
+  of the play-nice library loads, so it takes the map as it is."
   ([library id]
    (playback library id {}))
   ([library id {:keys [read] :as opts}]
@@ -971,14 +974,14 @@
            duration    (or (:duration (profile/episode-entry profile id))
                            (:duration read)
                            (:duration view))]
-       (into {:id       id
-              :local?   (or (some? local-file)
-                            (true? (get-in library [:feeds feed-guid :local?])))
-              :position (profile/resume-position profile feed-guid id
-                                                 (impl/time-of library opts))
-              :rate     (profile/playback-rate profile feed-guid)
-              :played?  (profile/played? profile id)
-              :metadata (episode/metadata feed view)}
+       (into {:id            id
+              :local?        (or (some? local-file)
+                                 (true? (get-in library [:feeds feed-guid :local?])))
+              :position      (profile/resume-position profile feed-guid id
+                                                      (impl/time-of library opts))
+              :playback-rate (profile/playback-rate profile feed-guid)
+              :played?       (profile/played? profile id)
+              :metadata      (episode/metadata feed view)}
              (remove (comp nil? val))
              {:src          src
               :enclosure    (:enclosure view)

@@ -326,7 +326,7 @@
 
   The settings are the keys of default-settings, and these:
 
-  - :rate, the playback rate of this show
+  - :playback-rate, the playback rate of this show
   - :video?, whether to watch the video of its episodes that offer audio
     and video
   - :notify?, whether its new episodes are announced
@@ -385,7 +385,7 @@
   "How the listener likes to listen until they change it:
 
   - :skip-forward and :skip-back, the seconds that a skip jumps
-  - :rate, the playback rate
+  - :playback-rate, the playback rate
   - :video?, whether to watch the video of an episode that offers audio
     and video
   - :notify?, whether the new episodes of a show are announced
@@ -403,7 +403,7 @@
     they are."
   {:skip-forward          30
    :skip-back             15
-   :rate                  1.0
+   :playback-rate         1.0
    :video?                false
    :notify?               false
    :track-buttons         :chapters
@@ -430,7 +430,8 @@
   "The playback rate for the feed `feed-guid` in `profile`: its own setting,
   or else the listener's preference."
   [profile feed-guid]
-  (or (:rate (settings profile feed-guid)) (:rate (preferences profile))))
+  (or (:playback-rate (settings profile feed-guid))
+      (:playback-rate (preferences profile))))
 
 (defn prefers-video?
   "Whether the listener watches the video of an episode of the feed

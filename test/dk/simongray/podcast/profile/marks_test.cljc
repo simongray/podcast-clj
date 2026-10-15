@@ -80,7 +80,7 @@
       (is (= 3 (profile.marks/rating (profile.marks/rate-episode without a 3 t3) a)) "a rating after the removal")
       (is (nil? (profile.marks/rating (profile/merge without (profile.marks/rate-episode (profile/make "laptop") a 1 t1)) a))
           "the later removal outlives the older rating from another device"))
-    (is (= 2.0 (profile/playback-rate (profile/prefer s {:rate 2.0} t2) "feed-a")) "the speed of playback is another thing")))
+    (is (= 2.0 (profile/playback-rate (profile/prefer s {:playback-rate 2.0} t2) "feed-a")) "the speed of playback is another thing")))
 
 (deftest ratings-in-the-scale-of-the-app
   (let [hundred {:scale {:worst 1 :best 100}}
