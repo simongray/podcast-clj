@@ -6,19 +6,25 @@
   The state holds the listener's profile and, for each episode id, what
   /episode.edn served for it:
 
-      {:profile … :titles {id episode} :media {…} :answer {…}
-       :volume-locked? false :error \"…\"}
+      {:profile … :titles {id episode} :media {…} :error \"…\"}
 
-  The :media is the state of the media element, as play-nice's
-  media/watch! reports it, the :answer is the browser's to playing it,
-  and :volume-locked? is whether the browser locks the volume. An episode
-  that another device added comes through a sync as a remote item,
-  without that data. An event is a vector whose first element names it:
+  It also holds what the player follows of the media element:
+
+  - :media, its state, as play-nice's media/watch! reports it, and
+    :tracks, its text tracks, as tracks/watch! reports them
+  - :answer, the browser's answer to playing it
+  - :volume-locked?, whether the browser locks the volume
+  - :transcript? and :caption-style, how the listener shows the transcript
+  - :start, the position by episode id that a link asked to play from
+
+  An episode that another device added comes through a sync as a remote
+  item, without that data. An event is a vector whose first element names
+  it:
 
       [:play id] [:skip id :back] [:ended id] [:sleep 1] [:play-next id]
       [:dequeue id] [:prefer :skip-back] [:sync]
       [:press {:action :play}] [:seek-at] [:rate feed-guid] [:volume]
-      [:muted false]
+      [:muted false] [:transcript true] [:caption-style]
       [:folder/pick] [:folder/allow] [:folder/forget]
       [:document/save] [:document/load] [:device/retire id]
 
@@ -121,25 +127,59 @@
                            (or volume 1))
               :on         {:input [:volume]}}])])
 
+(def caption-styles
+  "The styles of captions that the bar offers, by name, of which the first
+  keeps the browser's own."
+  {"The browser's own" nil
+   "Large"             {:font-scale 1.5}
+   "Yellow"            {:color :yellow :background-opacity 0.6}
+   "Outlined"          {:background-opacity 0 :edge :uniform}})
+
+(defn- active-text
+  "The text of the active cue of the first of the `tracks` of `kind`, e.g.
+  the title of the chapter that plays."
+  [tracks kind]
+  (some #(when (= kind (:kind %)) (:text (first (:active-cues %)))) tracks))
+
+(defn- transcript-controls
+  "A button that shows or hides the transcript as `shown?` says, and for a
+  `video?` a choice of the style of its captions, at `chosen`."
+  [shown? video? chosen]
+  (list
+   [:button {:on {:click [:transcript (not shown?)]}}
+    (if shown? "Hide transcript" "Transcript")]
+   (when (and shown? video?)
+     [:label "Captions "
+      [:select {:on {:change [:caption-style]}}
+       (for [name (keys caption-styles)]
+         [:option {:replicant/key name
+                   :selected      (= name (or chosen "The browser's own"))}
+          name])]])))
+
 (defn bar
   "The persistent player of the page `state`: the current episode, its
-  audio or video element and its controls, the skip buttons and the sleep
-  timer, or nil when nothing is queued.
+  chapter, its audio or video element and its controls, its transcript,
+  the skip buttons and the sleep timer, or nil when nothing is queued.
 
   The media element loads the episode when it's mounted, at the position
-  to resume at and the rate of the show. An episode that came through a
-  sync from a device that told no data of it has nothing to play. The bar
-  tells so, and the listener removes it."
-  [{:keys [profile media answer sleep volume-locked?] :as state}]
+  to resume at, or the :start that a link asked for, and the rate of the
+  show. An episode that came through a sync from a device that told no
+  data of it has nothing to play. The bar tells so, and the listener
+  removes it."
+  [{:keys [profile media answer sleep volume-locked? tracks transcript?
+           caption-style]
+    :as   state}]
   (when-let [id (profile.queue/current profile)]
     (let [{:keys [enclosure video?] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (profile/preferences profile)
           [feed-guid] id
           position (profile/resume-position profile feed-guid id)
           rate     (profile/playback-rate profile feed-guid)
-          paused   (:paused media true)]
+          paused   (:paused media true)
+          chapter  (active-text tracks :chapters)]
       [:div.bar
-       [:span (episode-link state id)]
+       [:span (episode-link state id)
+        (when (seq chapter) (list " · " [:span.muted chapter]))]
        (cond
          enclosure
          (list
@@ -148,7 +188,8 @@
             :replicant/key        id
             :replicant/on-mount   [:media/mounted id
                                    {:src           enclosure
-                                    :position      position
+                                    :position      (get-in state [:start id]
+                                                           position)
                                     :playback-rate rate}]
             :replicant/on-unmount [:media/unmounted id]
             :on                   {:ended [:ended id]}}]
@@ -158,7 +199,9 @@
            (seek-bar media)
            [:span.muted (readout media position)]]
           (rate-select feed-guid (:playback-rate media rate))
-          (volume-controls media volume-locked?))
+          (volume-controls media volume-locked?)
+          (when (some #(= :captions (:kind %)) tracks)
+            (transcript-controls transcript? video? caption-style)))
 
          episode
          [:span.muted "No enclosure to play."]
@@ -177,7 +220,10 @@
         [:button {:on {:click [:dequeue id]}} "Remove"]
         " "
         [:button {:on {:click [:sleep (when-not sleep 1)]}}
-         (if sleep "Play on after this episode" "Stop after this episode")]]])))
+         (if sleep "Play on after this episode" "Stop after this episode")]]
+       ;; a video shows its transcript as captions
+       (when (and enclosure transcript? (not video?))
+         [:div.cue {:aria-live "polite"} (active-text tracks :captions)])])))
 
 (defn- up-next
   [{:keys [profile] :as state}]

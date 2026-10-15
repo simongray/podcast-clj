@@ -21,6 +21,12 @@
   go through the library as app.media-session has them. A tab that starts
   playing pauses the inspector's other tabs.
 
+  Once the server has read the episode's files, at /episode-files.edn,
+  its chapters go on the lock screen and into a track that tells the bar
+  which one plays, and its transcript into captions. A link to an item
+  page with a t, e.g. from a chapter's start, plays the episode from
+  there.
+
   The feeds of the episodes are refreshed in a web worker when they're
   due, as inspector.worker describes."
   (:require [cljs.reader :as reader]
@@ -30,7 +36,11 @@
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.play-nice.controls :as controls]
+            [dk.simongray.play-nice.display.wake-lock :as wake-lock]
             [dk.simongray.play-nice.media :as media]
+            [dk.simongray.play-nice.media.captions :as captions]
+            [dk.simongray.play-nice.media.fragment :as fragment]
+            [dk.simongray.play-nice.media.tracks :as tracks]
             [dk.simongray.play-nice.page.autoplay :as autoplay]
             [dk.simongray.play-nice.page.tabs :as tabs]
             [dk.simongray.play-nice.session :as session]
@@ -205,9 +215,10 @@
     (f)))
 
 (defn- episode-query
-  "The path of /episode.edn for the episode `guid` of the feed at `url`."
-  [url guid]
-  (str "/episode.edn?url=" (js/encodeURIComponent url)
+  "The address at `path` of the episode `guid` of the feed at `url`, e.g.
+  of /episode.edn."
+  [path url guid]
+  (str path "?url=" (js/encodeURIComponent url)
        "&guid=" (js/encodeURIComponent guid)))
 
 (defn- feed-url-of
@@ -234,7 +245,7 @@
                        (not (contains? titles id))
                        (not (contains? @asked id)))]
       (swap! asked conj id)
-      (-> (js/fetch (episode-query url item-guid))
+      (-> (js/fetch (episode-query "/episode.edn" url item-guid))
           (.then #(when (.-ok %) (.text %)))
           (.then #(when %
                     (swap! app assoc-in [:titles id] (reader/read-string %))))
@@ -509,6 +520,92 @@
                (>= (js/Math.abs (- current-time (or reported -10))) 5)))
       (progress! id state))))
 
+(defonce ^{:doc "The function that lets the screen go dark again, while
+  the transcript of an audio episode is shown."}
+  release-screen
+  (atom nil))
+
+(defn- release-screen!
+  []
+  (when-let [release! @release-screen]
+    (reset! release-screen nil)
+    (release!)))
+
+(defn- video?
+  [^js el]
+  (= "VIDEO" (.-tagName el)))
+
+(defn- show-transcript!
+  "Show the transcript of the episode that plays when `on?`, and hide it
+  otherwise: as the captions of a video, or for audio as a line of the
+  bar, which keeps the screen on while it plays."
+  [on?]
+  (swap! app assoc :transcript? on?)
+  (release-screen!)
+  (when-let [el (audio-element)]
+    (if (video? el)
+      (let [language (some #(when (= :captions (:kind %)) (:language %))
+                           (tracks/text-tracks el))]
+        (tracks/show! el {:kinds     [:captions]
+                          :languages (if (and on? language) [language] [])}))
+      (when on?
+        (reset! release-screen (wake-lock/hold-while-playing! el))))))
+
+(defonce ^{:doc "The function that takes the listener's style off the
+  captions of the video that plays."}
+  unstyle-captions
+  (atom nil))
+
+(defn- style-captions!
+  "Style the captions of the video that plays in the style of `name`, one
+  of view/caption-styles, or leave them in the browser's own."
+  [name]
+  (swap! app assoc :caption-style name)
+  (when-let [unstyle! @unstyle-captions]
+    (reset! unstyle-captions nil)
+    (unstyle!))
+  (let [style (get view/caption-styles name)
+        el    (audio-element)]
+    (when (and style el (video? el))
+      (reset! unstyle-captions (captions/style! el style)))))
+
+(defn- duration-of
+  "The seconds of the episode `id`: those of its media element `el` once it
+  knows them, or else those that its feed declares."
+  [id ^js el]
+  (let [d (.-duration el)]
+    (if (js/Number.isFinite d)
+      d
+      (get-in @app [:titles id :duration]))))
+
+(defn- add-files!
+  "Add what the files of the episode `id` hold to its media element `el`,
+  as /episode-files.edn serves it: the :metadata with the chapters on the
+  lock screen, the chapters as a track, and the :transcript as captions,
+  shown or hidden as the listener left them."
+  [id el {:keys [metadata transcript] :as files}]
+  (when (identical? el (audio-element))
+    (session/metadata! metadata)
+    (when-let [chapters (seq (:chapter-info metadata))]
+      (tracks/add! el {:kind  :chapters
+                       :label "Chapters"
+                       :cues  (tracks/chapter-cues chapters
+                                                   (duration-of id el))}))
+    (when transcript
+      (tracks/add! el (assoc transcript :kind :captions :label "Transcript"))
+      (show-transcript! (:transcript? @app))
+      (style-captions! (:caption-style @app)))))
+
+(defn- load-files!
+  "Fetch what the files of the episode `id` hold from /episode-files.edn,
+  and add it to its media element `el`."
+  [id el]
+  (when-let [{:keys [url guid]} (get-in @app [:titles id])]
+    (-> (js/fetch (episode-query "/episode-files.edn" url guid))
+        (.then #(when (.-ok %) (.text %)))
+        (.then #(some->> % reader/read-string (add-files! id el)))
+        (.catch #(js/console.warn "The episode's files didn't load:" %)))))
+
 (defonce ^{:doc "The functions that stop following the media element of
   each episode id, while the bar shows it."}
   detach-element
@@ -516,18 +613,22 @@
 
 (defn- mount!
   "Load the `source` of the episode `id` into the media element `el` that
-  the bar has rendered, and follow it: keep its state, put it on the lock
-  screen, press its handlers at the bar's keys, and let it pause when
-  another tab plays."
+  the bar has rendered, and follow it: keep its state and its tracks, put
+  it on the lock screen, press its handlers at the bar's keys, and let it
+  pause when another tab plays. Its chapters and transcript follow."
   [id source el]
   (media/source! el source)
-  (swap! app dissoc :answer :media :reported)
+  (swap! app #(-> %
+                  (dissoc :answer :media :reported :tracks)
+                  (update :start dissoc id)))
   (on-lock-screen! id el)
+  (load-files! id el)
   (let [bar      (js/document.getElementById "player-bar")
         seek-bar (some-> bar (.querySelector ".seek-bar"))]
     (swap! detach-element assoc id
            (juxt (media/watch! el (partial reported! id)
                                {:events (conj media/events :timeupdate)})
+                 (tracks/watch! el #(swap! app assoc :tracks %))
                  ;; a key on the seek bar is its own, before the bar's
                  (controls/listen! seek-bar el @handlers
                                    {:keymap controls/seek-bar-keys})
@@ -538,6 +639,7 @@
   "Stop following the media element of the episode `id`, which the bar no
   longer shows."
   [id]
+  (release-screen!)
   (when-let [detach! (get @detach-element id)]
     (swap! detach-element dissoc id)
     (detach!)))
@@ -579,6 +681,8 @@
                              (media/volume! (parse-double (.. e -target -value))
                                             {:curve :cubic}))
     :muted           (some-> (audio-element) (media/muted! (first args)))
+    :transcript      (show-transcript! (first args))
+    :caption-style   (style-captions! (.. e -target -value))
     nil))
 
 (defn- add!
@@ -597,6 +701,18 @@
     "next" (operate! profile.queue/play-next id)
     (operate! profile.queue/enqueue id)))
 
+(defn- fetch-episode!
+  "A promise of what /episode.edn serves for the episode `guid` of the
+  feed at `url`, which rejects where it answers with an error."
+  [url guid]
+  (-> (js/fetch (episode-query "/episode.edn" url guid))
+      (.then (fn [response]
+               (if (.-ok response)
+                 (.text response)
+                 (throw (js/Error. (str "episode.edn answered "
+                                        (.-status response)))))))
+      (.then reader/read-string)))
+
 (defn- add-from-query!
   []
   (let [params (js/URLSearchParams. js/location.search)
@@ -605,15 +721,34 @@
         mode   (.get params "mode")]
     (when (and url guid)
       (js/history.replaceState nil "" "/queue")
-      (let [text (fn [response]
-                   (if (.-ok response)
-                     (.text response)
-                     (throw (js/Error. (str "episode.edn answered "
-                                            (.-status response))))))]
-        (-> (js/fetch (episode-query url guid))
-            (.then text)
-            (.then (fn [edn] (add! (reader/read-string edn) mode)))
-            (.catch #(swap! app assoc :error (str %))))))))
+      (-> (fetch-episode! url guid)
+          (.then #(add! % mode))
+          (.catch #(swap! app assoc :error (str %)))))))
+
+(defn- play-at!
+  "Play the `episode` that /episode.edn served from `t` seconds: at once
+  where it's the one that plays, and otherwise as one added now."
+  [{:keys [id] :as episode} t]
+  (if (and (= id (profile.queue/current (get-in @app [:library :profile])))
+           (audio-element))
+    (do (press! {:action :seekto :seek-time t})
+        (start! true))
+    (do (swap! app assoc-in [:start id] t)
+        (add! episode "now"))))
+
+(defn- play-from-link!
+  "Play the episode of an item page from where the t of its address points,
+  e.g. /item?url=…&guid=…&t=95 from the start of a chapter, and take the t
+  off the address, so that going back doesn't play it again."
+  []
+  (when-let [t (and (= "/item" js/location.pathname)
+                    (fragment/link-time js/location.href))]
+    (let [params (js/URLSearchParams. js/location.search)]
+      (.delete params "t")
+      (js/history.replaceState nil "" (str "/item?" params))
+      (-> (fetch-episode! (.get params "url") (.get params "guid"))
+          (.then #(play-at! % t))
+          (.catch #(swap! app assoc :error (str %)))))))
 
 (defn- shown
   "The page `state` as the view reads it: with the profile and the sleep
@@ -673,6 +808,7 @@
   []
   (render! true)
   (add-from-query!)
+  (play-from-link!)
   (fill-recommended!))
 
 (defn- swap-content!
@@ -831,7 +967,7 @@
   - watch the state, and handle the view's events
   - take over navigation and the other tabs' saves
   - take up the sync folder of the last visit
-  - add an episode that the URL asks for
+  - add an episode that the URL asks for, or play one from its t
   - fetch the episodes like the one of an item page
   - sync and refresh on its own"
   []
@@ -852,14 +988,15 @@
                           (get-in new [:library :profile]))
                  (off-lock-screen!))
                ;; the media element reports its time four times a second,
-               ;; and only the bar shows it
-               (render! (not= (dissoc old :media :reported)
-                              (dissoc new :media :reported)))))
+               ;; and its tracks at each cue, and only the bar shows them
+               (render! (not= (dissoc old :media :reported :tracks)
+                              (dissoc new :media :reported :tracks)))))
   (intercept-navigation!)
   (listen-to-other-tabs!)
   (render! true)
   (restore-folder!)
   (add-from-query!)
+  (play-from-link!)
   (fill-recommended!)
   (sync-on-its-own!)
   (refresh-on-its-own!))

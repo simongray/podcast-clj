@@ -124,9 +124,10 @@
 
   ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
   ;; like-minded, websub-clj, whatwg-mime, langtag-clj, webcrypto-clj,
-  ;; id3-clj, webvtt-clj, ical-clj and httpsig-clj from checkouts beside
-  ;; this one, to change them and podcast-clj at once, e.g.
-  ;; clojure -M:dev:local:nrepl
+  ;; id3-clj, webvtt-clj, ical-clj and httpsig-clj, and the inspector's
+  ;; play-nice, from checkouts beside this one, to change them and
+  ;; podcast-clj at once, e.g. clojure -M:dev:local:nrepl, or
+  ;; clojure -M:cljs:local compile test
   :local {:override-deps
           {dk.simongray/wary-fetch     {:local/root "../wary-fetch"}
            dk.simongray/qname-hiccup   {:local/root "../qname-hiccup"}
@@ -141,7 +142,8 @@
            dk.simongray/id3-clj        {:local/root "../id3-clj"}
            dk.simongray/webvtt-clj     {:local/root "../webvtt-clj"}
            dk.simongray/ical-clj       {:local/root "../ical-clj"}
-           dk.simongray/httpsig-clj    {:local/root "../httpsig-clj"}}}
+           dk.simongray/httpsig-clj    {:local/root "../httpsig-clj"}
+           dk.simongray/play-nice      {:local/root "../play-nice"}}}
 
   ;; clojure -M:dev:nrepl
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}}

@@ -85,6 +85,29 @@
         "a rate of the show that the bar doesn't offer")
     (is (empty? (elements (view/bar (assoc state :volume-locked? true)) :input)) "no volume slider where the browser locks the volume")
     (is (empty? (elements (view/bar state) :input)) "nor before the browser has said"))
+  (testing "the chapter that plays and the transcript, from the tracks of the media element"
+    (let [tracks [{:kind :chapters :mode :hidden :active-cues [{:start-time 95 :end-time 1830 :text "News"}]}
+                  {:kind :captions :mode :hidden :language "en" :active-cues [{:start-time 100 :end-time 104 :text "Adam: Hello"}]}]
+          bar    (view/bar (assoc state :tracks tracks))
+          shown  (view/bar (assoc state :tracks tracks :transcript? true))]
+      (is (str/includes? (text bar) "News"))
+      (is (some #{[:transcript true]} (map #(get-in % [1 :on :click]) (elements bar :button))))
+      (is (not (str/includes? (text bar) "Adam: Hello")) "hidden until the listener asks")
+      (is (some #{[:transcript false]} (map #(get-in % [1 :on :click]) (elements shown :button))))
+      (is (= [[:div.cue {:aria-live "polite"} "Adam: Hello"]] (elements shown :div.cue)) "the line that plays, for audio")
+      (is (empty? (elements shown :select.captions)))
+      (let [video (view/bar (-> state
+                                (assoc :tracks tracks :transcript? true :caption-style "Large")
+                                (assoc-in [:titles a :video?] true)))]
+        (is (empty? (elements video :div.cue)) "a video shows its captions itself")
+        (is (= ["Large"] (for [[_ {:keys [selected]} name] (elements video :option) :when selected
+                               :when (contains? view/caption-styles name)]
+                           name))
+            "the style of the captions")))
+    (is (empty? (filter #(= "Transcript" (nth % 2)) (elements (view/bar state) :button))) "no transcript, no button"))
+  (testing "a link's start, over the position to resume at"
+    (is (= 95 (get-in (first (elements (view/bar (assoc state :start {a 95})) :audio#player))
+                      [1 :replicant/on-mount 2 :position]))))
   (testing "the readout the media element reported, and an episode without an enclosure"
     (is (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration 3600}))) "at 1:00 of 1:00:00"))
     (is (not (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration ##Inf}))) "at 1:00 of"))

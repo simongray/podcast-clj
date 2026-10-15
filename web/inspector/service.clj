@@ -896,6 +896,37 @@
                     :guid       guid}))
           (ring/text-response 404 (str "No item with guid " guid)))))))
 
+(defn- transcript-track
+  "The transcript of the episode `view` of `feed` as a text track for the
+  browser player: its :language, or else the feed's, and its segments
+  with times as :cues. Nil without a transcript."
+  [feed {:keys [transcript] :as view}]
+  (when-let [segments (seq (get-in transcript [:document :segments]))]
+    {:language (or (:language transcript) (:rss/language feed))
+     :cues     (vec (for [{:keys [start-time end-time speaker body]} segments
+                          :when (and (number? start-time) (number? end-time))]
+                      {:start-time start-time
+                       :end-time   end-time
+                       :text       (str (when speaker (str speaker ": "))
+                                        body)}))}))
+
+(defn episode-files-edn
+  "What the files of the item that the url and guid parameters of
+  `request` name hold for the browser player, as EDN: the :metadata of the
+  Media Session with its chapters, and the :transcript as a text track."
+  [request]
+  (with-feed request
+    (fn [{:keys [feed feed-url]}]
+      (let [guid (get-in request [:query-params :guid])
+            item (item-in feed guid)]
+        (if item
+          (let [view (episode-view feed feed-url item)]
+            (ring/response
+             200 "application/edn; charset=utf-8"
+             (pr-str {:metadata   (episode/metadata feed view)
+                      :transcript (transcript-track feed view)})))
+          (ring/text-response 404 (str "No item with guid " guid)))))))
+
 (def player-js-dir
   "Where shadow-cljs puts the compiled browser player."
   (io/file "target/web/public/js"))
@@ -1007,6 +1038,8 @@
      ["/directory" :get directory-page :route-name :directory]
      ["/podping" :get podping-page :route-name :podping]
      ["/episode.edn" :get episode-edn :route-name :episode-edn]
+     ["/episode-files.edn" :get episode-files-edn
+      :route-name :episode-files-edn]
      ["/queue" :get queue-page :route-name :queue]
      ["/js/*path" :get js-file :route-name :js]
      ["/dav" :any (webdav-server/handler sync-store "/dav/")

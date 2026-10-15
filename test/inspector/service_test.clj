@@ -322,6 +322,20 @@
       (is (= 502 status) "a chain that cannot be read is an error page")
       (is (str/includes? body "Could not read the Hive chain")))))
 
+(deftest a-transcript-as-a-track
+  (let [segments [{:start-time 0 :end-time 2.5 :speaker "Adam" :body "Hi"}
+                  {:start-time 2.5 :end-time 4 :body "Bye"}
+                  {:start-time 4 :body "No end"}]]
+    (is (= {:language "en"
+            :cues     [{:start-time 0 :end-time 2.5 :text "Adam: Hi"}
+                       {:start-time 2.5 :end-time 4 :text "Bye"}]}
+           (#'service/transcript-track {:rss/language "en"} {:transcript {:document {:segments segments}}}))
+        "the segments with times, the speaker first, in the feed's language")
+    (is (= "da" (:language (#'service/transcript-track {:rss/language "en"}
+                                                       {:transcript {:language "da" :document {:segments segments}}})))
+        "the transcript's own language over the feed's")
+    (is (nil? (#'service/transcript-track {} {:transcript {:document {:segments []}}})))))
+
 (deftest the-player
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
     (testing "every page carries the player bar and its script; the queue page the shell of the detailed view"
@@ -347,6 +361,14 @@
         (is (false? (:video? episode)))
         (is (string? (:title episode))))
       (is (= 404 (:status (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "nope")))))
+    (testing "the files endpoint answers with the metadata of the Media Session, chapters included, as EDN"
+      (let [{:keys [status headers body]} (get* "/episode-files.edn" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003")
+            files (read-string body)]
+        (is (= 200 status))
+        (is (str/starts-with? (get headers "Content-Type") "application/edn"))
+        (is (string? (get-in files [:metadata :title])))
+        (is (vector? (get-in files [:metadata :chapter-info]))))
+      (is (= 404 (:status (get* "/episode-files.edn" "url" "https://example.com/one.xml" "guid" "nope")))))
     (testing "the compiled player is served when it exists and explained when it does not"
       (let [{:keys [status headers body]} (get* "/js/player.js")]
         (is (contains? #{200 404} status))

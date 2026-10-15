@@ -73,7 +73,8 @@
    #player-bar .seek-bar:focus-visible{outline:2px solid #1a5fb4;
                                        outline-offset:3px}
    #player-bar .played{height:100%;background:#555;border-radius:4px}
-   #player-bar input[type=range]{width:6rem}")
+   #player-bar input[type=range]{width:6rem}
+   #player-bar .cue{flex-basis:100%;min-height:1.4em}")
 
 (defn layout
   "The page skeleton around `body`, titled `title`."
@@ -624,8 +625,9 @@
   "The `chapters` of the view of an episode, a map of :source, :url,
   :document and :report. The source is the first that has chapters of the
   file, the embedded ones, the media file and the timestamps of the show
-  notes."
-  [{:keys [chapters]}]
+  notes. Each start time links to `href-at` of it, the item page at that
+  time, which the player plays the episode from."
+  [{:keys [chapters]} href-at]
   (let [{:keys [source document report]} chapters]
     (list
      [:h2 "Chapters"]
@@ -646,7 +648,9 @@
             (for [{:keys [start-time title url img toc location]}
                   (chapters/sorted document)]
               [:tr
-               [:td (when (number? start-time) (time/format-clock start-time))]
+               [:td (when (number? start-time)
+                      [:a {:href (href-at start-time)}
+                       (time/format-clock start-time)])]
                [:td (or title [:span.muted "(silent chapter)"])
                 (when (false? toc) [:span.badge.muted "hidden"])
                 (when location
@@ -886,7 +890,8 @@
                  [:td [:a {:href (link url)} url]]
                  [:td (str/join " · " (remove nil? details))]])]]
             (media-file-section view)
-            (chapters-section view)
+            (chapters-section view #(feed-href "/item" url {:guid guid
+                                                            :t    (str %)}))
             (transcript-section view)
             (value-section view remotes)
             [:h2 "Resolved"]
