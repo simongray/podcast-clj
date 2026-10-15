@@ -204,6 +204,7 @@
                                 (feed.search/feed-documents feed url))
                               @sweep))]
    [:search-query   #(library/search (:library @many) "podcast episode")]
+   [:recommend      #(library/recommend (:library @many) [(:id @many)])]
    [:episodes-newest #(library/episodes (:library @many)
                                         {:order :newest :limit 20})]
    [:episodes-text  #(library/episodes (:library @many)

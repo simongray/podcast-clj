@@ -349,10 +349,12 @@
              (liked (library/update-profile shelf profile/hide [brew "2"])
                     {:where {:hidden? #{true false}}}))))
     (testing "the episodes that the listener heard last, without ids"
-      (is (= [] (titles (library/recommend shelf))))
-      (is (= (liked shelf)
-             (titles (library/recommend
-                      (library/update-profile shelf profile/progress grinders 60 now))))))
+      (let [heard (library/update-profile shelf profile/progress grinders 60)]
+        (is (= [] (titles (library/recommend shelf))))
+        (is (= (liked shelf) (titles (library/recommend heard))))
+        (is (= [] (titles (library/recommend
+                           (library/update-profile heard profile/forget grinders))))
+            "but not one that the profile forgot")))
     (testing "episodes unliked, and the weights of episodes"
       (let [weight (fn [ids opts]
                      (->> (library/recommend shelf ids opts)

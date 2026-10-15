@@ -1647,19 +1647,27 @@
      :item     item
      :document (feed.search/item-document feed item {:url url})}))
 
+;; The positions are sorted by when they were reported, and only the
+;; entries of the first are made, since making them all takes seconds for
+;; a listener who has heard thousands of episodes
 (defn- heard-last
   "The ids of the `n` episodes of `library` that the listener heard last,
-  the last first, of those that the library holds."
+  the last first, of those that the library holds and the profile hasn't
+  forgotten."
   [library n]
-  (->> (profile/episode-entries (:profile library))
-       (keep (fn [[id {:keys [reported-at]}]]
-               (when reported-at
-                 [id (inst-ms reported-at)])))
-       ;; equal times by id, so that the order is the same everywhere
-       (sort-by (fn [[id ms]] [(- ms) (pr-str id)]))
-       (map first)
-       (filter #(item-of library %))
-       (take n)))
+  (let [profile (:profile library)
+        ;; the last first, and equal times by id, the same everywhere
+        later   (fn [[a x] [b y]]
+                  (let [c (compare y x)]
+                    (if (zero? c) (compare a b) c)))]
+    (->> (:episodes profile)
+         (keep (fn [[id e]]
+                 (when-let [at (and (crdt/live? e) (:reported-at e))]
+                   [id (inst-ms at)])))
+         (sort later)
+         (map first)
+         (filter #(and (profile/episode-entry profile %) (item-of library %)))
+         (take n))))
 
 (defn- languages-of
   "The primary subtags of the languages of the episodes `seeds`, as seed
@@ -1671,17 +1679,36 @@
               (map resolve/language-tag))
         seeds))
 
-(defn- recommended-where
-  "The criteria of an episode that recommend takes, by the `opts` of it
-  and the episodes `seeds`, as seed gives them: those of :where, without
-  the hidden episodes unless they name :hidden?, and with the languages of
-  the seeds unless :same-language? is false or the criteria name one."
-  [seeds {:keys [same-language?] :or {same-language? true} :as opts}]
-  (let [where     (:where opts {:status :unplayed})
-        languages (when same-language? (languages-of seeds))]
-    (cond-> (criteria/visible where)
-      (and (seq languages) (not (contains? where :language)))
-      (assoc :language languages))))
+(defn- shows-in
+  "The feed guids of the shows of `library` whose feeds declare one of the
+  `languages`, primary subtags as languages-of gives them."
+  [library languages]
+  (into #{}
+        (keep (fn [[feed-guid {:keys [feed]}]]
+                (when (contains? languages
+                                 (resolve/language-tag (:rss/language feed)))
+                  feed-guid)))
+        (:feeds library)))
+
+;; The tests of a result by its id come before those that locate its feed
+;; and item, since locating builds a map of the items of each feed, which
+;; for a rare language means every feed of the library
+(defn- id-pred
+  "A predicate of a result of recommend by its id, from the episodes
+  `seeds` of `library`, as seed gives them, and the `opts` of recommend:
+  an episode, of another show unless :same-show?, and of a show in their
+  languages, unless :same-language? is false, the criteria of :where name
+  a :language, or the seeds declare none."
+  [library seeds {:keys [same-show? same-language? where]
+                  :or   {same-language? true}}]
+  (let [shows     (into #{} (map (comp first :id)) seeds)
+        languages (when (and same-language? (not (contains? where :language)))
+                    (languages-of seeds))
+        allowed   (when (seq languages) (shows-in library languages))]
+    (fn [{:keys [id]}]
+      (and (vector? id)
+           (or same-show? (not (contains? shows (first id))))
+           (or (nil? allowed) (contains? allowed (first id)))))))
 
 (defn recommend
   "The episodes of `library` most like the episodes `ids`, or like those
@@ -1698,8 +1725,9 @@
     {:status :unplayed} by default, and the hidden ones are left out
     unless the criteria name :hidden?
   - :same-show?, true to take episodes of the shows of `ids` too
-  - :same-language?, false to take episodes in any language, rather than
-    in those of the episodes of `ids`, when their feeds declare them
+  - :same-language?, false to take the episodes of shows in any language,
+    rather than of the shows whose feeds declare a language of the
+    episodes of `ids`, when they declare one
   - :max-per-show, the most episodes of one show, 2 by default, or nil
   - :recent, the number of the episodes that the listener heard last to
     start from without `ids`, 10 by default, where the last weighs the
@@ -1731,13 +1759,7 @@
      (let [recent?   (nil? ids)
            ids       (if recent? (heard-last library recent) ids)
            seeds     (keep #(seed library %) ids)
-           shows     (into #{} (map (comp first :id)) seeds)
-           others?   (fn [{[feed-guid] :id}]
-                       (not (contains? shows feed-guid)))
-           episode?  (comp vector? :id)
-           tests     (cond-> [episode?]
-                       (:filter-pred opts) (conj (:filter-pred opts))
-                       (not same-show?)    (conj others?))
+           by-id     (id-pred library seeds opts)
            ;; the last heard weighs as many as there are, and the first 1
            ranks     (zipmap ids (range (count ids) 0 -1))
            weight-of (cond
@@ -1753,18 +1775,19 @@
            opts      (-> opts
                          (dissoc :same-show? :same-language? :max-per-show
                                  :recent :unlike :weight-fn)
-                         (assoc :where       (recommended-where seeds opts)
-                                :filter-pred (apply every-pred tests)
+                         (assoc :where       (criteria/visible
+                                              (:where opts {:status :unplayed}))
                                 :unlike      (keep #(:document (seed library %))
                                                    unlike)
-                                :weight-fn   (comp weight-of :id))
+                                :weight-fn   (comp weight-of :id)
+                                :same-group? (boolean same-show?))
                          (update :stop-words concat numbers)
                          (update :limit #(or % 10))
                          (update :group-fn #(or % feed.search/feed-guid-of))
-                         (update :max-per-group #(or % max-per-show)))
-           found     (search/more-like-this index
-                                            (map :document seeds)
-                                            (index-opts library locate opts))]
+                         (update :max-per-group #(or % max-per-show))
+                         (->> (index-opts library locate))
+                         (update :filter-pred #(if % (every-pred by-id %) by-id)))
+           found     (search/more-like-this index (map :document seeds) opts)]
        (with-meta (mapv locate found) (meta found))))))
 
 (defn snippet
