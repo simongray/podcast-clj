@@ -350,7 +350,8 @@
     (testing "the item page links into the player"
       (let [body (:body (get* "/item" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003"))]
         (is (str/includes? body "/queue?add="))
-        (is (str/includes? body "mode=next"))))
+        (is (str/includes? body "mode=next"))
+        (is (str/includes? body "data-configuration=\"{:type :file") "the files for the player to ask the browser about")))
     (testing "the episode endpoint answers with what the player needs, as EDN"
       (let [{:keys [status headers body]} (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003")
             episode (read-string body)]

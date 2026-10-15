@@ -877,18 +877,27 @@
             [:h2 "Media"]
             [:table
              [:thead
-              [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
+              [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]
+               [:th "This browser"]]]
              [:tbody
-              (for [{:keys [source type url length bitrate title default]}
+              (for [{:keys [source type url length bitrate title default]
+                     :as   enclosure}
                     enclosures
                     :let [details [(when (number? length) (size-str length))
                                    (when bitrate (str bitrate " b/s"))
-                                   title]]]
+                                   title]
+                          ;; the player asks the browser about it
+                          configuration (resolve/decoding-configuration
+                                         enclosure)]]
                 [:tr
                  [:td (name source) (when default " (default)")]
                  [:td type]
                  [:td [:a {:href (link url)} url]]
-                 [:td (str/join " · " (remove nil? details))]])]]
+                 [:td (str/join " · " (remove nil? details))]
+                 [:td (if configuration
+                        [:span.muted {:data-configuration (pr-str configuration)}
+                         "asking…"]
+                        [:span.muted "no format declared"])]])]]
             (media-file-section view)
             (chapters-section view #(feed-href "/item" url {:guid guid
                                                             :t    (str %)}))

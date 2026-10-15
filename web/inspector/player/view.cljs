@@ -127,6 +127,17 @@
                            (or volume 1))
               :on         {:input [:volume]}}])])
 
+(defn playable
+  "What the browser's `info` from play-nice's decoding-info! says of a
+  file, in a few words."
+  [{:keys [supported smooth can-play-type] :as info}]
+  (cond
+    (and supported smooth)      "plays, smoothly"
+    supported                   "plays"
+    (= :probably can-play-type) "probably plays"
+    (= :maybe can-play-type)    "may play"
+    :else                       "won't play"))
+
 (def caption-styles
   "The styles of captions that the bar offers, by name, of which the first
   keeps the browser's own."

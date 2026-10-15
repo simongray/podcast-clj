@@ -38,6 +38,7 @@
             [dk.simongray.play-nice.controls :as controls]
             [dk.simongray.play-nice.display.wake-lock :as wake-lock]
             [dk.simongray.play-nice.media :as media]
+            [dk.simongray.play-nice.media.capabilities :as capabilities]
             [dk.simongray.play-nice.media.captions :as captions]
             [dk.simongray.play-nice.media.fragment :as fragment]
             [dk.simongray.play-nice.media.tracks :as tracks]
@@ -804,12 +805,29 @@
                     (fill! (str "<p class=\"muted\">Could not reach the "
                                 "inspector to recommend episodes.</p>"))))))))
 
+(defn- fill-playable!
+  "Ask the browser whether it plays each file of an item page, by the
+  configuration in the data-configuration of its element, and say so in
+  the element."
+  []
+  (let [els           (array-seq (js/document.querySelectorAll
+                                  "[data-configuration]"))
+        configuration #(reader/read-string (.getAttribute % "data-configuration"))]
+    (when (seq els)
+      (.then (capabilities/decoding-infos! (map configuration els))
+             (fn [infos]
+               (doseq [^js el els]
+                 (set! (.-textContent el) (view/playable
+                                           (infos (configuration el))))
+                 (.remove (.-classList el) "muted")))))))
+
 (defn- after-navigation!
   []
   (render! true)
   (add-from-query!)
   (play-from-link!)
-  (fill-recommended!))
+  (fill-recommended!)
+  (fill-playable!))
 
 (defn- swap-content!
   "Fetch the page at `url` and put its content in place of the current
@@ -968,7 +986,8 @@
   - take over navigation and the other tabs' saves
   - take up the sync folder of the last visit
   - add an episode that the URL asks for, or play one from its t
-  - fetch the episodes like the one of an item page
+  - fetch the episodes like the one of an item page, and ask the browser
+    whether it plays the page's files
   - sync and refresh on its own"
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
@@ -998,5 +1017,6 @@
   (add-from-query!)
   (play-from-link!)
   (fill-recommended!)
+  (fill-playable!)
   (sync-on-its-own!)
   (refresh-on-its-own!))

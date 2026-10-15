@@ -126,6 +126,14 @@
     (is (= (titles a) (view/episode-of state a)) "the data that /episode.edn served")
     (is (nil? (view/episode-of state ["feed" "z"])))))
 
+(deftest what-the-browser-plays
+  (is (= ["plays, smoothly" "plays" "probably plays" "may play" "won't play"]
+         (map view/playable [{:supported true :smooth true}
+                             {:supported true :smooth false}
+                             {:supported false :can-play-type :probably}
+                             {:supported false :can-play-type :maybe}
+                             {:supported false :can-play-type nil}]))))
+
 (deftest the-page
   (let [page (view/page state)]
     (testing "now playing, up next with its controls, the history and the preferences"
