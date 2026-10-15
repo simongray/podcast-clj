@@ -440,9 +440,10 @@
   "The episodes of the corpus and the feeds inspected since that are most
   like `item` of `feed`, inspected at `url` and named by `feed-url`, as
   library/recommend gives them: a map of the :results, each with the :url
-  of its feed here, and the :terms that found them. It's {:pending? true}
-  while the library to recommend from is made, and has the :error of a
-  failure. The feed joins that library unless it's in it."
+  of its feed here, the :terms that found them, and :any-language? when
+  none was in the episode's language, so that they're of any. It's
+  {:pending? true} while the library to recommend from is made, and has
+  the :error of a failure. The feed joins that library unless it's in it."
   [feed url feed-url item]
   (force making-recommender)
   (try
@@ -457,9 +458,16 @@
                             (assoc-in [:urls feed-guid] url))))
           {:keys [library urls]} (swap! recommender joined)
           id        (feed.guid/episode-id feed feed-url item)
-          found     (library/recommend library [id] {:limit 6})]
-      {:results (mapv #(assoc % :url (urls (first (:id %)))) found)
-       :terms   (:terms (meta found))})
+          same      (library/recommend library [id] {:limit 6})
+          ;; an episode of a show alone in its language, e.g. the one
+          ;; Danish show of the corpus, gets those of any language, and the
+          ;; page says so
+          found     (or (not-empty same)
+                        (library/recommend library [id] {:limit          6
+                                                         :same-language? false}))]
+      {:results       (mapv #(assoc % :url (urls (first (:id %)))) found)
+       :terms         (:terms (meta found))
+       :any-language? (boolean (and (empty? same) (seq found)))})
     (catch Exception e
       (if (::pending? (ex-data e))
         {:pending? true}

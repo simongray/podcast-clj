@@ -496,10 +496,11 @@
 
 (deftest recommendations-on-the-item-page
   (let [dir  (doto (io/file (System/getProperty "java.io.tmpdir") (str "corpus-" (random-uuid))) .mkdirs)
-        show (fn [name guid episodes]
+        show (fn [name guid episodes & [language]]
                (spit (io/file dir (str name ".xml"))
                      (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>"
-                          "<title>" name "</title><language>en</language><podcast:guid>" guid "</podcast:guid>"
+                          "<title>" name "</title><language>" (or language "en") "</language>"
+                          "<podcast:guid>" guid "</podcast:guid>"
                           (apply str (map-indexed (fn [i [title notes]]
                                                     (str "<item><title>" title "</title><guid>" i "</guid>"
                                                          "<description>" notes "</description></item>"))
@@ -509,6 +510,7 @@
     (show "b" "22222222-2222-5222-8222-222222222222" [["Grinders compared" "Conical burr grinders for espresso."]
                                                       ["Bicycles" "Gears."]])
     (show "c" "33333333-3333-5333-8333-333333333333" [["Gardening" "Tomatoes."]])
+    (show "d" "44444444-4444-5444-8444-444444444444" [["Kværne" "Conical kværne."]] "da")
     (with-redefs [service/corpus-dir         dir
                   service/making-recommender (delay nil)]
       (testing "the item page leaves them to the player, which fetches them once it's shown"
@@ -524,6 +526,12 @@
           (is (str/includes? body "<a href=\"/item?url=corpus%2Fb&amp;guid=0\">Grinders compared</a>"))
           (is (not (str/includes? body "Bicycles")))
           (is (str/includes? body "<em>espresso</em>"))))
+      (testing "those of any language for a show alone in its own, which the page says"
+        (let [body (:body (get* "/recommended" "url" "corpus/d" "guid" "0"))]
+          (is (str/includes? body "Grinders compared"))
+          (is (str/includes? body "so these are in any language"))
+          (is (not (str/includes? (:body (get* "/recommended" "url" "corpus/a" "guid" "0"))
+                                  "in any language")))))
       (testing "a 202 while the library to recommend from is made, for the player to ask again"
         (reset! service/recommender nil)
         (let [{:keys [status body]} (get* "/recommended" "url" "corpus/a" "guid" "0")]

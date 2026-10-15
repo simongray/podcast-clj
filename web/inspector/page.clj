@@ -775,8 +775,9 @@
 (defn recommendations
   "The part of the item page with the episodes most like its episode, as
   `recommended` holds them: the :results with the :url of each one's feed
-  here, and the :terms that found them, or :pending? or an :error."
-  [{:keys [results terms pending? error] :as recommended}]
+  here, the :terms that found them, and :any-language? when they're of
+  any language, or :pending? or an :error."
+  [{:keys [results terms any-language? pending? error] :as recommended}]
   [:div
    (cond
      pending?
@@ -793,10 +794,14 @@
 
      :else
      (list
-      [:p.muted (str "The unplayed episodes of other shows in the same "
-                     "languages that library/recommend finds in the corpus "
-                     "and the feeds inspected since the inspector started, "
-                     "at most two of a show. It found them by the words ")
+      [:p.muted (when any-language?
+                  (str "No other show in the language of this episode has "
+                       "episodes like it, so these are in any language. "))
+       (str "The unplayed episodes of other shows that library/recommend "
+            "finds in the corpus and the feeds inspected since the "
+            "inspector started, "
+            (if any-language? "" "in the same languages, ")
+            "at most two of a show. It found them by the words ")
        (interpose ", " (for [[term] (take 12 terms)] [:em term]))
        "."]
       [:ol.results
