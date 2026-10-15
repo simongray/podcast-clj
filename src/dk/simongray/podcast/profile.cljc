@@ -56,7 +56,7 @@
             [dk.simongray.mind-meld.list :as crdt.list]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
-            [dk.simongray.podcast.profile.marks :as profile.marks]
+            [dk.simongray.podcast.profile.impl :as impl]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn make
@@ -65,35 +65,6 @@
   (str (random-uuid))."
   [device]
   {:device device :subscriptions {} :episodes {} :queue {}})
-
-(def ^:no-doc collections
-  "The schema of a profile for dk.simongray.mind-meld: the :depth of the
-  entries of each collection, whether its tombstones can be dropped, the
-  key of a count that only grows, and which collections are ordered."
-  {:subscriptions  {:depth 1 :compact? true}
-   :show-ranks     {:depth 1 :ranked? true}
-   :remote-items   {:depth 1 :compact? true}
-   :settings       {:depth 1}
-   :tags           {:depth 2 :compact? true}
-   :lists          {:depth 1 :compact? true}
-   :episodes       {:depth 1}
-   :played         {:depth 1}
-   :hidden         {:depth 1}
-   ;; each device's set of item guids only grows, so the larger is newer
-   :archive        {:depth 2 :count-key :n}
-   :queue          {:depth 1 :compact? true :ranked? true}
-   :queue-moves    {:depth 1 :compact? true :ranked? true}
-   :playlists      {:depth 2 :compact? true :ranked? true}
-   :playlist-moves {:depth 2 :compact? true :ranked? true}
-   :inbox          {:depth 1 :compact? true}
-   :stars          {:depth 1 :compact? true}
-   :bookmarks      {:depth 2 :compact? true}
-   :clips          {:depth 2 :compact? true}
-   :ratings        {:depth 1 :compact? true}
-   :filters        {:depth 1 :compact? true}
-   :listened       {:depth 3 :count-key :seconds}
-   :payments       {:depth 1 :compact? true}
-   :preferences    {:depth 1}})
 
 (def default-settings
   "The settings of a subscription until the listener changes them:
@@ -139,7 +110,7 @@
   [profile]
   (into {} (remove (comp :removed? val)) (:subscriptions profile)))
 
-(defn ^:no-doc by-url
+(defn by-url
   "A map from the normalized URL of each subscription of `profile` to its
   feed guid, removed subscriptions included.
 
@@ -219,35 +190,13 @@
   [profile feed-guid at]
   (crdt/remove profile [:subscriptions feed-guid] at))
 
-(defn ^:no-doc feed-author
-  "The author of what the feed `feed-guid` brings about in a profile, such as
-  its new episodes in the queue, as a device id that no real device has."
-  [feed-guid]
-  (str "feed:" feed-guid))
-
-(defn- as-the-feed
-  "The `profile` with the live subscription `feed-guid` changed by `f`, as
-  a write of the feed itself."
-  [profile feed-guid f]
-  (let [sub   (get-in profile [:subscriptions feed-guid])
-        ;; stamped just after the last write to the subscription, so that it
-        ;; never undoes what the listener did on another device meanwhile,
-        ;; e.g. an unsubscription, and two devices write the same
-        write (fn [p]
-                (let [after (time/->inst (inc (crdt/stamp-ms sub)))]
-                  (crdt/write p [:subscriptions feed-guid]
-                              (constantly (f sub))
-                              after)))]
-    (cond-> profile
-      (crdt/live? sub) (crdt/as-device (feed-author feed-guid) write))))
-
 (defn relocate
   "Note in `profile` that the feed `feed-guid` moved to the :url of
   `details`, with the :title and :image it has there, e.g. after a
   permanent redirect. Nothing changes without a live subscription."
   [profile feed-guid {:keys [url title image] :as details}]
-  (as-the-feed profile feed-guid #(cond-> (assoc % :url url :title title)
-                                    image (assoc :image image))))
+  (impl/as-the-feed profile feed-guid #(cond-> (assoc % :url url :title title)
+                                         image (assoc :image image))))
 
 (defn settle
   "Note in `profile` that the feed of the subscription `feed-guid` gives
@@ -260,13 +209,13 @@
   [profile feed-guid guid]
   (if (= guid (get-in profile [:subscriptions feed-guid :guid]))
     profile
-    (as-the-feed profile feed-guid #(assoc % :guid guid))))
+    (impl/as-the-feed profile feed-guid #(assoc % :guid guid))))
 
 (defn- values
   [entries]
   (into {} (map (fn [[k e]] [k (:value e)])) entries))
 
-(declare archived? tags)
+(declare tags)
 
 (defn rekey
   "The `profile` with the subscription `feed-guid` moved to `new-guid` at
@@ -325,7 +274,7 @@
         entry  (fn [[c id :as path]]
                  (or (get-in profile path)
                      ;; of an archived episode, only the mark is left
-                     (when (and (= :played c) (archived? profile id))
+                     (when (and (= :played c) (impl/archived? profile id))
                        {:played? true})))
         copied (fn [[from to]]
                  (let [e (entry from)]
@@ -370,37 +319,6 @@
   [profile feed-guid]
   (clojure.core/merge default-settings
                       (crdt/fields (get-in profile [:settings feed-guid]))))
-
-(defn- one-entry
-  "The settings `old` of a subscription, an entry for each setting with its
-  :value, as one field-wise entry, in which each setting keeps the stamp of
-  its entry."
-  [old]
-  (let [entries (filter (comp :updated-at val) old)
-        latest  (reduce crdt/later nil (vals entries))]
-    (when latest
-      (into {:updated-at (:updated-at latest)
-             :device     (:device latest)
-             :stamps     (update-vals (into {} entries)
-                                      #(select-keys % [:updated-at :device]))}
-            (keep (fn [[k e]] (when-not (:removed? e) [k (:value e)])))
-            entries))))
-
-;; before mind-meld 0.2.0, each setting was an entry of its own
-(defn ^:no-doc upgrade
-  "The `profile` of an earlier version in the shape of this one: the
-  settings of each subscription as one field-wise entry."
-  [profile]
-  (let [old? #(and (map? %) (not (contains? % :updated-at)))]
-    (cond-> profile
-      (map? (:settings profile))
-      (update :settings
-              #(into {}
-                     (keep (fn [[feed-guid s]]
-                             (if (old? s)
-                               (some->> (one-entry s) (vector feed-guid))
-                               [feed-guid s])))
-                     %)))))
 
 (defn configure
   "Change the `settings` of the subscription `feed-guid` in `profile` at
@@ -643,23 +561,6 @@
   by default."
   30)
 
-(defn archived?
-  "Whether the archive of `profile` holds the episode `id` as played."
-  [profile [feed-guid item-guid :as id]]
-  (boolean (some #(contains? (:items %) item-guid)
-                 (vals (get-in profile [:archive feed-guid])))))
-
-(defn- archived-mark
-  "The played mark of the episode `id` that the archive of `profile` holds,
-  or nil. It has the earliest stamp of the archives that hold it, which is
-  no earlier than its move there."
-  [profile [feed-guid item-guid :as id]]
-  (let [holders (filter #(contains? (:items %) item-guid)
-                        (vals (get-in profile [:archive feed-guid])))]
-    (when (seq holders)
-      {:played?    true
-       :updated-at (:updated-at (apply min-key crdt/stamp-ms holders))})))
-
 (defn episode-entry
   "The entry of the episode `id` in `profile` with its played mark, or nil.
   It has the stamp and the device of the later of the two.
@@ -681,10 +582,18 @@
                                      (select-keys (max-key crdt/stamp-ms m e)
                                                   [:updated-at :device]))
       e          (cond-> e
-                   (and (not forgotten?) (archived? profile id))
+                   (and (not forgotten?) (impl/archived? profile id))
                    (assoc :played? true))
       forgotten? nil
-      :else      (archived-mark profile id))))
+      :else      (impl/archived-mark profile id))))
+
+(defn status
+  "The status of the episode with the entry `e` of a profile: :unplayed,
+  :in-progress or :played."
+  [{:keys [position played?] :as e}]
+  (cond played?                                  :played
+        (and (number? position) (pos? position)) :in-progress
+        :else                                    :unplayed))
 
 (defn episode-entries
   "The entries of the episodes of `profile` by id, each with its played
@@ -704,7 +613,7 @@
   [profile id]
   (if-let [m (get-in profile [:played id])]
     (boolean (and (:played? m) (not (:removed? m))))
-    (archived? profile id)))
+    (impl/archived? profile id)))
 
 (defn forget
   "Forget the episode `id` in `profile` at `at`, e.g. to take it out of the
@@ -717,52 +626,10 @@
                     [[:played id] (constantly {:removed? true})]]
                    at))
 
-(defn ^:no-doc forgotten
-  "The tombstones of the played marks of the forgotten episodes of
-  `profile`, by id."
-  [profile]
-  (into {} (filter (comp :removed? val)) (:played profile)))
-
 (def archive-after
   "How long nothing may change a played episode before compact moves it to
   the archive of its show, in milliseconds: a year."
   (* 365 24 60 60 1000))
-
-(defn ^:no-doc archivable
-  "The ids of the played episodes of `profile` that nothing changed in the
-  `archive-after` milliseconds before `at`."
-  [profile at archive-after]
-  (let [cutoff (- (inst-ms at) archive-after)
-        old?   #(or (nil? %) (< (crdt/stamp-ms %) cutoff))]
-    (for [id    (distinct (concat (keys (:played profile))
-                                  (keys (:episodes profile))))
-          :when (and (old? (get-in profile [:played id]))
-                     (old? (get-in profile [:episodes id]))
-                     ;; the archive is a set of item guids
-                     (string? (get id 1))
-                     (played? profile id))]
-      id)))
-
-;; The entries go without a tombstone: a device that still holds them
-;; brings back what the archive says too, that the episode is played, and
-;; an unplay from a device that hasn't seen the move still wins.
-(defn- archive
-  "The `profile` with the played episodes `ids` moved to the archive at
-  `at`: their entries go, and their guids join the archive of this device,
-  unless the archive of a device holds them already."
-  [profile ids at]
-  (let [fresh  (group-by first (remove (partial archived? profile) ids))
-        writes (for [[feed-guid ids] fresh]
-                 [[:archive feed-guid (:device profile)]
-                  (fn [{:keys [items]}]
-                    (let [items (into (or items #{}) (map second) ids)]
-                      {:items items :n (count items)}))])
-        forget (fn [entries]
-                 (apply dissoc entries ids))]
-    (cond-> profile
-      (:played profile)   (update :played forget)
-      (:episodes profile) (update :episodes forget)
-      (seq writes)        (crdt/write-each writes at))))
 
 (defn compact
   "Move the old played episodes of `profile` to the archive at `at`, and
@@ -781,12 +648,14 @@
    {:pre [(map? opts)]}
    ;; a list can name an unsubscribed show again
    (let [follows? (some crdt/live? (vals (:lists profile)))
-         schema   (cond-> collections
+         schema   (cond-> impl/collections
                     follows? (assoc-in [:subscriptions :compact?] false))
-         ids      (archivable profile at (:archive-after opts archive-after))]
+         after    (:archive-after opts archive-after)
+         ids      (filter #(played? profile %)
+                          (impl/archivable profile at after))]
      (crdt/compact schema
                    (cond-> profile
-                     (seq ids) (archive ids at))
+                     (seq ids) (impl/archive ids at))
                    at
                    opts))))
 
@@ -794,31 +663,6 @@
   [position duration threshold]
   (and (number? duration) (pos? duration) (number? position)
        (>= position (- duration threshold))))
-
-(defn ^:no-doc out-of-inbox
-  "The writes that take the episode `id` out of the inbox of `profile`, if
-  it's there."
-  [profile id]
-  (let [e (get-in profile [:inbox id])]
-    (when (crdt/live? e)
-      [[[:inbox id] #(assoc % :removed? true)]])))
-
-(defn- afresh
-  "The episode entry `e`, or an empty one in place of the tombstone of a
-  forgotten episode."
-  [e]
-  (if (:removed? e) {} e))
-
-(defn ^:no-doc marked-as
-  "The writes that mark the episode `id` of `profile` as `played?` at `at`.
-  A played episode leaves the inbox."
-  [profile id played? at]
-  (let [mark (if played?
-               {:played? true :played-at (time/date at)}
-               {:played? false})]
-    (into [[[:played id] (constantly mark)]]
-          (when played?
-            (out-of-inbox profile id)))))
 
 (defn progress
   "Record in `profile` that the listener is `position` seconds into the
@@ -835,54 +679,38 @@
          threshold (:played-threshold opts played-threshold)
          done?     (and (not (played? profile id))
                         (heard-to-the-end? position duration threshold))
-         reported  #(cond-> (assoc (afresh %)
+         reported  #(cond-> (assoc (impl/afresh %)
                                    :position    position
                                    :reported-at (time/date at))
                       duration (assoc :duration duration))]
      (crdt/write-each profile
                       (concat [[[:episodes id] reported]]
-                              (when done? (marked-as profile id true at)))
+                              (when done? (impl/marked-as profile id true at)))
                       at))))
 
 (defn mark-played
   "Mark the episode `id` in `profile` as played at `at`, which takes it out
   of the inbox."
   [profile id at]
-  (crdt/write-each profile (marked-as profile id true at) at))
-
-(defn- unplayed
-  "The writes that mark the episode `id` of `profile` as not played at `at`,
-  with its position back at the start."
-  [profile id at]
-  (let [restarted #(assoc (afresh %) :position 0 :reported-at (time/date at))]
-    (into [[[:episodes id] restarted]]
-          (marked-as profile id false at))))
+  (crdt/write-each profile (impl/marked-as profile id true at) at))
 
 (defn mark-unplayed
   "Mark the episode `id` in `profile` as not played at `at`, with its
   position back at the start."
   [profile id at]
-  (crdt/write-each profile (unplayed profile id at) at))
-
-(defn ^:no-doc written
-  "The `profile` with the `writes` made at `at` with one stamp, or as it is
-  without any, so that its clock doesn't move."
-  [profile writes at]
-  (if (seq writes)
-    (crdt/write-each profile writes at)
-    profile))
+  (crdt/write-each profile (impl/unplayed profile id at) at))
 
 (defn mark-all-played
   "Mark the episodes `ids` in `profile` as played at `at`, with one stamp,
   e.g. those of a show or of the inbox."
   [profile ids at]
-  (written profile (mapcat #(marked-as profile % true at) ids) at))
+  (impl/written profile (mapcat #(impl/marked-as profile % true at) ids) at))
 
 (defn mark-all-unplayed
   "Mark the episodes `ids` in `profile` as not played at `at`, with one
   stamp, as mark-unplayed does."
   [profile ids at]
-  (written profile (mapcat #(unplayed profile % at) ids) at))
+  (impl/written profile (mapcat #(impl/unplayed profile % at) ids) at))
 
 (defn hidden
   "Whether the listener hid the episode `id` in `profile`: true, false when
@@ -896,10 +724,10 @@
   take them out of the lists without marking them played, even where the
   :hide-where of their show would show them."
   [profile ids at]
-  (written profile
-           (for [id ids]
-             [[:hidden id] (constantly {:hidden? true})])
-           at))
+  (impl/written profile
+                (for [id ids]
+                  [[:hidden id] (constantly {:hidden? true})])
+                at))
 
 (defn hide
   "Hide the episode `id` in `profile` at `at`, as hide-all does."
@@ -910,10 +738,10 @@
   "Show the episodes `ids` in `profile` again at `at` with one stamp, even
   where the :hide-where of their show would hide them."
   [profile ids at]
-  (written profile
-           (for [id ids]
-             [[:hidden id] (constantly {:hidden? false})])
-           at))
+  (impl/written profile
+                (for [id ids]
+                  [[:hidden id] (constantly {:hidden? false})])
+                at))
 
 (defn unhide
   "Show the episode `id` in `profile` again at `at`, as unhide-all does."
@@ -945,24 +773,14 @@
   a pause."
   [profile]
   (let [total (fn [feed-guid month]
-                (crdt/sum collections profile [:listened feed-guid month]))]
+                (crdt/sum impl/collections
+                          profile
+                          [:listened feed-guid month]))]
     (into {}
           (for [[feed-guid months] (:listened profile)]
             [feed-guid (into {}
                              (for [month (keys months)]
                                [month (total feed-guid month)]))]))))
-
-(defn- rewind
-  "The seconds to go back after a pause of `pause` seconds, by the pairs of
-  `rewinds`, the seconds of a pause and those to go back: those of the
-  longest pause that `pause` reaches, or 0."
-  [rewinds pause]
-  (or (->> rewinds
-           (filter #(<= (first %) pause))
-           (sort-by first)
-           last
-           second)
-      0))
 
 (defn resume-position
   "Where to start playing the episode `id` of `feed-guid` in `profile`: where
@@ -980,7 +798,7 @@
                  (/ (- (inst-ms at) (inst-ms reported-at)) 1000.0))]
      (if (and (number? position) (pos? position) (not played?))
        (cond-> position
-         pause (-> (- (rewind (:rewinds (preferences profile)) pause))
+         pause (-> (- (impl/rewind (:rewinds (preferences profile)) pause))
                    (max 0)))
        (:skip-intro (settings profile feed-guid))))))
 
@@ -1014,93 +832,7 @@
   dk.simongray.mind-meld/merge does: by the later entry, and of
   two listening counts of one device, by the higher."
   [a b]
-  (crdt/merge collections a b))
-
-(defn- key-problem
-  "A description of the first key of `profile` of the wrong type for its
-  collection. Lists and tags have strings as keys, and bookmarks and clips
-  whole seconds."
-  [profile]
-  (let [whole-second? #(and (integer? %) (<= 0 %))]
-    (or (some (fn [url]
-                (when-not (string? url)
-                  (str "the list at " (pr-str url) " is not at a URL")))
-              (keys (:lists profile)))
-        (some (fn [[what k]]
-                (some (fn [[id entries]]
-                        (when-not (every? whole-second? (keys entries))
-                          (str "a " what " of " (pr-str id)
-                               " is not at a whole number of seconds")))
-                      (get profile k)))
-              [["bookmark" :bookmarks] ["clip" :clips]])
-        (some (fn [[feed-guid ts]]
-                (when-not (every? string? (keys ts))
-                  (str "a tag of " (pr-str feed-guid) " is not a string")))
-              (:tags profile)))))
-
-(defn- mark-problem
-  "A description of the first live rating of `profile` outside its scale,
-  or of the first live clip whose duration isn't a number of seconds."
-  [profile]
-  (or (some (fn [[id {:keys [rating removed?] :as e}]]
-              (when-not (or removed?
-                            (profile.marks/rating? rating
-                                                   (profile.marks/scale-of e)))
-                (str "the rating of " (pr-str id) " is " (pr-str rating)
-                     ", not a number of the scale "
-                     (pr-str (profile.marks/scale-of e)))))
-            (:ratings profile))
-      (some (fn [[id entries]]
-              (some (fn [[start {:keys [duration removed?]}]]
-                      (when-not (or removed?
-                                    (and (number? duration) (pos? duration)))
-                        (str "the clip of " (pr-str id) " at " start
-                             " lasts " (pr-str duration)
-                             ", not a number of seconds")))
-                    entries))
-            (:clips profile))))
-
-(defn- count-problem
-  [profile]
-  (some (fn [[feed-guid months]]
-          (let [counts (mapcat vals (vals months))]
-            (when-not (every? #(number? (:seconds % 0)) counts)
-              (str "the listening of " (pr-str feed-guid)
-                   " is not counted in seconds"))))
-        (:listened profile)))
-
-(defn- archive-problem
-  [profile]
-  (some (fn [[feed-guid devices]]
-          (some (fn [[_ {:keys [items n]}]]
-                  (when-not (and (set? items)
-                                 (every? string? items)
-                                 (= n (count items)))
-                    (str "the archive of " (pr-str feed-guid)
-                         " is not a set of item guids with its count")))
-                devices))
-        (:archive profile)))
-
-(defn- criteria-problem
-  [profile]
-  (some (fn [[name {:keys [criteria]}]]
-          (when-not (or (nil? criteria) (map? criteria))
-            (str "the criteria of the filter " (pr-str name) " are not a map")))
-        (:filters profile)))
-
-(defn- remote-item-problem
-  [profile]
-  (some (fn [[id {:keys [feed-url removed?]}]]
-          (when-not (or removed? (string? feed-url))
-            (str "the remote item " (pr-str id) " names no feed URL")))
-        (:remote-items profile)))
-
-(def ^:no-doc checks
-  "The checks of a profile after those of dk.simongray.mind-meld, in order.
-  Each takes a profile that is a map and returns a description of the
-  first problem of its kind, or nil, and relies on the checks before it."
-  [key-problem mark-problem count-problem archive-problem criteria-problem
-   remote-item-problem])
+  (crdt/merge impl/collections a b))
 
 ;; a merge spreads the values of another device to every device, where a
 ;; bad value makes a function throw, or two devices disagree
@@ -1122,9 +854,9 @@
   Saved filters from a later version are fine here, even when this
   version doesn't understand them."
   [profile]
-  (or (crdt/problem collections profile)
-      (crdt.list/problem collections profile)
-      (some #(% profile) checks)))
+  (or (crdt/problem impl/collections profile)
+      (crdt.list/problem impl/collections profile)
+      (some #(% profile) impl/checks)))
 
 (def sync-options
   "The options of the state of dk.simongray.like-minded that a profile is,

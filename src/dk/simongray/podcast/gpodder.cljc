@@ -17,6 +17,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.impl :as profile.impl]
             [dk.simongray.podcast.gpodder.api :as gpodder.api]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
@@ -485,7 +486,7 @@
                    [id (assoc (select-keys tombstone [:updated-at :device])
                               :played?  false
                               :position 0)])]
-    (merge (into {} (map unplayed) (profile/forgotten state))
+    (merge (into {} (map unplayed) (profile.impl/forgotten state))
            (profile/episode-entries state))))
 
 (defn- pushing

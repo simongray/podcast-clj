@@ -8,6 +8,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.impl :as profile.impl]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
@@ -479,13 +480,13 @@
              :settings      {"feed-a" {:skip-intro {:value 20 :updated-at t0 :device "p"}
                                        :folder     {:value "News" :updated-at t1 :device "q"}
                                        :inbox?     {:value true :removed? true :updated-at t1 :device "p"}}}}
-        up  (profile/upgrade old)]
+        up  (profile.impl/upgrade old)]
     (is (nil? (profile/problem up)))
     (is (= (assoc profile/default-settings :skip-intro 20 :folder "News") (profile/settings up "feed-a"))
         "an entry for each setting, as one entry of the subscription")
     (is (= [t0 t1] (map #(get-in up [:settings "feed-a" :stamps % :updated-at]) [:skip-intro :folder]))
         "in which each setting keeps its stamp")
-    (is (= up (profile/upgrade up)) "and a profile of this version stays as it is")))
+    (is (= up (profile.impl/upgrade up)) "and a profile of this version stays as it is")))
 
 (deftest merging-entries-with-keys-of-any-kind
   (let [s (crdt/identify (profile/make "phone") {:name "Phone" "custom" 1} t0)]

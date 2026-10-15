@@ -69,6 +69,7 @@
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.impl :as profile.impl]
             [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.opml :as profile.opml]
             [dk.simongray.podcast.profile.player :as profile.player]
@@ -1420,7 +1421,7 @@
         (fn [feed-guid]
           (let [feed     (some-> (get-in library [:feeds feed-guid]) marked)
                 items    (some-> feed :rss/items resolve/distinct-items)
-                status   #(criteria/status
+                status   #(profile/status
                            (profile/episode-entry
                             profile [feed-guid (guid/item-guid %)]))
                 statuses (frequencies (map status items))
@@ -2113,7 +2114,7 @@
                     (assoc :changed-at (:fetched-at %))))))
    2 (fn [saved]
        (cond-> saved
-         (map? (:profile saved)) (update :profile profile/upgrade)))
+         (map? (:profile saved)) (update :profile profile.impl/upgrade)))
    3 identity})
 
 (defn ^:no-doc document-name

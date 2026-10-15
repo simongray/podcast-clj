@@ -12,6 +12,7 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.impl :as profile.impl]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -71,7 +72,7 @@
   "Take the episode `id` out of the inbox of `profile` at `at`, leaving a
   tombstone."
   [profile id at]
-  (if-let [writes (profile/out-of-inbox profile id)]
+  (if-let [writes (profile.impl/out-of-inbox profile id)]
     (crdt/write-each profile writes at)
     profile))
 
@@ -79,14 +80,16 @@
   "Take the episodes `ids` out of the inbox of `profile` at `at` with one
   stamp, e.g. all of the inbox, leaving tombstones."
   [profile ids at]
-  (profile/written profile (mapcat #(profile/out-of-inbox profile %) ids) at))
+  (profile.impl/written profile
+                        (mapcat #(profile.impl/out-of-inbox profile %) ids)
+                        at))
 
 (defn ^:no-doc place
   "The `profile` with the episode `id` queued at `rank` at `at`, and out of
   the inbox."
   [profile id rank at]
   (let [queued [[:queue id] (constantly {:rank rank :removed? false})]
-        out    (profile/out-of-inbox profile id)]
+        out    (profile.impl/out-of-inbox profile id)]
     (crdt/write-each profile (into [queued] out) at)))
 
 (defn enqueue
@@ -105,9 +108,9 @@
   [profile ids at]
   (let [queued (crdt.list/appended profile [:queue] (queue-entries profile)
                                    ids)
-        out    (mapcat #(profile/out-of-inbox profile %)
+        out    (mapcat #(profile.impl/out-of-inbox profile %)
                        (map (comp last first) queued))]
-    (profile/written profile (concat queued out) at)))
+    (profile.impl/written profile (concat queued out) at)))
 
 (defn play-next
   "Put the episode `id` right after the current episode of `profile` at `at`,
@@ -139,10 +142,11 @@
   "Take the episodes `ids` out of the queue of `profile` at `at` with one
   stamp, leaving tombstones, e.g. (queue profile) to clear it."
   [profile ids at]
-  (profile/written profile
-                   (mapcat #(removed-from profile [:queue %] [:queue-moves %])
-                           (filter #(queued? profile %) ids))
-                   at))
+  (profile.impl/written profile
+                        (mapcat #(removed-from profile [:queue %]
+                                               [:queue-moves %])
+                                (filter #(queued? profile %) ids))
+                        at))
 
 (defn move
   "Move the queued episode `id` to position `index` of the queue of `profile`
@@ -385,7 +389,7 @@
          stamps    (joined-at after unknown at)
          write     (fn [s [[_ id :as path] f]]
                      (crdt/write s path f (stamps id)))
-         author    (profile/feed-author feed-guid)
+         author    (profile.impl/feed-author feed-guid)
          joined    (crdt/as-device profile author #(reduce write % writes))
          rename    (fn [p [old-id new-id]]
                      (profile/rename-episode p old-id new-id at))]

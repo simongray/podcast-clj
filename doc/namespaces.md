@@ -93,7 +93,7 @@ map and returns the response, and its `response` reads the answer. A
 | `profile.opml` | The OPML lists that the listener follows, and the subscriptions as OPML with `to-opml` and `from-opml`. |
 | `profile.player` | The events of a player, with `step`, which returns the new profile and the effects for the UI. |
 | `criteria` | Criteria as data that select and order episodes, with `episodes`, for saved filters and download rules. Use `problem` to check criteria from another device. |
-| `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`, and the record of the files on a device that the plan reads, kept by `start-download`, `finish-download`, `remove-file` and `keep-file`. |
+| `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`, and the record of the files on a device that the plan reads, kept by `start-download`, `finish-download`, `fail-download`, `remove-file` and `keep-file`. |
 
 ## Sync
 

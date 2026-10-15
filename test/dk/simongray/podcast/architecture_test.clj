@@ -41,6 +41,7 @@
    "value.nwc.impl" 3 "value.lnaddress.impl" 3
    "profile" 3 "profile.queue" 3 "profile.marks" 3 "profile.opml" 3
    "profile.player" 3 "profile.payments" 3 "criteria" 3 "downloads" 3
+   "profile.impl" 3 "criteria.impl" 3 "downloads.impl" 3
    "gpodder" 3 "gpodder.api" 3 "gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "directory.impl" 3 "directory.podcastindex.impl" 3 "directory.links.impl" 3
