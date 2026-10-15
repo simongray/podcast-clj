@@ -4,6 +4,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory.podcastindex :as index]
+            [dk.simongray.podcast.directory.podcastindex.impl :as index.impl]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.client :as client]
@@ -158,9 +159,9 @@
     (is (= "Podcasting 2.0" (:index/feed-title episode)))
     (testing "the single legacy transcript field is used when the list is absent"
       (is (= [{:url "https://x/t.srt"}]
-             (:podcast/transcripts (index/episode->model {"transcriptUrl" "https://x/t.srt"})))))
+             (:podcast/transcripts (index.impl/episode->model {"transcriptUrl" "https://x/t.srt"})))))
     (testing "a zero season, episode or duration means the index knows none, as seen live"
-      (let [e (index/episode->model {"season" 0 "episode" 12 "duration" 0 "feedUrl" "https://f/rss"})]
+      (let [e (index.impl/episode->model {"season" 0 "episode" 12 "duration" 0 "feedUrl" "https://f/rss"})]
         (is (= {:type "full" :episode 12} (resolve/numbering e)))
         (is (nil? (resolve/duration e)))
         (is (= "https://f/rss" (:index/feed-url e)))))))

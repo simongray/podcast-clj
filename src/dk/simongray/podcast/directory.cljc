@@ -18,16 +18,15 @@
 
   Apple, fyyd and gpodder.net need no credentials, and the Podcast Index
   takes its under the :credentials option."
-  (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.directory.impl :as impl]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]))
+            [dk.simongray.wary-fetch.async :as async]))
 
 (def apple-genres
   "The ids of the genres of Apple Podcasts by name, as the genre service
@@ -187,19 +186,7 @@
   - The chart of fyyd has no categories, so asking for one throws."
   #{:search :lookup :trending :episodes :by-person :recent :live})
 
-(def ^:no-doc episode-calls
-  "The calls whose answers are episodes rather than shows."
-  #{:episodes :by-person :recent :live})
-
-(defn ^:no-doc source-id
-  "What names `source` in the results: its name in sources, or the :id of
-  an entry, or else the name of its API."
-  [source]
-  (if (map? source)
-    (:id source (:api source))
-    source))
-
-(defn ^:no-doc entry
+(defn entry
   "The entry of `source`, a name in sources or an entry itself, with the
   :id that names it in the results. It throws for a source whose API
   podcast-clj doesn't know."
@@ -208,171 +195,7 @@
     (when-not (contains? sources (:api e))
       (throw (ex-info (str "A directory the library does not know: " source)
                       {:source source})))
-    (assoc e :id (source-id source))))
-
-(defn ^:no-doc below
-  "The URL of `path` below the URL `root`, whether `root` ends with a slash
-  or not."
-  [root path]
-  (str (url/without-trailing-slashes root) "/" path))
-
-(defn- get-request
-  [url]
-  {:method :get :url url})
-
-(defn- country-code
-  "The two lower-case letters of `country`, \"us\" when none is given."
-  [country]
-  (let [code (str/lower-case (name (or country "us")))]
-    (when-not (re-matches #"[a-z]{2}" code)
-      (throw (ex-info "A country is two letters" {:country country})))
-    code))
-
-(defn- category-for
-  "The category that the source with the entry `e` gets of `category`, the
-  category of a chart. It's the value under the id of the source when
-  `category` is a map, or else `category`.
-
-  It throws for a map that names no category for the source, since the
-  source would then get the chart of all categories."
-  [{:keys [id] :as e} category]
-  (cond
-    (not (map? category))
-    category
-
-    (contains? category id)
-    (get category id)
-
-    :else
-    (throw (ex-info (str "The category names no category for " (name id))
-                    {:source id :category category}))))
-
-(defn- apple-genre
-  "The id of the genre of Apple for `category`, a name of `genres` or an
-  id. It throws for a name that isn't in `genres`."
-  [genres category]
-  (let [s     (str/trim (str category))
-        named (into {}
-                    (map (fn [[name id]] [(str/lower-case name) id]))
-                    genres)]
-    (or (when (re-matches #"\d{1,9}" s) s)
-        (get named (str/lower-case s))
-        (throw (ex-info (str "Apple Podcasts has no genre " (pr-str category))
-                        {:category category})))))
-
-(defn- apple-chart
-  "The URL of the chart of Apple for the source entry `e`, by the country,
-  the limit of shows and the category in `params`.
-
-  The chart of a category is a feed of the older kind of Apple, below the
-  :genre-charts URL of the entry, which takes the id of a genre."
-  [{:keys [trending genre-charts genres] :as e}
-   {:keys [limit country category] :as params}]
-  (let [limit (long (or limit 25))
-        code  (country-code country)]
-    (if category
-      (below genre-charts
-             (str code "/rss/toppodcasts/limit=" limit
-                  "/genre=" (apple-genre genres category) "/json"))
-      (below trending
-             (str code "/podcasts/top/" limit "/podcasts.json")))))
-
-(defn- apple-request
-  [{:keys [search lookup] :as e} call {:keys [q id limit country] :as params}]
-  (case call
-    :search   (let [query {:media   "podcast"
-                           :entity  "podcast"
-                           :term    q
-                           :limit   limit
-                           :country (some-> country name)}]
-                (get-request (str search "?" (url/query-string query))))
-    :lookup   (let [ids   (if (coll? id) (str/join "," id) id)
-                    query {:id ids :entity "podcast"}]
-                (get-request (str lookup "?" (url/query-string query))))
-    :episodes (let [query {:id id :entity "podcastEpisode" :limit limit}]
-                (get-request (str lookup "?" (url/query-string query))))
-    :trending (get-request (apple-chart e params))))
-
-(defn- fyyd-request
-  [{:keys [root]} call {:keys [q id limit language category]}]
-  (when (and category (= :trending call))
-    (throw (ex-info "fyyd has no chart by category" {:category category})))
-  (let [path (case call
-               :search   (str "search/podcast?"
-                              (url/query-string {:term q :count limit}))
-               :lookup   (str "podcast?" (url/query-string {:podcast_id id}))
-               :episodes (str "podcast/episodes?"
-                              (url/query-string {:podcast_id id :count limit}))
-               :recent   (str "episode/latest?"
-                              (url/query-string {:count limit}))
-               :trending (str "feature/podcast/hot?"
-                              (url/query-string {:count    limit
-                                                 :language language})))]
-    (get-request (below root path))))
-
-(defn- gpodder-request
-  [{:keys [root]} call {:keys [q id limit category]}]
-  (let [path (case call
-               :search   (str "search.json?" (url/query-string {:q q}))
-               :lookup   (str "api/2/data/podcast.json?"
-                              (url/query-string {:url id}))
-               :trending (if category
-                           (let [tag (str/lower-case (str/trim (str category)))]
-                             (str "api/2/tag/" (url/percent-encode tag)
-                                  "/" (long (or limit 25)) ".json"))
-                           (str "toplist/" (long (or limit 25)) ".json")))]
-    (get-request (below root path))))
-
-(defn- podcastindex-request
-  [{:keys [root id]} call {:keys [q limit language category url] show :id}
-   credentials opts]
-  (when-not credentials
-    (throw (ex-info "The Podcast Index needs credentials under :credentials"
-                    {:source id})))
-  (let [opts          (cond-> opts root (assoc :base-url root))
-        index-request #(index/request credentials %1 %2 opts)]
-    (case call
-      :search    (index-request :search/by-term {:q q :max limit})
-      :lookup    (cond
-                   (guid/guid? (str show))
-                   (index-request :podcasts/by-guid {:guid show})
-
-                   (and (nil? show) url)
-                   (index-request :podcasts/by-feed-url {:url url})
-
-                   :else
-                   (index-request :podcasts/by-feed-id {:id show}))
-      :episodes  (cond
-                   (guid/guid? (str show))
-                   (index-request :episodes/by-podcast-guid
-                                  {:guid show :max limit})
-
-                   (and (nil? show) url)
-                   (index-request :episodes/by-feed-url {:url url :max limit})
-
-                   :else
-                   (index-request :episodes/by-feed-id {:id show :max limit}))
-      :by-person (index-request :search/by-person {:q q :max limit})
-      :recent    (index-request :recent/episodes {:max limit})
-      :live      (index-request :episodes/live {:max limit})
-      :trending  (let [cat (some-> category index/category-filter)]
-                   (index-request :podcasts/trending
-                                  {:max limit :lang language :cat cat})))))
-
-(defn- check-region
-  "Throw when `params` ask the source with the entry `e` for a chart of a
-  :country or :language that it can't narrow its chart to, since a chart
-  of the wrong shows is worse than none."
-  [e params]
-  (let [narrows (case (:api e)
-                  :apple                #{:country}
-                  (:fyyd :podcastindex) #{:language}
-                  #{})
-        asked   (filter params [:country :language])]
-    (when-let [k (when (not-any? narrows asked) (first asked))]
-      (let [source (:name e (name (:id e)))]
-        (throw (ex-info (str source " has no chart by " (name k))
-                        {:source (:id e) k (get params k)}))))))
+    (assoc e :id (impl/source-id source))))
 
 (defn request
   "The request map for `call` at `source` with `params` and `opts`, a
@@ -391,7 +214,7 @@
    (let [{:keys [api] :as e} (entry source)
          params              (cond-> params
                                (contains? params :category)
-                               (update :category #(category-for e %)))]
+                               (update :category #(impl/category-for e %)))]
      (when-not (contains? calls call)
        (throw (ex-info (str "A call the directories do not answer: " call)
                        {:call call})))
@@ -399,281 +222,19 @@
        (throw (ex-info (str (:name e (name (:id e))) " has no call " call)
                        {:source (:id e) :call call})))
      (when (= :trending call)
-       (check-region e params))
+       (impl/check-region e params))
      (case api
-       :apple        (apple-request e call params)
-       :fyyd         (fyyd-request e call params)
-       :gpodder      (gpodder-request e call params)
-       :podcastindex (podcastindex-request e call params credentials
-                                           (select-keys opts [:auth-date]))))))
-
-(defn- present
-  "The map `m` without the entries that say nothing: nil, a blank string or
-  an empty collection."
-  [m]
-  (into {} (remove (fn [[_ v]]
-                     (or (nil? v)
-                         (and (string? v) (str/blank? v))
-                         (and (coll? v) (empty? v)))))
-        m))
-
-(defn- with-feed-url
-  "The `show` with `feed-url` as its self link."
-  [show feed-url]
-  (cond-> show
-    (not (str/blank? (str feed-url)))
-    (assoc :atom/links [{:rel "self" :href feed-url}])))
-
-(defn- records
-  "The records in the JSON value `x`, which holds one record as a map or
-  several in a sequence."
-  [x]
-  (if (map? x) [x] x))
-
-(defn- apple-explicit
-  "The iTunes explicit flag of Apple's advisory `rating`. The chart JSON of
-  Apple spells Explicit without the second i."
-  [rating]
-  (case (some-> rating str/lower-case)
-    ("explicit" "explict") true
-    "clean"                false
-    nil))
-
-(defn- apple-show
-  "The show of the result `r` of a search or lookup at Apple."
-  [{:strs [collectionId collectionName artistName feedUrl artworkUrl600
-           artworkUrl100 collectionViewUrl genres releaseDate trackCount
-           contentAdvisoryRating]
-    :as   r}]
-  (let [artwork    (or artworkUrl600 artworkUrl100)
-        explicit   (apple-explicit contentAdvisoryRating)
-        categories (for [g genres :when (not= "Podcasts" g)] {:text g})
-        published  (some-> releaseDate time/parse-iso8601)]
-    (-> (present {:rss/title               collectionName
-                  :itunes/author           artistName
-                  :itunes/image            (when artwork {:href artwork})
-                  :itunes/explicit         explicit
-                  :itunes/categories       (vec categories)
-                  :rss/pub-date            published
-                  :directory/id            (some-> collectionId str)
-                  :directory/url           collectionViewUrl
-                  :directory/episode-count trackCount
-                  :directory/raw           r})
-        (with-feed-url feedUrl))))
-
-(defn- apple-chart-show
-  "The show of the entry `r` of Apple's chart, which names no feed. A
-  lookup by its id gives the rest."
-  [{:strs [id name artistName artworkUrl100 url genres contentAdvisoryRating]
-    :as   r}]
-  (let [categories (for [{:strs [name]} genres :when (not= "Podcasts" name)]
-                     {:text name})]
-    (present {:rss/title         name
-              :itunes/author     artistName
-              :itunes/image      (when artworkUrl100 {:href artworkUrl100})
-              :itunes/explicit   (apple-explicit contentAdvisoryRating)
-              :itunes/categories (vec categories)
-              :directory/id      id
-              :directory/url     url
-              :directory/raw     r})))
-
-(defn- apple-genre-show
-  "The show of the entry `r` of the chart of a genre of Apple, which has
-  the form of the older feeds of Apple. Like the other charts of Apple,
-  it names no feed."
-  [r]
-  (let [first-of #(if (map? %) % (first %))
-        label    #(get (first-of (get r %)) "label")
-        image    (get (last (records (get r "im:image"))) "label")
-        link     (first-of (get r "link"))
-        category (get-in r ["category" "attributes" "label"])]
-    (present {:rss/title         (label "im:name")
-              :itunes/author     (label "im:artist")
-              :rss/description   (label "summary")
-              :itunes/image      (when image {:href image})
-              :itunes/categories (if category [{:text category}] [])
-              :directory/id      (get-in r ["id" "attributes" "im:id"])
-              :directory/url     (get-in link ["attributes" "href"])
-              :directory/raw     r})))
-
-(defn- fyyd-show
-  "The show of the podcast record `r` of fyyd's API."
-  [{:strs [id title author description xmlURL htmlURL imgURL layoutImageURL
-           language lastpub episode_count url_fyyd paymentURL]
-    :as   r}]
-  (let [artwork (or imgURL layoutImageURL)
-        funded? (not (str/blank? (str paymentURL)))]
-    (-> (present {:rss/title               title
-                  :itunes/author           author
-                  :rss/description         description
-                  :rss/link                htmlURL
-                  :rss/language            language
-                  :itunes/image            (when artwork {:href artwork})
-                  :rss/pub-date            (some-> lastpub time/parse-iso8601)
-                  :podcast/funding         (when funded? [{:url paymentURL}])
-                  :directory/id            id
-                  :directory/url           url_fyyd
-                  :directory/episode-count episode_count
-                  :directory/raw           r})
-        (with-feed-url xmlURL))))
-
-(defn- gpodder-show
-  "The show of the podcast record `r` of gpodder.net, whose id is the feed
-  URL itself."
-  [{:strs [url title author description subscribers logo_url scaled_logo_url
-           website mygpo_link]
-    :as   r}]
-  (let [artwork (or logo_url scaled_logo_url)]
-    (-> (present {:rss/title             title
-                  :itunes/author         author
-                  :rss/description       description
-                  :rss/link              website
-                  :itunes/image          (when artwork {:href artwork})
-                  :directory/id          url
-                  :directory/url         mygpo_link
-                  :directory/subscribers subscribers
-                  :directory/raw         r})
-        (with-feed-url url))))
-
-(defn- podcastindex-show
-  "The show of the feed map `m` of the Podcast Index, with its keys in the
-  index namespace kept. Its page is below `pages`, the URL of the
-  pages of the shows."
-  [m pages]
-  (let [id   (:index/id m)
-        page (when (and pages id) (str pages id))]
-    (-> (present (assoc m
-                        :directory/id            id
-                        :directory/url           page
-                        :directory/episode-count (:index/episode-count m)
-                        :directory/raw           (:index/raw m)))
-        (with-feed-url (:index/url m)))))
+       :apple        (impl/apple-request e call params)
+       :fyyd         (impl/fyyd-request e call params)
+       :gpodder      (impl/gpodder-request e call params)
+       :podcastindex (impl/podcastindex-request
+                      e call params credentials
+                      (select-keys opts [:auth-date]))))))
 
 (defn- ranked
   "The `shows` with their place in a chart as :directory/rank."
   [shows]
   (map-indexed (fn [i show] (assoc show :directory/rank (inc i))) shows))
-
-(defn- index-shows
-  "The shows in the JSON `body` of the Podcast Index, whose pages are
-  below `pages`, or none when the body tells of a failure."
-  [body pages]
-  (let [{:keys [status feed feeds]} (index/response body)]
-    (when status
-      (map #(podcastindex-show % pages) (or feeds (when feed [feed]))))))
-
-(defn- apple-shows
-  "The shows in the JSON value `raw` that Apple answered for `call`. A
-  chart holds the entries of one of the two kinds of charts of Apple."
-  [raw call]
-  (if (= :trending call)
-    (concat (map apple-chart-show (get-in raw ["feed" "results"]))
-            (map apple-genre-show (records (get-in raw ["feed" "entry"]))))
-    (->> (get raw "results")
-         (filter #(= "podcast" (get % "kind")))
-         (map apple-show))))
-
-(defn- apple-episode
-  "The episode of the result `r` of a lookup of episodes at Apple, with
-  the show that it's an episode of as :directory/show."
-  [{:strs [trackId trackName description episodeGuid episodeUrl releaseDate
-           trackTimeMillis artworkUrl600 trackViewUrl collectionId
-           collectionName feedUrl]
-    :as   r}]
-  (let [show (-> (present {:rss/title    collectionName
-                           :directory/id (some-> collectionId str)})
-                 (with-feed-url feedUrl))]
-    (present {:rss/title       trackName
-              :rss/description description
-              :rss/guid        (when episodeGuid {:content episodeGuid})
-              :rss/enclosure   (when episodeUrl {:url episodeUrl})
-              :rss/pub-date    (some-> releaseDate time/parse-iso8601)
-              :itunes/duration (when (number? trackTimeMillis)
-                                 (quot (long trackTimeMillis) 1000))
-              :itunes/image    (when artworkUrl600 {:href artworkUrl600})
-              :directory/id    (some-> trackId str)
-              :directory/url   trackViewUrl
-              :directory/show  show
-              :directory/raw   r})))
-
-(defn- apple-episodes
-  "The episodes in the JSON value `raw` of a lookup of episodes at Apple,
-  each with the show that the answer describes too."
-  [raw]
-  (let [results (get raw "results")
-        show    (some #(when (= "podcast" (get % "kind")) (apple-show %))
-                      results)]
-    (for [r     results
-          :when (= "podcastEpisode" (get r "wrapperType"))]
-      (cond-> (apple-episode r)
-        show (assoc :directory/show show)))))
-
-(defn- positive
-  "The number `n` when it's above zero, or nil."
-  [n]
-  (when (and (number? n) (pos? n))
-    n))
-
-(defn- fyyd-episode
-  "The episode of the record `e` of fyyd, of the `show`, or else of a show
-  known by the id that the record names."
-  [{:strs [id title guid url enclosure content_type pubdate duration imgURL
-           description num_season num_episode url_fyyd podcast_id]
-    :as   e}
-   show]
-  (present {:rss/title       title
-            :rss/description description
-            :rss/link        url
-            :rss/guid        (when-not (str/blank? (str guid)) {:content guid})
-            :rss/enclosure   (when enclosure
-                               (cond-> {:url enclosure}
-                                 content_type (assoc :type content_type)))
-            :rss/pub-date    (some-> pubdate time/parse-iso8601)
-            :itunes/duration (positive duration)
-            :itunes/image    (when imgURL {:href imgURL})
-            :itunes/season   (positive num_season)
-            :itunes/episode  (positive num_episode)
-            :directory/id    id
-            :directory/url   url_fyyd
-            :directory/show  (or show {:directory/id podcast_id})
-            :directory/raw   e}))
-
-(defn- fyyd-episodes
-  "The episodes in the JSON value `raw` of fyyd: those of one show, which
-  the answer describes too, or the newest of any show."
-  [raw]
-  (let [data (get raw "data")]
-    (when (= 1 (get raw "status"))
-      (if (map? data)
-        (let [show (fyyd-show (dissoc data "episodes"))]
-          (map #(fyyd-episode % show) (get data "episodes")))
-        (map #(fyyd-episode % nil) data)))))
-
-(defn- index-episode
-  "The episode map `m` of the Podcast Index, with the show that it names
-  as :directory/show."
-  [m]
-  (let [show (-> (present {:rss/title    (:index/feed-title m)
-                           :podcast/guid (:index/podcast-guid m)
-                           :itunes/image (some->> (:index/feed-image m)
-                                                  (hash-map :href))
-                           :directory/id (:index/feed-id m)})
-                 (with-feed-url (:index/feed-url m)))]
-    (present (assoc m
-                    :directory/id   (:index/id m)
-                    :directory/show show
-                    :directory/raw  (:index/raw m)))))
-
-(defn- episodes
-  "The episodes in the JSON `body` that a source with the `api` answered,
-  or none when the body tells of a failure."
-  [api body]
-  (case api
-    :podcastindex (let [{:keys [status items live-items]} (index/response body)]
-                    (when status
-                      (map index-episode (concat items live-items))))
-    :apple        (apple-episodes (json/read-str body))
-    :fyyd         (fyyd-episodes (json/read-str body))))
 
 (defn response
   "The shows in the JSON `body` that `source` answered for `call`, or the
@@ -691,81 +252,21 @@
   [source call body]
   (let [{:keys [api id pages]} (entry source)
         named #(assoc % :directory/source id)]
-    (if (contains? episode-calls call)
-      (mapv #(-> % named (update :directory/show named)) (episodes api body))
+    (if (contains? impl/episode-calls call)
+      (mapv #(-> % named (update :directory/show named))
+            (impl/episodes api body))
       (let [shows (if (= :podcastindex api)
-                    (index-shows body pages)
+                    (impl/index-shows body pages)
                     (let [raw (json/read-str body)]
                       (case api
-                        :apple   (apple-shows raw call)
+                        :apple   (impl/apple-shows raw call)
                         :fyyd    (when (= 1 (get raw "status"))
-                                   (map fyyd-show (records (get raw "data"))))
-                        :gpodder (map gpodder-show (records raw)))))
+                                   (map impl/fyyd-show
+                                        (impl/records (get raw "data"))))
+                        :gpodder (map impl/gpodder-show
+                                      (impl/records raw)))))
             shows (map named shows)]
         (vec (if (= :trending call) (ranked shows) shows))))))
-
-(defn- name-of
-  "The title and author of `show`, lower-cased: what tells shows apart when
-  one of them names no feed."
-  [show]
-  [(str/lower-case (str (:rss/title show)))
-   (str/lower-case (str (:itunes/author show)))])
-
-(defn- own-keys
-  "The entries of `show` that belong to the model rather than to the
-  directory it came from."
-  [show]
-  (into {} (remove #(= "directory" (namespace (key %)))) show))
-
-(defn- guids
-  "The guids that identify the feed of `show`: the one it declares, and
-  the one that the podcast namespace derives from its URL."
-  [show]
-  (let [derived (some-> (resolve/self-url show) guid/from-url)]
-    (remove nil? [(:podcast/guid show) derived])))
-
-(defn- indexed
-  "The `state` with the entry at `i` found by each guid of `show`."
-  [state show i]
-  (update state :by-guid into (map #(vector % i)) (guids show)))
-
-(defn- same-as
-  "The position in the entries of `state` of the entry that `show` is the
-  same as, or nil. It's the first entry that has:
-
-  - the id of `show` at the same source
-  - a guid of its feed, declared or derived from the feed URL
-  - its title and author, when either of them has no guid
-
-  Two feeds of one show keep their own entries."
-  [{:keys [entries by-id by-guid by-name] :as state} show]
-  (or (get by-id [(:directory/source show) (:directory/id show)])
-      (some by-guid (guids show))
-      (when-let [i (get by-name (name-of show))]
-        (when (or (empty? (guids show))
-                  (empty? (guids (entries i))))
-          i))))
-
-(defn- with-show
-  "The `state` of a combination with `show` in it: merged into the entry
-  that it's the same as, or else as a new entry."
-  [{:keys [entries] :as state} show]
-  (let [id-key [(:directory/source show) (:directory/id show)]
-        found  {(:directory/source show) (:directory/id show)}]
-    (if-let [i (same-as state show)]
-      (let [merged (-> (merge (own-keys show) (entries i))
-                       (update :directory/sources merge found))]
-        (-> state
-            (assoc-in [:entries i] merged)
-            (assoc-in [:by-id id-key] i)
-            (indexed merged i)))
-      (let [i     (count entries)
-            added (assoc show :directory/sources found)]
-        (-> state
-            (update :entries conj added)
-            (assoc-in [:by-id id-key] i)
-            (assoc-in [:by-name (name-of show)] i)
-            (indexed show i))))))
 
 (defn combine
   "One entry per show across `results` from several sources, in the order
@@ -778,13 +279,7 @@
   show from elsewhere by its title and author."
   [results]
   (let [state {:entries [] :by-id {} :by-guid {} :by-name {}}]
-    (:entries (reduce with-show state results))))
-
-(defn- default-sources
-  "Every source that needs no credentials, and the Podcast Index when
-  `opts` have :credentials."
-  [{:keys [credentials] :as opts}]
-  (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex)))
+    (:entries (reduce impl/with-show state results))))
 
 (defn call!
   "Send `call` with `params` and `opts` to `source`, and read the shows or
@@ -813,7 +308,7 @@
          req       (-> (request source call params opts)
                        (merge (select-keys opts [:user-agent]))
                        (assoc :timeout-seconds timeout))
-         id        (source-id source)]
+         id        (impl/source-id source)]
      (async/then
       (send req)
       (fn [{:keys [status body]}]
@@ -850,12 +345,12 @@
   (let [report (for [[source {:keys [error]}] (map vector sources answers)
                      :when error]
                  (diagnostics/describe {:id     :directory/source-failed
-                                        :source (source-id source)
+                                        :source (impl/source-id source)
                                         :reason (async/explain error)}))]
     (cond-> {:results (combine (mapcat :value answers))}
       (seq report) (assoc :report (vec report)))))
 
-(defn ^:no-doc fan-out!
+(defn- fan-out!
   "Ask each of `sources` for `call` with `params` and `opts` at once,
   and combine what they answer, in ClojureScript in a promise.
 
@@ -898,7 +393,7 @@
    (search! q {}))
   ([q opts]
    {:pre [(map? opts)]}
-   (let [sources (or (:sources opts) (default-sources opts))
+   (let [sources (or (:sources opts) (impl/default-sources opts))
          params  (assoc (select-keys opts [:limit :country]) :q q)]
      (async/then (fan-out! sources :search params opts)
                  #(update % :results most-sources-first)))))
@@ -920,7 +415,7 @@
    (fetch-chart! {}))
   ([opts]
    {:pre [(map? opts)]}
-   (fan-out! (or (:sources opts) (default-sources opts))
+   (fan-out! (or (:sources opts) (impl/default-sources opts))
              :trending
              (select-keys opts [:limit :country :language :category])
              opts)))
@@ -984,11 +479,6 @@
                  (result (cond-> ids found (assoc :apple found))
                          (failed report :apple error))))))))))))
 
-(def ^:no-doc podcasts-genre
-  "The id of the genre Podcasts of Apple, whose subgenres are the
-  categories."
-  26)
-
 (defn category-names-request
   "The request to Apple's genre service for the names of the categories of
   Apple Podcasts in `language`, as the store of `country` has them, with
@@ -1002,20 +492,10 @@
    {:pre [(map? opts)]}
    (when-not (re-matches #"[a-z]{2}" (str language))
      (throw (ex-info "A language is two letters" {:language language})))
-   (get-request (str (:genre-names (entry source))
-                     "?id=" podcasts-genre
-                     "&cc=" (country-code country)
-                     "&l=" language))))
-
-(defn- genre-names
-  "The names of the genres in the map `genres` of an answer of Apple's genre
-  service, and those of their subgenres, as a map by id."
-  [genres]
-  (into {}
-        (mapcat (fn [{:strs [id name subgenres]}]
-                  (cons [(parse-long (str id)) name]
-                        (genre-names subgenres))))
-        (vals genres)))
+   (impl/get-request (str (:genre-names (entry source))
+                          "?id=" impl/podcasts-genre
+                          "&cc=" (impl/country-code country)
+                          "&l=" language))))
 
 (defn category-names
   "The localised names of the categories of Apple Podcasts in `body`, the
@@ -1030,7 +510,7 @@
    (category-names body {}))
   ([body {:keys [source] :or {source :apple} :as opts}]
    {:pre [(map? opts)]}
-   (let [names (genre-names (json/read-str body))]
+   (let [names (impl/genre-names (json/read-str body))]
      (into {}
            (keep (fn [[english id]]
                    (when-let [local (not-empty (get names id))]
@@ -1062,7 +542,7 @@
                    (category-names body opts))
          failure (fn [error]
                    (diagnostics/failed {:id     :directory/source-failed
-                                        :source (source-id source)
+                                        :source (impl/source-id source)
                                         :reason (async/explain error)}))]
      (async/then (async/attempt #(async/then (send req) names))
                  (fn [{:keys [value error]}]

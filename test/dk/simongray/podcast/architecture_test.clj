@@ -43,6 +43,7 @@
    "profile.player" 3 "profile.payments" 3 "criteria" 3 "downloads" 3
    "gpodder" 3 "gpodder.api" 3 "gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
+   "directory.impl" 3 "directory.podcastindex.impl" 3 "directory.links.impl" 3
    "podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "comments.nostr" 3
