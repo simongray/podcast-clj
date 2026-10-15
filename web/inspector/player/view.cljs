@@ -6,25 +6,32 @@
   The state holds the listener's profile and, for each episode id, what
   /episode.edn served for it:
 
-      {:profile … :titles {id episode} :media {…} :answer {…} :error \"…\"}
+      {:profile … :titles {id episode} :media {…} :answer {…}
+       :volume-locked? false :error \"…\"}
 
   The :media is the state of the media element, as play-nice's
-  media/watch! reports it, and the :answer is the browser's to playing
-  it. An episode that another device added comes through a sync as a
-  remote item, without that data. An event is a vector whose first
-  element names it:
+  media/watch! reports it, the :answer is the browser's to playing it,
+  and :volume-locked? is whether the browser locks the volume. An episode
+  that another device added comes through a sync as a remote item,
+  without that data. An event is a vector whose first element names it:
 
       [:play id] [:skip id :back] [:ended id] [:sleep 1] [:play-next id]
-      [:dequeue id] [:prefer :skip-back] [:sync] [:unmute]
+      [:dequeue id] [:prefer :skip-back] [:sync]
+      [:press {:action :play}] [:seek-at] [:rate feed-guid] [:volume]
+      [:muted false]
       [:folder/pick] [:folder/allow] [:folder/forget]
       [:document/save] [:document/load] [:device/retire id]
 
-  The audio or video element raises [:media/mounted id source] and
-  [:media/unmounted id] as it comes and goes, where the source is what
-  media/source! loads, and [:ended id] when it has played to the end."
+  A press is that of a button of the lock screen, with the details of its
+  action, and the player presses the same handlers. The audio or video
+  element raises [:media/mounted id source] and [:media/unmounted id] as
+  it comes and goes, where the source is what media/source! loads, and
+  [:ended id] when it has played to the end."
   (:require [cljs.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.controls :as controls]
+            [dk.simongray.play-nice.media :as media-element]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]))
@@ -65,41 +72,93 @@
   [{:keys [refused] :as answer} media]
   (cond
     (and (:muted answer) (:muted media))
-    [:span "Playing muted, since the browser refused the sound. "
-     [:button {:on {:click [:unmute]}} "Unmute"]]
+    [:span "Playing muted, since the browser refused the sound."]
 
     (= :not-allowed refused)
     [:span.muted "The browser plays it at your next click or key press."]))
 
+(def rates
+  "The playback rates that the bar offers, besides that of the show."
+  [0.75 1 1.25 1.5 1.75 2 2.5 3])
+
+(defn- seek-bar
+  "A seek bar for the `media` state, with the ARIA attributes of a slider,
+  whose keys the player listens to."
+  [{:keys [current-time duration] :as media}]
+  (let [played (if (and (js/Number.isFinite duration) (pos? duration))
+                 (/ (or current-time 0) duration)
+                 0)]
+    [:div.seek-bar
+     (merge (controls/seek-aria media)
+            {:tabindex   0
+             :aria-label "Position"
+             :on         {:click [:seek-at]}})
+     [:div.played {:style {:width (str (* 100 played) "%")}}]]))
+
+(defn- rate-select
+  "A choice of the playback rate for the show `feed-guid`, at `x`."
+  [feed-guid x]
+  [:label "Speed "
+   [:select {:on {:change [:rate feed-guid]}}
+    (for [r (sort (distinct (conj rates x)))]
+      [:option {:replicant/key r :value (str r) :selected (= r x)}
+       (str r "×")])]])
+
+(defn- volume-controls
+  "A mute button for the `media` state, and a volume slider on the cubic
+  curve, unless the browser locks the volume, as `locked?` says, or
+  hasn't said yet."
+  [{:keys [muted volume] :as media} locked?]
+  [:span.controls
+   [:button {:on {:click [:muted (not muted)]}} (if muted "Unmute" "Mute")]
+   (when (false? locked?)
+     [:input {:type       "range"
+              :min        0
+              :max        1
+              :step       0.01
+              :aria-label "Volume"
+              :value      ((get-in media-element/curves [:cubic :level])
+                           (or volume 1))
+              :on         {:input [:volume]}}])])
+
 (defn bar
   "The persistent player of the page `state`: the current episode, its
-  audio or video element, the skip buttons and the sleep timer, or nil
-  when nothing is queued.
+  audio or video element and its controls, the skip buttons and the sleep
+  timer, or nil when nothing is queued.
 
   The media element loads the episode when it's mounted, at the position
   to resume at and the rate of the show. An episode that came through a
   sync from a device that told no data of it has nothing to play. The bar
   tells so, and the listener removes it."
-  [{:keys [profile media answer sleep] :as state}]
+  [{:keys [profile media answer sleep volume-locked?] :as state}]
   (when-let [id (profile.queue/current profile)]
     (let [{:keys [enclosure video?] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (profile/preferences profile)
-          position (profile/resume-position profile (first id) id)]
+          [feed-guid] id
+          position (profile/resume-position profile feed-guid id)
+          rate     (profile/playback-rate profile feed-guid)
+          paused   (:paused media true)]
       [:div.bar
        [:span (episode-link state id)]
        (cond
          enclosure
-         [(if video? :video#player :audio#player)
-          {:controls             true
-           :preload              "metadata"
-           :replicant/key        id
-           :replicant/on-mount   [:media/mounted id
-                                  {:src           enclosure
-                                   :position      position
-                                   :playback-rate (profile/playback-rate
-                                                   profile (first id))}]
-           :replicant/on-unmount [:media/unmounted id]
-           :on                   {:ended [:ended id]}}]
+         (list
+          [(if video? :video#player :audio#player)
+           {:preload              "metadata"
+            :replicant/key        id
+            :replicant/on-mount   [:media/mounted id
+                                   {:src           enclosure
+                                    :position      position
+                                    :playback-rate rate}]
+            :replicant/on-unmount [:media/unmounted id]
+            :on                   {:ended [:ended id]}}]
+          [:span.controls.transport
+           [:button {:on {:click [:press {:action (if paused :play :pause)}]}}
+            (if paused "Play" "Pause")]
+           (seek-bar media)
+           [:span.muted (readout media position)]]
+          (rate-select feed-guid (:playback-rate media rate))
+          (volume-controls media volume-locked?))
 
          episode
          [:span.muted "No enclosure to play."]
@@ -107,7 +166,6 @@
          :else
          [:span.muted (str "This browser has no data of the episode. Remove "
                            "it, or open its item and play it.")])
-       [:span.muted (readout media position)]
        (answer-note answer media)
        [:span
         [:button {:on {:click [:skip id :back]}} (str "−" skip-back "s")]

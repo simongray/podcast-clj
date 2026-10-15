@@ -65,8 +65,15 @@
                border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
    #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;
                     align-items:center;flex-wrap:wrap}
-   #player-bar audio{height:32px}
-   #player-bar video{max-width:320px;max-height:180px}")
+   #player-bar video{max-width:320px;max-height:180px}
+   #player-bar .controls{display:flex;gap:.5rem;align-items:center}
+   #player-bar .transport{flex:1 1 320px}
+   #player-bar .seek-bar{flex:1;height:8px;background:#ddd;border-radius:4px;
+                         cursor:pointer}
+   #player-bar .seek-bar:focus-visible{outline:2px solid #1a5fb4;
+                                       outline-offset:3px}
+   #player-bar .played{height:100%;background:#555;border-radius:4px}
+   #player-bar input[type=range]{width:6rem}")
 
 (defn layout
   "The page skeleton around `body`, titled `title`."

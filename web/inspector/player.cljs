@@ -29,6 +29,7 @@
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.controls :as controls]
             [dk.simongray.play-nice.media :as media]
             [dk.simongray.play-nice.page.autoplay :as autoplay]
             [dk.simongray.play-nice.page.tabs :as tabs]
@@ -385,6 +386,11 @@
   detach-session
   (atom nil))
 
+(defonce ^{:doc "The handlers of the lock screen's buttons for the episode
+  that plays, by action, which the bar's keys and buttons press too."}
+  handlers
+  (atom {}))
+
 (defn- on-lock-screen!
   "Put the episode `id`, which the audio element `el` plays, on the lock
   screen, with buttons that go through the library."
@@ -401,18 +407,36 @@
                                 :artist (or feed-title "")
                                 :album  (or feed-title "")}
                          artwork (assoc :artwork [{:src artwork}])))
-    (session/actions! (merge (session/element-actions el)
-                             (zipmap (media-session/actions (:library @app) id)
-                                     (repeat press))))))
+    (reset! handlers (merge (session/element-actions el)
+                            (zipmap (media-session/actions (:library @app) id)
+                                    (repeat press))))
+    (session/actions! @handlers)))
 
 (defn- off-lock-screen!
   "Take the episode off the lock screen, once nothing is queued."
   []
   (when-let [detach! @detach-session]
     (reset! detach-session nil)
+    (reset! handlers {})
     (detach!)
     (session/metadata! nil)))
 
+(defn- press!
+  "Press the handler of the action of `details`, as a button of the lock
+  screen would, e.g. {:action :seekto :seek-time 754}."
+  [{:keys [action] :as details}]
+  (when-let [f (get @handlers action)]
+    (f details)))
+
+(defn- seek-at!
+  "Seek to where the click `e` landed on the seek bar."
+  [^js e]
+  (let [rect     (.getBoundingClientRect (.-currentTarget e))
+        duration (get-in @app [:media :duration])]
+    (when (and (js/Number.isFinite duration) (pos? (.-width rect)))
+      (press! {:action    :seekto
+               :seek-time (* duration (/ (- (.-clientX e) (.-left rect))
+                                         (.-width rect)))}))))
 (defn- timed
   "The `library` with its sleep timer set to `n` episodes, or without one
   when `n` is nil."
@@ -426,6 +450,25 @@
   with `args` and the time."
   [f & args]
   (swap! app update :library #(apply library/update-profile % f args)))
+
+(defn- keep-rate
+  "The `profile` with the playback rate `x` kept for the show `feed-guid`
+  at `at`, or as the listener's preference where they don't subscribe to
+  it."
+  [profile feed-guid x at]
+  (if (profile/subscribed? profile feed-guid)
+    (profile/configure profile feed-guid {:playback-rate x} at)
+    (profile/prefer profile {:playback-rate x} at)))
+
+(defn- change-rate!
+  "Play at the rate that the change `e` of the select chose, and keep it
+  for the show `feed-guid`."
+  [feed-guid ^js e]
+  (when-let [el (audio-element)]
+    (let [{:keys [playback-rate refused]}
+          (media/rate! el (parse-double (.. e -target -value)))]
+      (when-not refused
+        (operate! keep-rate feed-guid playback-rate)))))
 
 (defn- play!
   "Make the episode `id` the current one, at the front of the queue, and
@@ -474,15 +517,22 @@
 (defn- mount!
   "Load the `source` of the episode `id` into the media element `el` that
   the bar has rendered, and follow it: keep its state, put it on the lock
-  screen, and let it pause when another tab plays."
+  screen, press its handlers at the bar's keys, and let it pause when
+  another tab plays."
   [id source el]
   (media/source! el source)
   (swap! app dissoc :answer :media :reported)
   (on-lock-screen! id el)
-  (swap! detach-element assoc id
-         (juxt (media/watch! el (partial reported! id)
-                             {:events (conj media/events :timeupdate)})
-               (tabs/attach! el "podcast-inspector"))))
+  (let [bar      (js/document.getElementById "player-bar")
+        seek-bar (some-> bar (.querySelector ".seek-bar"))]
+    (swap! detach-element assoc id
+           (juxt (media/watch! el (partial reported! id)
+                               {:events (conj media/events :timeupdate)})
+                 ;; a key on the seek bar is its own, before the bar's
+                 (controls/listen! seek-bar el @handlers
+                                   {:keymap controls/seek-bar-keys})
+                 (controls/listen! bar el @handlers)
+                 (tabs/attach! el "podcast-inspector")))))
 
 (defn- unmount!
   "Stop following the media element of the episode `id`, which the bar no
@@ -495,7 +545,8 @@
 (defn handle!
   "Perform the view's `event`, given the DOM event `e` that raised it or
   the `node` that a life-cycle hook raised it on. The skips and the queue
-  operations go to the library, and the media element's mount loads it."
+  operations go to the library, the bar's controls press the lock
+  screen's handlers or set the media element, and its mount loads it."
   [[kind & args :as event] e node]
   (case kind
     :play          (play! (first args))
@@ -521,7 +572,13 @@
     :media/mounted   (let [[id source] args]
                        (js/queueMicrotask #(mount! id source node)))
     :media/unmounted (unmount! (first args))
-    :unmute          (some-> (audio-element) (media/muted! false))
+    :press           (press! (first args))
+    :seek-at         (seek-at! e)
+    :rate            (change-rate! (first args) e)
+    :volume          (some-> (audio-element)
+                             (media/volume! (parse-double (.. e -target -value))
+                                            {:curve :cubic}))
+    :muted           (some-> (audio-element) (media/muted! (first args)))
     nil))
 
 (defn- add!
@@ -783,6 +840,7 @@
     (when (not= (browser-name) (get-in profile [:devices device :name]))
       (operate! crdt/identify {:name (browser-name)})))
   (save! @app)
+  (.then (media/volume-locked!) #(swap! app assoc :volume-locked? %))
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event node]} event]
                              (handle! event dom-event node)))
   (add-watch app ::render

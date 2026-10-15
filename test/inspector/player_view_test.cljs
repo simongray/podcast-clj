@@ -45,9 +45,9 @@
     (is (= [:media/unmounted a] (:replicant/on-unmount (second audio))))
     (is (= {:ended [:ended a]} (:on (second audio))) "the end, which the library is told of")
     (is (nil? (:src (second audio))) "media/source! sets the source, so that the position and rate come with it")
-    (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:dequeue a] [:sleep 1]]
+    (is (= [[:press {:action :play}] [:muted true] [:skip a :back] [:skip a :forward] [:ended a] [:dequeue a] [:sleep 1]]
            (map #(get-in % [1 :on :click]) buttons)))
-    (is (= ["−15s" "+30s" "Ended" "Remove" "Stop after this episode"] (map #(nth % 2) buttons))
+    (is (= ["Play" "Mute" "−15s" "+30s" "Ended" "Remove" "Stop after this episode"] (map #(nth % 2) buttons))
         "the listener's preferences on the buttons")
     (let [button (last (elements (view/bar (assoc state :sleep {:episodes 1})) :button))]
       (is (= [[:sleep nil] "Play on after this episode"] [(get-in button [1 :on :click]) (nth button 2)])
@@ -63,11 +63,28 @@
   (testing "the browser's answer to playing it"
     (let [bar (view/bar (assoc state :answer {:playing true :muted true} :media {:muted true}))]
       (is (str/includes? (text bar) "Playing muted"))
-      (is (some #{[:unmute]} (map #(get-in % [1 :on :click]) (elements bar :button)))))
+      (is (some #{[:muted false]} (map #(get-in % [1 :on :click]) (elements bar :button)))))
     (is (not (str/includes? (text (view/bar (assoc state :answer {:playing true :muted true} :media {:muted false})))
                             "Playing muted"))
         "an element unmuted by its own controls")
     (is (str/includes? (text (view/bar (assoc state :answer {:refused :not-allowed}))) "next click")))
+  (testing "the controls of the media element, which press the lock screen's handlers"
+    (let [media {:paused false :current-time 750 :duration 3000 :playback-rate 1.5 :volume 0.125 :muted false}
+          bar   (view/bar (assoc state :media media :volume-locked? false))
+          [_ attrs [_ played]] (first (elements bar :div.seek-bar))]
+      (is (some #{[:press {:action :pause}]} (map #(get-in % [1 :on :click]) (elements bar :button))) "pause while it plays")
+      (is (= {:role "slider" :aria-valuemin 0 :aria-valuemax 3000 :aria-valuenow 750 :aria-label "Position" :tabindex 0}
+             (select-keys attrs [:role :aria-valuemin :aria-valuemax :aria-valuenow :aria-label :tabindex])))
+      (is (= {:click [:seek-at]} (:on attrs)))
+      (is (= "25%" (get-in played [:style :width])))
+      (is (= [:rate "feed"] (get-in (first (elements bar :select)) [1 :on :change])))
+      (is (= ["1.5"] (for [[_ {:keys [value selected]}] (elements bar :option) :when selected] value))
+          "the rate it plays at")
+      (is (= 0.5 (:value (second (first (elements bar :input))))) "the volume slider on the cubic curve"))
+    (is (some #{"1.1"} (map #(get-in % [1 :value]) (elements (view/bar (assoc state :media {:playback-rate 1.1})) :option)))
+        "a rate of the show that the bar doesn't offer")
+    (is (empty? (elements (view/bar (assoc state :volume-locked? true)) :input)) "no volume slider where the browser locks the volume")
+    (is (empty? (elements (view/bar state) :input)) "nor before the browser has said"))
   (testing "the readout the media element reported, and an episode without an enclosure"
     (is (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration 3600}))) "at 1:00 of 1:00:00"))
     (is (not (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration ##Inf}))) "at 1:00 of"))
