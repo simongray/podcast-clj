@@ -9,6 +9,7 @@
   requirements, and no request goes out again."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.diagnostics.impl :as diagnostics.impl]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.whatwg-mime :as mime]))
@@ -67,7 +68,7 @@
   "The diagnostic `id` about `file`, with the `details`, at the level of
   the catalogue unless the `chosen` requirements raise it."
   [{:keys [url path] :as file} chosen id & {:as details}]
-  (diagnostics/masked
+  (diagnostics.impl/masked
    (merge {:id    id
            :level (or (get-in chosen [:levels id])
                       (:level (diagnostics/by-id id)))

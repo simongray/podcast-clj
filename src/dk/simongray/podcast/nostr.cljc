@@ -6,17 +6,13 @@
   as a relay gives it. Show no event whose id and signature aren't
   verified, since a relay can send anything."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.nostr.impl :as impl]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
-            #?(:clj [dk.simongray.podcast.util.client :as client])
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webcrypto.bytes :as bytes]
-            [dk.simongray.webcrypto.hash :as hash])
-  #?(:clj (:import [java.net URI]
-                   [java.net.http HttpClient WebSocket WebSocket$Listener]
-                   [java.time Duration]
-                   [java.util.concurrent TimeUnit])))
+            [dk.simongray.webcrypto.hash :as hash]))
 
 (def default-limits
   "The limits of an exchange with a relay that its request doesn't set.
@@ -26,15 +22,11 @@
    :max-events      500
    :max-bytes       (* 5 1024 1024)})
 
-(def ^:no-doc max-name-length
-  "The most characters of a name, the limit of NIP-19."
-  5000)
-
-(def ^:no-doc subscription
+(def subscription
   "The id of the one subscription of an exchange with a relay."
   "podcast-clj")
 
-(defn ^:no-doc hex-id?
+(defn hex-id?
   "Whether `x` is the text of 32 bytes in lower-case hexadecimal, as an
   id and a public key of NIP-01 are."
   [x]
@@ -56,37 +48,11 @@
         (vector? (get x "tags"))
         (every? #(and (vector? %) (seq %) (every? string? %)) (get x "tags")))))
 
-(defn- quoted
-  "The text `s` as a JSON string with the escapes that NIP-01 names, and
-  no other escape."
-  [s]
-  (str "\""
-       (str/escape s {\newline   "\\n"
-                      \"         "\\\""
-                      \\         "\\\\"
-                      \return    "\\r"
-                      \tab       "\\t"
-                      \backspace "\\b"
-                      \formfeed  "\\f"})
-       "\""))
-
-(defn ^:no-doc serialized
-  "The text whose SHA-256 is the id of `event`, as the section Events and
-  signatures of NIP-01 defines it."
-  [{:strs [pubkey created_at kind tags content] :as event}]
-  (let [tag #(str "[" (str/join "," (map quoted %)) "]")]
-    (str "[0," (quoted pubkey)
-         "," (json/whole created_at)
-         "," (json/whole kind)
-         ",[" (str/join "," (map tag tags)) "]"
-         "," (quoted content)
-         "]")))
-
 (defn event-id
   "The id that NIP-01 gives `event`: the SHA-256 of its fields, in
   hexadecimal."
   [event]
-  (bytes/hex (hash/digest :sha-256 (bytes/encode (serialized event)))))
+  (bytes/hex (hash/digest :sha-256 (bytes/encode (impl/serialized event)))))
 
 (defn verified?
   "Whether `event` is an event whose id is the id of its content, and
@@ -150,65 +116,6 @@
                 :else                       true))
             filter)))
 
-(def ^:no-doc name-types
-  "The prefix of each name of NIP-19 that podcast-clj reads, with the type
-  of the name."
-  {"npub"     :npub
-   "note"     :note
-   "nprofile" :nprofile
-   "nevent"   :nevent
-   "naddr"    :naddr})
-
-;; NIP-19, part "Shareable identifiers with extra metadata": the types 0
-;; (the thing), 1 (a relay), 2 (the author) and 3 (the kind)
-(defn- fields
-  "The fields in the bytes `b` of a name with extra data, in order, each
-  as a pair of its type and its value. Nil when a field ends after the
-  bytes.
-
-  A field is a byte for the type, a byte for the length, and the value."
-  [b]
-  (let [n (bytes/length b)]
-    (loop [i 0 out []]
-      (cond
-        (= i n)
-        out
-
-        (> (+ i 2) n)
-        nil
-
-        :else
-        (let [end (+ i 2 (long (bytes/at b (inc i))))]
-          (when (<= end n)
-            (let [entry [(bytes/at b i) (bytes/slice b (+ i 2) end)]]
-              (recur end (conj out entry)))))))))
-
-(defn- with-fields
-  "The name of the type `type` whose data are the fields `fs`, as a map.
-  Nil when the field that names the thing has a wrong size."
-  [type fs]
-  (let [of-type (fn [t] (map second (filter #(= t (first %)) fs)))
-        key-of  (fn [b] (when (and b (= 32 (bytes/length b))) (bytes/hex b)))
-        special (first (of-type 0))
-        author  (key-of (first (of-type 2)))
-        kind    (when-let [b (first (of-type 3))]
-                  (when (= 4 (bytes/length b))
-                    (reduce (fn [acc i] (+ (* 256 acc) (bytes/at b i)))
-                            0
-                            (range 4))))
-        extras  (cond-> {:relays (mapv bytes/decode (of-type 1))}
-                  author (assoc :author author)
-                  kind   (assoc :kind kind))]
-    (case type
-      :nprofile (when-let [k (key-of special)]
-                  {:type type :public-key k :relays (:relays extras)})
-      :nevent   (when-let [id (key-of special)]
-                  (assoc extras :type type :id id))
-      :naddr    (when (and special author kind)
-                  (assoc extras
-                         :type       type
-                         :identifier (bytes/decode special))))))
-
 (defn decode
   "What the name `s` names, as a map with its :type, or nil for another
   text and for the name of a secret key. The name is one of NIP-19, e.g.
@@ -225,15 +132,15 @@
   [s]
   (when (string? s)
     (let [text  (str/replace (str/trim s) #"(?i)^nostr:" "")
-          named (bech32/decode text {:max-length max-name-length})]
+          named (bech32/decode text {:max-length impl/max-name-length})]
       (when-let [{:keys [prefix] b :bytes} named]
-        (when-let [type (name-types prefix)]
+        (when-let [type (impl/name-types prefix)]
           (case type
             :npub (when (= 32 (bytes/length b))
                     {:type type :public-key (bytes/hex b)})
             :note (when (= 32 (bytes/length b))
                     {:type type :id (bytes/hex b)})
-            (some->> (fields b) (with-fields type))))))))
+            (some->> (impl/fields b) (impl/with-fields type))))))))
 
 (defn- field
   "The bytes of a field of the type `t` with the value `b`, which has 255
@@ -283,15 +190,6 @@
   or nil when `x` names nothing of its type."
   [x]
   (some->> (encode x) (str "nostr:")))
-
-(def ^:no-doc part-pattern
-  "What names something in the content of an event: a nostr: URI with a
-  name, a web URL, and a word after a number sign."
-  (re-pattern
-   (str "(?u)"
-        "nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+"
-        "|https?://[^\\s<>]+"
-        "|#[\\p{L}\\p{N}_]+")))
 
 (defn- part
   "The part that the match `s` gives, in an event whose hashtags in lower
@@ -346,7 +244,7 @@
                       (conj {:type :text :text (subs content from to)})))]
     ;; `at` is where the next match starts or later, and `from` is where
     ;; the text starts that no part has yet
-    (loop [found (re-seq part-pattern content) at 0 from 0 out []]
+    (loop [found (re-seq impl/part-pattern content) at 0 from 0 out []]
       (if-let [[match & more] (seq found)]
         (let [i (long (str/index-of content match at))
               p (part match hashtags)]
@@ -501,85 +399,10 @@
       :else
       answer)))
 
-(defn ^:no-doc response
+(defn response
   "The response of an exchange for the `answer` of the relay at `url`."
   [url answer]
   (merge {:url url :events []} (dissoc answer :bytes :done?)))
-
-(defn- failure
-  "The exception of an exchange with the relay at `url` that failed for
-  the reason `message`, with the `cause` and the `answer` so far.
-
-  When the event went out before the failure, the data of the exception
-  has :sent? true."
-  [url message cause answer]
-  (ex-info (str message ": " url)
-           (cond-> {:type ::failed :url url}
-             (:sent? answer) (assoc :sent? true))
-           cause))
-
-(defn- due?
-  "Whether the event of an exchange goes out now, by its `answer`. It does
-  when the relay has the subscription, the event hasn't gone out, and the
-  exchange goes on."
-  [{:keys [complete? sent? done?] :as answer}]
-  (boolean (and complete? (not sent?) (not done?))))
-
-#?(:clj
-   (defn- listener
-     "The listener of a WebSocket that reads the messages of a relay into
-     the atom `answer` within `limits`, with the promises `ready` and
-     `done`.
-
-     It delivers :ready to `ready` when the event of the exchange is due,
-     and the answer to `done` when the exchange ends."
-     [answer ready done {:keys [max-bytes] :as limits}]
-     (let [partial (StringBuilder.)
-           end     (fn [result]
-                     (deliver ready :done)
-                     (deliver done result))]
-       (reify WebSocket$Listener
-         (onOpen [_ socket]
-           (.request ^WebSocket socket 1))
-         (onText [_ socket data last?]
-           (.append partial ^CharSequence data)
-           (when (and max-bytes (> (.length partial) (long max-bytes)))
-             (end (swap! answer assoc :done? true :truncated :max-bytes)))
-           (when last?
-             (let [text (str partial)]
-               (.setLength partial 0)
-               (let [read (swap! answer received text limits)]
-                 ;; the thread of the exchange sends the event, since a
-                 ;; send from here fails while the send of the first
-                 ;; message is pending, and the JDK clears that only after
-                 ;; the message went out
-                 (when (due? read)
-                   (deliver ready :ready))
-                 (when (:done? read)
-                   (end @answer)))))
-           (.request ^WebSocket socket 1)
-           nil)
-         (onClose [_ _ _ _]
-           (end @answer)
-           nil)
-         (onError [_ _ e]
-           (end (if (seq (:events @answer)) @answer {:error e})))))))
-
-#?(:clj
-   (defn- hang-up
-     "End the subscription of `socket` and close it, waiting at most two
-     seconds for the relay to take each of the two messages."
-     [^WebSocket socket]
-     (try
-       (when-not (.isOutputClosed socket)
-         (-> (.sendText socket (close-message subscription) true)
-             (.get 2 TimeUnit/SECONDS))
-         (-> (.sendClose socket WebSocket/NORMAL_CLOSURE "")
-             (.get 2 TimeUnit/SECONDS)))
-       (catch Exception _
-         nil)
-       (finally
-         (.abort socket)))))
 
 (defn- opening
   "The messages that an exchange for `filters` and the `event` sends, as
@@ -601,106 +424,6 @@
 
     :else
     {:first (request-message subscription filters)}))
-
-#?(:clj
-   (defonce ^{:no-doc true
-              :doc    "The client of the WebSockets to the relays, built on
-  first use."}
-     websocket-client
-     (delay (HttpClient/newHttpClient))))
-
-#?(:clj
-   (defn- exchange
-     "The answer of the relay at `url` to the opening `messages`, within
-     `limits`, over a WebSocket of the JDK, with the :user-agent of the
-     limits as its User-Agent."
-     [url messages {:keys [timeout-seconds user-agent]
-                    :or   {user-agent client/user-agent}
-                    :as   limits}]
-     (let [answer   (atom {})
-           ready    (promise)
-           done     (promise)
-           socket   (try
-                      (-> (.newWebSocketBuilder ^HttpClient @websocket-client)
-                          (.connectTimeout (Duration/ofSeconds timeout-seconds))
-                          (.header "User-Agent" user-agent)
-                          (.buildAsync (URI. url)
-                                       (listener answer ready done limits))
-                          (.get timeout-seconds TimeUnit/SECONDS))
-                      (catch Exception e
-                        (throw (failure url "The relay gave no connection"
-                                        e {}))))
-           deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
-           left     #(max 0 (- deadline (System/currentTimeMillis)))
-           write!   (fn [text]
-                      (-> (.sendText ^WebSocket socket text true)
-                          (.get (left) TimeUnit/MILLISECONDS)))
-           failed   "The connection to the relay failed"]
-       (try
-         (when (:sent? messages)
-           (swap! answer assoc :sent? true))
-         (write! (:first messages))
-         (when (and (:later messages) (= :ready (deref ready (left) ::timeout)))
-           ;; noted before it goes out: an event that failed on its way
-           ;; counts as one that went out
-           (swap! answer assoc :sent? true)
-           (write! (:later messages)))
-         (let [result (deref done (left) ::timeout)]
-           (cond
-             (= ::timeout result)
-             (assoc @answer :timeout? true)
-
-             (:error result)
-             (throw (failure url failed (:error result) @answer))
-
-             :else
-             result))
-         (catch java.util.concurrent.ExecutionException e
-           (throw (failure url failed (ex-cause e) @answer)))
-         (catch java.util.concurrent.TimeoutException e
-           (throw (failure url "The relay took no message in time" e @answer)))
-         (finally
-           (hang-up socket))))))
-
-#?(:cljs
-   (defn- exchange
-     "A promise of the answer of the relay at `url` to the opening
-     `messages`, within `limits`, over the WebSocket of the platform."
-     [url messages {:keys [timeout-seconds] :as limits}]
-     (js/Promise.
-      (fn [resolve reject]
-        (let [answer  (atom (if (:sent? messages) {:sent? true} {}))
-              socket  (js/WebSocket. url)
-              timer   (atom nil)
-              end     (fn [f x]
-                        (js/clearTimeout @timer)
-                        (try
-                          (when (= 1 (.-readyState socket))
-                            (.send socket (close-message subscription)))
-                          (.close socket)
-                          (catch :default _ nil))
-                        (f x))
-              time-up #(end resolve (assoc @answer :timeout? true))]
-          (reset! timer (js/setTimeout time-up (* 1000 timeout-seconds)))
-          (set! (.-onopen socket) #(.send socket (:first messages)))
-          (set! (.-onmessage socket)
-                (fn [e]
-                  (let [read (swap! answer received (str (.-data e)) limits)]
-                    (when (and (:later messages) (due? read))
-                      ;; noted before it goes out: an event that failed on
-                      ;; its way counts as one that went out
-                      (swap! answer assoc :sent? true)
-                      (.send socket (:later messages)))
-                    (when (:done? read)
-                      (end resolve @answer)))))
-          (set! (.-onclose socket) #(end resolve @answer))
-          (set! (.-onerror socket)
-                (fn [e]
-                  (if (seq (:events @answer))
-                    (end resolve @answer)
-                    (end reject
-                         (failure url "The connection to the relay failed"
-                                  (.-error e) @answer))))))))))
 
 (defn send!
   "Ask the relay of the `request` for the events of its filters, and give
@@ -749,7 +472,8 @@
     :or   {allow-pred (constantly true)}
     :as   request}]
   (let [relay    (relay-url url)
-        messages (opening filters event)
+        messages (assoc (opening filters event)
+                        :close (close-message subscription))
         limits   (cond-> (merge default-limits
                                 (select-keys request (keys default-limits))
                                 (select-keys request [:user-agent]))
@@ -759,8 +483,9 @@
       (let [refused (ex-info (str "The request to " url " is not allowed")
                              {:type ::refused :url url})]
         #?(:clj (throw refused) :cljs (js/Promise.reject refused)))
-      #?(:clj  (response relay (exchange relay messages limits))
-         :cljs (.then (exchange relay messages limits) #(response relay %))))))
+      #?(:clj  (response relay (impl/exchange relay messages limits received))
+         :cljs (.then (impl/exchange relay messages limits received)
+                      #(response relay %))))))
 
 (comment
   (def note

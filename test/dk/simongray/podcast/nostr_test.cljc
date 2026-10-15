@@ -6,6 +6,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.nostr.impl :as nostr.impl]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed #?(:clj with-relay)]]
             [dk.simongray.podcast.util.bech32 :as bech32]
@@ -36,8 +37,8 @@
     (is (= (str "[0,\"" (secp256k1/public-key ann) "\",1790000000,1,"
                 "[[\"t\",\"podcast\"],[\"e\",\"" (apply str (repeat 64 "a")) "\",\"wss://relay.example\",\"root\"]],"
                 "\"A \\\"quote\\\", a \\\\ and a tab\\t.\\nA new line, a bell \u0007, a slash / and Blåbærgrød 🎧\"]")
-           (nostr/serialized note)))
-    (is (= (get note "id") (bytes/hex (hash/digest :sha-256 (bytes/encode (nostr/serialized note))))))
+           (nostr.impl/serialized note)))
+    (is (= (get note "id") (bytes/hex (hash/digest :sha-256 (bytes/encode (nostr.impl/serialized note))))))
     (is (nostr/verified? note))
     (is (nostr/verified? (json/read-str (json/write-str note))) "after a trip through JSON"))
   (testing "an event that is not what its author signed"

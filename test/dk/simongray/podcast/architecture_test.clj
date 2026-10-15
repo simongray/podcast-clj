@@ -17,8 +17,8 @@
   the formats, the profile, gpodder and the directories, the root namespace,
   and the high level under app, the only namespaces that require the root
   namespace."
-  {"diagnostics" 0 "feed.guid" 0 "nostr" 0 "nostr.signer" 0
-   "nostr.nip44" 0 "nostr.secp256k1" 0
+  {"diagnostics" 0 "diagnostics.impl" 0 "feed.guid" 0
+   "nostr" 0 "nostr.impl" 0 "nostr.signer" 0 "nostr.nip44" 0 "nostr.secp256k1" 0
    "util.bech32" 0 "util.bytes.view" 0 "util.bytes.ranges" 0
    "util.client" 0
    "util.json" 0 "util.ring" 0

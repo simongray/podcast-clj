@@ -6,7 +6,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.like-minded.diagnostics :as sync-diagnostics]
-            [dk.simongray.podcast.diagnostics :as diagnostics]))
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.diagnostics.impl :as diagnostics.impl]))
 
 (def source
   "The library's source, one string."
@@ -48,7 +49,7 @@
 
 (deftest the-catalogue-matches-the-source
   (testing "the same ids, and those of like-minded, which the source can match on"
-    (is (= (set (map :id diagnostics/podcast-catalogue))
+    (is (= (set (map :id diagnostics.impl/podcast-catalogue))
            (set (remove (set (map :id sync-diagnostics/catalogue)) (ids-in-source)))))
     (is (every? diagnostics/by-id (ids-in-source))))
   (testing "the same levels"
@@ -64,7 +65,7 @@
         d      (diagnostics/fetch-failure {:url url :reason (str "The request to " url " is not allowed")})]
     (is (= masked (:url d)) "the token and the key of a private feed, and the credentials")
     (is (= (str "The request to " masked " is not allowed") (:reason d)) "in the reason too"))
-  (is (= "https://a.example/feed.xml?q=1" (diagnostics/masked-url "https://a.example/feed.xml?q=1"))))
+  (is (= "https://a.example/feed.xml?q=1" (diagnostics.impl/masked-url "https://a.example/feed.xml?q=1"))))
 
 (deftest a-step-that-failed
   (let [{:keys [error] :as result} (diagnostics/failed {:id :fetch/malformed :url "https://a.example/?token=abc"})]
