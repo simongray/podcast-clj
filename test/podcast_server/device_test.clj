@@ -7,6 +7,7 @@
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.library.impl :as library.impl]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
@@ -77,7 +78,7 @@
               "and the server keeps its skeleton")
           (is (= (feeds/slim feed) (get-in (library/load! library data [(first id)]) [:feeds (first id) :feed])))
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the profile, from the sync documents"))
-        (spit (io/file dir library/saved-name) "{:feeds")
+        (spit (io/file dir library.impl/saved-name) "{:feeds")
         (is (= {} (:feeds (device/restore! (device/make) data))) "a file that can't be read is left out")))))
 
 (deftest a-saved-library-reads-back

@@ -14,6 +14,7 @@
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.library.impl :as library.impl]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
@@ -209,7 +210,7 @@
                 (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= (search/query (:index lib) "future")
-           (search/query (library/index lib) "future"))
+           (search/query (library.impl/index lib) "future"))
         "an index built again from the feeds")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
@@ -819,7 +820,7 @@
       (is (contains? (ids lib) id))
       (is (= [id] (mapv :id (library/search lib "other"))) "nor the show or the other episode in the index")
       (is (= (search/query (:index lib) "other")
-             (search/query (library/index lib) "other"))
+             (search/query (library.impl/index lib) "other"))
           "an index built again from the feeds finds the same")
       (is (= ["Other one"] (map :rss/title (get-in lib [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :feed :rss/items])))
           "the feed kept with that episode alone")
@@ -1267,9 +1268,9 @@
   (let [documents (atom {})
         s         (store/memory documents)
         made      #(library/make "phone" {:config {:now-fn (constantly now)}})
-        doc-name  (library/document-name guid (get-in library [:feeds guid :changed-at]))
+        doc-name  (library.impl/document-name guid (get-in library [:feeds guid :changed-at]))
         saved     #(binding [*print-namespace-maps* false] (pr-str %))
-        too-new   {:version (inc library/version) :profile {:from :the-future}}
+        too-new   {:version (inc library.impl/version) :profile {:from :the-future}}
         later     #inst "2026-10-01T12:00:00Z"
         changed   (-> library
                       (assoc-in [:feeds guid :changed-at] later)
@@ -1280,21 +1281,21 @@
                       (fn [{:keys [put]}]
                         (is (= doc-name (first put)) "each feed in a document of its own")
                         (let [edn (edn/read-string (:body (get @documents "library.edn")))]
-                          (is (= library/version (:version edn)))
+                          (is (= library.impl/version (:version edn)))
                           (is (= doc-name (get-in edn [:feeds guid :document])))
                           (is (not (contains? (get-in edn [:feeds guid]) :feed)) "and not in library.edn"))))
          #(async/then (library/save! changed s)
                       (fn [{:keys [put delete]}]
-                        (is (= (library/document-name guid later) (first put)) "a feed that changed, again")
+                        (is (= (library.impl/document-name guid later) (first put)) "a feed that changed, again")
                         (is (= [doc-name] delete) "and its old document gone")))
          #(async/then (library/restore! (made) s)
                       (fn [lib]
                         (is (= [] (:report (:restore lib))))
                         (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title])))))
-         #(do (swap! documents dissoc (library/document-name guid later))
+         #(do (swap! documents dissoc (library.impl/document-name guid later))
               (async/then (library/restore! (made) s)
                           (fn [lib]
-                            (is (= [[:library/unreadable-document (library/document-name guid later)]]
+                            (is (= [[:library/unreadable-document (library.impl/document-name guid later)]]
                                    (map (juxt :id :name) (:report (:restore lib)))))
                             (is (= {:url url} (get-in lib [:feeds guid]))
                                 "a feed whose document is gone, to fetch again"))))

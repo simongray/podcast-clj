@@ -5,6 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.podcast.app.episode :as episode]
+            [dk.simongray.podcast.app.episode.impl :as episode.impl]
             [dk.simongray.podcast.feed.local :as local]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
@@ -241,7 +242,7 @@
                 (let [fresh (store/memory (atom {}))]
                   (async/then (episode/read-files! (episode/view show item) {:send send :cache fresh :except #{:media}})
                               (fn [_]
-                                (is (nil? ((:fetch fresh) (episode/cache-name url) {})) "but none that says no-store"))))))))))))))
+                                (is (nil? ((:fetch fresh) (episode.impl/cache-name url) {})) "but none that says no-store"))))))))))))))
 
 (def album
   "The feed of an album with a block of its own and one for its first song."
