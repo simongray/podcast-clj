@@ -35,6 +35,10 @@
     (doseq [k ["window" "document" "localStorage" "location" "history" "URL" "URLSearchParams"
                "DOMParser" "FormData" "requestAnimationFrame" "Node" "HTMLElement" "Event"]]
       (aset js/globalThis k (aget window k)))
+    ;; a browser's global object is its window, whose events play-nice
+    ;; listens to, e.g. pagehide where Node has Web Locks, as from 24.5
+    (doseq [k ["addEventListener" "removeEventListener" "dispatchEvent"]]
+      (aset js/globalThis k (.bind (aget window k) window)))
     (set! (.-fetch js/globalThis)
           (fn [_]
             (js/Promise.resolve #js {:ok true :text (fn [] (js/Promise.resolve (pr-str episode)))})))
