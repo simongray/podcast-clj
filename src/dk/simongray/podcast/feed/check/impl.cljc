@@ -1,25 +1,143 @@
-(ns ^:no-doc dk.simongray.podcast.feed.check.facts
-  "The facts of the files of a check, gathered over the network: the
-  answers to the requests for each file, and what the file says about
-  itself when the check reads it.
-
-  The facts are data that an app can keep, and the rules of
-  dk.simongray.podcast.feed.check.rules judge them. In a browser, fetch
-  hides most headers of an answer from another site, so the facts there
-  say less."
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed.check.rules :as rules]
+(ns ^:no-doc dk.simongray.podcast.feed.check.impl
+  "The internals of feed.check: which files of a feed a check fetches, and
+  the facts of each, gathered over the network for check-files!. Replaces
+  feed.check.facts."
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed.check.rules.impl :as rules.impl]
+            [dk.simongray.podcast.feed.integrity :as integrity]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.feed.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
+            [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.whatwg-mime :as mime]))
 
-(defn ^:no-doc attempted
+(def overlays
+  "The top-level domains of overlay networks, whose hosts only their own
+  clients reach: that of Tor, which RFC 7686 sets aside, and those of I2P
+  and Lokinet."
+  #{"onion" "i2p" "loki"})
+
+(defn checkable?
+  "Whether a check fetches `url`: an http or https URL of a host that any
+  client can reach, not one of an overlay network."
+  [url]
+  (and (url/web-url? url)
+       (let [tld (peek (str/split (url/host url) #"\."))]
+         (not (contains? overlays tld)))))
+
+(defn present
+  "The entries of the map `m` whose values aren't nil."
+  [m]
+  (into {} (remove (comp nil? val)) m))
+
+(defn newest
+  "The `n` newest items of `feed`, or all of them when `n` is :all, each
+  with its index in the feed."
+  [feed n]
+  (let [indexed (map-indexed vector (:rss/items feed))
+        order   (fn [[_ item]]
+                  (- (or (some-> (resolve/published item) inst-ms) 0)))]
+    (cond->> (sort-by order indexed)
+      (not= :all n) (take n))))
+
+(defn image-files
+  "The images of `x`, the channel or the item at `path`."
+  [x path]
+  (for [{:keys [href source] :as image} (resolve/images x)
+        :when (checkable? href)]
+    {:kind     :image
+     :url      href
+     :path     path
+     :declared (-> (select-keys image [:purpose :width :height :aspect-ratio])
+                   (assoc :sources #{source}))}))
+
+(defn- alternate-files
+  "The media files and streams of the alternate enclosures of `item`, under
+  `path`.
+
+  A source with a type of its own, such as a torrent, isn't the media file,
+  so the length and integrity of its enclosure aren't its own. A source
+  that repeats the type of its enclosure is the media file. An
+  alternate with no rel or the rel default holds the content of the
+  enclosure, by the podcast namespace, so it has the duration of the item."
+  [item path]
+  (let [alternates (map-indexed vector (:podcast/alternate-enclosures item))
+        duration   (resolve/duration item)]
+    (for [[j {:keys [sources type length integrity height codecs rel]}]
+          alternates
+          :let  [same? (contains? #{nil "default"} (some-> rel str/lower-case))]
+          {:keys [uri content-type]} sources
+          :let  [own-type? (and content-type
+                                (not= (mime/essence content-type)
+                                      (mime/essence type)))]
+          :when (checkable? uri)]
+      {:kind     (if (hls/playlist? {:url uri :type (or content-type type)})
+                   :stream
+                   :media)
+       :url      uri
+       :path     (conj path :podcast/alternate-enclosures j)
+       :declared (if own-type?
+                   {:type content-type}
+                   (present {:type      type
+                             :length    length
+                             :integrity integrity
+                             :height    height
+                             :codecs    codecs
+                             :duration  (when same? duration)}))})))
+
+(defn item-files
+  "The files of the `item` at the index `i` of the feed."
+  [[i item]]
+  (let [path      [:rss/items i]
+        enclosure (:rss/enclosure item)
+        chapters  (:podcast/chapters item)]
+    (concat
+     (when (checkable? (:url enclosure))
+       [{:kind     (if (hls/playlist? enclosure) :stream :media)
+         :url      (:url enclosure)
+         :path     (conj path :rss/enclosure)
+         :declared (present {:type     (:type enclosure)
+                             :length   (:length enclosure)
+                             :duration (resolve/duration item)})}])
+     (alternate-files item path)
+     (for [[j {:keys [url type]}] (map-indexed vector
+                                               (:podcast/transcripts item))
+           :when (checkable? url)]
+       {:kind     :transcript
+        :url      url
+        :path     (conj path :podcast/transcripts j)
+        :declared (present {:type type})})
+     (when (checkable? (:url chapters))
+       [{:kind     :chapters
+         :url      (:url chapters)
+         :path     (conj path :podcast/chapters)
+         :declared (present {:type (:type chapters)})}])
+     (image-files item path))))
+
+(defn once
+  "The `files` with each URL once, as the first names it.
+
+  An image that several elements name has the :sources of all of them, so
+  that the rules of each apply."
+  [files]
+  (let [add (fn [{:keys [index kept] :as acc} {:keys [url kind] :as file}]
+              (if-let [i (index url)]
+                (cond-> acc
+                  (= :image kind (:kind (kept i)))
+                  (update-in [:kept i :declared :sources]
+                             into
+                             (get-in file [:declared :sources])))
+                {:index (assoc index url (count kept))
+                 :kept  (conj kept file)}))]
+    (:kept (reduce add {:index {} :kept []} files))))
+
+(defn- attempted
   "The value of the `attempt` of a reading, or a map with a diagnostic as
   the :error for an attempt that failed."
   [{:keys [value error] :as attempt}]
@@ -34,7 +152,7 @@
   (cond-> facts
     (:error facts) (update :error diagnostics/file-failure)))
 
-(defn ^:no-doc read-facts
+(defn- read-facts
   "The facts of what a reader gave: the value of the `attempt` with the
   diagnostics that `report-fn` reads from it, as data, or its :error.
 
@@ -52,14 +170,14 @@
   (let [{:keys [error] :as value} (attempted attempt)]
     (if error value (http/facts value))))
 
-(defn ^:no-doc head!
+(defn- head!
   "Send a HEAD request for `url` with `headers` through `send`, and give
   the facts of the answer, in a future or a promise."
   [send url headers]
   (let [request {:method :head :url url :headers headers}]
     (async/then (http/try-send! send request) sent-facts)))
 
-(defn ^:no-doc probe-url!
+(defn- probe-url!
   "Probe `url` with `headers` through `send`, and give the facts, in a
   future or a promise. They tell all that a check needs of most files,
   from two bytes of each."
@@ -74,7 +192,7 @@
   (when deadline
     (max 1 (quot (- deadline (inst-ms (now-fn))) 1000))))
 
-(defn ^:no-doc reading-opts
+(defn- reading-opts
   "The options of a reading by byte ranges in the check with `opts`: the
   limits of the check that apply to a reading, and `send` to send with."
   [send opts]
@@ -138,11 +256,11 @@
   what its playlists say. The requests name the origin of the check, since
   web players read playlists."
   [send {:keys [url] :as file} {:keys [read?] :as opts}]
-  (let [headers {"Origin" rules/origin}]
+  (let [headers {"Origin" rules.impl/origin}]
     (async/then
      (probe-url! send url headers)
      (fn [{:keys [get] :as facts}]
-       (if (and read? (rules/ok? get))
+       (if (and read? (rules.impl/ok? get))
          (async/then
           (async/attempt #(hls/read! (or (:url get) url)
                                      (assoc (reading-opts send opts)
@@ -161,7 +279,7 @@
   [send {:keys [url] :as file} opts]
   (async/then (head! send url {})
               (fn [head]
-                (let [target (if (rules/ok? head) (:url head url) url)
+                (let [target (if (rules.impl/ok? head) (:url head url) url)
                       read!  #(image/read! target (reading-opts send opts))]
                   (async/then (async/attempt read!)
                               (fn [read]
@@ -195,7 +313,7 @@
   requests name the origin of the check, since web players read these
   files."
   [send {:keys [kind url declared] :as file} {:keys [read?] :as opts}]
-  (let [headers {"Origin" rules/origin}]
+  (let [headers {"Origin" rules.impl/origin}]
     (if-not read?
       (probe-url! send url headers)
       (async/then
@@ -207,7 +325,7 @@
             (let [got  (sent-facts attempt)
                   body (or (get-in attempt [:value :body]) "")]
               (cond-> {:head head :get got}
-                (rules/ok? got)
+                (rules.impl/ok? got)
                 (assoc :read (reading kind body (:type declared))))))))))))
 
 (defn- probe-feed!
@@ -219,11 +337,11 @@
   fetched again."
   [send {:keys [url] :as file} opts]
   (let [auth    (::authorization opts)
-        headers (cond-> {"Origin" rules/origin}
+        headers (cond-> {"Origin" rules.impl/origin}
                   auth (assoc "Authorization" auth))]
     (probe-url! send url headers)))
 
-(def ^:no-doc probes
+(def probes
   "The function that gets the facts of a file, by the kind of the file."
   {:media      probe-media!
    :stream     probe-stream!
@@ -254,7 +372,7 @@
                (attempted {:error missed}))
           (range (count files)))))
 
-(defn ^:no-doc gather!
+(defn gather!
   "Gather the facts of `files` in their order, sending with `send` and
   `opts` from `n` lanes, and give them in a future or a promise.
 

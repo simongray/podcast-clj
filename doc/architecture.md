@@ -263,7 +263,7 @@ failures at more than one, and an app that knows from the platform says
 so with `:online?`.
 
 The check of files is split like the rest of podcast-clj: `check/files`
-lists what to fetch, `feed.check.facts` gathers what came back, and
+lists what to fetch, `check-files!` gathers what came back, and
 `feed.check.rules` turns the facts into diagnostics. Only the gathering
 sends, so `check/report` can judge the same facts again by other
 requirements. The rules come from the standards first (RFC 9110, RSS 2.0,

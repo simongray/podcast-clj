@@ -16,138 +16,14 @@
   In a browser, fetch hides most headers of an answer from another site,
   and it fails without a reason where CORS doesn't allow the page to read.
   So a check sees most on the JVM or in Node."
-  (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed.check.facts :as facts]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed.check.impl :as impl]
             [dk.simongray.podcast.feed.check.rules :as rules]
-            [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.format.hls :as hls]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.url :as url]
-            [dk.simongray.whatwg-mime :as mime]))
-
-(def ^:no-doc overlays
-  "The top-level domains of overlay networks, whose hosts only their own
-  clients reach: that of Tor, which RFC 7686 sets aside, and those of I2P
-  and Lokinet."
-  #{"onion" "i2p" "loki"})
-
-(defn ^:no-doc checkable?
-  "Whether a check fetches `url`: an http or https URL of a host that any
-  client can reach, not one of an overlay network."
-  [url]
-  (and (url/web-url? url)
-       (let [tld (peek (str/split (url/host url) #"\."))]
-         (not (contains? overlays tld)))))
-
-(defn ^:no-doc present
-  "The entries of the map `m` whose values aren't nil."
-  [m]
-  (into {} (remove (comp nil? val)) m))
-
-(defn- newest
-  "The `n` newest items of `feed`, or all of them when `n` is :all, each
-  with its index in the feed."
-  [feed n]
-  (let [indexed (map-indexed vector (:rss/items feed))
-        order   (fn [[_ item]]
-                  (- (or (some-> (resolve/published item) inst-ms) 0)))]
-    (cond->> (sort-by order indexed)
-      (not= :all n) (take n))))
-
-(defn ^:no-doc image-files
-  "The images of `x`, the channel or the item at `path`."
-  [x path]
-  (for [{:keys [href source] :as image} (resolve/images x)
-        :when (checkable? href)]
-    {:kind     :image
-     :url      href
-     :path     path
-     :declared (-> (select-keys image [:purpose :width :height :aspect-ratio])
-                   (assoc :sources #{source}))}))
-
-(defn- alternate-files
-  "The media files and streams of the alternate enclosures of `item`, under
-  `path`.
-
-  A source with a type of its own, such as a torrent, isn't the media file,
-  so the length and integrity of its enclosure aren't its own. A source
-  that repeats the type of its enclosure is the media file. An
-  alternate with no rel or the rel default holds the content of the
-  enclosure, by the podcast namespace, so it has the duration of the item."
-  [item path]
-  (let [alternates (map-indexed vector (:podcast/alternate-enclosures item))
-        duration   (resolve/duration item)]
-    (for [[j {:keys [sources type length integrity height codecs rel]}]
-          alternates
-          :let  [same? (contains? #{nil "default"} (some-> rel str/lower-case))]
-          {:keys [uri content-type]} sources
-          :let  [own-type? (and content-type
-                                (not= (mime/essence content-type)
-                                      (mime/essence type)))]
-          :when (checkable? uri)]
-      {:kind     (if (hls/playlist? {:url uri :type (or content-type type)})
-                   :stream
-                   :media)
-       :url      uri
-       :path     (conj path :podcast/alternate-enclosures j)
-       :declared (if own-type?
-                   {:type content-type}
-                   (present {:type      type
-                             :length    length
-                             :integrity integrity
-                             :height    height
-                             :codecs    codecs
-                             :duration  (when same? duration)}))})))
-
-(defn- item-files
-  "The files of the `item` at the index `i` of the feed."
-  [[i item]]
-  (let [path      [:rss/items i]
-        enclosure (:rss/enclosure item)
-        chapters  (:podcast/chapters item)]
-    (concat
-     (when (checkable? (:url enclosure))
-       [{:kind     (if (hls/playlist? enclosure) :stream :media)
-         :url      (:url enclosure)
-         :path     (conj path :rss/enclosure)
-         :declared (present {:type     (:type enclosure)
-                             :length   (:length enclosure)
-                             :duration (resolve/duration item)})}])
-     (alternate-files item path)
-     (for [[j {:keys [url type]}] (map-indexed vector
-                                               (:podcast/transcripts item))
-           :when (checkable? url)]
-       {:kind     :transcript
-        :url      url
-        :path     (conj path :podcast/transcripts j)
-        :declared (present {:type type})})
-     (when (checkable? (:url chapters))
-       [{:kind     :chapters
-         :url      (:url chapters)
-         :path     (conj path :podcast/chapters)
-         :declared (present {:type (:type chapters)})}])
-     (image-files item path))))
-
-(defn- once
-  "The `files` with each URL once, as the first names it.
-
-  An image that several elements name has the :sources of all of them, so
-  that the rules of each apply."
-  [files]
-  (let [add (fn [{:keys [index kept] :as acc} {:keys [url kind] :as file}]
-              (if-let [i (index url)]
-                (cond-> acc
-                  (= :image kind (:kind (kept i)))
-                  (update-in [:kept i :declared :sources]
-                             into
-                             (get-in file [:declared :sources])))
-                {:index (assoc index url (count kept))
-                 :kept  (conj kept file)}))]
-    (:kept (reduce add {:index {} :kept []} files))))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (def default-limits
   "The limits of a check when its options don't set them:
@@ -191,16 +67,17 @@
   ([feed opts]
    (let [{:keys [url max-items]} (merge default-limits opts)
          trailers                (map-indexed vector (:podcast/trailers feed))]
-     (once (concat (when (checkable? url)
-                     [{:kind :feed :url url :path [] :declared {}}])
-                   (for [[j {:keys [url type length]}] trailers
-                         :when (checkable? url)]
-                     {:kind     :media
-                      :url      url
-                      :path     [:podcast/trailers j]
-                      :declared (present {:type type :length length})})
-                   (image-files feed [])
-                   (mapcat item-files (newest feed max-items)))))))
+     (impl/once
+      (concat (when (impl/checkable? url)
+                [{:kind :feed :url url :path [] :declared {}}])
+              (for [[j {:keys [url type length]}] trailers
+                    :when (impl/checkable? url)]
+                {:kind     :media
+                 :url      url
+                 :path     [:podcast/trailers j]
+                 :declared (impl/present {:type type :length length})})
+              (impl/image-files feed [])
+              (mapcat impl/item-files (impl/newest feed max-items)))))))
 
 (defn report
   "The diagnostics of the checked `files`, by the standards and the
@@ -277,13 +154,13 @@
          deadline     (when max-seconds
                         (+ (inst-ms (now-fn)) (* 1000 max-seconds)))
          opts         (cond-> (assoc opts :url url)
-                        own-send (assoc ::facts/own-send own-send)
-                        auth     (assoc ::facts/authorization auth)
-                        deadline (assoc ::facts/deadline deadline))
+                        own-send (assoc ::impl/own-send own-send)
+                        auth     (assoc ::impl/authorization auth)
+                        deadline (assoc ::impl/deadline deadline))
          found        (files feed opts)
          [near far]   (if max-files (split-at max-files found) [found nil])
          send-limited #(send (http/with-options % opts))]
-     (async/then (facts/gather! send-limited near opts (max 1 concurrency))
+     (async/then (impl/gather! send-limited near opts (max 1 concurrency))
                  (fn [facts]
                    (let [probed  (mapv #(assoc %1 :facts %2) near facts)
                          skipped (map #(assoc % :facts {:unchecked :max-files})

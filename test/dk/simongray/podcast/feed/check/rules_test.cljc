@@ -4,7 +4,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed.check :as check]
-            [dk.simongray.podcast.feed.check.rules :as rules]))
+            [dk.simongray.podcast.feed.check.rules :as rules]
+            [dk.simongray.podcast.feed.check.rules.impl :as rules.impl]))
 
 (defn- ids
   "The ids of the diagnostics of `file` with `facts`, under the `chosen`
@@ -241,8 +242,8 @@
     (is (= #{:check/cors} (ids transcript {:get (dissoc answer :cors) :read read})))
     (is (= #{:check/cors} (ids transcript {:get (assoc answer :cors "*, *") :read read})) "two values allow none")
     (testing "the origin, and the null that a browser names after a redirect to another origin"
-      (is (= #{} (ids transcript {:get (assoc answer :cors rules/origin) :read read})) "the origin of the check allowed")
-      (is (= #{} (ids transcript {:get (assoc answer :cors rules/origin :url "https://cdn/t.vtt") :read read}))
+      (is (= #{} (ids transcript {:get (assoc answer :cors rules.impl/origin) :read read})) "the origin of the check allowed")
+      (is (= #{} (ids transcript {:get (assoc answer :cors rules.impl/origin :url "https://cdn/t.vtt") :read read}))
           "a server that allows the origin it gets allows null too")
       (is (= #{:check/cors} (ids transcript {:get (assoc answer :cors "null") :read read})))
       (is (= #{} (ids transcript {:get (assoc answer :cors "null" :url "https://cdn/t.vtt") :read read}))))
