@@ -70,5 +70,8 @@ These principles guide the design of podcast-clj, its API and its code.
 - **Layers without cycles.** A namespace only requires namespaces in its
   own [layer](architecture.md#layers) or below, and the general tools at
   the bottom know nothing about podcasts. A test enforces it.
+- **Internals apart.** The internals of a namespace `x` live in `x.impl`,
+  which an app never needs: cljdoc hides it, and nothing in `web/`,
+  `server/` or `dev/` requires it. A test checks both.
 - **Cite the spec.** Where code implements a standard, a short comment or
   the docstring names the spec and its section.

@@ -20,6 +20,10 @@ Every namespace of podcast-clj is under the root namespace,
   general tools, e.g. JSON, dates, and the Nostr protocol and its
   cryptography.
 
+Namespaces whose names end in `.impl` hold the internals of the namespace
+they're named after, e.g. `feed.resolve.impl` for `feed.resolve`. They
+aren't API and may change in any release, so these tables leave them out.
+
 The `app` namespaces are built from all the others, and nothing outside
 `app` requires them, so you can use any other namespace without them.
 [Architecture](architecture.md#layers) explains the rule, which a test

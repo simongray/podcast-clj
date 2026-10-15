@@ -71,7 +71,9 @@
   (delay
     (into (sorted-map)
           (for [ns  (namespaces)
-                var (do (require ns) (vals (ns-publics ns)))
+                var (do (require ns)
+                        (when-not (:no-doc (meta (find-ns ns)))
+                          (vals (ns-publics ns))))
                 :let [{:keys [name arglists no-doc macro]} (meta var)]
                 :when (and arglists (not no-doc) (not macro))]
             [(symbol (str ns) (str name))

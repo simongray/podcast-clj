@@ -30,6 +30,11 @@ test in `architecture_test.clj` reads the `ns` forms, and fails on a
 require that points up a layer, on a cycle, or on a name in the wrong
 layer.
 
+The internals of a namespace `x` are in `x.impl`, in the same layer. The
+owner requires its impl, never the other way, and other namespaces of the
+library may require an impl too. An impl carries `^:no-doc` on its `ns`
+form, so cljdoc leaves it out, and the API is what's left.
+
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
 `(resolve/enclosure item)` returns. An app can use the view when it wants

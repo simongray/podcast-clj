@@ -53,6 +53,18 @@
   [ns]
   (str/replace (str ns) (re-pattern (str "^" (java.util.regex.Pattern/quote prefix) "\\.?")) ""))
 
+(defn- owner
+  "The short name of the namespace whose internals `ns` holds, for an impl
+  namespace, e.g. \"feed.resolve\" for \"feed.resolve.impl\", or nil."
+  [ns]
+  (second (re-matches #"(.*)\.impl" ns)))
+
+(defn- no-doc?
+  "Whether the ns form in `file` carries ^:no-doc."
+  [file]
+  (-> (read-string {:read-cond :allow :features #{:clj}} (slurp file))
+      second meta :no-doc boolean))
+
 (defn- requires
   "The library namespaces the ns form in `file` requires, on either
   platform. An `:as-alias` loads nothing, so it requires nothing."
@@ -105,6 +117,23 @@
 (deftest no-cycles
   (doseq [ns (keys @graph)]
     (is (nil? (cycle-from @graph ns)) (str "a cycle: " (cycle-from @graph ns)))))
+
+(deftest an-impl-is-hidden-and-sits-with-its-owner
+  (doseq [file (file-seq (io/file "src"))
+          :when (re-find #"\.clj[cs]?$" (.getName ^java.io.File file))
+          :let [form (read-string {:read-cond :allow :features #{:clj}} (slurp file))
+                ns   (short-name (second form))]
+          :when (owner ns)]
+    (is (no-doc? file) (str ns " is an impl, so its ns form carries ^:no-doc"))
+    (is (contains? layers (owner ns)) (str ns " has no owner " (owner ns)))
+    (is (= (get layers (owner ns)) (get layers ns)) (str ns " is not in the layer of " (owner ns)))))
+
+(deftest the-tools-use-only-the-api
+  (doseq [dir  ["web" "server" "dev"]
+          file (file-seq (io/file dir))
+          :when (re-find #"\.clj[cs]?$" (.getName ^java.io.File file))
+          req  (requires file)]
+    (is (nil? (owner req)) (str file " requires " req ", which isn't API"))))
 
 (deftest the-lowest-layers-know-nothing-above-them
   (testing "the registry is data with no interpreter in sight"
