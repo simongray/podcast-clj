@@ -35,31 +35,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.value.payment :as value.payment]))
-
-(defn ^:no-doc fee?
-  "Whether `recipient` takes a fee off the top rather than a share."
-  [recipient]
-  (true? (:fee recipient)))
-
-(defn ^:no-doc split-of
-  "The split of `recipient` as a number no less than zero: zero when it
-  gives none that's a number, as when \"12.5\" didn't read as a whole
-  number."
-  [recipient]
-  (let [split (:split recipient)]
-    (if (and (number? split) (pos? split)) split 0)))
-
-(defn ^:no-doc time-split-at
-  "The valueTimeSplit of `block` in effect `seconds` into playback, if any."
-  [block seconds]
-  (some (fn [{:keys [start-time duration] :as split}]
-          (when (and (number? start-time)
-                     (number? duration)
-                     (<= start-time seconds)
-                     (< seconds (+ start-time duration)))
-            split))
-        (:time-splits block)))
+            [dk.simongray.podcast.value.impl :as impl]))
 
 (declare with-remote)
 
@@ -78,8 +54,8 @@
   the fee recipients alone."
   ([block seconds]
    (let [recipients (:recipients block)
-         fees       (filter fee? recipients)
-         split      (time-split-at block seconds)
+         fees       (filter impl/fee? recipients)
+         split      (impl/time-split-at block seconds)
          {:keys [remote-item remote-percentage remote-start-time]} split]
      (if split
        (if remote-item
@@ -102,7 +78,7 @@
 (defn share-total
   "The sum of the splits of the non-fee `recipients`."
   [recipients]
-  (transduce (comp (remove fee?) (map split-of)) + 0 recipients))
+  (transduce (comp (remove impl/fee?) (map impl/split-of)) + 0 recipients))
 
 (defn with-remote
   "The recipients of `paid`, who is paid at a moment under `block`, with
@@ -116,21 +92,21 @@
   the block apply. Outside a remote split, `paid` stays as it is."
   [block paid remote]
   (if-let [{:keys [percentage]} (:remote paid)]
-    (let [local        (remove fee? (:recipients block))
-          others       (remove fee? (:recipients remote))
-          fees         (filter fee? (concat (:recipients block)
+    (let [local        (remove impl/fee? (:recipients block))
+          others       (remove impl/fee? (:recipients remote))
+          fees         (filter impl/fee? (concat (:recipients block)
                                             (:recipients remote)))
           total        (share-total local)
           total'       (share-total others)
-          local-share  #(* (split-of %) (- 100 percentage) total')
-          remote-share #(* (split-of %) percentage (max total 1))]
+          local-share  #(* (impl/split-of %) (- 100 percentage) total')
+          remote-share #(* (impl/split-of %) percentage (max total 1))]
       (assoc paid :recipients
              (if (zero? total')
                (vec (:recipients block))
                (->> (concat fees
                             (map #(assoc % :split (local-share %)) local)
                             (map #(assoc % :split (remote-share %)) others))
-                    (remove #(and (not (fee? %)) (zero? (:split %))))
+                    (remove #(and (not (impl/fee? %)) (zero? (:split %))))
                     vec))))
     paid))
 
@@ -139,7 +115,7 @@
   as a percentage off the top, until the amount runs out."
   [recipients amount]
   (second (reduce (fn [[left paid] r]
-                    (let [fee (/ (* amount (min 100 (split-of r))) 100)
+                    (let [fee (/ (* amount (min 100 (impl/split-of r))) 100)
                           n   (min left (long (Math/floor fee)))]
                       [(- left n) (conj paid {:recipient r :amount n})]))
                   [amount []]
@@ -159,21 +135,22 @@
   - a fee takes at most all
   - the fees stop where the amount runs out"
   [recipients amount]
-  (let [fee-paid  (fee-payments (filter fee? recipients) amount)
-        shares    (remove fee? recipients)
+  (let [fee-paid  (fee-payments (filter impl/fee? recipients) amount)
+        shares    (remove impl/fee? recipients)
         remaining (- amount (transduce (map :amount) + 0 fee-paid))
         total     (share-total shares)
         ;; *' on the JVM, where a large split times the amount can overflow a
         ;; long; a JavaScript number cannot
         share     (fn [r]
-                    (let [product (#?(:clj *' :cljs *) remaining (split-of r))]
+                    (let [product (#?(:clj *' :cljs *) remaining
+                                                       (impl/split-of r))]
                       (long (Math/floor (/ product total)))))
         paid      (for [r shares]
                     {:recipient r
                      :amount    (if (pos? total) (share r) 0)})
         leftover  (- remaining (transduce (map :amount) + 0 paid))
         largest   (when (seq paid)
-                    (apply max-key #(split-of (:recipient %)) paid))]
+                    (apply max-key #(impl/split-of (:recipient %)) paid))]
     (vec (concat fee-paid
                  (map (fn [p]
                         (if (and (pos? leftover) (identical? p largest))
@@ -188,20 +165,6 @@
   (when-let [btc (:suggested block)]
     (when (number? btc)
       (long (Math/round (* btc 100000000.0))))))
-
-(def ^:no-doc boostagram-keys
-  "The name in a bLIP-10 record of each key of a payment whose name there
-  isn't just its snake_case."
-  {:feed-guid      "guid"
-   :feed-url       "url"
-   :feed-id        "feedID"
-   :feed-title     "podcast"
-   :item-guid      "episode_guid"
-   :item-id        "itemID"
-   :item-title     "episode"
-   :recipient-name "name"
-   :id             "uuid"
-   :group          "boost_uuid"})
 
 (defn boostagram
   "The bLIP-10 record of `payment`, which an app attaches to a keysend
@@ -222,11 +185,9 @@
   [{:keys [position action speed] :as payment}]
   (let [own            #{:position :action :speed
                          :msat :total-msat :sats :total-sats}
-        record         (value.payment/json-record payment
-                                                  boostagram-keys
-                                                  own)
+        record         (impl/json-record payment impl/boostagram-keys own)
         clock          (time/format-timestamp position)
-        [amount total] (value.payment/amounts payment)]
+        [amount total] (impl/amounts payment)]
     (cond-> (assoc record "action" (name (or action :boost)))
       clock         (assoc "ts" (max 0 (long (Math/floor position)))
                            "time" (subs clock 0 (- (count clock) 4)))
@@ -268,66 +229,6 @@
                          [(diagnostics/describe missing)]
                          [])})))
 
-(def ^:no-doc boostagram-fields
-  "The type of each field that bLIP-10 defines: :text, :int, :number, :msat
-  for an amount, or :decimal for a number that the record writes as text."
-  {"podcast"            :text
-   "guid"               :text
-   "feedID"             :int
-   "url"                :text
-   "episode"            :text
-   "itemID"             :int
-   "episode_guid"       :text
-   "ts"                 :number
-   "time"               :text
-   "action"             :text
-   "app_name"           :text
-   "app_version"        :text
-   "boost_link"         :text
-   "message"            :text
-   "name"               :text
-   "sender_name"        :text
-   "sender_id"          :text
-   "signature"          :text
-   "speed"              :decimal
-   "boost_uuid"         :text
-   "uuid"               :text
-   "value_msat"         :msat
-   "value_msat_total"   :msat
-   "reply_address"      :text
-   "reply_custom_key"   :int
-   "reply_custom_value" :text
-   "remote_feed_guid"   :text
-   "remote_item_guid"   :text})
-
-(def ^:no-doc boostagram-aliases
-  "The other names that apps give fields of a bLIP-10 record, and the name
-  of each. They're the camelCase of Alby Hub, the names of RSS Payment
-  Metadata that BoostMeBitch writes, and names for the position."
-  {"feedId"         "feedID"
-   "itemId"         "itemID"
-   "feed_guid"      "guid"
-   "feed_title"     "podcast"
-   "item_guid"      "episode_guid"
-   "item_title"     "episode"
-   "recipient_name" "name"
-   "group"          "boost_uuid"
-   "position"       "ts"
-   "time_seconds"   "ts"})
-
-(defn ^:no-doc unaliased
-  "The JSON object `raw` with each field of another name in `aliases` under
-  its own name, where `raw` has none. It gives the object and the aliases
-  that it took, as a pair."
-  [raw aliases]
-  (reduce-kv (fn [[o taken :as acc] alias field]
-               (if (and (contains? o alias) (not (contains? o field)))
-                 (let [moved (-> o (dissoc alias) (assoc field (get o alias)))]
-                   [moved (conj taken alias)])
-                 acc))
-             [raw []]
-             aliases))
-
 (defn parse-boostagram
   "The payment that the bLIP-10 `record` describes.
 
@@ -344,12 +245,12 @@
 
   The record is what the sender claims, not what the node received."
   [record]
-  (if-let [given (value.payment/json-object record)]
-    (let [[raw aliases] (unaliased given boostagram-aliases)
-          read          (value.payment/read-fields raw boostagram-fields)
+  (if-let [given (impl/json-object record)]
+    (let [[raw aliases] (impl/unaliased given impl/boostagram-aliases)
+          read          (impl/read-fields raw impl/boostagram-fields)
           value         #(first (get read %))
-          other         (value.payment/other-fields raw boostagram-fields)
-          [action said] (value.payment/read-action (value "action"))
+          other         (impl/other-fields raw impl/boostagram-fields)
+          [action said] (impl/read-action (value "action"))
           clock         (value "time")
           position      (or (value "ts") (some-> clock time/parse-clock))
           id            (get raw "itemID")
@@ -357,11 +258,11 @@
           item-guid     (when (and (string? id)
                                    (= :unreadable (second (get read "itemID"))))
                           (str/trim id))
-          names         (assoc (set/map-invert boostagram-keys)
+          names         (assoc (set/map-invert impl/boostagram-keys)
                                "value_msat" :msat
                                "value_msat_total" :total-msat)
           own           #{"ts" "time" "action"}
-          payment       (cond-> (value.payment/payment-of read names own)
+          payment       (cond-> (impl/payment-of read names own)
                           action    (assoc :action action)
                           position  (assoc :position position)
                           (and item-guid (nil? (value "episode_guid")))
@@ -369,7 +270,7 @@
           forgiven      (if item-guid #{"itemID"} #{})
           podcast?      (some value ["guid" "podcast" "feedID" "url"])
           alias-note    {:id :value/field-alias :keys (vec (sort aliases))}
-          diagnosed     (value.payment/field-diagnostics read other forgiven)
+          diagnosed     (impl/field-diagnostics read other forgiven)
           found         (cond-> diagnosed
                           (seq aliases)  (conj alias-note)
                           item-guid      (conj {:id :value/guid-as-item-id})

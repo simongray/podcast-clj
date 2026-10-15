@@ -17,7 +17,7 @@
             #?(:cljs [dk.simongray.podcast.diagnostics :as diagnostics])
             [dk.simongray.podcast.value :as value]
             #?(:cljs [dk.simongray.podcast.value.bolt11 :as bolt11])
-            [dk.simongray.podcast.value.payment :as value.payment]))
+            [dk.simongray.podcast.value.impl :as value.impl]))
 
 (defn keysend-args
   "The arguments of webln.keysend for `payment` to `recipient`, as a map
@@ -36,9 +36,9 @@
   as text. The report of the arguments says when they leave out the
   custom key or value of the recipient. Don't send the payment then."
   [payment {:keys [address] :as recipient}]
-  (let [[msat] (value.payment/amounts payment)
+  (let [[msat] (value.impl/amounts payment)
         sats   (when msat (quot msat 1000))]
-    (when (and sats (pos? sats) (value.payment/node-key? address))
+    (when (and sats (pos? sats) (value.impl/node-key? address))
       (let [whole   (-> payment (dissoc :sats) (assoc :msat (* 1000 sats)))
             records (value/records whole recipient)
             by-name (into {} (map (fn [[k v]] [(str k) v])) records)]
@@ -147,7 +147,7 @@
      ([payment recipient opts]
       {:pre [(map? opts)]}
       (let [args    (keysend-args payment recipient)
-            [msat]  (value.payment/amounts payment)
+            [msat]  (value.impl/amounts payment)
             problem (cond
                       args
                       (first (value/report args))

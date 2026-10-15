@@ -20,8 +20,8 @@
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
-            [dk.simongray.podcast.value.payment :as value.payment]
-            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.podcast.value.impl :as value.impl]
+            [dk.simongray.podcast.value.lnaddress.impl :as impl]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -58,21 +58,13 @@
         (when (and host (url/public-name? host))
           {:user (if (= "" user) "_" user) :domain domain})))))
 
-(defn ^:no-doc well-known
-  "The URL of the well-known answer of `kind` about the `parts` of an
-  address: http for an onion service, as LUD-01 has it, or else https."
-  [{:keys [user domain] :as parts} kind]
-  (let [host   (first (str/split domain #":"))
-        scheme (if (str/ends-with? host ".onion") "http" "https")]
-    (str scheme "://" domain "/.well-known/" kind "/" user)))
-
 (defn lnurlp-request
   "The request for the terms on which the Lightning `address` takes a
   payment with LNURL-pay, or nil when `address` isn't one."
   [address]
   (when-let [parts (parse address)]
     {:method  :get
-     :url     (well-known parts "lnurlp")
+     :url     (impl/well-known parts "lnurlp")
      :headers {"Accept" "application/json"}}))
 
 (defn keysend-request
@@ -81,33 +73,8 @@
   [address]
   (when-let [parts (parse address)]
     {:method  :get
-     :url     (well-known parts "keysend")
+     :url     (impl/well-known parts "keysend")
      :headers {"Accept" "application/json"}}))
-
-(defn ^:no-doc refusal
-  "The error of the JSON `raw` of an answer from `url` whose status is
-  ERROR, with its reason, or nil for another answer."
-  [raw url]
-  (when (= "ERROR" (get raw "status"))
-    (diagnostics/failed {:id     :value/lnurl-error
-                         :url    url
-                         :reason (json/text (get raw "reason"))})))
-
-(defn ^:no-doc secure-url?
-  "Whether `s` is an https URL, or an http URL of an onion service, as
-  LUD-01 allows."
-  [s]
-  (let [[scheme host] (url/origin s)]
-    (or (= "https" scheme)
-        (and (= "http" scheme) (str/ends-with? host ".onion")))))
-
-(defn ^:no-doc insecure
-  "The error of an answer that came from `url` over plain http, where
-  anyone on the way can change it. It's nil for an https URL, an onion
-  service, or an answer that names no URL."
-  [url]
-  (when (and url (not (secure-url? url)))
-    (diagnostics/failed {:id :value/insecure :url url})))
 
 (defn- whole-of
   "The whole number above zero that the JSON number `x` gives, rounded up
@@ -115,36 +82,6 @@
   [x round]
   (when (and (number? x) (< 0 x 9e15))
     (long (if (= :up round) (Math/ceil x) (Math/floor x)))))
-
-(defn- entry
-  "The text of the first entry of the type `mime` in the `metadata` of
-  LNURL-pay, or nil when it has none. The metadata is the JSON of a list
-  of pairs of a type and a text."
-  [metadata mime]
-  (let [entries (when (string? metadata) (json/parse metadata))
-        text-of #(when (and (sequential? %)
-                            (= mime (first %))
-                            (string? (second %)))
-                   (second %))]
-    (some text-of (when (sequential? entries) entries))))
-
-;; LUD-18: the details of the payer that a service takes, but auth, which
-;; LNURL-auth signs
-(def ^:no-doc payer-fields
-  "The details of a payer that a service can take, by their name in
-  LUD-18."
-  {"name" :name "pubkey" :pubkey "identifier" :identifier "email" :email})
-
-(defn- payer-data
-  "The details of the payer that the `raw` payerData of a service takes,
-  as a map of each to whether it's :mandatory?, or nil."
-  [raw]
-  (when (map? raw)
-    (not-empty (into {}
-                     (for [[field k] payer-fields
-                           :let  [spec (get raw field)]
-                           :when (map? spec)]
-                       [k {:mandatory? (true? (get spec "mandatory"))}])))))
 
 (defn terms
   "The terms on which a Lightning address takes a payment, from the
@@ -166,20 +103,20 @@
   [response]
   (let [raw (json/object (:body response))
         url (:url response)]
-    (or (insecure url)
-        (refusal raw url)
+    (or (impl/insecure url)
+        (impl/refusal raw url)
         (let [callback    (get raw "callback")
               low         (whole-of (get raw "minSendable") :up)
               high        (whole-of (get raw "maxSendable") :down)
               comments    (whole-of (get raw "commentAllowed") :down)
               metadata    (get raw "metadata")
-              description (or (entry metadata "text/long-desc")
-                              (entry metadata "text/plain"))
-              identifier  (or (entry metadata "text/identifier")
-                              (entry metadata "text/email"))
-              payer       (payer-data (get raw "payerData"))
+              description (or (impl/entry metadata "text/long-desc")
+                              (impl/entry metadata "text/plain"))
+              identifier  (or (impl/entry metadata "text/identifier")
+                              (impl/entry metadata "text/email"))
+              payer       (impl/payer-data (get raw "payerData"))
               valid?      (and (= "payRequest" (get raw "tag"))
-                               (secure-url? callback)
+                               (impl/secure-url? callback)
                                low
                                high
                                (<= low high))]
@@ -205,31 +142,6 @@
                 max-msat
                 (<= min-msat msat max-msat))))
 
-;; LUD-12
-(defn ^:no-doc sent-comment
-  "The comment that goes out with a request to the callback of `terms`:
-  `comment`, cut to the :comment-length of the terms. It's nil when the
-  terms take no comment, and for a comment that's blank or isn't text."
-  [{:keys [comment-length] :as terms} comment]
-  (when (and (string? comment)
-             (not (str/blank? comment))
-             (pos? (or comment-length 0)))
-    (value.payment/cut comment comment-length)))
-
-;; LUD-18: the payerdata of the request is JSON of the details
-(defn ^:no-doc sent-payer
-  "The JSON of the details of the `payer` that go out with a request to the
-  callback of `terms`: those that the terms take, as text, or nil for
-  none."
-  [{:keys [payer-data] :as terms} payer]
-  (let [sent (into {}
-                   (for [[field k] payer-fields
-                         :let  [v (get payer k)]
-                         :when (and (contains? payer-data k) (string? v))]
-                     [field v]))]
-    (when (seq sent)
-      (json/write-str sent))))
-
 (defn invoice-request
   "The request to the callback of `terms` for an invoice of `msat`
   millisatoshis, with a `comment` when the terms take one, and the details
@@ -252,48 +164,11 @@
                       :min-msat (:min-msat terms)
                       :max-msat (:max-msat terms)})))
    (let [query (url/query-string {"amount"    msat
-                                  "comment"   (sent-comment terms comment)
-                                  "payerdata" (sent-payer terms payer)})]
+                                  "comment"   (impl/sent-comment terms comment)
+                                  "payerdata" (impl/sent-payer terms payer)})]
      {:method  :get
       :url     (str callback (if (str/includes? callback "?") "&" "?") query)
       :headers {"Accept" "application/json"}})))
-
-(defn- success-action
-  "The success action `a` of an answer to a request to `callback`, as
-  LUD-09 and LUD-10 define it, or nil for none.
-
-  It's ::refused for an action of another kind, with a URL on another
-  host than the callback, or with a ciphertext of another size. A message
-  and a description are cut to the 144 characters that LUD-09 allows."
-  [a callback]
-  (when (map? a)
-    (let [text      #(json/text (get a %))
-          shown     #(some-> (text %) (value.payment/cut 144))
-          described #(cond-> %
-                       (shown "description")
-                       (assoc :description (shown "description")))]
-      (case (get a "tag")
-        "message"
-        {:tag "message" :message (shown "message")}
-
-        "url"
-        (let [url (get a "url")]
-          (if (and (secure-url? url)
-                   (= (url/host url) (url/host callback)))
-            (described {:tag "url" :url url})
-            ::refused))
-
-        "aes"
-        (let [ciphertext (text "ciphertext")
-              iv         (text "iv")]
-          (if (and ciphertext
-                   iv
-                   (<= (count ciphertext) 4096)
-                   (= 24 (count iv)))
-            (described {:tag "aes" :ciphertext ciphertext :iv iv})
-            ::refused))
-
-        ::refused))))
 
 (defn invoice
   "The invoice in the `response` to the request for an invoice of `msat`
@@ -314,11 +189,11 @@
   [{:keys [callback] :as terms} msat response]
   (let [raw (json/object (:body response))
         url (:url response)]
-    (or (insecure url)
-        (refusal raw url)
+    (or (impl/insecure url)
+        (impl/refusal raw url)
         (let [pr     (get raw "pr")
               amount (bolt11/invoice-amount pr)
-              action (success-action (get raw "successAction") callback)
+              action (impl/success-action (get raw "successAction") callback)
               verify (get raw "verify")]
           ;; LUD-06 has the wallet check the description hash too. It isn't
           ;; checked: the service writes both the terms and the invoice, and
@@ -343,7 +218,7 @@
               (cond-> {:invoice pr :msat msat :network (:network amount)}
                 expires              (assoc :expires-at expires)
                 action               (assoc :success-action action)
-                (secure-url? verify) (assoc :verify verify))))))))
+                (impl/secure-url? verify) (assoc :verify verify))))))))
 
 ;; LUD-21
 (defn verify-request
@@ -369,8 +244,8 @@
         url      (:url response)
         settled  (get raw "settled")
         preimage (json/text (get raw "preimage"))]
-    (or (insecure url)
-        (refusal raw url)
+    (or (impl/insecure url)
+        (impl/refusal raw url)
         (cond
           (not (boolean? settled))
           (diagnostics/failed {:id     :value/malformed
@@ -401,10 +276,10 @@
         url    (:url response)
         pubkey (get raw "pubkey")
         node?  (and (= "keysend" (get raw "tag"))
-                    (value.payment/node-key? pubkey))
+                    (value.impl/node-key? pubkey))
         listed (get raw "customData")]
-    (or (insecure url)
-        (refusal raw url)
+    (or (impl/insecure url)
+        (impl/refusal raw url)
         (if node?
           (let [data (first (filter map? (if (sequential? listed) listed [])))
                 k    (json/text (get data "customKey"))
@@ -415,34 +290,6 @@
                                :url    url
                                :status (:status response)})))))
 
-(defn ^:no-doc send!
-  "Send `request` by the :send of `opts` within its limits, and give the
-  response, in a future or a promise. For a request that failed, it's a
-  map with a diagnostic under :error."
-  [request {:keys [send] :as opts}]
-  (async/then (http/try-send! send request opts)
-              (fn [{:keys [value] e :error}]
-                (if e
-                  (diagnostics/failed {:id     :value/unreachable
-                                       :url    (:url request)
-                                       :reason (async/explain e)})
-                  value))))
-
-(defn ^:no-doc ask!
-  "Send `request` for the Lightning `address` with `opts`, and give what
-  `read` makes of the response, in a future or a promise.
-
-  A failure gives a map with a diagnostic under :error. So does a nil
-  request, which means that `address` isn't a Lightning address."
-  [request address read opts]
-  (async/then request
-              (fn [request]
-                (if-not request
-                  (diagnostics/failed {:id      :value/not-an-address
-                                       :address (str address)})
-                  (async/then (send! request opts)
-                              #(if (:error %) % (read %)))))))
-
 (defn- fetch-invoice!
   "Ask the callback of the terms `offer` for an invoice of `msat`
   millisatoshis with the comment `text`, the details of the `payer` and
@@ -451,8 +298,8 @@
   The invoice has the :comment that went out, and a failure gives a map
   with a diagnostic under :error."
   [offer msat text payer opts]
-  (let [sent (sent-comment offer text)]
-    (async/then (send! (invoice-request offer msat text payer) opts)
+  (let [sent (impl/sent-comment offer text)]
+    (async/then (impl/send! (invoice-request offer msat text payer) opts)
                 (fn [response]
                   (let [read (if (:error response)
                                response
@@ -489,7 +336,7 @@
   ([address msat {:keys [comment payer] :as opts}]
    (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
-     (async/then (ask! (lnurlp-request address) address terms opts)
+     (async/then (impl/ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
                    (cond
                      (:error offer)
@@ -522,7 +369,7 @@
      (async/then (verify-request invoice)
                  (fn [request]
                    (if request
-                     (async/then (send! request opts)
+                     (async/then (impl/send! request opts)
                                  #(if (:error %) % (verification invoice %)))
                      (diagnostics/failed {:id :value/unverifiable})))))))
 
@@ -538,7 +385,7 @@
   ([address opts]
    (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
-     (ask! (lnurlp-request address) address terms opts))))
+     (impl/ask! (lnurlp-request address) address terms opts))))
 
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with
@@ -552,7 +399,7 @@
   ([address opts]
    (let [defaults {:send client/send! :allow-pred url/public?}
          opts     (merge default-limits defaults opts)]
-     (ask! (keysend-request address) address node opts))))
+     (impl/ask! (keysend-request address) address node opts))))
 
 (comment
   (parse "Ann@Example.org")
@@ -572,9 +419,9 @@
                       "metadata"       "[[\"text/plain\",\"Pay Ann\"]]"})}))
 
   (sendable? sample-terms 25000)
-  (sent-comment sample-terms
-                (str "A comment that is longer than the forty characters"
-                     " of the terms"))
+  (impl/sent-comment sample-terms
+                     (str "A comment that is longer than the forty characters"
+                          " of the terms"))
   (invoice-request sample-terms 25000 "Thanks!")
 
   (node {:status 200

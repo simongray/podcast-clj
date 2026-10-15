@@ -25,8 +25,8 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
-            [dk.simongray.podcast.value.payment :as value.payment]
-            [dk.simongray.wary-fetch :as http]
+            [dk.simongray.podcast.value.impl :as value.impl]
+            [dk.simongray.podcast.value.nwc.impl :as impl]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.wary-fetch.url :as url]
@@ -48,11 +48,6 @@
   :timeout-seconds to answer. The request of a command expires after that
   time."
   {:timeout-seconds 60})
-
-(def ^:no-doc encryption
-  "The name that NIP-47 gives the encryption of podcast-clj, in its
-  section Encryption."
-  "nip44_v2")
 
 (defn- query
   "The parameters of the query string `s`, decoded, as pairs of a name and
@@ -102,12 +97,6 @@
                    :secret (secret/hide secret)}
             (seq lud16) (assoc :lud16 lud16)))))))
 
-(defn ^:no-doc secret-key
-  "The secret key of the app in `connection`, as text. It's the one place
-  where the functions here read the key."
-  [connection]
-  (secret/reveal (:secret connection)))
-
 (defn connection?
   "Whether `x` is a connection. Its keys are in lower case, its wallet is a
   point of the curve, and its secret is a secret key. Each of its relays
@@ -119,9 +108,9 @@
   [x]
   (boolean (and (map? x)
                 (nostr/hex-id? (:wallet x))
-                (nostr/hex-id? (secret-key x))
+                (nostr/hex-id? (impl/secret-key x))
                 (secp256k1/public-key? (:wallet x))
-                (some? (secp256k1/public-key (secret-key x)))
+                (some? (secp256k1/public-key (impl/secret-key x)))
                 (vector? (:relays x))
                 (seq (:relays x))
                 (every? #(= % (nostr/relay-url %)) (:relays x)))))
@@ -139,7 +128,7 @@
   has the secret of the connection, so keep it where you keep passwords."
   [{:keys [wallet relays lud16] :as connection}]
   (let [relay-params (map #(url/query-string {"relay" %}) relays)
-        own-params   (url/query-string {"secret" (secret-key connection)
+        own-params   (url/query-string {"secret" (impl/secret-key connection)
                                         "lud16"  lud16})]
     (str "nostr+walletconnect://" wallet "?"
          (str/join "&" (concat relay-params [own-params])))))
@@ -148,7 +137,7 @@
   "The public key of the app in `connection`, by which the wallet knows
   the connection. It's the public key of the secret of the connection."
   [connection]
-  (secp256k1/public-key (secret-key connection)))
+  (secp256k1/public-key (impl/secret-key connection)))
 
 (defn pay-invoice
   "The command that pays the BOLT 11 `invoice` by `opts`, as the section
@@ -179,11 +168,11 @@
   and value of the recipient. The report of the command says when the
   records leave out the custom key or value. Don't send the command then."
   [payment {:keys [address] :as recipient}]
-  (let [[msat]  (value.payment/amounts payment)
+  (let [[msat]  (value.impl/amounts payment)
         records (value/records payment recipient)
         tlv     (fn [[type text]]
                   {"type" type "value" (bytes/hex (bytes/encode text))})]
-    (when (and msat (pos? msat) (value.payment/node-key? address))
+    (when (and msat (pos? msat) (value.impl/node-key? address))
       (with-meta {:method "pay_keysend"
                   :params {"amount"      msat
                            "pubkey"      (str/lower-case address)
@@ -246,7 +235,7 @@
 
   - :at, the instant of the request
   - :nonce, hexadecimal text of 32 bytes that nobody can guess, for the
-    encryption
+    impl/encryption
   - :aux, the same for the signature
   - :expires-at, the instant after which the wallet doesn't do the
     command, which is optional
@@ -266,12 +255,12 @@
                      (not (inst? at))
                      "The request needs its instant under :at")]
     (throw (ex-info wrong {})))
-  (let [secret  (secret-key connection)
+  (let [secret  (impl/secret-key connection)
         shared  (nip44/conversation-key secret wallet)
         payload (json/write-str {"method" method "params" params})]
     (when-let [content (nip44/encrypt payload shared nonce)]
       (let [expiry (some-> expires-at time/unix-seconds str)
-            tags   (cond-> [["encryption" encryption] ["p" wallet]]
+            tags   (cond-> [["encryption" impl/encryption] ["p" wallet]]
                      expiry (conj ["expiration" expiry]))]
         (nostr/signed {"kind"       (:request kinds)
                        "created_at" (time/unix-seconds at)
@@ -279,59 +268,6 @@
                        "content"    content}
                       secret
                       aux)))))
-
-(def ^:no-doc fields
-  "The key and the type of each field of a result that NIP-47 defines. An
-  amount is a number of millisatoshis, and a time is a number of
-  seconds."
-  {"preimage"         [:preimage :text]
-   "fees_paid"        [:fees-msat :number]
-   "balance"          [:msat :number]
-   "amount"           [:msat :number]
-   "type"             [:type :text]
-   "state"            [:state :text]
-   "invoice"          [:invoice :text]
-   "description"      [:description :text]
-   "description_hash" [:description-hash :text]
-   "payment_hash"     [:payment-hash :text]
-   "created_at"       [:created-at :time]
-   "expires_at"       [:expires-at :time]
-   "settled_at"       [:settled-at :time]
-   "metadata"         [:metadata :object]
-   "alias"            [:alias :text]
-   "color"            [:color :text]
-   "pubkey"           [:public-key :text]
-   "network"          [:network :text]
-   "block_height"     [:block-height :number]
-   "block_hash"       [:block-hash :text]
-   "methods"          [:methods :texts]
-   "extensions"       [:extensions :texts]})
-
-(defn- typed
-  "The JSON value `v` as the value of a field of the type `type`, or nil
-  for a value of another type."
-  [type v]
-  (case type
-    :text   (when (string? v) v)
-    :number (json/whole v)
-    :time   (some-> (json/whole v) (* 1000) time/->inst)
-    :object (when (map? v) v)
-    :texts  (when (sequential? v) (vec (filter string? v)))))
-
-(defn- result
-  "The result `raw` of a wallet in the keys of podcast-clj, by fields. An
-  invoice whose expiry the wallet didn't give has that of the invoice
-  itself."
-  [raw]
-  (let [read    (into {} (for [[k v] raw
-                               :let  [[name type] (get fields k)
-                                      value       (when name (typed type v))]
-                               :when (some? value)]
-                           [name value]))
-        expires (when (and (:invoice read) (not (:expires-at read)))
-                  (bolt11/expires-at (:invoice read)))]
-    (cond-> read
-      expires (assoc :expires-at expires))))
 
 (defn answer
   "What the `event` of a wallet answers over `connection`, or a map with a
@@ -363,7 +299,7 @@
                                          :reason %})
         verified?  (nostr/verified? event)
         content    (when (and verified? (= wallet (get event "pubkey")))
-                     (let [app-key (secret-key connection)
+                     (let [app-key (impl/secret-key connection)
                            shared  (nip44/conversation-key app-key wallet)]
                        (nip44/decrypt (get event "content") shared)))
         body       (some-> content json/object)
@@ -404,7 +340,7 @@
       (unreadable "The result of a payment has no preimage")
 
       :else
-      (cond-> (assoc (result (get body "result"))
+      (cond-> (assoc (impl/result (get body "result"))
                      :method method
                      :result (get body "result"))
         request (assoc :request request)))))
@@ -442,7 +378,7 @@
   [info {:keys [method] :as command}]
   (when info
     (cond
-      (not (some #{encryption} (:encryption info)))
+      (not (some #{impl/encryption} (:encryption info)))
       (diagnostics/failed {:id         :value/wallet-unsupported
                            :encryption (:encryption info)})
 
@@ -450,45 +386,6 @@
       (diagnostics/failed {:id      :value/wallet-unsupported
                            :method  method
                            :methods (:methods info)}))))
-
-(defn- ask-relays!
-  "Send the request that `request-of` makes to each of `relays` in turn,
-  with `opts` and the failures so far in `tried`. Give what `read` makes
-  of the first answer, in a future or a promise.
-
-  The next relay gets the request when a relay gives no connection, or
-  when `read` gives nil for its response. The `read` function gives nil
-  for a response that says that the request didn't reach the wallet. Each
-  failure in `tried` has the :url, the :reason, and whether the relay
-  :answered?. When no relay is left, the result has a diagnostic under
-  :error.
-
-  An exchange that failed after its event went out has :sent? in the data
-  of its exception. The `read` function then gets a response without
-  events, so the response is read as for a relay that has no answer."
-  [opts request-of read relays tried]
-  (if-let [[url & more] (seq relays)]
-    (async/then
-     (http/try-send! (:send opts) (request-of url) opts)
-     (fn [{:keys [value error]}]
-       (let [next! (fn [failed]
-                     (let [tried (conj tried (assoc failed :url url))]
-                       (ask-relays! opts request-of read more tried)))]
-         (cond
-           (:sent? (ex-data error))
-           (read {:url url :events [] :sent? true})
-
-           error
-           (next! {:reason (async/explain error) :answered? false})
-
-           :else
-           (or (read value)
-               (let [reason (or (:refused value)
-                                (:closed value)
-                                "The relay has no event")]
-                 (next! {:reason    reason
-                         :answered? (not (:timeout? value))})))))))
-    (diagnostics/failed {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
   "The `opts` of a request to a wallet over their defaults: the limits, the
@@ -523,7 +420,8 @@
                                         (nostr/verified? %)))
                           first
                           info))]
-     (async/then (ask-relays! opts #(info-request connection %) known relays [])
+     (async/then (impl/ask-relays! opts #(info-request connection %)
+                                   known relays [])
                  (fn [{:keys [error] :as read}]
                    (if (some :answered? (:relays error))
                      (diagnostics/failed {:id     :value/no-wallet-info
@@ -596,7 +494,7 @@
         (if (nil? event)
           (diagnostics/failed {:id     :value/command-too-large
                                :method (:method command)})
-          (ask-relays! opts asking read relays [])))))
+          (impl/ask-relays! opts asking read relays [])))))
 
 (defn ask!
   "Ask the wallet of `connection` to do `command` with `opts`, and give its

@@ -18,7 +18,7 @@
             [dk.simongray.podcast.value.bolt11 :as bolt11]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
-            [dk.simongray.podcast.value.payment :as value.payment]
+            [dk.simongray.podcast.value.impl :as value.impl]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webcrypto.bytes :as bytes]
@@ -489,7 +489,7 @@
                                           ""
                                           42]))
           "white space of any kind around the comment, which the payer writes")))
-  (is (= "ab" (value.payment/cut "ab🎙️" 3)) "a cut leaves no half of a pair of surrogates"))
+  (is (= "ab" (value.impl/cut "ab🎙️" 3)) "a cut leaves no half of a pair of surrogates"))
 
 (deftest fetching-metadata
   (let [url     "https://boostbox.example/boost/01K5"
@@ -532,7 +532,7 @@
 
 #?(:clj
    (defspec any-record-reads 300
-     (prop/for-all [record (gen/map (gen/one-of [(gen/elements (keys value/boostagram-fields)) gen/string-ascii])
+     (prop/for-all [record (gen/map (gen/one-of [(gen/elements (keys value.impl/boostagram-fields)) gen/string-ascii])
                                     (gen/one-of [gen/string gen/large-integer (gen/double* {:infinite? false :NaN? false})
                                                  gen/boolean (gen/return nil) (gen/vector gen/small-integer)
                                                  (gen/map gen/string-ascii gen/small-integer)

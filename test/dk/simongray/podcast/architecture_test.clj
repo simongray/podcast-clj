@@ -37,7 +37,8 @@
    "format.media.mp4.impl" 3 "format.media.ogg" 3 "format.media.ogg.impl" 3
    "format.media.aac" 3
    "value" 3 "value.bolt11" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3
-   "value.payment" 3 "value.webln" 3 "value.recipients" 3
+   "value.impl" 3 "value.webln" 3 "value.recipients" 3
+   "value.nwc.impl" 3 "value.lnaddress.impl" 3
    "profile" 3 "profile.queue" 3 "profile.marks" 3 "profile.opml" 3
    "profile.player" 3 "profile.payments" 3 "criteria" 3 "downloads" 3
    "gpodder" 3 "gpodder.api" 3 "gpodder.server" 3
@@ -144,12 +145,12 @@
   (testing "the companion formats stand on the primitives and each other alone"
     (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.image"
                 "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4"
-                "format.media.ogg" "format.media.aac" "feed.integrity" "format.hls" "value" "value.payment"
+                "format.media.ogg" "format.media.aac" "feed.integrity" "format.hls" "value" "value.impl"
                 "value.bolt11" "format.image.impl" "format.media.mp4.impl" "format.media.ogg.impl"
                 "format.transcript.impl"]]
       (is (every? #(or (zero? (get layers %))
                        (str/starts-with? % "format.")
-                       (= "value.payment" %))
+                       (= "value.impl" %))
                   (get @graph ns))
           (str ns " requires " (get @graph ns))))))
 

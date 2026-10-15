@@ -9,8 +9,8 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.bolt11 :as bolt11]
+            [dk.simongray.podcast.value.impl :as value.impl]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
-            [dk.simongray.podcast.value.payment :as value.payment]
             [dk.simongray.wary-fetch.async :as async]))
 
 (defn- blocks
@@ -42,7 +42,7 @@
   the form of its type, or nil."
   [path {:keys [type address] :as recipient}]
   (when (case (some-> type str str/lower-case)
-          "node"      (not (value.payment/node-key? address))
+          "node"      (not (value.impl/node-key? address))
           "lnaddress" (nil? (lnaddress/parse address))
           false)
     {:id :value/recipient-address :path path :type type :address address}))
@@ -59,7 +59,8 @@
   "The diagnostics of the `recipients` of a block or a time split at
   `path`."
   [recipients path]
-  (let [fees  (transduce (comp (filter value/fee?) (map value/split-of))
+  (let [fees  (transduce (comp (filter value.impl/fee?)
+                               (map value.impl/split-of))
                          + 0 recipients)
         twice (->> (group-by same-key recipients)
                    vals

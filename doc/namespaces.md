@@ -180,7 +180,6 @@ key-value store, memory, and an encrypted form of any of them.
 | `value.lnaddress` | Lightning addresses: `request-invoice!` gets an invoice with LNURL-pay and checks its amount, `fetch-terms!` gets the terms, and `fetch-node!` gets the node for keysend. |
 | `value.recipients` | The recipients of the value blocks of a feed: `problems` in a feed, `check!` of their Lightning addresses, and `pay!`, which pays them all through the listener's wallet. |
 | `value.bolt11` | The invoices of BOLT 11: `invoice-amount`, `payment-hash`, and `proves?`, which checks a preimage against an invoice. |
-| `value.payment` | The JSON fields of the payment map, which the bLIP-10 record and the RSS Payment Metadata share. Apps don't call it. |
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the `x-rss-payment` header that `fetch!` reads. |
 | `value.nwc` | Nostr Wallet Connect (NIP-47), for paying from the listener's wallet. Read a connection URI with `parse`, make a command such as `pay-invoice` or `get-balance`, and send it with `ask!`, which returns the answer. |
 | `value.webln` | WebLN, the wallet interface of a web page. In ClojureScript, `pay-invoice!` and `pay-keysend!` call the provider. |
