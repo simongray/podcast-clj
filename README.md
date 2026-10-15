@@ -215,6 +215,11 @@ listener. It serves the Ring handlers of the proxy of
 [webdav-clj](https://github.com/simongray/webdav-clj), and `gpodder.server`,
 which you can also mount in a server of your own.
 
+In a browser, [play-nice](https://github.com/simongray/play-nice) plays
+the episodes. What `library/playback` returns for an episode goes
+straight to its `media/source!`, and the metadata to the lock screen with
+`session/metadata!`.
+
 Documentation
 -------------
 
