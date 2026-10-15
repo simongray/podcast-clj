@@ -29,8 +29,8 @@
    "feed.impl" 2 "feed.validate.impl" 2 "feed.resolve.impl" 3
    "feed.resolve" 3 "feed.schedule" 3 "feed.check" 3 "feed.check.impl" 3 "feed.check.rules" 3
    "feed.check.rules.impl" 3
-   "feed.discovery" 3 "feed.publish" 3 "feed.search" 3 "feed.integrity" 3
-   "feed.local" 3
+   "feed.discovery" 3 "feed.discovery.impl" 3 "feed.publish" 3 "feed.search" 3
+   "feed.integrity" 3 "feed.local" 3
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.image" 3
    "format.hls" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3

@@ -166,38 +166,6 @@
                               [[#"^https://([a-z0-9-]+)\.host\.example/?$" "https://feeds.host.example/$1.xml"]
                                [#"^https://other\.example/" "https://other.example/feed"]]))))
 
-(deftest the-name-of-a-page
-  (is (= "The Show" (discovery/page-name "<title>Home | The Show</title>" "https://show.example/"))
-      "the longest part of a title")
-  (is (= "The Show"
-         (discovery/page-name "<meta property=og:site_name content='The Show'><title>Home – The Show</title>"
-                              "https://show.example/"))
-      "a home page by the name of its site")
-  (is (= "CrimeLess"
-         (discovery/page-name "<meta content=iHeart property=og:site_name><meta content='CrimeLess | iHeart' property=og:title>"
-                              "https://www.iheart.com/podcast/crimeless/"))
-      "another page by its title, without the name of the site")
-  (is (nil? (discovery/page-name "<p>No name</p>" "https://a.example/"))))
-
-(deftest a-feed-or-a-page
-  (is (discovery/feed-document? "<?xml version=\"1.0\"?>\n<?xml-stylesheet href=\"s.xsl\"?>\n<!-- a > b -->\n<rss version=\"2.0\">"))
-  (is (discovery/feed-document? "<feed xmlns=\"http://www.w3.org/2005/Atom\">"))
-  (is (discovery/feed-document? "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"))
-  (is (not (discovery/feed-document? "<!DOCTYPE html><html><head><title>rss</title></head>")))
-  (is (not (discovery/feed-document? "<rss-reader>")) "an element whose name only starts like one")
-  (is (discovery/feed-document? (str (apply str (repeat 800 "<?a?>")) "<rss>"))
-      "many processing instructions, and the stack holds")
-  (is (not (discovery/feed-document? (str (apply str (repeat 3000 "<!---->")) "<rss>")))
-      "only the start of a long document counts"))
-
-(deftest the-website-of-a-feed
-  (is (discovery/same-website? "https://Example.com" "http://www.example.com/podcast/"))
-  (is (discovery/same-website? "https://example.com/show/" "https://www.example.com/show"))
-  (is (not (discovery/same-website? "https://example.com/show" "https://example.com/other")))
-  (is (not (discovery/same-website? "https://alice.substack.com/" "https://bob.substack.com/"))
-      "only www. is left out of a domain")
-  (is (not (discovery/same-website? "https://example.com/" nil))))
-
 (deftest known-feeds
   (let [feed  (rss/parse (feed-xml "A" {:link "https://a.example/" :episode? true}))
         known {feed "https://feeds.example/a.xml"}]
