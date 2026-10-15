@@ -13,9 +13,13 @@
   also syncs through one that the listener picks, whose handle is stored
   in IndexedDB for the next visit.
 
-  The episode that plays is on the lock screen, through the Media Session
-  of play-nice, and its buttons and those of the headphones go through
-  the library as app.media-session has them.
+  The media element is play-nice's: it loads the episode at the position
+  to resume at and the show's rate, reports its state, applies the
+  effects of the library, and plays muted or at the next click where the
+  browser refuses its sound. The episode that plays is on the lock screen,
+  through the Media Session, and its buttons and those of the headphones
+  go through the library as app.media-session has them. A tab that starts
+  playing pauses the inspector's other tabs.
 
   The feeds of the episodes are refreshed in a web worker when they're
   due, as inspector.worker describes."
@@ -25,6 +29,9 @@
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.play-nice.media :as media]
+            [dk.simongray.play-nice.page.autoplay :as autoplay]
+            [dk.simongray.play-nice.page.tabs :as tabs]
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
@@ -46,9 +53,11 @@
 
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
   listener, with the profile under `:profile` and the sleep timer
-  under `:sleep`), `:titles` by episode id, and what the audio element
-  last reported. The profile names the feed of each episode added here,
-  as a remote item, so that the other devices can fetch its data."}
+  under `:sleep`), `:titles` by episode id, the state of the media
+  element under `:media`, as media/watch! reports it, and the browser's
+  `:answer` to playing it. The profile names the feed of each episode
+  added here, as a remote item, so that the other devices can fetch its
+  data."}
   app
   (atom nil))
 
@@ -60,7 +69,7 @@
   "The whole seconds of the audio property `x`, nil when the element does
   not know it yet, as with the duration before the metadata has loaded."
   [x]
-  (when (js/isFinite x)
+  (when (js/Number.isFinite x)
     (js/Math.floor x)))
 
 (defn- stored
@@ -334,19 +343,36 @@
     (set! (.-value input) "")
     (sync! [(library/backend (folder/store files) {:name "loaded folder"})])))
 
+(defn- start!
+  "Play the media element, muted where the browser refuses its sound, and
+  keep the browser's answer. Where it refuses even that, try once more at
+  the listener's next click or key press, when `retry?`."
+  [retry?]
+  (when-let [el (audio-element)]
+    (.then (media/play! el {:muted-fallback true})
+           (fn [answer]
+             (swap! app assoc :answer answer)
+             (when (and retry? (= :not-allowed (:refused answer)))
+               (autoplay/on-activation! #(start! false)))))))
+
+(defn- media-effects
+  "The `effects` of a player event as those of media/apply!: a seek to
+  where a skip landed, and a pause where the outro of the show starts."
+  [effects]
+  (keep (fn [[kind _ arg]]
+          (case kind
+            :seek [:seek arg]
+            :stop [:pause]
+            nil))
+        effects))
+
 (defn- perform!
-  "Carry out the `effects` of a player event: seek the audio element to
-  where a skip landed, stop it where the outro of the show starts, or
+  "Carry out the `effects` of a player event on the media element, and
   start the next episode once it is rendered."
   [effects]
-  (doseq [[kind _ arg] effects]
-    (case kind
-      :seek (when-let [el (audio-element)]
-              (set! (.-currentTime el) arg))
-      :stop (some-> (audio-element) .pause)
-      :play (let [start #(some-> (audio-element) .play (.catch (fn [_] nil)))]
-              (js/setTimeout start 50))
-      nil)))
+  (some-> (audio-element) (media/apply! (media-effects effects)))
+  (when (some (comp #{:play} first) effects)
+    (js/setTimeout #(start! true) 50)))
 
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
@@ -408,42 +434,69 @@
   (dispatch! [:play id])
   (perform! [[:play id]]))
 
+(defn- progress!
+  "Tell the library where the media element of the episode `id` is, by
+  its `state`."
+  [id {:keys [current-time duration] :as state}]
+  (swap! app assoc :reported current-time)
+  (dispatch! [:progress id (or (seconds current-time) 0) (seconds duration)]))
+
 (defn- skip!
-  "Skip the episode `id` by `amount`, from where the audio is, which the
-  library is told first."
+  "Skip the episode `id` by `amount`, from where the media element is,
+  which the library is told first."
   [id amount]
-  (when-let [el (audio-element)]
-    (let [at (or (seconds (.-currentTime el)) 0)]
-      (dispatch! [:progress id at (seconds (.-duration el))])))
+  (some->> (audio-element) media/state (progress! id))
   (dispatch! [:skip id amount]))
 
-(defn- time-update!
-  "Show the position of the audio element `el` of the episode `id`, and
-  record it every five seconds."
-  [id el]
-  (let [t       (.-currentTime el)
-        d       (seconds (.-duration el))
-        readout (str "at " (time/format-clock t)
-                     (when d (str " of " (time/format-clock d))))]
-    (swap! app assoc :readout readout)
-    (when (>= (js/Math.abs (- t (or (:reported @app) -10))) 5)
-      (swap! app assoc :reported t)
-      (dispatch! [:progress id (or (seconds t) 0) d]))))
+(defn- reported!
+  "Keep the `state` of the media element of the episode `id`, which
+  media/watch! reports, and tell the library where it is: at a pause,
+  after a seek, and every five seconds of playing. It syncs at a pause,
+  since nothing plays then."
+  [id {:keys [paused seeking current-time] :as state}]
+  (let [{old :media :keys [reported]} @app]
+    (swap! app assoc :media state)
+    (cond
+      (and paused (false? (:paused old)))
+      (do (progress! id state)
+          (sync!))
 
-(defn- paused!
-  "Record where the audio element `el` of the episode `id` paused, and
-  sync, since nothing plays now."
-  [id el]
-  (swap! app assoc :reported (.-currentTime el))
-  (let [at (or (seconds (.-currentTime el)) 0)]
-    (dispatch! [:progress id at (seconds (.-duration el))]))
-  (sync!))
+      (or (and (:seeking old) (not seeking))
+          (and (not paused)
+               (>= (js/Math.abs (- current-time (or reported -10))) 5)))
+      (progress! id state))))
+
+(defonce ^{:doc "The functions that stop following the media element of
+  each episode id, while the bar shows it."}
+  detach-element
+  (atom {}))
+
+(defn- mount!
+  "Load the `source` of the episode `id` into the media element `el` that
+  the bar has rendered, and follow it: keep its state, put it on the lock
+  screen, and let it pause when another tab plays."
+  [id source el]
+  (media/source! el source)
+  (swap! app dissoc :answer :media :reported)
+  (on-lock-screen! id el)
+  (swap! detach-element assoc id
+         (juxt (media/watch! el (partial reported! id)
+                             {:events (conj media/events :timeupdate)})
+               (tabs/attach! el "podcast-inspector"))))
+
+(defn- unmount!
+  "Stop following the media element of the episode `id`, which the bar no
+  longer shows."
+  [id]
+  (when-let [detach! (get @detach-element id)]
+    (swap! detach-element dissoc id)
+    (detach!)))
 
 (defn handle!
-  "Perform the view's `event`, given the DOM event `e` that raised it when
-  there is one. The skips and the queue operations go to the library, and
-  a report of the audio element finds the element as the target of `e`."
-  [[kind & args :as event] e]
+  "Perform the view's `event`, given the DOM event `e` that raised it or
+  the `node` that a life-cycle hook raised it on. The skips and the queue
+  operations go to the library, and the media element's mount loads it."
+  [[kind & args :as event] e node]
   (case kind
     :play          (play! (first args))
     :skip          (let [[id amount] args] (skip! id amount))
@@ -463,13 +516,12 @@
                      (operate! crdt/retire (first args)))
     :document/save (save-document!)
     :document/load (load-folder! (.-target e))
-    :audio/loaded  (let [[id position] args
-                         el (.-target e)]
-                     (on-lock-screen! id el)
-                     (when (and (pos? position) (< position (.-duration el)))
-                       (set! (.-currentTime el) position)))
-    :audio/time    (time-update! (first args) (.-target e))
-    :audio/paused  (paused! (first args) (.-target e))
+    ;; after the render, since the state that mount! keeps would render
+    ;; again inside it
+    :media/mounted   (let [[id source] args]
+                       (js/queueMicrotask #(mount! id source node)))
+    :media/unmounted (unmount! (first args))
+    :unmute          (some-> (audio-element) (media/muted! false))
     nil))
 
 (defn- add!
@@ -731,8 +783,8 @@
     (when (not= (browser-name) (get-in profile [:devices device :name]))
       (operate! crdt/identify {:name (browser-name)})))
   (save! @app)
-  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event]
-                             (handle! event dom-event)))
+  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event node]} event]
+                             (handle! event dom-event node)))
   (add-watch app ::render
              (fn [_ _ old new]
                (let [kept [:library :titles]]
@@ -741,10 +793,10 @@
                (when-not (profile.queue/current
                           (get-in new [:library :profile]))
                  (off-lock-screen!))
-               ;; the audio reports its time four times a second, and only
-               ;; the bar shows it
-               (render! (not= (dissoc old :readout :reported)
-                              (dissoc new :readout :reported)))))
+               ;; the media element reports its time four times a second,
+               ;; and only the bar shows it
+               (render! (not= (dissoc old :media :reported)
+                              (dissoc new :media :reported)))))
   (intercept-navigation!)
   (listen-to-other-tabs!)
   (render! true)

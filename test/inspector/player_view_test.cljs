@@ -39,10 +39,12 @@
   (let [bar     (view/bar state)
         audio   (first (elements bar :audio#player))
         buttons (elements bar :button)]
-    (is (= "https://x/a.mp3" (:src (second audio))))
-    (is (= {:loadedmetadata [:audio/loaded a 120] :timeupdate [:audio/time a] :pause [:audio/paused a] :ended [:ended a]}
-           (:on (second audio)))
-        "the audio element reports through events, the position to resume at included")
+    (is (= [:media/mounted a {:src "https://x/a.mp3" :position 120 :playback-rate 1.0}]
+           (:replicant/on-mount (second audio)))
+        "the audio element loads the episode when it's mounted, at the position to resume at and the show's rate")
+    (is (= [:media/unmounted a] (:replicant/on-unmount (second audio))))
+    (is (= {:ended [:ended a]} (:on (second audio))) "the end, which the library is told of")
+    (is (nil? (:src (second audio))) "media/source! sets the source, so that the position and rate come with it")
     (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:dequeue a] [:sleep 1]]
            (map #(get-in % [1 :on :click]) buttons)))
     (is (= ["−15s" "+30s" "Ended" "Remove" "Stop after this episode"] (map #(nth % 2) buttons))
@@ -56,10 +58,20 @@
     (let [bar   (view/bar (assoc-in state [:titles a :video?] true))
           video (first (elements bar :video#player))]
       (is (empty? (elements bar :audio#player)))
-      (is (= "https://x/a.mp3" (:src (second video))))
-      (is (= [:audio/loaded a 120] (get-in video [1 :on :loadedmetadata])))))
-  (testing "the readout the audio reported, and an episode without an enclosure"
-    (is (str/includes? (text (view/bar (assoc state :readout "at 1:00 of 1:00:00"))) "at 1:00 of 1:00:00"))
+      (is (= [:media/mounted a {:src "https://x/a.mp3" :position 120 :playback-rate 1.0}]
+             (get-in video [1 :replicant/on-mount])))))
+  (testing "the browser's answer to playing it"
+    (let [bar (view/bar (assoc state :answer {:playing true :muted true} :media {:muted true}))]
+      (is (str/includes? (text bar) "Playing muted"))
+      (is (some #{[:unmute]} (map #(get-in % [1 :on :click]) (elements bar :button)))))
+    (is (not (str/includes? (text (view/bar (assoc state :answer {:playing true :muted true} :media {:muted false})))
+                            "Playing muted"))
+        "an element unmuted by its own controls")
+    (is (str/includes? (text (view/bar (assoc state :answer {:refused :not-allowed}))) "next click")))
+  (testing "the readout the media element reported, and an episode without an enclosure"
+    (is (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration 3600}))) "at 1:00 of 1:00:00"))
+    (is (not (str/includes? (text (view/bar (assoc state :media {:current-time 60 :duration ##Inf}))) "at 1:00 of"))
+        "a live stream, which has no end")
     (let [bar (view/bar (assoc-in state [:titles a :enclosure] nil))]
       (is (empty? (elements bar :audio#player)))
       (is (str/includes? (text bar) "No enclosure to play."))))

@@ -958,31 +958,29 @@ rate, the title and artwork, the chapters, a transcript for captions, and
 the metadata of the Media Session, which a browser shows on the lock
 screen.
 
-The page's Media Session is set by
+The media element and the page's Media Session are set by
 [play-nice](https://github.com/simongray/play-nice), a library that you
 add to your app yourself, since podcast-clj doesn't depend on it:
 
 ```clojure
-dk.simongray/play-nice {:mvn/version "0.1.0"}
+dk.simongray/play-nice {:mvn/version "0.2.0"}
 ```
 
-With its `session` namespace, the buttons on the lock screen and the
-headphones send their events through `library/step` too:
+What `playback` returns goes as it is to `source!` of its `media`
+namespace, here as `media-element`, which loads the file at the position
+and rate. With its `session` namespace, the buttons on the lock screen
+and the headphones send their events through `library/step` too:
 
 ```clojure
 (defn play-episode!
   "Start the episode `id` of the library in the media element `audio`."
   [audio id]
-  (let [{:keys [src position playback-rate metadata]} (library/playback @lib id)
+  (let [{:keys [metadata] :as playback} (library/playback @lib id)
         step!  #(apply-effects! audio (:effects (swap! lib library/step %)))
         press! (fn [details]
                  (run! step! (media-session/events
                               @lib id (.-currentTime audio) details)))]
-    (set! (.-src audio) src)
-    (set! (.-playbackRate audio) playback-rate)
-    (.addEventListener audio "loadedmetadata"
-                       #(set! (.-currentTime audio) position)
-                       #js {:once true})
+    (media-element/source! audio playback)
     (session/metadata! metadata)
     (session/actions! (zipmap (media-session/actions @lib id)
                               (repeat press!)))
@@ -1022,7 +1020,7 @@ show's setting of that name, and `library/episode` and `library/plan`
 follow it.
 
 To keep to what the browser can play, e.g. Opus or a video codec, ask
-it about each enclosure. The `capabilities` namespace of play-nice asks
+it about each enclosure. The `media.capabilities` namespace of play-nice asks
 Media Capabilities, and `canPlayType` where that says no, about what
 `resolve/decoding-configuration` gives:
 
@@ -2232,7 +2230,8 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.mind-meld :as crdt]
-            [dk.simongray.play-nice.capabilities :as capabilities]
+            [dk.simongray.play-nice.media :as media-element]
+            [dk.simongray.play-nice.media.capabilities :as capabilities]
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]

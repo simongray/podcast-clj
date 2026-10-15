@@ -6,19 +6,22 @@
   The state holds the listener's profile and, for each episode id, what
   /episode.edn served for it:
 
-      {:profile … :titles {id episode} :readout \"…\" :error \"…\"}
+      {:profile … :titles {id episode} :media {…} :answer {…} :error \"…\"}
 
-  An episode that another device added comes through a sync as a remote
-  item, without that data. An event is a vector whose first element names
-  it:
+  The :media is the state of the media element, as play-nice's
+  media/watch! reports it, and the :answer is the browser's to playing
+  it. An episode that another device added comes through a sync as a
+  remote item, without that data. An event is a vector whose first
+  element names it:
 
       [:play id] [:skip id :back] [:ended id] [:sleep 1] [:play-next id]
-      [:dequeue id] [:prefer :skip-back] [:sync]
+      [:dequeue id] [:prefer :skip-back] [:sync] [:unmute]
       [:folder/pick] [:folder/allow] [:folder/forget]
       [:document/save] [:document/load] [:device/retire id]
 
-  The audio or video element raises [:audio/loaded id position],
-  [:audio/time id] and [:audio/paused id]."
+  The audio or video element raises [:media/mounted id source] and
+  [:media/unmounted id] as it comes and goes, where the source is what
+  media/source! loads, and [:ended id] when it has played to the end."
   (:require [cljs.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -47,14 +50,37 @@
           " " [:span.muted feed-title])
     (list [:code (pr-str id)])))
 
+(defn- readout
+  "Where the media element is, by its `media` state, or the `position` to
+  resume at before it reports."
+  [{:keys [current-time duration] :as media} position]
+  (str "at " (time/format-clock (or current-time position 0))
+       (when (js/Number.isFinite duration)
+         (str " of " (time/format-clock duration)))))
+
+(defn- answer-note
+  "What the browser's `answer` to playing the episode means to the
+  listener, given the `media` state: it plays muted, or it waits for a
+  click."
+  [{:keys [refused] :as answer} media]
+  (cond
+    (and (:muted answer) (:muted media))
+    [:span "Playing muted, since the browser refused the sound. "
+     [:button {:on {:click [:unmute]}} "Unmute"]]
+
+    (= :not-allowed refused)
+    [:span.muted "The browser plays it at your next click or key press."]))
+
 (defn bar
   "The persistent player of the page `state`: the current episode, its
   audio or video element, the skip buttons and the sleep timer, or nil
   when nothing is queued.
 
-  An episode that came through a sync from a device that told no data of
-  it has nothing to play. The bar tells so, and the listener removes it."
-  [{:keys [profile readout sleep] :as state}]
+  The media element loads the episode when it's mounted, at the position
+  to resume at and the rate of the show. An episode that came through a
+  sync from a device that told no data of it has nothing to play. The bar
+  tells so, and the listener removes it."
+  [{:keys [profile media answer sleep] :as state}]
   (when-let [id (profile.queue/current profile)]
     (let [{:keys [enclosure video?] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (profile/preferences profile)
@@ -64,12 +90,16 @@
        (cond
          enclosure
          [(if video? :video#player :audio#player)
-          {:controls true :preload "metadata" :src enclosure
-           :replicant/key id
-           :on {:loadedmetadata [:audio/loaded id position]
-                :timeupdate     [:audio/time id]
-                :pause          [:audio/paused id]
-                :ended          [:ended id]}}]
+          {:controls             true
+           :preload              "metadata"
+           :replicant/key        id
+           :replicant/on-mount   [:media/mounted id
+                                  {:src           enclosure
+                                   :position      position
+                                   :playback-rate (profile/playback-rate
+                                                   profile (first id))}]
+           :replicant/on-unmount [:media/unmounted id]
+           :on                   {:ended [:ended id]}}]
 
          episode
          [:span.muted "No enclosure to play."]
@@ -77,8 +107,8 @@
          :else
          [:span.muted (str "This browser has no data of the episode. Remove "
                            "it, or open its item and play it.")])
-       [:span.muted (or readout
-                        (str "at " (time/format-clock (or position 0))))]
+       [:span.muted (readout media position)]
+       (answer-note answer media)
        [:span
         [:button {:on {:click [:skip id :back]}} (str "−" skip-back "s")]
         " "
