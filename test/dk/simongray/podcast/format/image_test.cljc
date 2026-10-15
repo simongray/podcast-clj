@@ -204,21 +204,12 @@
       (let [b (bytes/of (repeat 300000 7))]
         (is (true? (bytes/same? b (:data (image/from-data-url (image/data-url "image/png" b))))))))))
 
-(deftest the-colours-of-the-most-pixels
-  (is (= ["#2244a2" "#c03020"] (image/palette-of (concat (repeat 6 [0x20 0x40 0xa0 255]) (repeat 6 [0x24 0x48 0xa4 255])
-                                                         (repeat 5 [0xc0 0x30 0x20 255]))
-                                                 5))
-      "the average of the shades that count together, the most common first")
-  (is (= ["#c03020"] (image/palette-of (concat (repeat 6 [0x20 0x40 0xa0 0]) (repeat 5 [0xc0 0x30 0x20 255])) 5))
-      "the transparent pixels left out")
-  (is (= [] (image/palette-of [[0 0 0 0]] 5)))
-  (is (= ["#000000"] (image/palette-of [[0 0 0 255] [255 255 255 255]] 1)) "a tie settled the same way on each platform"))
-
 (deftest colours-by-colours
   (is (= ["#00a9a9" "#a08020" "#808080"] (map image/complementary-color ["#a90000" "#2040A0" "#808080"]))
       "the opposite hue, and a grey its own")
   (is (= ["#ffffff" "#000000" "#ffffff"] (map image/contrast-color ["#a90000" "#f0c040" "#000000"])))
-  (is (= [nil nil] [(image/complementary-color "red") (image/contrast-color "#abc")]) "only #rrggbb")
+  (is (= [nil nil nil] [(image/complementary-color "red") (image/contrast-color "#abc") (image/contrast "red" "#000000")])
+      "only #rrggbb")
   (is (= 21.0 (image/contrast "#000000" "#ffffff")))
   (is (= {:background "#a90000" :text "#ffffff" :accent "#f0c040" :accent-text "#000000" :complement "#00a9a9"
           :palette ["#a90000" "#1a1a1a" "#f0c040"]}

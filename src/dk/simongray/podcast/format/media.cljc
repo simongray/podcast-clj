@@ -51,9 +51,9 @@
    "audio/webm"      {:extension "webm"}
    "video/webm"      {:extension "webm"}})
 
-(def ^:no-doc formats
+(def formats
   "The format that read finds in a file of each media type, for the types
-  whose files it reads."
+  whose files it reads, so that an app can ask whether read! reads a type."
   (into {}
         (keep (fn [[type {:keys [format]}]]
                 (when format

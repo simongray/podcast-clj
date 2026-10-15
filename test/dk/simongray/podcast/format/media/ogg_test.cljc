@@ -6,6 +6,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.format.media.ogg :as ogg]
+            [dk.simongray.podcast.format.media.ogg.impl :as ogg.impl]
             [dk.simongray.podcast.test-support :refer [ascii view]]
             [dk.simongray.podcast.test-support.media
              :refer [about= jpeg opus-file opus-head opus-packet opus-tags packets-page picture-comment
@@ -113,5 +114,5 @@
   (testing "a view that lacks bytes gives the ranges that it needs: the pages, then the end of the file"
     (let [b    (bytes/of (opus-file :pages 400))
           head (view/add (view/view (bytes/length b)) 0 (bytes/slice b 0 300) (bytes/length b))]
-      (is (= [[(- (bytes/length b) ogg/max-page) (bytes/length b)]]
+      (is (= [[(- (bytes/length b) ogg.impl/max-page) (bytes/length b)]]
              (:need (view/reading #(ogg/read head))))))))

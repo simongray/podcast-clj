@@ -60,7 +60,7 @@
   "The OPML attribute name of each model key that's camelCase in OPML."
   {:xml-url :xmlUrl :html-url :htmlUrl :is-comment :isComment})
 
-(defn ^:no-doc outline-key
+(defn- outline-key
   "The model key of the outline attribute `k`, kebab-cased. The camelCase
   ones match in any case, since some apps write xmlurl."
   [k]

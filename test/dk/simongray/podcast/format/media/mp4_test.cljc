@@ -6,6 +6,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.format.media.mp4 :as mp4]
+            [dk.simongray.podcast.format.media.mp4.impl :as mp4.impl]
             [dk.simongray.podcast.test-support :refer [ascii be view]]
             [dk.simongray.podcast.test-support.media
              :refer [aac-entry box chapter-file chapter-track-file enhanced-file fragmented-file jpeg movie-file mvhd
@@ -124,7 +125,7 @@
                   (box "stsz" [0 0 0 0] (be 4 2) (be 4 n))
                   (box "stsc" [0 0 0 0] (be 4 n) (into [] (mapcat #(concat (be 4 (inc %)) (be 4 1) (be 4 1))) (range n)))
                   (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))]
-    (is (= mp4/max-samples (count (:chapters (mp4/read (view (chapter-track-file stbl n))))))
+    (is (= mp4.impl/max-samples (count (:chapters (mp4/read (view (chapter-track-file stbl n))))))
         "50000 chunks in as many runs, read in one pass, and no more chapters than the most")))
 
 (deftest the-images-and-links-of-chapters
@@ -159,7 +160,7 @@
                (seen (mp4/read head {:chapter-images? false}))))
         (is (= [from n] [(ffirst need) (second (last need))]) "and with them, the images at the end of the file")))
     (testing "images larger than a reading takes"
-      (with-redefs [mp4/max-chapter-image-bytes 5]
+      (with-redefs [mp4.impl/max-chapter-image-bytes 5]
         (let [r (mp4/read (view file))]
           (is (every? (comp nil? :artwork) (:chapters r)))
           (is (= [:mp4/chapter-images-skipped] (map :id (mp4/report r)))))))))
