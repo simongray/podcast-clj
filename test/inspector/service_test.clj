@@ -464,7 +464,9 @@
                "<atom:link rel=\"self\" href=\"" self "\"/>"
                "<item><title>E</title><guid>g</guid></item><item><title>No identity</title></item>"
                "</channel></rss>"))
-    (with-redefs [service/corpus-dir dir]
+    ;; no library of the corpus to recommend from, which takes seconds
+    (with-redefs [service/corpus-dir         dir
+                  service/making-recommender (delay nil)]
       (testing "a corpus feed is named by its self link, not by its route"
         (let [named (guid/from-url self)
               body  (:body (get* "/corpus/self"))]
@@ -489,6 +491,37 @@
                                         :body "uri=x&sats=1&sats=2"))))
       (is (= 403 (:status (response-for @connector :get "/dav/" :headers {"host" "attacker.example:8300"}))))
       (is (= 200 (:status (response-for @connector :get "/" :headers {"host" "localhost:8300"})))))))
+
+(deftest recommendations-on-the-item-page
+  (let [dir  (doto (io/file (System/getProperty "java.io.tmpdir") (str "corpus-" (random-uuid))) .mkdirs)
+        show (fn [name guid episodes]
+               (spit (io/file dir (str name ".xml"))
+                     (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>"
+                          "<title>" name "</title><language>en</language><podcast:guid>" guid "</podcast:guid>"
+                          (apply str (map-indexed (fn [i [title notes]]
+                                                    (str "<item><title>" title "</title><guid>" i "</guid>"
+                                                         "<description>" notes "</description></item>"))
+                                                  episodes))
+                          "</channel></rss>")))]
+    (show "a" "11111111-1111-5111-8111-111111111111" [["Espresso grinders" "Burr grinders for espresso."]])
+    (show "b" "22222222-2222-5222-8222-222222222222" [["Grinders compared" "Conical burr grinders for espresso."]
+                                                      ["Bicycles" "Gears."]])
+    (show "c" "33333333-3333-5333-8333-333333333333" [["Gardening" "Tomatoes."]])
+    (with-redefs [service/corpus-dir dir]
+      (testing "a note while the library to recommend from is made"
+        (reset! service/recommender nil)
+        (with-redefs [service/making-recommender (delay nil)]
+          (is (str/includes? (:body (get* "/item" "url" "corpus/a" "guid" "0"))
+                             "Reload the page in a moment"))))
+      (testing "the episodes most like this one, of other shows, with links here"
+        (reset! service/recommender (#'service/corpus-library))
+        (with-redefs [service/making-recommender (delay nil)]
+          (let [body (:body (get* "/item" "url" "corpus/a" "guid" "0"))]
+            (is (str/includes? body "Maybe you&apos;re also interested in…"))
+            (is (str/includes? body "<a href=\"/item?url=corpus%2Fb&amp;guid=0\">Grinders compared</a>"))
+            (is (not (str/includes? body "Bicycles")))
+            (is (str/includes? body "<em>espresso</em>")))))
+      (reset! service/recommender nil))))
 
 (deftest finding-the-feeds-of-a-text
   (let [feed     {:rss/title "Show"}

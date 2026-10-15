@@ -772,10 +772,51 @@
        (for [split timed]
          (time-split-section block remotes split))))))
 
+(defn- recommendations-section
+  "The episodes most like an episode, as the item page's `recommended`
+  holds them: the :results with the :url of each one's feed here, and the
+  :terms that found them, or :pending? or an :error."
+  [{:keys [results terms pending? error]}]
+  (list
+   [:h2 "Maybe you're also interested in…"]
+   (cond
+     pending?
+     [:p.muted (str "The inspector is indexing the corpus to recommend "
+                    "from, which takes a few seconds. Reload the page in a "
+                    "moment.")]
+
+     error
+     [:p.muted "Could not recommend episodes: " error]
+
+     (empty? results)
+     [:p.muted (str "Nothing in the corpus, or in the feeds inspected since "
+                    "the inspector started, is like this episode.")]
+
+     :else
+     (list
+      [:p.muted (str "The unplayed episodes of other shows in the same "
+                     "languages that library/recommend finds in the corpus "
+                     "and the feeds inspected since the inspector started, "
+                     "at most two of a show. It found them by the words ")
+       (interpose ", " (for [[term] (take 12 terms)] [:em term]))
+       "."]
+      [:ol.results
+       (for [{:keys [id score stored url]} results
+             :let [{:keys [title show published duration]} stored]]
+         [:li
+          [:strong [:a {:href (feed-href "/item" url {:guid (second id)})}
+                    (or title "(untitled)")]]
+          " " [:span.muted show]
+          [:br]
+          [:span.muted (inst-str published)
+           (when duration (str " · " (time/format-clock duration)))
+           (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]])]))))
+
 (defn item-page
   "The page for one `item` of `feed` at `url`, from its `view` with what
-  its files say merged in, and the `remotes` of its time splits."
-  [{:keys [url feed item view remotes]}]
+  its files say merged in, the `remotes` of its time splits, and the
+  episodes most like it, `recommended`."
+  [{:keys [url feed item view remotes recommended]}]
   (let [{:keys [title guid numbering published duration explicit? people
                 artwork notes enclosures value]} view
         into-player (fn [mode]
@@ -813,6 +854,7 @@
                   "Boost"])]]]
             [:h2 "Description"]
             [:div.notes notes]
+            (recommendations-section recommended)
             [:h2 "Media"]
             [:table
              [:thead

@@ -398,10 +398,70 @@
   (assoc (episode/fetch-remote-values! view {:index index-credentials})
          :index? (some? index-credentials)))
 
+(defonce ^{:doc "The library that the item page recommends episodes from,
+  as a map of the :library and the :urls, the route here of each of its
+  feeds by guid, or nil until it's made."}
+  recommender
+  (atom nil))
+
+(defn- corpus-library
+  "A library subscribed to the corpus feeds, with its search index, as
+  recommender holds it. A feed that the library refuses, e.g. one that
+  claims the guid of another, is left out."
+  []
+  (reduce (fn [{:keys [library] :as acc} [name url]]
+            (try
+              (let [feed     (rss/parse (slurp (corpus-file name)))
+                    feed-url (or (resolve/self-url feed) url)]
+                {:library (library/subscribe library feed-url feed)
+                 :urls    (assoc (:urls acc)
+                                 (feed.guid/feed-guid feed feed-url)
+                                 url)})
+              (catch Exception _
+                acc)))
+          {:library (library/make "inspector" {:config {:search? true}})
+           :urls    {}}
+          (corpus)))
+
+(defonce ^{:doc "The making of the corpus library of recommender, which
+  takes seconds, so the first item page starts it as a future."}
+  making-recommender
+  (delay (future (reset! recommender (corpus-library)))))
+
+(defn- recommended
+  "The episodes of the corpus and the feeds inspected since that are most
+  like `item` of `feed`, inspected at `url` and named by `feed-url`, as
+  library/recommend gives them: a map of the :results, each with the :url
+  of its feed here, and the :terms that found them. It's {:pending? true}
+  while the library to recommend from is made, and has the :error of a
+  failure. The feed joins that library unless it's in it."
+  [feed url feed-url item]
+  (force making-recommender)
+  (try
+    (when-not @recommender
+      (throw (ex-info "Not made yet" {::pending? true})))
+    (let [feed-guid (feed.guid/feed-guid feed feed-url)
+          joined    (fn [{:keys [library] :as r}]
+                      (if (get-in library [:feeds feed-guid])
+                        r
+                        (-> r
+                            (update :library library/subscribe feed-url feed)
+                            (assoc-in [:urls feed-guid] url))))
+          {:keys [library urls]} (swap! recommender joined)
+          id        (feed.guid/episode-id feed feed-url item)
+          found     (library/recommend library [id] {:limit 6})]
+      {:results (mapv #(assoc % :url (urls (first (:id %)))) found)
+       :terms   (:terms (meta found))})
+    (catch Exception e
+      (if (::pending? (ex-data e))
+        {:pending? true}
+        {:error (or (ex-message e) (str e))}))))
+
 (defn item-page
   "The page of the item that the guid parameter of `request` names, in the
   feed that its url parameter names. The chapters, transcript, media file
-  and value block of the item are fetched and rendered."
+  and value block of the item are fetched and rendered, and the episodes
+  most like it are recommended."
   [request]
   (with-feed request
     (fn [{:keys [feed feed-url] :as loaded}]
@@ -409,10 +469,15 @@
             item (item-in feed guid)]
         (if item
           (let [view (episode-view feed feed-url item)]
-            (html (page/item-page (assoc loaded
-                                         :item    item
-                                         :view    view
-                                         :remotes (remotes view)))))
+            (html (page/item-page
+                   (assoc loaded
+                          :item        item
+                          :view        view
+                          :remotes     (remotes view)
+                          :recommended (recommended feed
+                                                    (:url loaded)
+                                                    feed-url
+                                                    item)))))
           (no-item (:url loaded) guid))))))
 
 (def appview
