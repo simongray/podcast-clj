@@ -47,6 +47,8 @@
    "podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "comments.nostr" 3
+   "comments.impl" 3 "comments.activitypub.impl" 3 "comments.atproto.impl" 3
+   "comments.nostr.impl" 3
    "analytics" 3 "analytics.logs" 3 "analytics.op3" 3
    "" 4
    "app.episode" 5 "app.show" 5 "app.feeds" 5 "app.library" 5

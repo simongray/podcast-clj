@@ -170,7 +170,6 @@ key-value store, memory, and an encrypted form of any of them.
 | `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
 | `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
 | `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. The events of a comment, a reply, a reaction and a deletion come from `comment-event` and the others, and `post!` signs one and gives it to the relays of the thread. |
-| `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. Apps don't call it. |
 
 ## Value for value
 

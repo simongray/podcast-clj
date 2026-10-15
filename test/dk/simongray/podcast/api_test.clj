@@ -24,24 +24,11 @@
     dk.simongray.podcast.gpodder.api/request
     "a call names the listener and the device, which the options give"
     dk.simongray.podcast.gpodder.server/handler
-    "a handler serves the :state and checks credentials with :authorized-pred"
-    dk.simongray.podcast.comments.activitypub/requests
-    "comments/requests calls it with the limits"
-    dk.simongray.podcast.comments.atproto/requests
-    "comments/requests calls it with the limits"
-    dk.simongray.podcast.comments.nostr/requests
-    "comments/requests calls it with the limits"
-    dk.simongray.podcast.comments.atproto/readable?
-    "comments/readable? calls it with the options"
-    dk.simongray.podcast.comments.nostr/readable?
-    "comments/readable? calls it with the options"})
+    "a handler serves the :state and checks credentials with :authorized-pred"})
 
 (def options-before-the-end
-  "The functions whose options aren't their last parameter: the readers of
-  the comments, which comments/requests calls with a predicate after them."
-  '#{dk.simongray.podcast.comments.activitypub/requests
-     dk.simongray.podcast.comments.atproto/requests
-     dk.simongray.podcast.comments.nostr/requests})
+  "The functions whose options aren't their last parameter."
+  '#{})
 
 (defn- namespaces
   "The namespaces of the source that the JVM loads."

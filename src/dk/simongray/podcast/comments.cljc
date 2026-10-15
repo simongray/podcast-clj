@@ -50,18 +50,18 @@
   podcast-clj read through the Mastodon API has :via :mastodon-api. The
   keys in this namespace, such as ::collection, record how far the
   reading went."
-  (:require [clojure.string :as str]
-            [dk.simongray.html-pieces :as html]
-            [dk.simongray.podcast.comments.activitypub :as activitypub]
-            [dk.simongray.podcast.comments.atproto :as atproto]
+  (:require [dk.simongray.html-pieces :as html]
+            [dk.simongray.podcast.comments.activitypub.impl
+             :as activitypub.impl]
             [dk.simongray.podcast.comments.common :as common]
+            [dk.simongray.podcast.comments.impl :as impl]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.comments.nostr.impl :as nostr-comments.impl]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]))
 
@@ -82,64 +82,9 @@
 ;; - ActivityPub is the fediverse, but Bluesky and Nostr aren't, which the
 ;;   name should allow for.
 
-(defn- nostr-opts
-  "The `opts` of a hiccup of a note of the Nostr `thread`, with the names
-  of its authors as :names, unless `opts` have their own."
-  [thread opts]
-  (cond-> opts
-    (not (contains? opts :names))
-    (assoc :names (nostr-comments/names thread))))
-
-(def ^:no-doc readers
-  "The reader of each protocol, as the functions that this namespace calls
-  for a thread of it. A reader keeps the post of a comment under a key of
-  its own, which :parts and :hiccup read."
-  {"activitypub"
-   {:resumed        activitypub/resumed
-    :requests       activitypub/requests
-    :with-exchanges activitypub/with-exchanges
-    :readable?      (fn [interact _] (activitypub/readable? interact))
-    :parts          (fn [_ comment]
-                      (some-> (::activitypub/source comment)
-                              activitypub/parts))
-    :hiccup         (fn [_ comment opts]
-                      (some-> (::activitypub/source comment)
-                              (activitypub/hiccup opts)))}
-
-   "atproto"
-   {:resumed        atproto/resumed
-    :requests       atproto/requests
-    :with-exchanges atproto/with-exchanges
-    :readable?      atproto/readable?
-    :parts          (fn [_ comment]
-                      (some-> (::atproto/record comment) atproto/parts))
-    :hiccup         (fn [_ comment opts]
-                      (some-> (::atproto/record comment)
-                              (atproto/hiccup opts)))}
-
-   "nostr"
-   {:resumed        nostr-comments/resumed
-    :requests       nostr-comments/requests
-    :with-exchanges nostr-comments/with-exchanges
-    :readable?      nostr-comments/readable?
-    :parts          (fn [thread comment]
-                      (some-> (::nostr-comments/event comment)
-                              (nostr-comments/parts
-                               {:names (nostr-comments/names thread)})))
-    :hiccup         (fn [thread comment opts]
-                      (some-> (::nostr-comments/event comment)
-                              (nostr-comments/hiccup
-                               (nostr-opts thread opts))))}})
-
 (def protocols
   "The protocols of podcast:socialInteract whose threads can be read."
-  (set (keys readers)))
-
-(defn- reader
-  "The function `k` of the reader of the protocol of `thread`, or nil for a
-  protocol that no reader reads."
-  [thread k]
-  (get-in readers [(:protocol thread) k]))
+  (set (keys impl/readers)))
 
 ;; A page of a collection is a few kilobytes, and the thread of an AppView
 ;; a few megabytes. A round of requests keeps all its answers in memory
@@ -154,30 +99,9 @@
    :timeout-seconds 30
    :max-bytes       (* 5 1024 1024)})
 
-(defn ^:no-doc errors
-  "The errors of the reading of `thread` below its root, as diagnostics
-  without their level.
-
-  They're those of the Mastodon API, the conversation, the relays, the
-  posts, the collections of their replies and the authors."
-  [{:keys [comments authors]
-    ::keys [api conversation]
-    ::nostr-comments/keys [relays]
-    :as thread}]
-  (concat (keep :error [api conversation])
-          (keep :error (map val (sort-by key relays)))
-          (keep :error (vals comments))
-          (keep (comp :error ::collection) (vals comments))
-          (keep :error (vals authors))))
-
-(defn ^:no-doc origin
-  "The origin of the URL `url` of a server or of a relay."
-  [url]
-  (url/origin (str/replace (str url) #"(?i)^ws" "http")))
-
-(defn ^:no-doc public?
+(defn public?
   "Whether the host of the URL `url` of a server or of a relay is on the
-  public internet."
+  public internet. It's the :allow-pred of fetch! by default."
   [url]
   (if (nostr/relay-url url)
     (nostr/public? url)
@@ -191,15 +115,6 @@
     (nostr/send! request)
     (client/send! request)))
 
-(defn ^:no-doc spared-origins
-  "The origins that the reading of `thread` asks no more: those of the
-  servers that didn't answer in time or answered 429, Too Many Requests.
-  A server is spared in one reading only."
-  [{:keys [error] :as thread}]
-  (set (for [{:keys [url status timeout?]} (cons error (errors thread))
-             :when (or timeout? (= 429 status))]
-         (origin url))))
-
 (defn resumed
   "The `thread` as a new reading of it starts, which an app that sends the
   requests itself applies first.
@@ -211,31 +126,13 @@
   comments it holds, so that :max-comments counts the comments of this
   reading."
   [thread]
-  (let [thread (if-let [f (reader thread :resumed)]
+  (let [thread (if-let [f (impl/reader thread :resumed)]
                  (f thread)
                  thread)
         held   (count (filter :read-at (vals (:comments thread))))]
     (if (pos? held)
       (assoc thread ::held held)
       (dissoc thread ::held))))
-
-(defn ^:no-doc pending
-  "The requests that `thread` needs next with the limits of `opts`, of those
-  whose URLs `ask-pred` takes."
-  [thread opts ask-pred]
-  (if-let [f (reader thread :requests)]
-    (f thread opts ask-pred)
-    []))
-
-(defn- distinct-by
-  "The `xs` without those that have the same `f` as one before them."
-  [f xs]
-  (let [seen   (volatile! #{})
-        first? (fn [x]
-                 (let [k (f x)]
-                   (when-not (contains? @seen k)
-                     (vswap! seen conj k))))]
-    (filterv first? xs)))
 
 (defn requests
   "The requests that `thread` needs next, as `opts` allow, in the order to
@@ -258,9 +155,10 @@
   ([thread]
    (requests thread {}))
   ([thread opts]
-   (let [spared (spared-origins thread)
-         ask?   #(not (contains? spared (origin %)))]
-     (distinct-by :url (pending thread (merge default-limits opts) ask?)))))
+   (let [spared (impl/spared-origins thread)
+         ask?   #(not (contains? spared (impl/origin %)))
+         opts   (merge default-limits opts)]
+     (impl/distinct-by :url (impl/pending thread opts ask?)))))
 
 (defn next-page
   "The request for the page after the one in `exchange`, an exchange of
@@ -268,7 +166,7 @@
   after the last page, and for any other exchange. Only the collections of
   ActivityPub come in pages."
   [exchange]
-  (activitypub/next-page exchange))
+  (activitypub.impl/next-page exchange))
 
 (defn with-exchanges
   "The `thread` with the `exchanges` of one of its requests read into it at
@@ -281,7 +179,7 @@
   the request took too long, and :retry? when a later request can get an
   answer."
   [thread exchanges at]
-  (if-let [f (reader thread :with-exchanges)]
+  (if-let [f (impl/reader thread :with-exchanges)]
     (f thread exchanges at)
     thread))
 
@@ -297,7 +195,7 @@
   ([interact]
    (readable? interact {}))
   ([interact opts]
-   (if-let [f (reader interact :readable?)]
+   (if-let [f (impl/reader interact :readable?)]
      (f interact opts)
      false)))
 
@@ -322,10 +220,12 @@
     :as thread}
    opts]
   (let [unlimited (assoc opts :max-comments ##Inf)
-        more?     (seq (pending (resumed thread) unlimited (constantly true)))]
+        more?     (seq (impl/pending (resumed thread)
+                                     unlimited
+                                     (constantly true)))]
     (concat (when error
               [(cond-> error via (assoc :id :comments/through-api))])
-            (errors thread)
+            (impl/errors thread)
             (when (seq withheld)
               [{:id :comments/withheld :count (count withheld)}])
             (when left-out
@@ -359,7 +259,7 @@
              [{:id :comments/no-appview}]
 
              (and (= "nostr" protocol)
-                  (nostr-comments/root-of uri)
+                  (nostr-comments.impl/root-of uri)
                   (empty? (nostr-comments/relays-of thread opts)))
              [{:id :comments/no-relay}]
 
@@ -368,52 +268,6 @@
 
              :else
              (reading-report thread opts))))))
-
-(defn- levels
-  "The posts of a thread from the post `top` down, level by level, with
-  each post once and 256 levels at most. The `children` map gives the
-  replies to a post by its id, and `shown-pred` tells which replies count."
-  [top children shown-pred]
-  (loop [levels [[top]] seen #{(:id top)}]
-    (let [below (into []
-                      (comp (mapcat #(get children (:id %)))
-                            (filter shown-pred)
-                            (remove #(seen (:id %))))
-                      (peek levels))]
-      (if (or (empty? below) (>= (count levels) 256))
-        levels
-        (recur (conj levels below) (into seen (map :id) below))))))
-
-(defn- oldest-first
-  "The key that puts the comment `c` in its place among replies: by the
-  time of its publication, and a comment without one last."
-  [{:keys [published id] :as c}]
-  [(if published (inst-ms published) ##Inf) id])
-
-(defn- nested
-  "Each post of `levels` by its id, with the :replies below it from
-  `children` and the map of its :author from `authors`.
-
-  The posts are built from the deepest level up. A deleted post, or a post
-  with an error, is there only when a reply below it is, or when it's the
-  root."
-  [levels children authors]
-  (let [root (:id (ffirst levels))]
-    (reduce (fn [built {:keys [id author deleted? error] :as c}]
-              (let [replies (->> (get children id)
-                                 (keep #(get built (:id %)))
-                                 (sort-by oldest-first)
-                                 vec)
-                    profile (when author (get authors author {:id author}))
-                    post    (cond-> (assoc c :replies replies)
-                              author (assoc :author profile))]
-                (if (and (not= id root)
-                         (or deleted? error)
-                         (empty? replies))
-                  built
-                  (assoc built id post))))
-            {}
-            (apply concat (rseq levels)))))
 
 (defn tree
   "The comments of `thread` in the shape to show them, with `opts`, or nil
@@ -432,7 +286,9 @@
    (when-let [top (get comments root)]
      (let [children (group-by :in-reply-to (vals comments))
            shown?   (fn [c] (and (:read-at c) (or hidden? (not (:hidden? c)))))]
-       (get (nested (levels top children shown?) children authors) root)))))
+       (-> (impl/levels top children shown?)
+           (impl/nested children authors)
+           (get root))))))
 
 (defn parts
   "The parts of the content of `comment`, a comment of `thread`, in their
@@ -455,7 +311,7 @@
 
   The parts are for an app that writes the content in its own way."
   [thread {:keys [content] :as comment}]
-  (or (when-let [f (reader thread :parts)]
+  (or (when-let [f (impl/reader thread :parts)]
         (f thread comment))
       (if-let [text (common/first-text (some-> content html/text))]
         [{:type :text :text text}]
@@ -500,7 +356,7 @@
    (let [opts (cond-> opts
                 link-fn (assoc :link-fn
                                #(link-fn (assoc % :protocol protocol))))]
-     (or (when-let [f (reader thread :hiccup)]
+     (or (when-let [f (impl/reader thread :hiccup)]
            (f thread comment opts))
          (html/hiccup content)))))
 
@@ -527,54 +383,7 @@
    (let [nodes (hiccup thread comment (dissoc opts :link-fn))]
      (html/text nodes (select-keys opts [:links?])))))
 
-(defn ^:no-doc exchange!
-  "Send `request` by the :send of `opts`, with its limits of time and size,
-  and give the exchange, in a future or a promise. The time is cut to
-  what's left before the ::deadline of `opts`.
-
-  The exchange is a map of the :request, the :response without its body,
-  and the :document, the JSON object that the body held. When sending
-  failed, the response is a map of the :error, and :timeout? when it took
-  too long. A body larger than the limit fails too, when a :send didn't
-  keep to it.
-
-  A failed response is :retry?, unless the guard of the request refused
-  its URL or the answer was too large. A later request gets the same
-  failure then."
-  [request {:keys [send timeout-seconds max-bytes now-fn] ::keys [deadline]
-            :as opts}]
-  (let [left    (when deadline (quot (- deadline (inst-ms (now-fn))) 1000))
-        seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
-        lasting #{::http/refused ::http/too-large}
-        stays?  #(contains? lasting (:type (ex-data %)))
-        failure (fn [error]
-                  (cond-> {:error (async/explain error)}
-                    (http/timeout? error) (assoc :timeout? true)
-                    (not (stays? error))  (assoc :retry? true)))
-        large?  #(and max-bytes (> (count (str (:body %))) max-bytes))]
-    (async/then
-     (http/try-send! send request (assoc opts :timeout-seconds seconds))
-     (fn [{:keys [value error]}]
-       (cond
-         error
-         {:request request :response (failure error)}
-
-         (large? value)
-         (let [reason (str "The answer is larger than " max-bytes " bytes")]
-           {:request request :response {:error reason}})
-
-         :else
-         {:request  request
-          :response (dissoc value :body)
-          :document (common/document value)})))))
-
-(defn ^:no-doc failed
-  "The exchanges of `request` when reading them failed with `e`: one, with
-  the reason as its response."
-  [request e]
-  [{:request request :response {:error (async/explain e)}}])
-
-(defn ^:no-doc send-round!
+(defn- send-round!
   "Send the requests of `batch` all at once with `opts`, and give their
   exchanges with up to `limit` pages each, in a future or a promise.
 
@@ -584,12 +393,12 @@
   (let [in-time?  #(or (nil? deadline) (< (inst-ms (now-fn)) deadline))
         following (fn [exchange] (when (in-time?) (next-page exchange)))
         pages!    (fn [request]
-                    (async/iteration #(exchange! % opts)
+                    (async/iteration #(impl/exchange! % opts)
                                      :initk request
                                      :kf    following
                                      :limit limit))
         exchanges (fn [request {:keys [value error]}]
-                    (or value (failed request error)))]
+                    (or value (impl/failed request error)))]
     (async/then (async/all (mapv #(async/attempt (fn [] (pages! %))) batch))
                 #(mapv exchanges batch %))))
 
@@ -605,7 +414,7 @@
               (with-exchanges thread exchanges at)
               (catch #?(:clj Throwable :cljs :default) e
                 (let [request (:request (first exchanges))]
-                  (with-exchanges thread (failed request e) at)))))
+                  (with-exchanges thread (impl/failed request e) at)))))
           thread
           round))
 
@@ -666,7 +475,7 @@
   - :max-pages, the most pages of a collection in a round
   - :timeout-seconds, for each request
   - :max-bytes, of each answer
-  - :allow-pred, which URLs a request can go to
+  - :allow-pred, which URLs a request can go to, public? by default
   - :user-agent, as http/send! takes it
   - :send, in place of client/send! and nostr/send!
   - :now-fn, a function that gives the time, the clock by default

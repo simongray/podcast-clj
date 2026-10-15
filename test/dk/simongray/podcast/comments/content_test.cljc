@@ -9,8 +9,11 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
+            [dk.simongray.podcast.comments.activitypub.impl :as activitypub.impl]
             [dk.simongray.podcast.comments.atproto :as atproto]
+            [dk.simongray.podcast.comments.atproto.impl :as atproto.impl]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.comments.nostr.impl :as nostr-comments.impl]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.nostr.secp256k1 :as secp256k1]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
@@ -63,8 +66,8 @@
             {:type :text :text " see "}
             {:type :link :text "example.org" :url "https://example.org/x"}
             {:type :text :text "\nbyea pixel\n\nTwo"}]
-           (activitypub/parts post)))
-    (is (= "@dave KDE :blobcat: and :unknown: #podcast see example.org\nbyea pixel\n\nTwo" (text (activitypub/parts post)))))
+           (activitypub.impl/parts post)))
+    (is (= "@dave KDE :blobcat: and :unknown: #podcast see example.org\nbyea pixel\n\nTwo" (text (activitypub.impl/parts post)))))
   (testing "the Hiccup, with the links that the post has"
     (is (= [[:p {}
              [:span {} [:a {:href "https://podcastindex.social/@dave" :rel "nofollow ugc"} "@" [:span {} "dave"]]]
@@ -76,8 +79,8 @@
              "bye"
              "a pixel"]
             [:p {} "Two"]]
-           (activitypub/hiccup post)))
-    (is (= (html/sanitize (activitypub/hiccup post))
+           (activitypub.impl/hiccup post)))
+    (is (= (html/sanitize (activitypub.impl/hiccup post))
            (html/sanitize (str "<p><span><a href=\"https://podcastindex.social/@dave\" rel=\"nofollow ugc\">@<span>dave</span></a>"
                                "</span> KDE :blobcat: and :unknown: <a href=\"https://masto.es/tags/podcast\" rel=\"nofollow ugc\">"
                                "#<span>podcast</span></a> see <a href=\"https://example.org/x\" rel=\"nofollow ugc\">example.org</a>"
@@ -96,15 +99,15 @@
              "bye"
              "a pixel"]
             [:p {} "Two"]]
-           (activitypub/hiccup post {:emoji?  true
+           (activitypub.impl/hiccup post {:emoji?  true
                                      :link-fn (fn [{:keys [type id tag]}]
                                                 (case type
                                                   :mention (str "/profiles/" id)
                                                   :hashtag (str "/tags/" tag)))})))
-    (is (= (activitypub/hiccup post) (activitypub/hiccup post {:link-fn (constantly nil)}))
+    (is (= (activitypub.impl/hiccup post) (activitypub.impl/hiccup post {:link-fn (constantly nil)}))
         "a part without a link of the app keeps the link of the post"))
   (testing "what tells a mention and a hashtag"
-    (let [parts-of (fn [markup tags] (remove #(= :text (:type %)) (activitypub/parts {:html markup :base "https://a.example/1" :tags tags})))
+    (let [parts-of (fn [markup tags] (remove #(= :text (:type %)) (activitypub.impl/parts {:html markup :base "https://a.example/1" :tags tags})))
           dave     {:type :mention :id "https://b.example/users/dave" :name "@dave@b.example"}]
       (is (= [{:type :mention :text "@dave" :id "https://b.example/users/dave" :url "https://b.example/@dave"}]
              (parts-of "<a href=\"https://b.example/@dave\">@dave</a>" [dave]))
@@ -128,21 +131,21 @@
           "a text without the sign of a hashtag or a mention")))
   (testing "what is no content"
     (doseq [source [nil {} {:html nil} {:html ""}]]
-      (is (= [] (activitypub/parts source)) (pr-str source))
-      (is (= [] (activitypub/hiccup source)) (pr-str source)))
-    (is (= [{:type :text :text "Plain text\nof two lines"}] (activitypub/parts {:html "Plain text\nof two lines"}))))
+      (is (= [] (activitypub.impl/parts source)) (pr-str source))
+      (is (= [] (activitypub.impl/hiccup source)) (pr-str source)))
+    (is (= [{:type :text :text "Plain text\nof two lines"}] (activitypub.impl/parts {:html "Plain text\nof two lines"}))))
   (testing "a custom emoji after a shortcode that the post does not have"
     (let [emoji {:type :emoji :shortcode "cat" :url "https://a.example/cat.png"}]
       (is (= [{:type :text :text "x:dog:cat: "} (assoc emoji :text ":cat:") {:type :text :text " and "} (assoc emoji :text ":cat:")]
-             (activitypub/parts {:html "x:dog:cat: :cat: and :cat:" :tags [emoji]}))
+             (activitypub.impl/parts {:html "x:dog:cat: :cat: and :cat:" :tags [emoji]}))
           "the emoji is where its shortcode stands alone")))
   (testing "a long content reads in a short time"
     (let [emoji {:type :emoji :shortcode "cat" :url "https://a.example/cat.png"}
           lines (apply str (repeat 60000 "word\n"))
           cats  (apply str (repeat 40000 ":cat: "))]
-      (is (true? (= (str/trimr lines) (text (activitypub/parts {:html lines})))))
-      (is (= 79999 (count (activitypub/parts {:html cats :tags [emoji]}))))
-      (is (= 79999 (count (drop 2 (first (activitypub/hiccup {:html cats :tags [emoji]} {:emoji? true})))))))))
+      (is (true? (= (str/trimr lines) (text (activitypub.impl/parts {:html lines})))))
+      (is (= 79999 (count (activitypub.impl/parts {:html cats :tags [emoji]}))))
+      (is (= 79999 (count (drop 2 (first (activitypub.impl/hiccup {:html cats :tags [emoji]} {:emoji? true})))))))))
 
 (deftest a-post-of-the-at-protocol
   (let [facet  (fn [start end feature] {"index" {"byteStart" start "byteEnd" end} "features" [feature]})
@@ -158,25 +161,25 @@
             {:type :text :text "\n\n"}
             {:type :hashtag :text "#Podcast" :tag "Podcast"}
             {:type :text :text " #other"}]
-           (atproto/parts record)))
-    (is (= (get record "text") (text (atproto/parts record))))
+           (atproto.impl/parts record)))
+    (is (= (get record "text") (text (atproto.impl/parts record))))
     (is (= [[:p {} "😎 /cc " "@npmx.dev" ", see " [:a {:href "https://atproto.com/blog" :rel "nofollow ugc"} "atproto.com/blog"]
              [:br {}] [:br {}] "#Podcast" " #other"]]
-           (atproto/hiccup record)))
+           (atproto.impl/hiccup record)))
     (is (= [[:p {} "😎 /cc " [:a {:href "https://bsky.app/profile/did:plc:u5zp7npt5kpueado77kuihyz"} "@npmx.dev"] ", see "
              [:a {:href "https://atproto.com/blog" :rel "nofollow ugc"} "atproto.com/blog"]
              [:br {}] [:br {}] [:a {:href "https://bsky.app/hashtag/Podcast"} "#Podcast"] " #other"]]
-           (atproto/hiccup record {:link-fn (fn [{:keys [type id tag]}]
+           (atproto.impl/hiccup record {:link-fn (fn [{:keys [type id tag]}]
                                               (case type
                                                 :mention (str "https://bsky.app/profile/" id)
                                                 :hashtag (str "https://bsky.app/hashtag/" tag)))})))
     (is (= (str "<p>😎 /cc @npmx.dev, see <a href=\"https://atproto.com/blog\" rel=\"nofollow ugc\">atproto.com/blog</a>"
                 "<br><br>#Podcast #other</p>")
-           (atproto/post-html record))
+           (atproto.impl/post-html record))
         "the content of the comment, without the links of an app")
     (doseq [r [nil {} {"text" ""} {"text" "\n"} {"facets" []}]]
-      (is (= [] (atproto/parts r)) (pr-str r))
-      (is (= [] (atproto/hiccup r)) (pr-str r)))))
+      (is (= [] (atproto.impl/parts r)) (pr-str r))
+      (is (= [] (atproto.impl/hiccup r)) (pr-str r)))))
 
 (deftest the-comments-of-a-thread
   (let [root   "https://podcastindex.social/@dave/117294750060235480"
@@ -304,10 +307,10 @@
         record {"text" "One"}
         older  {:id "1" :content "<p>One</p>"}
         node?  #(or (string? %) (and (vector? %) (keyword? (first %))))]
-    (doseq [[what nodes] {"of ActivityPub"      (activitypub/hiccup post)
-                          "of the AT Protocol"  (atproto/hiccup record)
-                          "of Nostr"            (nostr-comments/hiccup event)
-                          "without a content"   (atproto/hiccup {})
+    (doseq [[what nodes] {"of ActivityPub"      (activitypub.impl/hiccup post)
+                          "of the AT Protocol"  (atproto.impl/hiccup record)
+                          "of Nostr"            (nostr-comments.impl/hiccup event)
+                          "without a content"   (atproto.impl/hiccup {})
                           "of a thread"         (comments/hiccup {:protocol "nostr"} {::nostr-comments/event event})
                           "of an older reading" (comments/hiccup {:protocol "atproto"} older)}]
       (is (not (vector? nodes)) (str what ": a renderer reads a vector as one element"))

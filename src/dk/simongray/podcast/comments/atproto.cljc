@@ -15,14 +15,11 @@
   A thread starts at the at URI of a post, or at the URL of its page on
   Bluesky's web app. Each comment and each author has the :url of its page
   there, and post-url and profile-url give the page on another web app."
-  (:require [clojure.string :as str]
-            [dk.simongray.html-pieces :as html]
-            [dk.simongray.podcast.comments :as-alias comments]
+  (:require [dk.simongray.podcast.comments :as-alias comments]
+            [dk.simongray.podcast.comments.atproto.impl :as impl]
             [dk.simongray.podcast.comments.common :as common]
-            [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.wary-fetch.url :as url]
-            [dk.simongray.webcrypto.bytes :as bytes]))
+            [dk.simongray.wary-fetch.url :as url]))
 
 (defn at-uri
   "The parts of the at URI `s` as a map of :authority, :collection and
@@ -43,19 +40,6 @@
   whose pages are the :url of each comment and author."
   "https://bsky.app")
 
-;; AT Protocol, DID, Handle and Record Key, as of 2026-10-13: the
-;; characters of each, and the dots of a handle
-(def ^:no-doc actor-pattern
-  "The DID or the handle of an actor."
-  #"did:[a-z]+:[A-Za-z0-9._:%-]{1,2048}|[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,126}")
-
-(defn- rkey?
-  "Whether `s` is a record key."
-  [s]
-  (boolean (and (string? s)
-                (re-matches #"[A-Za-z0-9._:~-]{1,512}" s)
-                (not (contains? #{"." ".."} s)))))
-
 (defn post-uri
   "The at URI of the post that `s` names, or nil for another string.
 
@@ -67,7 +51,9 @@
   (if (= (url/origin web-origin) (url/origin s))
     (let [path           (str (:path (url/parts s)))
           [_ actor rkey] (re-matches #"/profile/([^/]+)/post/([^/]+)/?" path)]
-      (when (and actor (re-matches actor-pattern actor) (rkey? rkey))
+      (when (and actor
+                 (re-matches impl/actor-pattern actor)
+                 (impl/rkey? rkey))
         (str "at://" actor "/app.bsky.feed.post/" rkey)))
     (let [{:keys [collection rkey]} (at-uri s)]
       (when (and (= "app.bsky.feed.post" collection) rkey)
@@ -80,7 +66,7 @@
   ([actor]
    (profile-url actor {}))
   ([actor {:keys [origin] :or {origin web-origin} :as opts}]
-   (when (and (string? actor) (re-matches actor-pattern actor))
+   (when (and (string? actor) (re-matches impl/actor-pattern actor))
      (str (url/without-trailing-slashes origin) "/profile/" actor))))
 
 (defn post-url
@@ -91,199 +77,8 @@
    (post-url uri {}))
   ([uri opts]
    (let [{:keys [authority collection rkey]} (at-uri uri)]
-     (when (and (= "app.bsky.feed.post" collection) (rkey? rkey))
+     (when (and (= "app.bsky.feed.post" collection) (impl/rkey? rkey))
        (some-> (profile-url authority opts) (str "/post/" rkey))))))
-
-(defn- thread-request
-  "The request to the AppView at `appview` for the thread below the post
-  `uri`: ten levels of replies, and none of the posts above it."
-  [appview uri]
-  (let [root  (url/without-trailing-slashes appview)
-        query (url/query-string {"uri" uri "depth" 10 "parentHeight" 0})]
-    {:method        :get
-     :url           (str root "/xrpc/app.bsky.feed.getPostThread?" query)
-     :headers       {"Accept" "application/json"}
-     ::comments/for [:thread uri]}))
-
-;; AT Protocol, Labels. The values are those of the lexicon
-;; com.atproto.label.defs, as of 2026-09-30.
-(defn ^:no-doc labels
-  "The labels that apply to the AT Protocol post `view`: those of the post
-  and those of the account of its author, without the labels that are
-  negated."
-  [view]
-  (let [own     (common/values view "labels")
-        account (common/values (get view "author") "labels")]
-    (remove #(get % "neg")
-            (filter map? (concat own account)))))
-
-(defn- withheld?
-  "Whether the AT Protocol post `view` is kept from a reader without an
-  account. Its author or the post asks so with the label
-  !no-unauthenticated, or a moderation service hid it with !hide."
-  [view]
-  (let [did (get-in view ["author" "did"])]
-    (boolean (some (fn [{:strs [val src]}]
-                     (or (= "!no-unauthenticated" val)
-                         (and (= "!hide" val) (not= src did))))
-                   (labels view)))))
-
-(defn- warnings
-  "The labels of the AT Protocol post `view` that put it behind a warning.
-
-  They're the labels of adult content and graphic media, and !warn when a
-  moderation service set it, since clients ignore it from the author. A
-  label on the account of the author counts as a label on each of its
-  posts."
-  [view]
-  (let [did       (get-in view ["author" "did"])
-        sensitive #{"porn" "sexual" "nudity" "graphic-media"}]
-    (set (for [{:strs [val src]} (labels view)
-               :when (or (contains? sensitive val)
-                         (and (= "!warn" val) (not= src did)))]
-           val))))
-
-(defn- feature
-  "What `facet` makes of the text that it marks, by the first of its
-  features that podcast-clj knows: a link, a mention of a profile by its
-  DID, or a hashtag. The lexicon app.bsky.richtext.facet defines them."
-  [facet]
-  (some (fn [f]
-          (case (get f "$type")
-            "app.bsky.richtext.facet#link"
-            (when-let [url (common/web-url (get f "uri"))]
-              {:type :link :url url})
-
-            "app.bsky.richtext.facet#mention"
-            (when (string? (get f "did"))
-              {:type :mention :id (get f "did")})
-
-            "app.bsky.richtext.facet#tag"
-            (when (string? (get f "tag"))
-              {:type :hashtag :tag (get f "tag")})
-
-            nil))
-        (filter map? (common/values facet "features"))))
-
-(defn- marks
-  "What the `facets` of a post mark in its text of `n` bytes, in order, as
-  triples of a start, an end and a part, counted in bytes.
-
-  A facet that overlaps the one before it is left out, as the official
-  clients do."
-  [facets n]
-  (->> (for [facet (filter map? facets)
-             :let  [{:strs [byteStart byteEnd]} (get facet "index")
-                    start (json/whole byteStart)
-                    end   (json/whole byteEnd)
-                    part  (feature facet)]
-             :when (and start
-                        end
-                        part
-                        (<= 0 start)
-                        (< start end)
-                        (<= end n))]
-         [start end part])
-       (sort-by first)
-       (reduce (fn [kept [start :as mark]]
-                 (let [reach (or (second (peek kept)) 0)]
-                   (if (< start reach) kept (conj kept mark))))
-               [])))
-
-(defn parts
-  "The parts of the content of `record`, the record of an AT Protocol post
-  with its \"text\" and its \"facets\", in their order. Each part is a map
-  with its :type and the :text that the post shows for it:
-
-      {:type :text :text \"/cc \"}
-      {:type :link :text \"atproto.com/blog\" :url \"https://atproto.com/blog\"}
-      {:type :mention :text \"@npmx.dev\" :id \"did:plc:u5zp…\"}
-      {:type :hashtag :text \"#podcast\" :tag \"podcast\"}
-
-  A facet counts UTF-8 bytes, so the text is cut as bytes."
-  [record]
-  (let [text (when (map? record) (get record "text"))]
-    (if-not (and (string? text) (not (str/blank? text)))
-      []
-      (let [b      (bytes/encode text)
-            n      (bytes/length b)
-            cut    #(bytes/decode (bytes/slice b %1 %2))
-            marked (marks (common/values record "facets") n)
-            pieces (fn [[start end part] from]
-                     [{:type :text :text (cut from start)}
-                      (assoc part :text (cut start end))])
-            tail   {:type :text :text (cut (or (second (last marked)) 0) n)}]
-        (->> (concat (mapcat pieces marked (cons 0 (map second marked)))
-                     [tail])
-             (remove #(= "" (:text %)))
-             vec)))))
-
-(defn hiccup
-  "The content of `record`, the record of an AT Protocol post, as Hiccup by
-  `opts`: one paragraph, with a break for each line break of the text.
-  The result is a sequence of nodes to put inside a parent element.
-
-  A link of the post is a link. The :link-fn of `opts` is a function of a
-  part. It gives the URL that a mention or a hashtag links to, or nil for
-  no link, e.g. the profile-url of the :id of a mention."
-  ([record]
-   (hiccup record {}))
-  ([record opts]
-   {:pre [(map? opts)]}
-   (let [node (fn [{:keys [type text url] :as part}]
-                (case type
-                  :text (interpose [:br {}] (str/split text #"\n" -1))
-                  :link [(common/user-link url text)]
-                  [(common/linked part text opts)]))]
-     (if-let [ps (seq (parts record))]
-       (list (into [:p {}] (comp (mapcat node) (remove #{""})) ps))
-       ()))))
-
-(defn ^:no-doc post-html
-  "The content of the AT Protocol `record` as sanitized HTML, or nil for a
-  post without text. A mention and a hashtag have no link."
-  [record]
-  (when-let [paragraphs (seq (hiccup record))]
-    (html/sanitize paragraphs)))
-
-(defn- medium
-  "The attachment of the `kind` :image or :video that the item `x` of an
-  embed view gives by its properties `url` and `preview`, or nil when it
-  has no web URL."
-  [kind x url preview]
-  (when-let [url (common/web-url (get x url))]
-    (let [ratio (get x "aspectRatio")
-          w     (common/dimension (get ratio "width"))
-          h     (common/dimension (get ratio "height"))]
-      (common/present {:kind         kind
-                       :url          url
-                       :preview      (common/web-url (get x preview))
-                       :alt          (common/first-text (get x "alt"))
-                       :aspect-ratio (when (and w h) [w h])}))))
-
-(defn- embed-attachments
-  "The media of the `embed` view of an AT Protocol post, each with the
-  ratio of its width to its height. They're the images, the video, or the
-  media beside the post that it quotes."
-  [embed]
-  (case (get embed "$type")
-    "app.bsky.embed.images#view"
-    (vec (keep #(medium :image % "fullsize" "thumb")
-               (common/values embed "images")))
-
-    "app.bsky.embed.gallery#view"
-    (vec (keep #(medium :image % "fullsize" "thumbnail")
-               (common/values embed "items")))
-
-    "app.bsky.embed.video#view"
-    (if-let [video (medium :video embed "playlist" "thumbnail")]
-      [(assoc video :media-type "application/vnd.apple.mpegurl")]
-      [])
-
-    "app.bsky.embed.recordWithMedia#view"
-    (embed-attachments (get embed "media"))
-
-    []))
 
 (defn- post-comment
   "The AT Protocol post `view` as a comment read at `at`, by `opts`.
@@ -293,7 +88,7 @@
   gives them, which :replies? tells."
   [view at {:keys [hidden replies?] :as opts}]
   (let [record    (get view "record")
-        labels    (warnings view)
+        labels    (impl/warnings view)
         created   (time/parse-date (get record "createdAt"))
         indexed   (time/parse-date (get view "indexedAt"))
         ;; the earlier of the two, as the AppView's documentation advises,
@@ -309,12 +104,12 @@
              :author      (get-in view ["author" "did"])
              :in-reply-to (get-in record ["reply" "parent" "uri"])
              :published   published
-             :content     (post-html record)
+             :content     (impl/post-html record)
              ::record     source
              :language    (common/first-text language)
              :sensitive?  (boolean (seq labels))
              :labels      labels
-             :attachments (embed-attachments (get view "embed"))
+             :attachments (impl/embed-attachments (get view "embed"))
              ;; the post view of app.bsky.feed.defs
              :counts      (common/counts {:replies (get view "replyCount")
                                           :reposts (get view "repostCount")
@@ -371,7 +166,7 @@
       (not (map? post))
       thread
 
-      (withheld? post)
+      (impl/withheld? post)
       (common/withhold thread uri)
 
       :else
@@ -388,36 +183,13 @@
                 read
                 (when listed? replies))))))
 
-(defn readable?
+(defn ^:no-doc readable?
   "Whether the thread of `interact` can be read with `opts`. Its URI must
   name a post, as post-uri reads it, and `opts` must name an :appview."
   [{:keys [uri] :as interact} opts]
   (and (some? (post-uri uri)) (string? (:appview opts))))
 
-(defn resumed
-  "The AT Protocol `thread` as a new reading of it starts: unread again
-  where a failure that can pass with time stopped the last reading.
-
-  This is the root, and the replies below a post."
-  [{:keys [comments] :as thread}]
-  (let [unread #(cond-> %
-                  (:retry? (:error (::comments/collection %)))
-                  (dissoc ::comments/collection))]
-    (cond-> (common/retried thread)
-      comments (update :comments update-vals unread))))
-
-(defn- reply-requests
-  "The requests for the replies that the AT Protocol `thread` has no view
-  of yet, below the levels that the AppView at `appview` gave, nearest
-  the root first."
-  [thread appview]
-  (let [unread (for [{:keys [id] ::comments/keys [reply-count collection]}
-                     (vals (:comments thread))
-                     :when (and reply-count (not (:read-at collection)))]
-                 (thread-request appview id))]
-    (common/nearest-first (common/depths thread) unread)))
-
-(defn requests
+(defn ^:no-doc requests
   "The requests that the AT Protocol `thread` needs next with `opts`, of
   those whose URLs `ask-pred` takes.
 
@@ -436,13 +208,13 @@
 
            (nil? read-at)
            (when-let [post (post-uri uri)]
-             [(thread-request appview post)])
+             [(impl/thread-request appview post)])
 
            (< fresh max-comments)
-           (reply-requests thread appview))
+           (impl/reply-requests thread appview))
          (filter (comp ask-pred :url)))))
 
-(defn with-exchanges
+(defn ^:no-doc with-exchanges
   "The AT Protocol `thread` with the `exchanges` of one of its requests
   read into it at `at`. There's one exchange for the request.
 
@@ -557,9 +329,9 @@
                 "features" [{"$type" "app.bsky.richtext.facet#mention"
                              "did"   "did:plc:bob"}]}]})
 
-  (parts sample-record)
-  (hiccup sample-record)
-  (hiccup sample-record
-          {:link-fn (comp profile-url :id)})
-  (post-html sample-record)
+  (impl/parts sample-record)
+  (impl/hiccup sample-record)
+  (impl/hiccup sample-record
+               {:link-fn (comp profile-url :id)})
+  (impl/post-html sample-record)
   #_.)

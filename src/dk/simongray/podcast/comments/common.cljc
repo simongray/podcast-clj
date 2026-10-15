@@ -1,6 +1,6 @@
-(ns dk.simongray.podcast.comments.common
-  "What the readers of the comments of ActivityPub and of the AT Protocol
-  share:
+(ns ^:no-doc dk.simongray.podcast.comments.common
+  "What the readers of the comments of ActivityPub, of the AT Protocol and
+  of Nostr share:
 
   - the values in JSON answers, and the problem with an answer
   - the HTML of a post, made safe to show
@@ -13,7 +13,7 @@
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]))
 
-(defn ^:no-doc present
+(defn present
   "The map `m` without the entries that say nothing: nil, false, a blank
   string or an empty collection."
   [m]
@@ -24,24 +24,24 @@
                          (and (coll? v) (empty? v)))))
         m))
 
-(defn ^:no-doc first-text
+(defn first-text
   "The first of `xs` that is a string with more than white space in it."
   [& xs]
   (first (filter #(and (string? %) (not (str/blank? %))) xs)))
 
-(defn ^:no-doc web-url
+(defn web-url
   "The string `s` when it's an http or https URL with a host."
   [s]
   (when (url/web-url? s)
     s))
 
-(defn ^:no-doc dimension
+(defn dimension
   "The number `x` when it's a whole number above zero, as a size is."
   [x]
   (when-let [n (json/whole x)]
     (when (pos? n) n)))
 
-(defn ^:no-doc counts
+(defn counts
   "The map `m` of names to the counts that a server gave, with the counts
   that are whole numbers of zero or more, or nil when there are none."
   [m]
@@ -51,7 +51,7 @@
                              (when (<= 0 n) [k n]))))
                    m)))
 
-(defn ^:no-doc values
+(defn values
   "The values of the JSON property `k` of `o` as a sequence: none, one, or
   those of the list it holds."
   [o k]
@@ -61,12 +61,12 @@
       (nil? x)        []
       :else           [x])))
 
-(defn ^:no-doc document
+(defn document
   "The JSON object in the body of the `response`, or nil."
   [{:keys [body] :as response}]
   (json/object body))
 
-(defn ^:no-doc document-of
+(defn document-of
   "The JSON object that the `exchange` of a :request and a :response got
   in answer. It's the one read when the answer came, or else the one in
   the body of its response."
@@ -75,7 +75,7 @@
     (:document exchange)
     (document response)))
 
-(def ^:no-doc limits
+(def limits
   "The limits of size of a thread, which no option sets:
 
   - :page, the most items that a page of a collection gives
@@ -86,7 +86,7 @@
   Servers list some dozens of items to a page, so more is a flood."
   {:page 1000 :id 2048 :thread 10000 :depth 64})
 
-(defn ^:no-doc failure
+(defn failure
   "What went wrong with the `response` to the request for `url`, as a
   diagnostic without its level, or nil when nothing did.
 
@@ -114,7 +114,7 @@
       (cond-> {:id :comments/unreachable :url url :status status}
         transient? (assoc :retry? true)))))
 
-(defn ^:no-doc resolver
+(defn resolver
   "A function that makes a URL in a post absolute against `base`, the URL
   of the post, as html/hiccup takes it for :url-fn. Without a base, a URL
   stays as it is."
@@ -134,7 +134,7 @@
                         :rel   "nofollow ugc"})]
           kids)))
 
-(defn ^:no-doc fit-links
+(defn fit-links
   "The Hiccup `nodes` of a post whose URL is `base`, fit by `opts` to show
   on the page of an app.
 
@@ -162,7 +162,7 @@
                    [(into [tag attrs] kids)]))))]
      (mapcat nodes-of nodes))))
 
-(defn ^:no-doc safe-html
+(defn safe-html
   "The HTML `s` of a post whose URL is `base`, safe for the page of an app
   to show, or nil when it's blank. It's sanitized, with its URLs made
   absolute against `base` and its links fit to show."
@@ -170,7 +170,7 @@
   (when (and (string? s) (not (str/blank? s)))
     (html/sanitize (fit-links (html/hiccup s {:url-fn (resolver base)}) base))))
 
-(defn ^:no-doc joined
+(defn joined
   "The parts `ps` of a content as a vector. The texts that follow each
   other are one text, and the texts that are empty are left out."
   [ps]
@@ -183,7 +183,7 @@
                            %)))
           ps)))
 
-(defn ^:no-doc user-link
+(defn user-link
   "The Hiccup of a link to `url` with the `label`, for a link that a user
   wrote in a content, with rel nofollow ugc. It's the label alone when the
   URL isn't an http or https URL with a host."
@@ -192,7 +192,7 @@
     [:a {:href href :rel "nofollow ugc"} label]
     label))
 
-(defn ^:no-doc linked
+(defn linked
   "The Hiccup of the part `part` of a content, with the `label`, linked by
   the :link-fn of `opts`, or else the label.
 
@@ -203,7 +203,7 @@
     [:a {:href href} label]
     label))
 
-(defn ^:no-doc guarded
+(defn guarded
   "The comment that `f` reads of the post `id` at `at`. When the reading
   fails, the comment holds its :error, so that the reading goes on with
   the posts around it."
@@ -216,20 +216,20 @@
                    :reason (async/explain e)}]
         {:id id :error error :read-at at}))))
 
-(defn ^:no-doc withhold
+(defn withhold
   "The `thread` with the post `id` among the posts that it withholds, which
   its report counts."
   [thread id]
   (update thread ::comments/withheld (fnil conj #{}) id))
 
-(defn ^:no-doc truncate
+(defn truncate
   "The `thread` with `n` more replies among those that the limit `k` of
   limits cut, which its report counts."
   [thread k n]
   (cond-> thread
     (pos? n) (update-in [::comments/truncated k] (fnil + 0) n)))
 
-(defn ^:no-doc retried
+(defn retried
   "The `thread` with its root, its posts and its authors unread again,
   where a failure that can pass with time kept them from the reading.
 
@@ -243,7 +243,7 @@
       comments                        (update :comments update-vals unread)
       authors                         (update :authors kept))))
 
-(defn ^:no-doc depths
+(defn depths
   "How many replies down from the root of `thread` each of its comments is,
   by the post that each replies to, as a map from ids. A comment that
   doesn't lead to the root has none."
@@ -260,7 +260,7 @@
                           level)]
           (recur (into depth (map #(vector % n)) below) below (inc n)))))))
 
-(defn ^:no-doc nearest-first
+(defn nearest-first
   "The requests `rs`, those for the comments nearest the root first, by the
   `depth` of the comment that the ::comments/for of each names."
   [depth rs]

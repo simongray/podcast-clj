@@ -15,7 +15,9 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
+            [dk.simongray.podcast.comments.activitypub.impl :as activitypub.impl]
             [dk.simongray.podcast.comments.atproto :as atproto]
+            [dk.simongray.podcast.comments.atproto.impl :as atproto.impl]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
@@ -350,7 +352,7 @@
           ["https://pleroma.example.org" "AbC123"]
           nil
           nil]
-         (map #(activitypub/api-status % activitypub/status-paths)
+         (map #(activitypub.impl/api-status % activitypub/status-paths)
               [root
                (str root-id "/")
                "https://gts.example.org/@ann/statuses/01HXYZ?x=1"
@@ -655,7 +657,7 @@
                           {"type" "Link" "mediaType" "text/html" "href" "https://b.example/@mallory"}])))
         "the first page on its own server")
     (is (= ["https://a.example/@ann/2" "https://a.example/notes/2"]
-           (map #(activitypub/web-page {"id" "https://a.example/notes/2" "type" "Note" "url" %})
+           (map #(activitypub.impl/web-page {"id" "https://a.example/notes/2" "type" "Note" "url" %})
                 ["https://a.example/@ann/2" "https://other.example/@ann/2"]))
         "and so for a post")
     (testing "and the Mastodon API"
@@ -896,7 +898,7 @@
 (deftest the-text-of-a-post
   (let [link (fn [start end uri] {"index" {"byteStart" start "byteEnd" end}
                                   "features" [{"$type" "app.bsky.richtext.facet#link" "uri" uri}]})
-        html (fn [text facets] (atproto/post-html {"text" text "facets" facets}))]
+        html (fn [text facets] (atproto.impl/post-html {"text" text "facets" facets}))]
     (is (= (str "<p>🔴 LIVE <a href=\"https://stream.place/atproto.com\" rel=\"nofollow ugc\">https://stream.place/atproto.com</a>"
                 " Off Protocol LIVE</p>")
            (html "🔴 LIVE https://stream.place/atproto.com Off Protocol LIVE"
@@ -911,7 +913,7 @@
            (html "abcd" [(link 0.0 2.0 "https://a.example")]))
         "an offset as JSON can write it, 2.0")
     (doseq [record [nil {} {"text" nil} {"text" "  "} {"text" 5} "text"]]
-      (is (nil? (atproto/post-html record)) (pr-str record)))))
+      (is (nil? (atproto.impl/post-html record)) (pr-str record)))))
 
 (deftest an-at-uri
   (is (= {:authority "did:plc:x" :collection "app.bsky.feed.post" :rkey "3k"} (atproto/at-uri "at://did:plc:x/app.bsky.feed.post/3k")))
