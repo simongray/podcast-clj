@@ -1710,7 +1710,9 @@
     much it weighs, 1 by default
 
   The words that more than 40% of the shows use are left out, as the
-  :group-fn of more-like-this is the show by default. The criteria read
+  :group-fn of more-like-this is the show by default, and so are the
+  numbers of the episodes of `ids`, e.g. the 561 of \"#561: TonIO\",
+  which link them only to episodes of the same number. The criteria read
   the profile of the library, and the time of its clock unless the `opts`
   give :at.
 
@@ -1744,6 +1746,10 @@
                        :else     (constantly 1))
            locate    (feed.search/located (update-vals (:feeds library)
                                                        :feed))
+           ;; an episode's number, e.g. the 561 of "#561: TonIO", links it
+           ;; only to the episodes of other shows with that number
+           numbers   (keep #(some-> (resolve/numbering (:item %)) :episode str)
+                           seeds)
            opts      (-> opts
                          (dissoc :same-show? :same-language? :max-per-show
                                  :recent :unlike :weight-fn)
@@ -1752,6 +1758,7 @@
                                 :unlike      (keep #(:document (seed library %))
                                                    unlike)
                                 :weight-fn   (comp weight-of :id))
+                         (update :stop-words concat numbers)
                          (update :limit #(or % 10))
                          (update :group-fn #(or % feed.search/feed-guid-of))
                          (update :max-per-group #(or % max-per-show)))

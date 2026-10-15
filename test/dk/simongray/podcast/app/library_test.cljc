@@ -269,15 +269,20 @@
 
 (defn- show-of
   "A feed of `title` in `language` with the podcast:guid `guid`, and an
-  episode of each pair of a title and notes of `episodes`, by number."
+  episode of each title, notes and perhaps number of `episodes`, with its
+  index as its guid."
   [guid title language episodes]
   (rss/parse
-   (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+   (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\""
+        " xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">"
         "<channel><title>" title "</title><language>" language "</language>"
         "<podcast:guid>" guid "</podcast:guid>"
-        (apply str (map-indexed (fn [i [episode notes]]
+        (apply str (map-indexed (fn [i [episode notes number]]
                                   (str "<item><title>" episode "</title>"
                                        "<guid>" i "</guid>"
+                                       (when number
+                                         (str "<itunes:episode>" number
+                                              "</itunes:episode>"))
                                        "<description>" notes "</description>"
                                        "<enclosure url=\"https://example.com/" i
                                        ".mp3\" type=\"audio/mpeg\" length=\"1\"/>"
@@ -359,7 +364,19 @@
                (get (weight [grinders] {}) "beans")))
         (is (< (get (weight both {}) "espresso")
                (get (weight both {:weight-fn {grinders 4 [coffee "1"] 1}})
-                    "espresso")))))))
+                    "espresso")))))
+    (testing "the number of an episode, which links it to nothing"
+      (let [numbered (reduce (fn [lib [guid title episodes]]
+                               (library/subscribe lib
+                                                  (str "https://example.com/" guid ".xml")
+                                                  (show-of guid title "en" episodes)))
+                             (library/make "phone" {:config {:search? true}})
+                             [[coffee "Async Talk" [["#561: Runtimes" "Async runtimes." 561]]]
+                              [brew "Accidental" [["561: Market your bug" "Bugs and markets."]
+                                                  ["Async" "Async runtimes and threads."]]]
+                              ["44444444-4444-5444-8444-444444444444" "Bikes"
+                               [["Gears" "The gears of a bicycle."]]]])]
+        (is (= ["Async"] (titles (library/recommend numbered [[coffee "0"]]))))))))
 
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
