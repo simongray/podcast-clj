@@ -69,10 +69,12 @@
    #player-bar .controls{display:flex;gap:.5rem;align-items:center}
    #player-bar .transport{flex:1 1 320px}
    #player-bar .seek-bar{flex:1;height:8px;background:#ddd;border-radius:4px;
-                         cursor:pointer}
+                         cursor:pointer;touch-action:none}
    #player-bar .seek-bar:focus-visible{outline:2px solid #1a5fb4;
                                        outline-offset:3px}
    #player-bar .played{height:100%;background:#555;border-radius:4px}
+   #player-bar .readout{min-width:13em;white-space:nowrap;
+                        font-variant-numeric:tabular-nums}
    #player-bar input[type=range]{width:6rem}
    #player-bar .cue{flex-basis:100%;min-height:1.4em}")
 

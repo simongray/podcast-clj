@@ -67,7 +67,10 @@
     (is (not (str/includes? (text (view/bar (assoc state :answer {:playing true :muted true} :media {:muted false})))
                             "Playing muted"))
         "an element unmuted by its own controls")
-    (is (str/includes? (text (view/bar (assoc state :answer {:refused :not-allowed}))) "next click")))
+    (is (str/includes? (text (view/bar (assoc state :answer {:refused :not-allowed :waiting true}))) "next click")
+        "while the player waits for it")
+    (is (str/includes? (text (view/bar (assoc state :answer {:refused :not-allowed}))) "won't let this page play")
+        "and once the browser has refused the second try too"))
   (testing "the controls of the media element, which press the lock screen's handlers"
     (let [media {:paused false :current-time 750 :duration 3000 :playback-rate 1.5 :volume 0.125 :muted false}
           bar   (view/bar (assoc state :media media :volume-locked? false))
@@ -75,7 +78,8 @@
       (is (some #{[:press {:action :pause}]} (map #(get-in % [1 :on :click]) (elements bar :button))) "pause while it plays")
       (is (= {:role "slider" :aria-valuemin 0 :aria-valuemax 3000 :aria-valuenow 750 :aria-label "Position" :tabindex 0}
              (select-keys attrs [:role :aria-valuemin :aria-valuemax :aria-valuenow :aria-label :tabindex])))
-      (is (= {:click [:seek-at]} (:on attrs)))
+      (is (= {:pointerdown [:seek-at] :pointermove [:seek-at] :pointerup [:seek-at]} (:on attrs))
+          "pressed and dragged")
       (is (= "25%" (get-in played [:style :width])))
       (is (= [:rate "feed"] (get-in (first (elements bar :select)) [1 :on :change])))
       (is (= ["1.5"] (for [[_ {:keys [value selected]}] (elements bar :option) :when selected] value))

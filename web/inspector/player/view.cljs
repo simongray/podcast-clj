@@ -76,15 +76,18 @@
 
 (defn- answer-note
   "What the browser's `answer` to playing the episode means to the
-  listener, given the `media` state: it plays muted, or it waits for a
-  click."
-  [{:keys [refused] :as answer} media]
+  listener, given the `media` state: it plays muted, it waits for a
+  click, or it won't play here."
+  [{:keys [refused waiting] :as answer} media]
   (cond
     (and (:muted answer) (:muted media))
     [:span "Playing muted, since the browser refused the sound."]
 
+    (and (= :not-allowed refused) waiting)
+    [:span.muted "The browser plays it at your next click or key press."]
+
     (= :not-allowed refused)
-    [:span.muted "The browser plays it at your next click or key press."]))
+    [:span.muted "The browser won't let this page play it."]))
 
 (def rates
   "The playback rates that the bar offers, besides that of the show."
@@ -92,7 +95,7 @@
 
 (defn- seek-bar
   "A seek bar for the `media` state, with the ARIA attributes of a slider,
-  whose keys the player listens to."
+  whose keys the player listens to, and which a pointer presses or drags."
   [{:keys [current-time duration] :as media}]
   (let [played (if (and (js/Number.isFinite duration) (pos? duration))
                  (/ (or current-time 0) duration)
@@ -101,7 +104,9 @@
      (merge (controls/seek-aria media)
             {:tabindex   0
              :aria-label "Position"
-             :on         {:click [:seek-at]}})
+             :on         {:pointerdown [:seek-at]
+                          :pointermove [:seek-at]
+                          :pointerup   [:seek-at]}})
      [:div.played {:style {:width (str (* 100 played) "%")}}]]))
 
 (defn- rate-select
@@ -117,7 +122,7 @@
   "A mute button for the `media` state, and a volume slider on the cubic
   curve, unless the browser locks the volume, as `locked?` says, or
   hasn't said yet."
-  [{:keys [muted volume] :as media} locked?]
+  [{:keys [muted] :as media} locked?]
   [:span.controls
    [:button {:on {:click [:muted (not muted)]}} (if muted "Unmute" "Mute")]
    (when (false? locked?)
@@ -126,8 +131,8 @@
               :max        1
               :step       0.01
               :aria-label "Volume"
-              :value      ((get-in media-element/curves [:cubic :level])
-                           (or volume 1))
+              :value      (media-element/level (merge {:volume 1} media)
+                                               {:curve :cubic})
               :on         {:input [:volume]}}])])
 
 (defn playable
@@ -237,7 +242,7 @@
            [:button {:on {:click [:press {:action (if paused :play :pause)}]}}
             (if paused "Play" "Pause")]
            (seek-bar media)
-           [:span.muted (readout media position)]]
+           [:span.muted.readout (readout media position)]]
           (rate-select feed-guid (:playback-rate media rate))
           (volume-controls media volume-locked?)
           (device-controls video? pip remote)

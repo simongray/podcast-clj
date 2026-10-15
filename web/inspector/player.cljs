@@ -359,17 +359,20 @@
     (set! (.-value input) "")
     (sync! [(library/backend (folder/store files) {:name "loaded folder"})])))
 
+(defonce ^{:doc "The function that stops waiting for the listener's click
+  or key press to play the media element, while the browser refuses."}
+  stop-waiting
+  (atom (constantly nil)))
+
 (defn- start!
-  "Play the media element, muted where the browser refuses its sound, and
-  keep the browser's answer. Where it refuses even that, try once more at
-  the listener's next click or key press, when `retry?`."
-  [retry?]
+  "Play the media element, muted where the browser refuses its sound, or
+  else once more at the listener's next click or key press, and keep each
+  of the browser's answers."
+  []
   (when-let [el (audio-element)]
-    (.then (media/play! el {:muted-fallback true})
-           (fn [answer]
-             (swap! app assoc :answer answer)
-             (when (and retry? (= :not-allowed (:refused answer)))
-               (autoplay/on-activation! #(start! false)))))))
+    (@stop-waiting)
+    (reset! stop-waiting (autoplay/play-when-allowed!
+                          el #(swap! app assoc :answer %)))))
 
 (defn- media-effects
   "The `effects` of a player event as those of media/apply!: a seek to
@@ -388,7 +391,7 @@
   [effects]
   (some-> (audio-element) (media/apply! (media-effects effects)))
   (when (some (comp #{:play} first) effects)
-    (js/setTimeout #(start! true) 50)))
+    (js/setTimeout start! 50)))
 
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
@@ -444,14 +447,25 @@
     (f details)))
 
 (defn- seek-at!
-  "Seek to where the click `e` landed on the seek bar."
+  "Seek to where the pointer event `e` presses or drags the seek bar:
+  through the lock screen's handler where it's pressed and let go, which
+  the library records, and straight on the media element, roughly, while
+  it drags."
   [^js e]
-  (let [rect     (.getBoundingClientRect (.-currentTarget e))
-        duration (get-in @app [:media :duration])]
-    (when (and (js/Number.isFinite duration) (pos? (.-width rect)))
-      (press! {:action    :seekto
-               :seek-time (* duration (/ (- (.-clientX e) (.-left rect))
-                                         (.-width rect)))}))))
+  (let [^js bar (.-currentTarget e)
+        id      (.-pointerId e)
+        el      (audio-element)]
+    (when (= "pointerdown" (.-type e))
+      ;; the bar gets the pointer's moves while it's pressed, even off it
+      (.setPointerCapture bar id))
+    (when-let [{:keys [seek-time] :as details}
+               (and el
+                    (.hasPointerCapture bar id)
+                    (controls/pointer-seek e (:media @app)))]
+      (if (= "pointermove" (.-type e))
+        (media/seek! el seek-time {:fast true})
+        (press! details)))))
+
 (defn- timed
   "The `library` with its sleep timer set to `n` episodes, or without one
   when `n` is nil."
@@ -548,10 +562,7 @@
   (release-screen!)
   (when-let [el (audio-element)]
     (if (video? el)
-      (let [language (some #(when (= :captions (:kind %)) (:language %))
-                           (tracks/text-tracks el))]
-        (tracks/show! el {:kinds     [:captions]
-                          :languages (if (and on? language) [language] [])}))
+      (tracks/show! el {:kinds [:captions] :label (when on? "Transcript")})
       (when on?
         (reset! release-screen (wake-lock/hold-while-playing! el))))))
 
@@ -573,28 +584,19 @@
     (when (and style el (video? el))
       (reset! unstyle-captions (captions/style! el style)))))
 
-(defn- duration-of
-  "The seconds of the episode `id`: those of its media element `el` once it
-  knows them, or else those that its feed declares."
-  [id ^js el]
-  (let [d (.-duration el)]
-    (if (js/Number.isFinite d)
-      d
-      (get-in @app [:titles id :duration]))))
-
 (defn- add-files!
-  "Add what the files of the episode `id` hold to its media element `el`,
-  as /episode-files.edn serves it: the :metadata with the chapters on the
-  lock screen, the chapters as a track, and the :transcript as captions,
-  shown or hidden as the listener left them."
-  [id el {:keys [metadata transcript] :as files}]
+  "Add what the files of the episode in the media element `el` hold to it,
+  as /episode-files.edn serves them: the :metadata with the chapters on
+  the lock screen, the chapters as a track, and the :transcript as
+  captions, shown or hidden as the listener left them. The last chapter
+  lasts to the end, even before the element knows its duration."
+  [^js el {:keys [metadata transcript] :as files}]
   (when (identical? el (audio-element))
     (session/metadata! metadata)
     (when-let [chapters (seq (:chapter-info metadata))]
       (tracks/add! el {:kind  :chapters
                        :label "Chapters"
-                       :cues  (tracks/chapter-cues chapters
-                                                   (duration-of id el))}))
+                       :cues  (tracks/chapter-cues chapters (.-duration el))}))
     (when transcript
       (tracks/add! el (assoc transcript :kind :captions :label "Transcript"))
       (show-transcript! (:transcript? @app))
@@ -607,7 +609,7 @@
   (when-let [{:keys [url guid]} (get-in @app [:titles id])]
     (-> (js/fetch (episode-query "/episode-files.edn" url guid))
         (.then #(when (.-ok %) (.text %)))
-        (.then #(some->> % reader/read-string (add-files! id el)))
+        (.then #(some->> % reader/read-string (add-files! el)))
         (.catch #(js/console.warn "The episode's files didn't load:" %)))))
 
 (defn- device!
@@ -678,6 +680,7 @@
   longer shows."
   [id]
   (release-screen!)
+  (@stop-waiting)
   (when-let [detach! (get @detach-element id)]
     (swap! detach-element dissoc id)
     (detach!)))
@@ -771,7 +774,7 @@
   (if (and (= id (profile.queue/current (get-in @app [:library :profile])))
            (audio-element))
     (do (press! {:action :seekto :seek-time t})
-        (start! true))
+        (start!))
     (do (swap! app assoc-in [:start id] t)
         (add! episode "now"))))
 
