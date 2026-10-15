@@ -267,6 +267,100 @@
                              (is (= (ids library) (ids restored)))))
               forget!)))))
 
+(defn- show-of
+  "A feed of `title` in `language` with the podcast:guid `guid`, and an
+  episode of each pair of a title and notes of `episodes`, by number."
+  [guid title language episodes]
+  (rss/parse
+   (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+        "<channel><title>" title "</title><language>" language "</language>"
+        "<podcast:guid>" guid "</podcast:guid>"
+        (apply str (map-indexed (fn [i [episode notes]]
+                                  (str "<item><title>" episode "</title>"
+                                       "<guid>" i "</guid>"
+                                       "<description>" notes "</description>"
+                                       "<enclosure url=\"https://example.com/" i
+                                       ".mp3\" type=\"audio/mpeg\" length=\"1\"/>"
+                                       "</item>"))
+                                episodes))
+        "</channel></rss>")))
+
+(def coffee "11111111-1111-5111-8111-111111111111")
+(def brew "22222222-2222-5222-8222-222222222222")
+
+(def shelf
+  "A library of two shows about coffee, one in Danish and one about bikes."
+  (reduce (fn [lib [guid title language episodes]]
+            (library/subscribe lib
+                               (str "https://example.com/" guid ".xml")
+                               (show-of guid title language episodes)))
+          (library/make "phone" {:config {:search? true}})
+          [[coffee "Coffee Talk" "en-US"
+            [["Espresso grinders" "Burr grinders for espresso, and how fine to grind the beans."]
+             ["Roasting at home" "Roasting coffee beans at home in a popcorn machine."]
+             ["Tea" "A week of green tea instead."]]]
+           [brew "Brew Lab" "en"
+            [["Machines" "Pressure, burr grinders and the shot."]
+             ["Roasting basics" "Light and dark roasting of coffee beans."]
+             ["Grinders compared" "Conical and flat burr grinders."]]]
+           ["33333333-3333-5333-8333-333333333333" "Kaffe" "da"
+            [["Espresso" "Espresso på dansk."]
+             ["Cykler" "Cykling i regnvejr."]]]
+           ["44444444-4444-5444-8444-444444444444" "Bikes" "en"
+            [["Commuting" "Commuting by bicycle in the rain."]
+             ["Gears" "The gears of a bicycle."]]]]))
+
+(deftest recommendations
+  (let [grinders [coffee "0"]
+        titles   (fn [found]
+                   (mapv (comp :rss/title :item) found))
+        liked    (fn
+                   ([lib]
+                    (titles (library/recommend lib [grinders])))
+                   ([lib opts]
+                    (titles (library/recommend lib [grinders] opts))))]
+    (testing "the unplayed episodes most like one, of other shows in its language"
+      (is (= ["Grinders compared" "Machines"] (liked shelf)))
+      (is (= ["espresso" "grinders"]
+             (take 2 (map first (:terms (meta (library/recommend shelf [grinders])))))))
+      (is (nil? (library/recommend (library/make "phone" {:config {:search? false}})
+                                   [grinders]))
+          "no index, no recommendations"))
+    (testing "the options"
+      (is (= ["Grinders compared" "Roasting at home" "Machines" "Tea"]
+             (liked shelf {:same-show? true})))
+      (is (= ["Grinders compared" "Machines" "Espresso"]
+             (liked shelf {:same-language? false})))
+      (is (= ["Espresso"] (liked shelf {:where {:language "da"}}))
+          "a language of the criteria in place of the episode's")
+      (is (= ["Grinders compared"] (liked shelf {:max-per-show 1})))
+      (is (= ["Grinders compared"] (liked shelf {:limit 1}))))
+    (testing "what the listener has played or hidden"
+      (is (= ["Machines" "Roasting basics"]
+             (liked (library/update-profile shelf profile/mark-played [brew "2"]))))
+      (is (= ["Machines" "Roasting basics"]
+             (liked (library/update-profile shelf profile/hide [brew "2"]))))
+      (is (= ["Grinders compared" "Machines"]
+             (liked (library/update-profile shelf profile/hide [brew "2"])
+                    {:where {:hidden? #{true false}}}))))
+    (testing "the episodes that the listener heard last, without ids"
+      (is (= [] (titles (library/recommend shelf))))
+      (is (= (liked shelf)
+             (titles (library/recommend
+                      (library/update-profile shelf profile/progress grinders 60 now))))))
+    (testing "episodes unliked, and the weights of episodes"
+      (let [weight (fn [ids opts]
+                     (->> (library/recommend shelf ids opts)
+                          meta
+                          :terms
+                          (into {})))
+            both   [grinders [coffee "1"]]]
+        (is (< (get (weight [grinders] {:unlike [[brew "1"]]}) "beans")
+               (get (weight [grinders] {}) "beans")))
+        (is (< (get (weight both {}) "espresso")
+               (get (weight both {:weight-fn {grinders 4 [coffee "1"] 1}})
+                    "espresso")))))))
+
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
     (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (profile.opml/lists (:profile lib))))

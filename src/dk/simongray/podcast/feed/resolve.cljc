@@ -500,7 +500,7 @@
                   (not (manifest-types served))
                   (not (hls/playlist? enclosure))))))
 
-(defn- language-tag
+(defn language-tag
   "The primary subtag of the language `s` (RFC 5646, section 2.2.1), e.g.
   \"en\" for \"en-US\"."
   [s]

@@ -1596,6 +1596,26 @@
                                      :at      (time-of library opts))
                         (:index library) (assoc :index (:index library))))))
 
+(defn- index-opts
+  "The `opts` of a query of the index of `library`, with their :where, the
+  criteria of criteria/where that an episode meets, and :filter-pred made
+  one :filter-pred of a result with the :feed and :item that `locate`
+  gives it. The criteria leave the shows out."
+  [library locate opts]
+  (let [ctx    (assoc (select-keys opts [:scale])
+                      :profile (:profile library)
+                      :url     (urls library)
+                      :at      (time-of library opts)
+                      :index   (:index library))
+        meets? (some-> (:where opts) (criteria/where ctx))
+        tests  (cond-> []
+                 (:filter-pred opts) (conj (:filter-pred opts))
+                 meets?              (conj (fn [{:keys [feed item]}]
+                                             (and item (meets? feed item)))))]
+    (cond-> (dissoc opts :where :at :scale)
+      (seq tests) (assoc :filter-pred
+                         (comp (apply every-pred tests) locate)))))
+
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` below, or nil when the library keeps no index.
@@ -1614,20 +1634,130 @@
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
      (let [locate (feed.search/located (update-vals (:feeds library) :feed))
-           ctx    (assoc (select-keys opts [:scale])
-                         :profile (:profile library)
-                         :url     (urls library)
-                         :at      (time-of library opts)
-                         :index   index)
-           meets? (some-> (:where opts) (criteria/where ctx))
-           tests  (cond-> []
-                    (:filter-pred opts) (conj (:filter-pred opts))
-                    meets?              (conj (fn [{:keys [feed item]}]
-                                                (and item (meets? feed item)))))
-           opts   (cond-> (dissoc opts :where :at :scale)
-                    (seq tests) (assoc :filter-pred
-                                       (comp (apply every-pred tests) locate)))
-           found  (search/query index q opts)]
+           found  (search/query index q (index-opts library locate opts))]
+       (with-meta (mapv locate found) (meta found))))))
+
+(defn- seed
+  "The episode `id` of `library` as a map of its :id, :feed, :item and
+  search :document, or nil when the library doesn't hold it."
+  [library id]
+  (when-let [[{:keys [feed url]} item] (item-of library id)]
+    {:id       id
+     :feed     feed
+     :item     item
+     :document (feed.search/item-document feed item {:url url})}))
+
+(defn- heard-last
+  "The ids of the `n` episodes of `library` that the listener heard last,
+  the last first, of those that the library holds."
+  [library n]
+  (->> (profile/episode-entries (:profile library))
+       (keep (fn [[id {:keys [reported-at]}]]
+               (when reported-at
+                 [id (inst-ms reported-at)])))
+       ;; equal times by id, so that the order is the same everywhere
+       (sort-by (fn [[id ms]] [(- ms) (pr-str id)]))
+       (map first)
+       (filter #(item-of library %))
+       (take n)))
+
+(defn- languages-of
+  "The primary subtags of the languages of the episodes `seeds`, as seed
+  gives them, e.g. #{\"en\" \"da\"}."
+  [seeds]
+  (into #{}
+        (comp (mapcat (fn [{:keys [feed item]}]
+                        (resolve/languages feed item)))
+              (map resolve/language-tag))
+        seeds))
+
+(defn- recommended-where
+  "The criteria of an episode that recommend takes, by the `opts` of it
+  and the episodes `seeds`, as seed gives them: those of :where, without
+  the hidden episodes unless they name :hidden?, and with the languages of
+  the seeds unless :same-language? is false or the criteria name one."
+  [seeds {:keys [same-language?] :or {same-language? true} :as opts}]
+  (let [where     (:where opts {:status :unplayed})
+        languages (when same-language? (languages-of seeds))]
+    (cond-> (criteria/visible where)
+      (and (seq languages) (not (contains? where :language)))
+      (assoc :language languages))))
+
+(defn recommend
+  "The episodes of `library` most like the episodes `ids`, or like those
+  that the listener heard last, best first, with the `opts` below, or nil
+  when the library keeps no index.
+
+  Each result has its :feed and :item, as in search. The metadata of the
+  results has the :terms that found them, as more-like-this of
+  dk.simongray.drop-in-search gives them, e.g. to tell the listener why
+  an episode came up. The `opts` are those of more-like-this, and these:
+
+  - :limit, the most episodes, 10 by default
+  - :where, the criteria of criteria/where that an episode meets,
+    {:status :unplayed} by default, and the hidden ones are left out
+    unless the criteria name :hidden?
+  - :same-show?, true to take episodes of the shows of `ids` too
+  - :same-language?, false to take episodes in any language, rather than
+    in those of the episodes of `ids`, when their feeds declare them
+  - :max-per-show, the most episodes of one show, 2 by default, or nil
+  - :recent, the number of the episodes that the listener heard last to
+    start from without `ids`, 10 by default, where the last weighs the
+    most
+  - :unlike, ids of episodes whose words count against those of `ids`,
+    e.g. the ones that the listener rated low
+  - :weight-fn, a function of an id of `ids` or :unlike that gives how
+    much it weighs, 1 by default
+
+  The words that more than 40% of the shows use are left out, as the
+  :group-fn of more-like-this is the show by default. The criteria read
+  the profile of the library, and the time of its clock unless the `opts`
+  give :at.
+
+      (recommend library [id] {:limit 5})
+      (recommend library nil {:where {:status   :unplayed
+                                      :duration [nil 1800]}})"
+  ([library]
+   (recommend library nil {}))
+  ([library ids]
+   (recommend library ids {}))
+  ([library ids {:keys [same-show? max-per-show recent unlike weight-fn]
+                 :or   {max-per-show 2 recent 10}
+                 :as   opts}]
+   {:pre [(map? opts)]}
+   (when-let [index (:index library)]
+     (let [recent?   (nil? ids)
+           ids       (if recent? (heard-last library recent) ids)
+           seeds     (keep #(seed library %) ids)
+           shows     (into #{} (map (comp first :id)) seeds)
+           others?   (fn [{[feed-guid] :id}]
+                       (not (contains? shows feed-guid)))
+           episode?  (comp vector? :id)
+           tests     (cond-> [episode?]
+                       (:filter-pred opts) (conj (:filter-pred opts))
+                       (not same-show?)    (conj others?))
+           ;; the last heard weighs as many as there are, and the first 1
+           ranks     (zipmap ids (range (count ids) 0 -1))
+           weight-of (cond
+                       weight-fn weight-fn
+                       recent?   #(get ranks % 1)
+                       :else     (constantly 1))
+           locate    (feed.search/located (update-vals (:feeds library)
+                                                       :feed))
+           opts      (-> opts
+                         (dissoc :same-show? :same-language? :max-per-show
+                                 :recent :unlike :weight-fn)
+                         (assoc :where       (recommended-where seeds opts)
+                                :filter-pred (apply every-pred tests)
+                                :unlike      (keep #(:document (seed library %))
+                                                   unlike)
+                                :weight-fn   (comp weight-of :id))
+                         (update :limit #(or % 10))
+                         (update :group-fn #(or % feed.search/feed-guid-of))
+                         (update :max-per-group #(or % max-per-show)))
+           found     (search/more-like-this index
+                                            (map :document seeds)
+                                            (index-opts library locate opts))]
        (with-meta (mapv locate found) (meta found))))))
 
 (defn snippet

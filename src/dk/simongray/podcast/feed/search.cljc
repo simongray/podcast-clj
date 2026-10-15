@@ -129,7 +129,7 @@
         (map #(item-document feed % {:url url}))
         (resolve/distinct-items (:rss/items feed))))
 
-(defn- feed-guid-of
+(defn feed-guid-of
   "The guid of the show of the document `id`: the id of a show's document,
   or the first of the pair that names an episode."
   [id]

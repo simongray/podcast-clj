@@ -1340,6 +1340,44 @@ searchable, give them to `feed.search/item-document`. To keep the index,
 there, and `ciff/read-files` reads them back.
 
 
+## Recommend episodes
+
+To list the episodes of the library most like the one on an episode
+page, e.g. under "Maybe you're also interested in…", give its id to
+`library/recommend`:
+
+```clojure
+(library/recommend @lib [id] {:limit 5})
+;; => [{:id [feed-guid "…"] :score 9.3 :stored {…} :feed {…} :item {…}}
+;;     …]
+```
+
+It looks for the words that set the episode apart, those that its title
+and notes hold and few other shows use, and returns the unplayed episodes
+that hold the most of them. By default, they're episodes of other shows,
+in the languages of the episode, and at most two of each show. The words
+are under `:terms` in the metadata of the results, e.g. to tell the
+listener why an episode came up.
+
+Without ids, it starts from the last ten episodes that the listener
+heard, and the last weighs the most, e.g. for a list on the front page.
+Such a list blends the topics of those episodes, so for a row of
+"Because you listened to…" under each of them, call it once for each.
+
+These options change what it returns:
+
+- `:where`, criteria of `library/episodes` in place of `{:status
+  :unplayed}`, e.g. `{:status :unplayed :duration [nil 1800]}` for those
+  under half an hour
+- `:same-show? true` for episodes of the same show too, `:same-language?
+  false` for any language, and `:max-per-show` for another cap than two
+- `:unlike`, the ids of episodes whose words count against, e.g. those
+  that the listener rated low
+
+The docstring has the rest, e.g. `:weight-fn` and the options of
+`more-like-this` of drop-in-search, which finds the episodes.
+
+
 ## Organize the shows and episodes
 
 The profile also holds how the listener organises shows and episodes,
