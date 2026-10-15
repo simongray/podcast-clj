@@ -15,6 +15,8 @@
   - :answer, the browser's answer to playing it
   - :volume-locked?, whether the browser locks the volume
   - :transcript? and :caption-style, how the listener shows the transcript
+  - :pip, :fullscreen and :remote, the states of its Picture-in-Picture,
+    fullscreen and casting, and :device-answer, a refusal of one of them
   - :start, the position by episode id that a link asked to play from
 
   An episode that another device added comes through a sync as a remote
@@ -25,6 +27,7 @@
       [:dequeue id] [:prefer :skip-back] [:sync]
       [:press {:action :play}] [:seek-at] [:rate feed-guid] [:volume]
       [:muted false] [:transcript true] [:caption-style]
+      [:pip true] [:fullscreen] [:cast]
       [:folder/pick] [:folder/allow] [:folder/forget]
       [:document/save] [:document/load] [:device/retire id]
 
@@ -167,6 +170,32 @@
                    :selected      (= name (or chosen "The browser's own"))}
           name])]])))
 
+(defn- device-controls
+  "Buttons for a `video?` to enter or leave Picture-in-Picture, while the
+  `pip` state says it can, and to go fullscreen, and a button that casts
+  the media element unless its `remote` playback has no devices."
+  [video? pip {:keys [availability state] :as remote}]
+  (list
+   (when (and video? pip)
+     (let [in? (:picture-in-picture pip)]
+       [:button {:on {:click [:pip (not in?)]}}
+        (if in? "Leave Picture-in-Picture" "Picture-in-Picture")]))
+   (when video?
+     [:button {:on {:click [:fullscreen]}} "Fullscreen"])
+   (when (and remote (not= :unavailable availability))
+     [:button {:on {:click [:cast]}}
+      (case state
+        :connected  "Casting"
+        :connecting "Connecting…"
+        "Cast")])))
+
+(defn- device-note
+  "What the browser refused of the device that the listener asked for, by
+  its `answer`, unless the listener closed the picker."
+  [{:keys [what refused] :as answer}]
+  (when (and refused (not= :dismissed refused))
+    [:span.muted (str what " refused: " (str/replace (name refused) "-" " "))]))
+
 (defn bar
   "The persistent player of the page `state`: the current episode, its
   chapter, its audio or video element and its controls, its transcript,
@@ -178,7 +207,7 @@
   data of it has nothing to play. The bar tells so, and the listener
   removes it."
   [{:keys [profile media answer sleep volume-locked? tracks transcript?
-           caption-style]
+           caption-style pip remote device-answer]
     :as   state}]
   (when-let [id (profile.queue/current profile)]
     (let [{:keys [enclosure video?] :as episode} (episode-of state id)
@@ -211,6 +240,7 @@
            [:span.muted (readout media position)]]
           (rate-select feed-guid (:playback-rate media rate))
           (volume-controls media volume-locked?)
+          (device-controls video? pip remote)
           (when (some #(= :captions (:kind %)) tracks)
             (transcript-controls transcript? video? caption-style)))
 
@@ -221,6 +251,7 @@
          [:span.muted (str "This browser has no data of the episode. Remove "
                            "it, or open its item and play it.")])
        (answer-note answer media)
+       (device-note device-answer)
        [:span
         [:button {:on {:click [:skip id :back]}} (str "−" skip-back "s")]
         " "

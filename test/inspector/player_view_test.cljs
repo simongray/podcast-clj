@@ -105,6 +105,21 @@
                            name))
             "the style of the captions")))
     (is (empty? (filter #(= "Transcript" (nth % 2)) (elements (view/bar state) :button))) "no transcript, no button"))
+  (testing "the devices: Picture-in-Picture and fullscreen for a video, and casting"
+    (let [clicks #(map (fn [b] (get-in b [1 :on :click])) (elements % :button))
+          video  (-> state
+                     (assoc-in [:titles a :video?] true)
+                     (assoc :pip {:picture-in-picture false} :remote {:availability :unknown :state :disconnected}))]
+      (is (= [[:pip true] [:fullscreen] [:cast]] (filter (comp #{:pip :fullscreen :cast} first) (clicks (view/bar video)))))
+      (is (some #{[:pip false]} (clicks (view/bar (assoc video :pip {:picture-in-picture true :width 320 :height 180})))))
+      (is (empty? (filter (comp #{:pip :fullscreen} first) (clicks (view/bar (assoc state :remote {:availability :available})))))
+          "neither for audio")
+      (is (some #{"Casting"} (map #(nth % 2) (elements (view/bar (assoc state :remote {:availability :available :state :connected})) :button))))
+      (is (empty? (filter (comp #{:cast} first) (clicks (view/bar (assoc state :remote {:availability :unavailable})))))
+          "no casting without devices")
+      (is (str/includes? (text (view/bar (assoc state :device-answer {:what "Casting" :refused :no-devices}))) "Casting refused: no devices"))
+      (is (not (str/includes? (text (view/bar (assoc state :device-answer {:what "Casting" :refused :dismissed}))) "refused"))
+          "a closed picker is no refusal")))
   (testing "a link's start, over the position to resume at"
     (is (= 95 (get-in (first (elements (view/bar (assoc state :start {a 95})) :audio#player))
                       [1 :replicant/on-mount 2 :position]))))

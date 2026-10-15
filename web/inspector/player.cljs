@@ -36,6 +36,9 @@
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.play-nice.controls :as controls]
+            [dk.simongray.play-nice.display.fullscreen :as fullscreen]
+            [dk.simongray.play-nice.display.picture-in-picture :as pip]
+            [dk.simongray.play-nice.display.remote-playback :as remote]
             [dk.simongray.play-nice.display.wake-lock :as wake-lock]
             [dk.simongray.play-nice.media :as media]
             [dk.simongray.play-nice.media.capabilities :as capabilities]
@@ -607,6 +610,52 @@
         (.then #(some->> % reader/read-string (add-files! id el)))
         (.catch #(js/console.warn "The episode's files didn't load:" %)))))
 
+(defn- device!
+  "Ask the browser for the device that the view's `event` names, for the
+  media element: [:pip true] enters Picture-in-Picture and [:pip false]
+  leaves it, [:fullscreen] puts a video fullscreen, and [:cast] shows the
+  picker of remote devices. A refusal is kept for the bar to show."
+  [[kind on? :as event]]
+  (when-let [el (audio-element)]
+    (let [[what answer]
+          (case kind
+            :pip        ["Picture-in-Picture"
+                         (if on? (pip/enter! el) (pip/exit! el))]
+            :fullscreen ["Fullscreen"
+                         (fullscreen/enter! el {:video       el
+                                                :orientation :landscape})]
+            :cast       ["Casting" (remote/prompt! el)])]
+      (.then answer #(swap! app assoc :device-answer
+                            (when (:refused %) (assoc % :what what)))))))
+
+(def followed
+  "The keys of the page state that belong to the media element that plays,
+  which a new one starts without."
+  [:answer :media :reported :tracks :pip :fullscreen :remote :device-answer])
+
+(defn- follow!
+  "Follow the media element `el` of the episode `id`, and return a function
+  that stops it: keep its state, its tracks and those of its devices,
+  press its handlers at the bar's keys, and let it pause when another tab
+  plays."
+  [id el]
+  (let [bar      (js/document.getElementById "player-bar")
+        seek-bar (some-> bar (.querySelector ".seek-bar"))
+        keep!    (fn [k] #(swap! app assoc k %))]
+    (juxt (media/watch! el (partial reported! id)
+                        {:events (conj media/events :timeupdate)})
+          (tracks/watch! el (keep! :tracks))
+          (if (pip/available? el)
+            (pip/watch! el (keep! :pip))
+            (constantly nil))
+          (fullscreen/watch! el (keep! :fullscreen) {:video el})
+          (remote/watch! el (keep! :remote))
+          ;; a key on the seek bar is its own, before the bar's
+          (controls/listen! seek-bar el @handlers
+                            {:keymap controls/seek-bar-keys})
+          (controls/listen! bar el @handlers)
+          (tabs/attach! el "podcast-inspector"))))
+
 (defonce ^{:doc "The functions that stop following the media element of
   each episode id, while the bar shows it."}
   detach-element
@@ -614,27 +663,15 @@
 
 (defn- mount!
   "Load the `source` of the episode `id` into the media element `el` that
-  the bar has rendered, and follow it: keep its state and its tracks, put
-  it on the lock screen, press its handlers at the bar's keys, and let it
-  pause when another tab plays. Its chapters and transcript follow."
+  the bar has rendered, put it on the lock screen, and follow it. Its
+  chapters and transcript come later."
   [id source el]
   (media/source! el source)
-  (swap! app #(-> %
-                  (dissoc :answer :media :reported :tracks)
+  (swap! app #(-> (apply dissoc % followed)
                   (update :start dissoc id)))
   (on-lock-screen! id el)
   (load-files! id el)
-  (let [bar      (js/document.getElementById "player-bar")
-        seek-bar (some-> bar (.querySelector ".seek-bar"))]
-    (swap! detach-element assoc id
-           (juxt (media/watch! el (partial reported! id)
-                               {:events (conj media/events :timeupdate)})
-                 (tracks/watch! el #(swap! app assoc :tracks %))
-                 ;; a key on the seek bar is its own, before the bar's
-                 (controls/listen! seek-bar el @handlers
-                                   {:keymap controls/seek-bar-keys})
-                 (controls/listen! bar el @handlers)
-                 (tabs/attach! el "podcast-inspector")))))
+  (swap! detach-element assoc id (follow! id el)))
 
 (defn- unmount!
   "Stop following the media element of the episode `id`, which the bar no
@@ -684,6 +721,7 @@
     :muted           (some-> (audio-element) (media/muted! (first args)))
     :transcript      (show-transcript! (first args))
     :caption-style   (style-captions! (.. e -target -value))
+    (:pip :fullscreen :cast) (device! event)
     nil))
 
 (defn- add!
