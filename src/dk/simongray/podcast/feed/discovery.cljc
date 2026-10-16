@@ -237,15 +237,18 @@
 
 (defn fetch-head!
   "Fetch the start of the feed at `url` with the `opts` of find-feeds!, as
-  far as the end of its first item, and give a map of the :url that it was
-  found at and the :feed, or of an :error. Deferred.
+  far as the end of its first item, or of as many items as the :items of
+  `opts` says, and give a map of the :url that it was found at and the
+  :feed, or of an :error. Deferred.
 
   The start is enough to preview a show, or to check its guid before
   subscribing, and most often it's the first 64 KB of a feed of megabytes.
-  RSS lets channel elements come after the items, so a start can lack
-  some, and head? tells it from a whole feed. When the start doesn't read
-  as a feed with a title, the whole feed is fetched, and a short feed comes
-  whole too. The :credentials of `opts` go with the requests."
+  With :items, it can also show the first episodes, e.g. a page of them
+  before the whole feed arrives. RSS lets channel elements come after the
+  items, so a start can lack some, and head? tells it from a whole feed.
+  When the start doesn't read as a feed with a title, the whole feed is
+  fetched, and a short feed comes whole too. The :credentials of `opts` go
+  with the requests."
   ([url]
    (fetch-head! url {}))
   ([url opts]
@@ -263,7 +266,7 @@
          headers (:headers (impl/document-request url opts))
          reading (assoc opts :send send :headers headers)]
      (async/then
-      (ranges/read-url! url impl/head-reading reading)
+      (ranges/read-url! url (partial impl/head-reading (:items opts 1)) reading)
       (fn [{:keys [text cut? error] :as result}]
         (let [read  (when text (impl/parsed text url opts))
               found (or @moved url)]

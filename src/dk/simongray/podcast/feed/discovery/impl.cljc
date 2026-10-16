@@ -245,29 +245,34 @@
               #(read-feed url % opts)))
 
 (defn- item-end
-  "Where the end tag of the first item in the `text` ends, or nil when the
-  text has none."
-  [text]
-  (when-let [i (str/index-of text "</item")]
-    (when-let [j (str/index-of text ">" i)]
-      (when (str/blank? (subs text (+ i 6) j))
-        (inc j)))))
+  "Where the end tag of the `n`th item in the `text` ends, or nil when the
+  text has fewer."
+  [text n]
+  (loop [from 0
+         n    n]
+    (when-let [i (str/index-of text "</item" from)]
+      (when-let [j (str/index-of text ">" i)]
+        (let [end? (str/blank? (subs text (+ i 6) j))]
+          (cond
+            (and end? (== 1 n)) (inc j)
+            end?                (recur (inc j) (dec n))
+            :else               (recur (inc j) n)))))))
 
 (defn head-reading
   "A reading of the view `v` of a feed: the text of the feed up to the end
-  of its first item and then closed, as :text and :cut?, or the bytes that
+  of its `n`th item and then closed, as :text and :cut?, or the bytes that
   it needs to find that end. A feed that the view holds whole is read
-  whole, and so is a feed without an item, or in an encoding such as
+  whole, and so is a feed of fewer items, or in an encoding such as
   UTF-16, where the end tag can't be found before decoding."
-  [v]
+  [n v]
   (view/reading
-   #(let [n (view/held v)]
-      (if (= n (:total v))
-        {:text (xml/decode (view/slice v 0 n))}
-        (if-let [end (item-end (view/text v 0 n :latin1))]
+   #(let [held (view/held v)]
+      (if (= held (:total v))
+        {:text (xml/decode (view/slice v 0 held))}
+        (if-let [end (item-end (view/text v 0 held :latin1) n)]
           {:text (str (xml/decode (view/slice v 0 end)) "</channel></rss>")
            :cut? true}
-          (view/need v n (inc n)))))))
+          (view/need v held (inc held)))))))
 
 (defn podcast-found?
   "Whether the state `acc` of a search has a podcast among its candidates,

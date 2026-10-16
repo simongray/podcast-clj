@@ -228,18 +228,24 @@
     nil))
 
 (defn- apple-show
-  "The show of the result `r` of a search or lookup at Apple."
+  "The show of the result `r` of a search or lookup at Apple. Apple gives
+  the artwork at 100 and at 600 pixels, which become podcast:images with
+  their widths, so that an app can load the size that fits."
   [{:strs [collectionId collectionName artistName feedUrl artworkUrl600
            artworkUrl100 collectionViewUrl genres releaseDate trackCount
            contentAdvisoryRating]
     :as   r}]
   (let [artwork    (or artworkUrl600 artworkUrl100)
+        sizes      (for [[href width] [[artworkUrl100 100] [artworkUrl600 600]]
+                         :when href]
+                     {:href href :width width :height width :purpose "artwork"})
         explicit   (apple-explicit contentAdvisoryRating)
         categories (for [g genres :when (not= "Podcasts" g)] {:text g})
         published  (some-> releaseDate time/parse-iso8601)]
     (-> (present {:rss/title               collectionName
                   :itunes/author           artistName
                   :itunes/image            (when artwork {:href artwork})
+                  :podcast/images          (not-empty (vec sizes))
                   :itunes/explicit         explicit
                   :itunes/categories       (vec categories)
                   :rss/pub-date            published

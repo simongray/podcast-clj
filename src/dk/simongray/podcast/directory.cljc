@@ -8,6 +8,8 @@
   directory has the same information:
 
   - :rss/title, :itunes/author and :itunes/image
+  - :podcast/images with their widths, when the directory gives the
+    artwork in several sizes, as Apple does
   - the URL of the feed as the :atom/links entry with rel self
   - :podcast/guid when the directory knows the one that the feed declares.
     A guid derived from the URL would be a guess, since a feed that

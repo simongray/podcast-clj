@@ -320,7 +320,9 @@ A page can name several feeds of megabytes each, as Freak Show's does, and
 `:heads? true` fetches only the start of each, most often 64 KB. For one
 feed, `discovery/fetch-head!` does the same. The start of a feed is
 enough for a preview, and `library/subscribe` takes it for the title, the
-artwork and the guid, while `refresh!` fetches the whole feed.
+artwork and the guid, while `refresh!` fetches the whole feed. With
+`{:items 20}`, `fetch-head!` reads on to the end of the 20th item, so a
+show's page can list its first episodes while the whole feed is fetched.
 
 When the page names no podcast feed, `:search [:apple]` also asks a
 directory for the shows whose website is on that domain. It's off by
@@ -710,6 +712,17 @@ highlight each word as it's spoken.
 An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 route or a key that takes one string, `feed.guid/format-episode-id`
 writes the id as one, and `feed.guid/parse-episode-id` reads it back.
+
+Artwork is often 3000 pixels wide. When a feed or a directory gives it in
+several sizes, `resolve/artwork-sizes` lists them with their widths, e.g.
+for the `srcset` of an `img`, so that a browser loads the smallest that
+fits:
+
+```clojure
+(resolve/artwork-sizes (first (:results (directory/search! "podcasting 2.0"))))
+;; => [{:href "https://is1-ssl.mzstatic.com/…/100x100bb.jpg" :width 100}
+;;     {:href "https://is1-ssl.mzstatic.com/…/600x600bb.jpg" :width 600}]
+```
 
 To colour a page by its artwork, as Apple Podcasts does, give
 `image/colors` the bytes of the image. It returns the colours of a UI,

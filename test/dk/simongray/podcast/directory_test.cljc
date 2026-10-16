@@ -271,6 +271,8 @@
       (is (false? (:itunes/explicit show)))
       (is (inst? (:rss/pub-date show)))
       (is (str/starts-with? (:href (:itunes/image show)) "https://is1-ssl.mzstatic.com/"))
+      (is (= [100 600] (map :width (resolve/artwork-sizes show))) "the sizes of the artwork that Apple gives")
+      (is (= (:href (:itunes/image show)) (resolve/artwork show)) "and the largest is the artwork")
       (is (= {:directory/source :apple :directory/id "1875035030" :directory/episode-count 10}
              (select-keys show [:directory/source :directory/id :directory/episode-count])))
       (is (str/starts-with? (:directory/url show) "https://podcasts.apple.com/"))

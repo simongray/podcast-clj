@@ -734,7 +734,11 @@
   "The id of the episode `item` of `feed` in `library`, [feed-guid
   item-guid]."
   [library feed item]
-  (guid/episode-id feed (get (urls library) feed) item))
+  ;; the feeds of the library have their keys, and the URLs of the others
+  ;; cost a pass over every feed, each hashed as a key
+  (guid/episode-id feed
+                   (when-not (guid/keyed? feed) (get (urls library) feed))
+                   item))
 
 ;; The podcast namespace, podcast:liveItem: a status of pending, live or
 ;; ended, and a start and an end

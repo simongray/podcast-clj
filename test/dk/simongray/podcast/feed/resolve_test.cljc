@@ -63,18 +63,26 @@
     (testing "shape and purpose are read"
       (is (= "https://i/sq.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/wide.jpg" :aspect-ratio "16/9"}
-                                             {:href "https://i/sq.jpg"}]})))
+                                                {:href "https://i/sq.jpg"}]})))
       (is (= "https://i/it.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/banner.jpg" :purpose "banner"}]
-                            :itunes/image {:href "https://i/it.jpg"}})))
+                               :itunes/image   {:href "https://i/it.jpg"}})))
       (is (= "https://i/300.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/big.jpg" :width "big"}
-                                             {:href "https://i/300.jpg" :width 300}]}))
+                                                {:href "https://i/300.jpg" :width 300}]}))
           "a width that did not read is no width")
       (is (= "https://i/sq.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/sq.mp4" :type "video/mp4" :purpose "artwork"}
-                                             {:href "https://i/sq.jpg"}]}))
+                                                {:href "https://i/sq.jpg"}]}))
           "never a video"))
+    (testing "the sizes of the artwork, for a srcset"
+      (is (= [{:href "https://i/300.jpg" :width 300} {:href "https://i/3000.jpg" :width 3000}]
+             (resolve/artwork-sizes {:podcast/images [{:href "https://i/3000.jpg" :width 3000}
+                                                      {:href "https://i/banner.jpg" :width 1200 :purpose "banner"}
+                                                      {:href "https://i/any.jpg"}
+                                                      {:href "https://i/300.jpg" :width 300 :purpose "artwork"}]}))
+          "narrowest first, and only the artwork whose width is known")
+      (is (= [] (resolve/artwork-sizes {:itunes/image {:href "https://i/it.jpg"}}))))
     (is (= 6 (count (resolve/images f))))
     (is (= #{"artwork"} (:purpose (first (resolve/images f)))))
     (is (= "video/mp4" (:type (first (resolve/images {:podcast/images [{:href "https://i/a.mp4" :type "video/mp4"}]})))))))
@@ -130,8 +138,8 @@
     (testing "without an enclosure, the default alternate, then anything"
       (is (= "https://a/hi.opus"
              (:url (resolve/enclosure {:podcast/alternate-enclosures
-                                    [{:type "audio/opus" :sources [{:uri "https://a/lo.opus"}]}
-                                     {:type "audio/opus" :default true :sources [{:uri "https://a/hi.opus"}]}]}))))
+                                       [{:type "audio/opus" :sources [{:uri "https://a/lo.opus"}]}
+                                        {:type "audio/opus" :default true :sources [{:uri "https://a/hi.opus"}]}]}))))
       (is (= {:url "https://m/1.mp4" :type "video/mp4" :length 99 :source :media}
              (resolve/enclosure {:media/contents [{:url "https://m/1.mp4" :type "video/mp4" :file-size 99}]})))
       (is (nil? (resolve/enclosure {}))))

@@ -380,6 +380,14 @@
                     (is (discovery/head? feed))
                     (is (= ["Long" 1] [(:rss/title feed) (count (:rss/items feed))]) "as far as its first item")
                     (is (= 1 (count @log)) "in one request of 64 KB, from a feed of more")))
+     #(async/then (discovery/fetch-head! "https://a.example/long" (assoc opts :items 20))
+                  (fn [{:keys [feed]}]
+                    (is (discovery/head? feed))
+                    (is (= 20 (count (:rss/items feed))) "as far as the end of the 20th item")))
+     #(async/then (discovery/fetch-head! "https://a.example/long" (assoc opts :items 5000))
+                  (fn [{:keys [feed]}]
+                    (is (not (discovery/head? feed)) "a feed of fewer items comes whole")
+                    (is (= 2000 (count (:rss/items feed))))))
      #(async/then (head! "https://a.example/short")
                   (fn [{:keys [feed]}]
                     (is (not (discovery/head? feed)) "a short feed comes whole")

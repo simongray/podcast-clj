@@ -80,6 +80,12 @@
   [feed k]
   (vary-meta feed assoc ::key k))
 
+(defn keyed?
+  "Whether `feed` has the key that a library keeps it under, as with-key
+  gives it, so that feed-key needs no URL."
+  [feed]
+  (contains? (meta feed) ::key))
+
 (defn feed-key
   "The key that a library keeps `feed` under, as with-key gives it, or
   else its feed-guid at `url`.

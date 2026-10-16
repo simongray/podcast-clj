@@ -28,6 +28,14 @@
   (is (not (guid/guid? "y0ur-gu1d-g035-h3r3")))
   (is (not (guid/guid? nil))))
 
+(deftest the-key-of-a-library
+  (let [declared {:podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"}
+        keyed    (guid/with-key declared "9b024349-ccf0-5f69-a609-6b82873eab3c")]
+    (is (guid/keyed? keyed))
+    (is (not (guid/keyed? declared)) "a declared guid is no key of a library")
+    (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (guid/feed-key keyed nil)) "which needs no URL")
+    (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810" (guid/feed-key declared "https://example.org/feed")))))
+
 (deftest episode-ids-as-strings
   (let [feed "917393e3-1b1e-5cef-ace4-edaa54e1f810"]
     (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810:ep0003" (guid/format-episode-id [feed "ep0003"]))

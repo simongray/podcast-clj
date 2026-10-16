@@ -125,6 +125,23 @@
   ([feed item]
    (or (artwork item) (artwork feed))))
 
+;; HTML, section 4.8.4.3: the width descriptors of a srcset let a browser
+;; load the smallest image that fills the room at the screen's density,
+;; rather than artwork of 3000 pixels for a thumbnail
+(defn artwork-sizes
+  "The square artworks of `x` whose width is known, as maps of the :href and
+  the :width, narrowest first, e.g. for the srcset of an img.
+
+  They're the podcast:images meant as artwork that declare a width, and
+  the list is empty when there are none, as in most feeds."
+  [x]
+  (->> (images x)
+       (filter (every-pred #(= :podcast (:source %))
+                           impl/artwork?
+                           (comp number? :width)))
+       (sort-by :width)
+       (mapv #(select-keys % [:href :width]))))
+
 ;; podcast namespace, image: the purpose poster
 (defn poster
   "The URL of the poster of `x`, or of an `item` of `feed`, with the item's
