@@ -338,17 +338,24 @@
     shows))
 
 (defn- combined
-  "The shows that `sources` answered, combined as :results, and a
-  diagnostic for each source that failed under :report. The `answers` are
-  attempts, maps of a :value or an :error, one for each of `sources`."
+  "The shows that `sources` answered, combined as :results, a diagnostic
+  for each source that failed under :report, and the ids of the sources
+  that are yet to answer under :pending. The `answers` are attempts, maps
+  of a :value or an :error, one for each of `sources`, or nil for a source
+  that is yet to answer."
   [sources answers]
-  (let [report (for [[source {:keys [error]}] (map vector sources answers)
-                     :when error]
-                 (diagnostics/describe {:id     :directory/source-failed
-                                        :source (impl/source-id source)
-                                        :reason (async/explain error)}))]
+  (let [answered (map vector sources answers)
+        report   (for [[source {:keys [error]}] answered
+                       :when error]
+                   (diagnostics/describe {:id     :directory/source-failed
+                                          :source (impl/source-id source)
+                                          :reason (async/explain error)}))
+        pending  (for [[source answer] answered
+                       :when (nil? answer)]
+                   (impl/source-id source))]
     (cond-> {:results (combine (mapcat :value answers))}
-      (seq report) (assoc :report (vec report)))))
+      (seq report)  (assoc :report (vec report))
+      (seq pending) (assoc :pending (vec pending)))))
 
 (defn- fan-out!
   "Ask each of `sources` for `call` with `params` and `opts` at once,
@@ -356,14 +363,27 @@
 
   The result is a map of the :results and, under :report, a diagnostic
   for each source that failed. A source that fails costs nothing but its
-  absence."
-  [sources call params opts]
-  (let [ask! (fn [source]
-               (async/attempt
-                #(async/then (call! source call params opts)
-                             (fn [shows]
-                               (complete! source call shows opts)))))]
-    (async/then (async/all (map ask! sources))
+  absence. The :on-results-fn of `opts` gets the results so far each time
+  a source answers."
+  [sources call params {:keys [on-results-fn] :as opts}]
+  (let [answers (atom (vec (repeat (count sources) nil)))
+        ask!    (fn [source]
+                  (async/attempt
+                   #(async/then (call! source call params opts)
+                                (fn [shows]
+                                  (complete! source call shows opts)))))
+        ;; on the JVM, the sources answer on threads of their own, so the
+        ;; lock gives the calls in the order of the answers
+        answer! (fn [[i source]]
+                  (async/then (ask! source)
+                              (fn [answer]
+                                (when on-results-fn
+                                  (locking answers
+                                    (on-results-fn
+                                     (combined sources
+                                               (swap! answers assoc i answer)))))
+                                answer)))]
+    (async/then (async/all answer! (map-indexed vector sources))
                 #(combined sources %))))
 
 (defn- most-sources-first
@@ -388,15 +408,21 @@
   - :country, the store of Apple, e.g. \"dk\"
   - :credentials, the :key and :secret of the Podcast Index
   - :timeout-seconds, the time to wait for each source
-  - :send, the function that sends each request, client/send! by default"
+  - :send, the function that sends each request, client/send! by default
+  - :on-results-fn, a function called each time a source answers or
+    fails, with the map of the results so far, and the ids of the sources
+    that are yet to answer as :pending. The last call gets the map that
+    search! gives, which has no :pending."
   ([q]
    (search! q {}))
   ([q opts]
    {:pre [(map? opts)]}
    (let [sources (or (:sources opts) (impl/default-sources opts))
-         params  (assoc (select-keys opts [:limit :country]) :q q)]
-     (async/then (fan-out! sources :search params opts)
-                 #(update % :results most-sources-first)))))
+         params  (assoc (select-keys opts [:limit :country]) :q q)
+         sorted  #(update % :results most-sources-first)
+         opts    (cond-> opts
+                   (:on-results-fn opts) (update :on-results-fn comp sorted))]
+     (async/then (fan-out! sources :search params opts) sorted))))
 
 (defn fetch-chart!
   "Fetch the charts of the directories with `opts`, and combine them into

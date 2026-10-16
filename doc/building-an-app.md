@@ -198,6 +198,17 @@ credentials, and combines the results into one entry per show:
 (def url (resolve/self-url (first found)))
 ```
 
+The search lasts as long as the slowest directory takes to answer. To
+show the results as they come, give it `:on-results-fn`, which gets the
+results so far each time a directory answers, with the directories yet to
+answer as `:pending`:
+
+```clojure
+(directory/search! "podcasting 2.0"
+                   {:on-results-fn #(prn (:pending %) (count (:results %)))})
+;; prints e.g. [:fyyd :gpodder] 3, then [:fyyd] 6, then nil 6
+```
+
 For the charts, use `directory/fetch-chart!`, optionally for one category
 of Apple Podcasts. A source without a chart for the category, the country
 or the language ends up in the `:report`:

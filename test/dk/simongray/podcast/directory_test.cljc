@@ -241,6 +241,23 @@
                       (fn [{:keys [report]}]
                         (is (= [:mirror] (map :source report)) "a source that fails is named by its id"))))))
 
+(deftest the-results-so-far
+  (let [mirror (assoc (:fyyd directory/sources) :id :mirror :root "https://fyyd.example.org/0.2/")
+        send   (fn [{:keys [url]}]
+                 (if (str/includes? url "example.org")
+                   {:status 500 :body "down"}
+                   {:status 200 :body fyyd-search}))
+        calls  (atom [])]
+    (run #(async/then (directory/search! "x" {:sources       [:fyyd mirror]
+                                              :send          send
+                                              :on-results-fn (partial swap! calls conj)})
+                      (fn [result]
+                        (is (= 2 (count @calls)) "a call for each source that answers or fails")
+                        (is (= 1 (count (:pending (first @calls)))) "the first names the source yet to answer")
+                        (is (= result (last @calls)) "the last is the result, with nothing pending")
+                        (is (= [:mirror] (map :source (:report result))))
+                        (is (seq (:results result))))))))
+
 (deftest apple
   (testing "search results"
     (let [shows (directory/response :apple :search apple-search)
