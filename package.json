@@ -6,6 +6,6 @@
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.8",
     "jsdom": "^29.1.1",
-    "shadow-cljs": "^3.5.3"
+    "shadow-cljs": "^3.5.7"
   }
 }
