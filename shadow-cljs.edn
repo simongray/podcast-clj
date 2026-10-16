@@ -22,4 +22,10 @@
                                                :depends-on #{:shared}}
                                       :worker {:init-fn    inspector.worker/init
                                                :depends-on #{:shared}
-                                               :web-worker true}}}}}
+                                               :web-worker true}}}
+          ;; clojure -M:cljs:browser-bench release browser-bench, then
+          ;; node dev/browser-bench/run.mjs
+          :browser-bench {:target     :browser
+                          :output-dir "target/browser-bench/js"
+                          :asset-path "/js"
+                          :modules    {:bench {:entries [browser-bench]}}}}}

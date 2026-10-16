@@ -113,6 +113,10 @@
                           dk.simongray/play-nice {:mvn/version "0.2.0"}}
           :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
 
+  ;; clojure -M:cljs:browser-bench release browser-bench  (the timings of
+  ;; the parse in a browser, for dev/browser-bench/run.mjs)
+  :browser-bench {:extra-paths ["dev/browser-bench"]}
+
   ;; clojure -T:build jar | install | deploy  (see build.clj). The
   ;; tools.deps of tools.build 0.10.14 shares no resolver session across
   ;; threads, which 0.31.1638 fixed, and a CI build of the server failed

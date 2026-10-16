@@ -27,6 +27,18 @@ change, run `(bench/run!)` from `dev/bench.clj`, and then `(bench/compare
 before after)` with the dates of the two runs. For the memory that a
 library holds with all its feeds and with none, run `(bench/footprints)`.
 
+To time the parse of feeds in a browser, stage by stage, build the
+browser bench and run it in a headless Chrome over feeds of the corpus:
+
+```bash
+clojure -M:cljs:browser-bench release browser-bench
+node dev/browser-bench/run.mjs anchor pc20-nashownotes simplecast
+```
+
+The comment at the top of `dev/browser-bench/run.mjs` lists its options,
+e.g. for the first parse of a page, a CPU as slow as a phone's, or the
+profile of one stage.
+
 To change a sibling library and podcast-clj at once, use the `:local`
 alias, e.g. `clojure -M:dev:local:nrepl`. It takes each sibling that it
 lists in deps.edn from a checkout beside this one, e.g. `../wary-fetch`,
