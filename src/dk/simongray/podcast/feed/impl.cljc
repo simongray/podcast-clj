@@ -84,23 +84,25 @@
 (declare parse-children)
 
 (defn- folds-markup?
-  "Whether the elements inside `element` of `entry` fold into its text, by
-  the registry of `ctx`. They do when the registry expects text there and
-  nothing else, e.g. a description embedded as XHTML instead of CDATA."
-  [ctx entry element]
-  (and (seq (xml/elements element))
+  "Whether the child `elements` of an element of `entry` fold into its
+  text, by the registry of `ctx`. They do when the registry expects text
+  there and nothing else, e.g. a description embedded as XHTML instead of
+  CDATA."
+  [ctx entry elements]
+  (and (seq elements)
        (not (spec/container? (:registry ctx) entry))
        (not= :none (spec/content-type entry))))
 
 (defn- element-text
   "The text of `element` under `entry`, with the diagnostics at `path` in
-  `ctx`.
+  `ctx`, and with the markup in it folded in when `folds?`.
 
   It's the element's own text, unless markup sits where the registry
-  expects text alone. Then it's the markup itself for :html content, or
-  else the text of every descendant, with a diagnostic."
-  [ctx entry element path]
-  (if (folds-markup? ctx entry element)
+  expects text alone, as folds-markup? says. Then it's the markup itself
+  for :html content, or else the text of every descendant, with a
+  diagnostic."
+  [ctx entry element folds? path]
+  (if folds?
     (do (note! ctx {:id :feed/markup-in-text :level :info :path path
                     :tags (mapv xml/tag (xml/elements element))})
         (if (= :html (spec/content-type entry))
@@ -109,13 +111,16 @@
     (xml/text element)))
 
 (defn- parse-map-element
-  "The model map of the map-shaped `element` of `entry` at `path`, with
-  its `text` as the :content, parsed with `ctx`."
-  [ctx entry element text path]
-  (let [m (cond-> (parse-attrs ctx entry (xml/attrs element) path)
-            (not (folds-markup? ctx entry element))
-            (merge (parse-children ctx (spec/children-context entry)
-                                   (xml/elements element) path)))]
+  "The model map of the map-shaped `element` of `entry` at `path`, parsed
+  with `ctx`, with its child `elements` in it and its `text` as the
+  :content."
+  [ctx entry element elements text path]
+  (let [attrs    (parse-attrs ctx entry (xml/attrs element) path)
+        children (parse-children ctx (spec/children-context entry) elements
+                                 path)
+        ;; an item has no attributes, and a merge into an empty map would
+        ;; add its children one by one
+        m        (if (empty? attrs) children (merge attrs children))]
     (cond
       (= :none (spec/content-type entry))
       (do (when (seq text)
@@ -155,11 +160,16 @@
   registry `entry` with `ctx`, or ::feed/empty for a scalar element without
   text."
   [ctx entry element path]
-  (let [text (element-text ctx entry element path)
+  ;; the child elements found once, since each search for them walks lazy
+  ;; seqs
+  (let [elements (xml/elements element)
+        folds?   (folds-markup? ctx entry elements)
+        text     (element-text ctx entry element folds? path)
         ;; the spaces kept between two elements are no text of their own
-        text (when-not (= "" (xml/trim text)) text)]
+        text     (when-not (= "" (xml/trim text)) text)]
     (if (spec/map-shaped? (:registry ctx) entry)
-      (parse-map-element ctx entry element text path)
+      (parse-map-element ctx entry element (when-not folds? elements) text
+                         path)
       (parse-scalar-element ctx entry element text path))))
 
 (defn parse-children

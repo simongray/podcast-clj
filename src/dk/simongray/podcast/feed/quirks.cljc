@@ -250,9 +250,11 @@
   date that the library reads but that isn't in the strict form of RFC
   2822."
   [element]
+  ;; the strict form first, since most dates are in it, and its check
+  ;; reads the date, which parse-date would read a second time
   (let [s (xml/trim (xml/text element))]
-    (when (and (time/parse-date s)
-               (not (time/rfc2822-strict? s)))
+    (when (and (not (time/rfc2822-strict? s))
+               (time/parse-date s))
       {:value s})))
 
 (defn- non-canonical-duration
@@ -260,8 +262,8 @@
   duration that the library reads but that isn't a number of seconds."
   [element]
   (let [s (xml/trim (xml/text element))]
-    (when (and (time/parse-duration s)
-               (not (re-matches #"\d+" s)))
+    (when (and (not (re-matches #"\d+" s))
+               (time/parse-duration s))
       {:value s})))
 
 (defn- itunes-image-href
