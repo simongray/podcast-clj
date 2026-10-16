@@ -45,15 +45,6 @@
     (is (= ["https://example.com" nil]
            (map #(resolve/notes-url nil %) ["example.com" "page.html"]))
         "a path with no page to resolve it against"))
-  (testing "the headings of show notes, under those of the page"
-    (is (= '([:h3 {} "Links"] [:p {} "a"] [:h5 {} "More"] [:ul {} [:li {} [:h4 {} "x"]]])
-           (resolve/with-heading-level '([:h1 {} "Links"] [:p {} "a"] [:h3 {} "More"] [:ul {} [:li {} [:h2 {} "x"]]]) 3))
-        "the highest at the level, and the others as far below it as before")
-    (is (= '([:h3 "Deep"] [:h4 {} "deeper"]) (resolve/with-heading-level '([:h5 "Deep"] [:h6 {} "deeper"]) 3))
-        "up as well as down")
-    (is (= '([:h3 {} "a"] [:h6 {} "b"]) (resolve/with-heading-level '([:h1 {} "a"] [:h6 {} "b"]) 3))
-        "none past h6")
-    (is (= '([:p {} "none"]) (resolve/with-heading-level '([:p {} "none"]) 3))))
   (is (= #inst "2020-10-09T04:30:38Z" (resolve/published @example)))
   (is (nil? (resolve/published {:rss/pub-date "soon"}))))
 

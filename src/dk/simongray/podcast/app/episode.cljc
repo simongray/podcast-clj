@@ -53,8 +53,7 @@
     a link that plays from there, or nil to leave the text. A time in a
     link, or past the end of the episode, stays text.
   - :heading-level, the level that the highest heading of the show notes
-    takes, e.g. 3 on a page whose own headings are h1 and h2, as
-    resolve/with-heading-level gives it
+    takes, e.g. 3 on a page whose own headings are h1 and h2
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
@@ -69,7 +68,8 @@
          page      (or (resolve/link item) (resolve/link feed))
          notes     (when read?
                      (some-> (resolve/description item)
-                             (html/hiccup {:url-fn #(notes-url-fn page %)})))
+                             (html/hiccup {:url-fn        #(notes-url-fn page %)
+                                           :heading-level heading-level})))
          text      (when (and notes (or (wanted? :text) (wanted? :chapters)))
                      (html/text notes))
          own       (when (wanted? :chapters) (impl/own-chapters item text))]
@@ -82,9 +82,8 @@
 
        (and notes (wanted? :notes))
        (assoc :notes (cond-> notes
-                       timestamp-fn  (impl/with-times timestamp-fn
-                                       (resolve/duration item))
-                       heading-level (resolve/with-heading-level heading-level)))
+                       timestamp-fn (impl/with-times timestamp-fn
+                                      (resolve/duration item))))
 
        (and text (wanted? :text))
        (assoc :text text)

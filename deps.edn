@@ -20,7 +20,7 @@
          org.clojure/data.json    {:mvn/version "2.5.2"}
          dk.simongray/wary-fetch     {:mvn/version "0.15.1"}
          dk.simongray/qname-hiccup   {:mvn/version "0.6.1"}
-         dk.simongray/html-pieces    {:mvn/version "0.7.0"}
+         dk.simongray/html-pieces    {:mvn/version "0.8.0"}
          dk.simongray/drop-in-search {:mvn/version "0.4.1"}
          dk.simongray/websub-clj     {:mvn/version "0.7.0"}
          dk.simongray/mind-meld      {:mvn/version "0.4.0"}
