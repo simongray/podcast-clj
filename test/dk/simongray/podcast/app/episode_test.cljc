@@ -78,6 +78,11 @@
         (is (= (:notes (episode/view show timed)) (notes (constantly nil))) "a time that the app leaves")
         (is (= (:text (episode/view show timed)) (:text (episode/view show timed {:timestamp-fn link})))
             "the text as it was")))
+    (testing "the headings of the show notes, under those of the page"
+      (is (= '([:h3 {} "Links"] [:p {} [:a {:href "#t=754"} "12:34"]])
+             (:notes (episode/view show (assoc item :rss/description "<h1>Links</h1><p>12:34</p>")
+                                   {:heading-level 3
+                                    :timestamp-fn  (fn [seconds text] [:a {:href (str "#t=" seconds)} text])})))))
     (testing "the enclosure and the transcript, as the options select them"
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))
       (is (= "https://example.com/file-low-03.opus"

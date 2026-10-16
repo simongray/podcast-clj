@@ -42,7 +42,7 @@
         "readable when the guids are")
     (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810:https%3A%2F%2Fexample.com%2Fep%201%3Fa%3D1"
            (guid/format-episode-id [feed "https://example.com/ep 1?a=1"]))
-        "one segment of a URL, with no slash or colon in it")
+        "one string, with no slash or colon in it but the one between")
     (doseq [item ["ep0003" "https://example.com/ep 1?a=1" "a:b:c" "Æble/grød – 🍎" "" "%41" "tag:x,2026:/1"]]
       (is (= [feed item] (guid/parse-episode-id (guid/format-episode-id [feed item]))) (pr-str item)))
     (is (= [feed "ep 1"] (guid/parse-episode-id (str feed ":ep%201"))))
@@ -52,3 +52,18 @@
         (is (nil? (guid/parse-episode-id s)) (pr-str s)))
       (is (nil? (guid/format-episode-id [feed nil])))
       (is (nil? (guid/format-episode-id [feed 1]))))))
+
+(deftest short-hashes-of-items
+  (let [items (vec (for [i (range 3000)] {:rss/guid {:content (str "https://example.com/?p=" i)}}))
+        item  (nth items 7)]
+    (is (= "558b541" (guid/short-hash "https://example.com/?p=7")) "seven hex digits, as git has them")
+    (is (= "558b541270ed6a0b200ad3407288854eabdd7a77" (guid/short-hash "https://example.com/?p=7" 40)))
+    (is (= 3000 (count (set (map (comp guid/short-hash guid/item-guid) items))))
+        "enough to tell thousands of items apart")
+    (is (= [item] (guid/matching-items items "558b541")))
+    (is (= [item] (guid/matching-items items "558B541270ED")) "in either case, and longer")
+    (is (< 1 (count (guid/matching-items items "55"))) "every item that a short one matches")
+    (is (= [{:rss/enclosure {:url "https://example.com/1.mp3"}}]
+           (guid/matching-items [{:rss/enclosure {:url "https://example.com/1.mp3"}} {}]
+                                (guid/short-hash "https://example.com/1.mp3")))
+        "the guid of an item without one, and none of an item with neither")))

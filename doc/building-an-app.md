@@ -710,8 +710,17 @@ transcripts have, also has the timed `:runs` of its text, e.g.
 highlight each word as it's spoken.
 
 An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
-route or a key that takes one string, `feed.guid/format-episode-id`
-writes the id as one, and `feed.guid/parse-episode-id` reads it back.
+key that takes one string, `feed.guid/format-episode-id` writes the id as
+one, and `feed.guid/parse-episode-id` reads it back.
+
+An item guid is often a URL, and many servers refuse its slashes in a
+path even when they're percent-encoded. For the path of an episode page,
+`feed.guid/short-hash` gives the first 7 hex digits of the guid's SHA-1,
+as git abbreviates a commit, e.g. `/shows/<feed-guid>/episodes/558b541`.
+To find the episode again, `feed.guid/matching-items` gives the items of
+the feed whose hash starts with them. That's almost always one, and you
+can tell two apart by something else in the URL, e.g. a slug of the
+title.
 
 Artwork is often 3000 pixels wide. When a feed or a directory gives it in
 several sizes, `resolve/artwork-sizes` lists them with their widths, e.g.
@@ -783,6 +792,11 @@ give `:timestamp-fn` a function of the seconds and the text of a time.
 It returns the Hiccup in its place, or nil to leave the text, e.g.
 `(fn [seconds text] [:a {:href (str "#t=" seconds)} text])`. A time in a
 link, or past the end of the episode, stays text.
+
+The headings of the notes start wherever their writer chose, often at h1.
+To fit them into the outline of your page, give `:heading-level` the
+level that the highest of them takes, e.g. 3 when the page's own headings
+are h1 and h2. The others keep their distance below it.
 
 For the shows that a show recommends in its podroll, and the feed of its
 publisher, merge in `library/fetch-linked-shows!`. It reads each show of

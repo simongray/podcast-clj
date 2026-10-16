@@ -52,10 +52,13 @@
     the show notes, e.g. 12:34, which gives the Hiccup in its place, e.g.
     a link that plays from there, or nil to leave the text. A time in a
     link, or past the end of the episode, stays text.
+  - :heading-level, the level that the highest heading of the show notes
+    takes, e.g. 3 on a page whose own headings are h1 and h2, as
+    resolve/with-heading-level gives it
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
-  ([feed item {:keys [url notes-url-fn timestamp-fn except]
+  ([feed item {:keys [url notes-url-fn timestamp-fn heading-level except]
                :or   {notes-url-fn resolve/notes-url except #{}}
                :as   opts}]
    {:pre [(map? opts)]}
@@ -79,8 +82,9 @@
 
        (and notes (wanted? :notes))
        (assoc :notes (cond-> notes
-                       timestamp-fn (impl/with-times timestamp-fn
-                                      (resolve/duration item))))
+                       timestamp-fn  (impl/with-times timestamp-fn
+                                       (resolve/duration item))
+                       heading-level (resolve/with-heading-level heading-level)))
 
        (and text (wanted? :text))
        (assoc :text text)

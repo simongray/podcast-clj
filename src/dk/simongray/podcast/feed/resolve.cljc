@@ -66,6 +66,36 @@
       (impl/domain-first? t)      (str "https://" t)
       base                        (url/absolute-url base t))))
 
+(def heading-levels
+  "The level of each heading element."
+  {:h1 1 :h2 2 :h3 3 :h4 4 :h5 5 :h6 6})
+
+;; A feed's headings start where its writer chose, often at h1, which would
+;; break the outline of a page whose h1 is the title of the episode.
+;; https://www.w3.org/WAI/tutorials/page-structure/headings/
+(defn with-heading-level
+  "The Hiccup `nodes` of show notes with their highest heading at `level`,
+  e.g. 3 on a page whose own headings are h1 and h2, and the others as far
+  below it as before, down to h6."
+  [nodes level]
+  (let [element? #(and (vector? %) (keyword? (first %)))
+        children #(subvec % (if (map? (second %)) 2 1))
+        levels   (->> (tree-seq (some-fn seq? element?) #(if (seq? %) % (children %)) nodes)
+                      (keep #(when (element? %) (heading-levels (first %)))))]
+    (if (empty? levels)
+      nodes
+      (let [shift (- level (apply min levels))]
+        (letfn [(node [x]
+                  (if (element? x)
+                    (let [n (if (map? (second x)) 2 1)
+                          k (heading-levels (first x))]
+                      (into (cond-> (subvec x 0 n)
+                              k (assoc 0 (keyword (str "h" (max 1 (min 6 (+ k shift)))))))
+                            (map node)
+                            (subvec x n)))
+                    x))]
+          (apply list (map node nodes)))))))
+
 (defn published
   "When `x` was published, as an instant, or nil when it gave no readable
   date."

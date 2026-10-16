@@ -135,10 +135,13 @@
       text)))
 
 (defn format-episode-id
-  "The episode `id` as one string, e.g. for a route, a key or a native
-  bridge, or nil when it isn't a pair of strings. Each part is
-  percent-encoded and they're joined by a colon, so any guid round-trips,
-  e.g. 917393e3-…:https%3A%2F%2Fexample.com%2Fep%201."
+  "The episode `id` as one string, e.g. for a key or a native bridge, or
+  nil when it isn't a pair of strings. Each part is percent-encoded and
+  they're joined by a colon, so any guid round-trips, e.g.
+  917393e3-…:https%3A%2F%2Fexample.com%2Fep%201.
+
+  It isn't for the path of a URL, since many servers refuse a slash there
+  even when it's percent-encoded. Name the item there by its short-hash."
   [[feed-guid item-guid :as id]]
   (when (and (string? feed-guid) (string? item-guid) (= 2 (count id)))
     (str (encoded feed-guid) ":" (encoded item-guid))))
@@ -152,6 +155,27 @@
       (let [[feed-guid item-guid] (map decoded parts)]
         (when (and feed-guid item-guid)
           [feed-guid item-guid])))))
+
+;; As git abbreviates the hash of a commit: the start of a hash is as good
+;; as random, so a few hex digits tell the items of one feed apart.
+;; https://git-scm.com/docs/git-rev-parse#_specifying_revisions
+(defn short-hash
+  "The first `n` hex digits of the SHA-1 of the item guid `s`, by default
+  7, e.g. to name an episode of a show in the path of a URL, where the
+  guid itself may not go."
+  ([s]
+   (short-hash s 7))
+  ([s n]
+   (subs (bytes/hex (hash/digest :sha-1 (bytes/encode s))) 0 n)))
+
+(defn matching-items
+  "The items of `items`, in order, whose guids have a SHA-1 that starts
+  with the hex digits `h`, as short-hash gives them. That's one item, or
+  more when `h` is too short to tell them apart."
+  [items h]
+  (let [h (str/lower-case h)]
+    (filterv #(some-> (item-guid %) (short-hash 40) (str/starts-with? h))
+             items)))
 
 (comment
   (from-url "https://mp3s.nashownotes.com/pc20rss.xml")

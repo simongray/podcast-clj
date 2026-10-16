@@ -56,7 +56,11 @@
              (:notes (show/view (assoc feed
                                        :rss/link "https://show.example/"
                                        :rss/description "<a href=\"/about\">about</a>"))))
-          "with its links made absolute against the web page of the show"))
+          "with its links made absolute against the web page of the show")
+      (is (= '([:h3 {} "Hosts"] [:h4 {} "Guests"])
+             (:notes (show/view (assoc feed :rss/description "<h1>Hosts</h1><h2>Guests</h2>")
+                                {:heading-level 3})))
+          "with its headings under those of the page"))
     (testing "the episodes in listening order, and the seasons"
       (is (= ["Episode 3 - The Future" "Episode 2 - The Present" "Episode 1 - The Past"]
              (map :rss/title (:episodes v))))

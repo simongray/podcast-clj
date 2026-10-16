@@ -37,10 +37,13 @@
   - :notes-url-fn, a function of the web page of the show and a URL in
     its description, which gives the URL to keep or nil, by default the
     URL made absolute
+  - :heading-level, the level that the highest heading of the notes
+    takes, e.g. 3 on a page whose own headings are h1 and h2, as
+    resolve/with-heading-level gives it
   - :except, a set of the keys above to leave out without computing them"
   ([feed]
    (view feed {}))
-  ([feed {:keys [url notes-url-fn except]
+  ([feed {:keys [url notes-url-fn heading-level except]
           :or   {notes-url-fn resolve/notes-url except #{}}
           :as   opts}]
    {:pre [(map? opts)]}
@@ -51,7 +54,8 @@
          page    (resolve/link feed)
          notes   (when (or (wanted? :notes) (wanted? :text))
                    (some-> (resolve/description feed)
-                           (html/hiccup {:url-fn #(notes-url-fn page %)})))]
+                           (html/hiccup {:url-fn #(notes-url-fn page %)})
+                           (cond-> heading-level (resolve/with-heading-level heading-level))))]
      (cond-> (merge feed (resolve/properties feed))
        guid
        (assoc :guid guid)
