@@ -1,6 +1,6 @@
 (ns ^:no-doc dk.simongray.podcast.format.transcript.impl
   "The cue, paragraph and HTML readers, the speaker and diagnostic helpers,
-  and the passage arithmetic behind format.transcript."
+  and the passage and paragraph arithmetic behind format.transcript."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.transcript :as-alias transcript]
             [dk.simongray.podcast.util.entities :as entities]
@@ -290,3 +290,45 @@
          last
          second
          :start-time)))
+
+(defn sentence-end?
+  "Whether the body of `segment` ends a sentence, also inside quotes or
+  brackets."
+  [segment]
+  (re-find #"[.!?…。！？][\"'”’)\]]*$" (str/trimr (:body segment))))
+
+(defn paragraph-pieces
+  "The segments of `run` in groups in order, each ending at the end of a
+  sentence once it's `span` seconds long, or at twice that. A segment
+  without a start time is a group of its own."
+  [run span]
+  (let [ends? (fn [piece segment]
+                (let [from (:start-time (first piece))
+                      to   (:start-time segment)]
+                  (or (not (and (number? from) (number? to)))
+                      (<= (* 2 span) (- to from))
+                      (and (<= span (- to from))
+                           (sentence-end? (peek piece))))))]
+    (reduce (fn [acc segment]
+              (let [piece (peek acc)]
+                (if (and piece (not (ends? piece segment)))
+                  (conj (pop acc) (conj piece segment))
+                  (conj acc [segment]))))
+            []
+            run)))
+
+(defn paragraph
+  "The segments `piece` as one paragraph: their turn, with its text on one
+  line. The runs are those of each segment, or the segment's body as one
+  run when it has none."
+  [piece]
+  (let [runs (reduce (fn [acc {:keys [start-time body runs]}]
+                       (into (cond-> acc
+                               (seq acc) (update-in [(dec (count acc)) :text]
+                                                    str " "))
+                             (or runs [{:start-time start-time :text body}])))
+                     []
+                     piece)
+        line #(str/replace % #"\s+" " ")]
+    (cond-> (update (turn piece) :body (comp str/trim line))
+      (next runs) (assoc :runs (mapv #(update % :text line) runs)))))

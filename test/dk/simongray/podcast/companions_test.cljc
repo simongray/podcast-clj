@@ -368,6 +368,40 @@
                                                       {:start-time 1 :speaker "A" :body "b"}]})))
           "a turn ends where the last segment with an end does"))))
 
+(deftest transcript-paragraphs
+  (let [cues  (fn [& pairs] {:segments (for [[t body] (partition 2 pairs)] {:start-time t :body body})})
+        spans #(map (juxt :start-time :body) (:segments %))]
+    (testing "a speaker's turn"
+      (is (= [{:start-time 0.0 :end-time 3.0 :speaker "Adam" :body "Hello there. How are you?"}
+              {:start-time 3.0 :end-time 4.0 :speaker "Dave" :body "Fine."}]
+             (map #(dissoc % :runs)
+                  (:segments (transcript/paragraphs {:segments [{:start-time 0.0 :end-time 1.0 :speaker "Adam" :body "Hello there."}
+                                                                {:start-time 1.0 :end-time 3.0 :speaker "Adam" :body "How are you?"}
+                                                                {:start-time 3.0 :end-time 4.0 :speaker "Dave" :body "Fine."}]}))))))
+    (testing "about a minute of cues without speakers, to the end of a sentence"
+      (is (= [[0 "One. two three."] [70 "Four."]]
+             (spans (transcript/paragraphs (cues 0 "One." 30 "two" 61 "three." 70 "Four."))))))
+    (testing "twice the span without punctuation"
+      (is (= [[0 "a b c d"] [120 "e f"]]
+             (spans (transcript/paragraphs (cues 0 "a" 30 "b" 60 "c" 90 "d" 120 "e" 150 "f"))))))
+    (testing "a long turn and another span"
+      (is (= [[0 "One. Two."] [10 "Three."]]
+             (spans (transcript/paragraphs (update (cues 0 "One." 5 "Two." 10 "Three.") :segments
+                                                   (partial map #(assoc % :speaker "A")))
+                                           10)))))
+    (testing "the text on one line, timed by the cue or by the word"
+      (let [vtt (str "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nNever\ndrink\n\n"
+                     "00:00:01.000 --> 00:00:02.000\n \n\n"
+                     "00:00:02.000 --> 00:00:04.000\nliquid <00:00:03.000>nitrogen.\n")]
+        (is (= [{:start-time 0.0 :end-time 4.0 :body "Never drink liquid nitrogen."
+                 :runs [{:start-time 0.0 :text "Never drink "} {:start-time 2.0 :text "liquid "} {:start-time 3.0 :text "nitrogen."}]}]
+               (:segments (transcript/paragraphs (transcript/parse vtt))))
+            "a cue without text is left out")))
+    (testing "the paragraphs of a transcript without times as they are"
+      (let [t (transcript/parse "Justin: Hi.\n\nHow are you?" "text/plain")]
+        (is (= (:segments t) (:segments (transcript/paragraphs t))))
+        (is (= (transcript/report t) (transcript/report (transcript/paragraphs t))))))))
+
 (deftest matches-in-a-transcript
   (let [vtt (transcript/parse (fixture "transcripts/example.vtt"))]
     (is (= [[2.76 "Sarah"] [21.45 "Gillian"]]

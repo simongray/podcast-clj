@@ -332,6 +332,34 @@
                     (comp (partition-by :speaker) (mapcat merged))
                     segments)))))
 
+;; WAI, Transcripts: put the text in paragraphs and name who speaks
+;; https://www.w3.org/WAI/media/av/transcripts/
+(defn paragraphs
+  "The `transcript` with its segments merged into paragraphs for reading,
+  which last up to about `span` seconds, by default 60.
+
+  A paragraph holds segments by one speaker, or by none, as turns merges
+  them. It ends at the end of a sentence once it's `span` seconds long, or
+  at twice that when the text has no punctuation. A caption file of short
+  cues reads as prose this way, and a long turn reads as paragraphs. Each
+  paragraph has its text on one line. Its :runs time that text by the cue
+  or by the word, e.g. to mark what's being said.
+
+  Segments without text are left out. A segment without a start time is a
+  paragraph of its own, since plain text and HTML without times come in
+  paragraphs already."
+  ([transcript]
+   (paragraphs transcript 60))
+  ([transcript span]
+   (update transcript :segments
+           (fn [segments]
+             (into []
+                   (comp (remove (comp str/blank? :body))
+                         (partition-by :speaker)
+                         (mapcat #(impl/paragraph-pieces % span))
+                         (map impl/paragraph))
+                   segments)))))
+
 (defn text
   "The plain text of `transcript`: the bodies of its segments, with a line
   for each speaker turn and the speakers as prefixes."

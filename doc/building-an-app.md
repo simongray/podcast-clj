@@ -709,6 +709,11 @@ transcripts have, also has the timed `:runs` of its text, e.g.
 `[{:start-time 1.0 :text "Never "} {:start-time 1.5 :text "drink"}]`, to
 highlight each word as it's spoken.
 
+A caption file comes as hundreds of cues of a few words each. To show it
+for reading, `transcript/paragraphs` merges the cues into paragraphs, each
+a speaker's turn or about a minute of it. Their `:runs` keep the time of
+each cue or word.
+
 An episode's id is a pair of strings, `[feed-guid item-guid]`. For a
 key that takes one string, `feed.guid/format-episode-id` writes the id as
 one, and `feed.guid/parse-episode-id` reads it back.
