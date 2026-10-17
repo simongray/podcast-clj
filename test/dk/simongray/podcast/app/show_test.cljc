@@ -60,7 +60,12 @@
       (is (= '([:h3 {} "Hosts"] [:h4 {} "Guests"])
              (:notes (show/view (assoc feed :rss/description "<h1>Hosts</h1><h2>Guests</h2>")
                                 {:heading-level 3})))
-          "with its headings under those of the page"))
+          "with its headings under those of the page")
+      (is (= '([:a {:href "https://x.example/" :target "_blank"} "x"])
+             (:notes (show/view (assoc feed :rss/description "<a href=\"https://x.example/\">x</a>")
+                                {:link-fn (fn [[tag attrs & children]]
+                                            (into [tag (assoc attrs :target "_blank")] children))})))
+          "with its links as the app makes them"))
     (testing "the episodes in listening order, and the seasons"
       (is (= ["Episode 3 - The Future" "Episode 2 - The Present" "Episode 1 - The Past"]
              (map :rss/title (:episodes v))))

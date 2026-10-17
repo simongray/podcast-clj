@@ -39,10 +39,15 @@
     URL made absolute
   - :heading-level, the level that the highest heading of the notes
     takes, e.g. 3 on a page whose own headings are h1 and h2
+  - :link-fn, a function of each link of the notes, as Hiccup, e.g.
+    [:a {:href \"https://example.com\"} \"Example\"], which gives the Hiccup
+    in its place, e.g. the link with a :target. What it gives is kept as
+    it is, so it's for the app's own code, and the text of the notes has
+    its text too.
   - :except, a set of the keys above to leave out without computing them"
   ([feed]
    (view feed {}))
-  ([feed {:keys [url notes-url-fn heading-level except]
+  ([feed {:keys [url notes-url-fn heading-level link-fn except]
           :or   {notes-url-fn resolve/notes-url except #{}}
           :as   opts}]
    {:pre [(map? opts)]}
@@ -53,8 +58,11 @@
          page    (resolve/link feed)
          notes   (when (or (wanted? :notes) (wanted? :text))
                    (some-> (resolve/description feed)
-                           (html/hiccup {:url-fn        #(notes-url-fn page %)
-                                         :heading-level heading-level})))]
+                           (html/hiccup
+                            (cond-> {:url-fn        #(notes-url-fn page %)
+                                     :heading-level heading-level}
+                              link-fn (assoc :element-fn          #(if (= :a (first %)) (link-fn %) %)
+                                             :trusted-element-fn? true)))))]
      (cond-> (merge feed (resolve/properties feed))
        guid
        (assoc :guid guid)

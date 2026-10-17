@@ -83,6 +83,15 @@
              (:notes (episode/view show (assoc item :rss/description "<h1>Links</h1><p>12:34</p>")
                                    {:heading-level 3
                                     :timestamp-fn  (fn [seconds text] [:a {:href (str "#t=" seconds)} text])})))))
+    (testing "the links of the show notes, as the app makes them"
+      (let [linked (assoc item :rss/description "<p><a href=\"https://x.example/\">x</a> at 12:34</p>")
+            link   (fn [[tag attrs & children]] (into [tag (assoc attrs :target "_blank")] children))
+            v      (episode/view show linked {:link-fn      link
+                                              :timestamp-fn (fn [seconds text] [:a {:href (str "#t=" seconds)} text])})]
+        (is (= '([:p {} [:a {:href "https://x.example/" :target "_blank"} "x"] " at " [:a {:href "#t=754"} "12:34"]])
+               (:notes v))
+            "kept as the function gives them, but not the times, which are the app's own")
+        (is (= "x at 12:34" (:text v)))))
     (testing "the enclosure and the transcript, as the options select them"
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))
       (is (= "https://example.com/file-low-03.opus"

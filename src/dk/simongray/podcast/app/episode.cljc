@@ -54,10 +54,15 @@
     link, or past the end of the episode, stays text.
   - :heading-level, the level that the highest heading of the show notes
     takes, e.g. 3 on a page whose own headings are h1 and h2
+  - :link-fn, a function of each link of the show notes, as Hiccup, e.g.
+    [:a {:href \"https://example.com\"} \"Example\"], which gives the Hiccup
+    in its place, e.g. the link with a :target. What it gives is kept as
+    it is, so it's for the app's own code, and the text of the notes has
+    its text too, as do the chapters that the notes imply.
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
-  ([feed item {:keys [url notes-url-fn timestamp-fn heading-level except]
+  ([feed item {:keys [url notes-url-fn timestamp-fn heading-level link-fn except]
                :or   {notes-url-fn resolve/notes-url except #{}}
                :as   opts}]
    {:pre [(map? opts)]}
@@ -68,8 +73,11 @@
          page      (or (resolve/link item) (resolve/link feed))
          notes     (when read?
                      (some-> (resolve/description item)
-                             (html/hiccup {:url-fn        #(notes-url-fn page %)
-                                           :heading-level heading-level})))
+                             (html/hiccup
+                              (cond-> {:url-fn        #(notes-url-fn page %)
+                                       :heading-level heading-level}
+                                link-fn (assoc :element-fn          #(if (= :a (first %)) (link-fn %) %)
+                                               :trusted-element-fn? true)))))
          text      (when (and notes (or (wanted? :text) (wanted? :chapters)))
                      (html/text notes))
          own       (when (wanted? :chapters) (impl/own-chapters item text))]

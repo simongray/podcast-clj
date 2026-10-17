@@ -803,6 +803,14 @@ To fit them into the outline of your page, give `:heading-level` the
 level that the highest of them takes, e.g. 3 when the page's own headings
 are h1 and h2. The others keep their distance below it.
 
+A link in the notes leaves your app, which stops what plays in a page
+that holds the player. To open such links in a new tab, give `:link-fn`
+a function of each link that returns it with a `:target`, e.g.
+`(fn [[tag attrs & children]] (into [tag (assoc attrs :target "_blank")] children))`.
+Tell a screen reader that it opens a new tab with `:aria-describedby`,
+rather than with text in the link, since the text of the notes, and the
+chapters that it implies, has the text of the links too.
+
 For the shows that a show recommends in its podroll, and the feed of its
 publisher, merge in `library/fetch-linked-shows!`. It reads each show of
 the podroll from the start of its feed, most often the first 64 KB, or
