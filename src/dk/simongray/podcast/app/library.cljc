@@ -998,6 +998,44 @@
               :chapters-url (:chapters-url view)
               :transcript   (:transcript view)})))))
 
+(defn queue
+  "The queue of `library`, the current episode first, for a page of it, with
+  the `opts` of episode: a map of its :episodes and the seconds :remaining
+  of all of them that it knows the duration of, e.g.
+
+      {:episodes  [{:id        [feed-guid item-guid]
+                    :title     \"…\" :show \"…\" :artwork \"https://…\"
+                    :duration  3600       ; when it's known
+                    :position  754        ; where the listener left it
+                    :remaining 2846}      ; when the duration is known
+                   …]
+       :remaining 10800}
+
+  An episode whose feed the library doesn't hold in memory is left out,
+  as loaded? tells."
+  ([library]
+   (queue library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [profile  (:profile library)
+         unused   #{:notes :text :links :chapters}
+         row      (fn [[feed-guid :as id]]
+                    (when-let [view (episode library id (assoc opts :except unused))]
+                      (let [entry    (profile/episode-entry profile id)
+                            position (or (:position entry) 0)
+                            duration (or (:duration entry) (:duration view))]
+                        (into {:id id :position position}
+                              (remove (comp nil? val))
+                              {:title     (:title view)
+                               :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
+                               :artwork   (:artwork view)
+                               :duration  duration
+                               :remaining (when (number? duration)
+                                            (max 0 (- duration position)))}))))
+         episodes (into [] (keep row) (profile.queue/queue profile))]
+     {:episodes  episodes
+      :remaining (reduce + 0 (keep :remaining episodes))})))
+
 (defn read-files!
   "Read the files of the episode `id` of `library`, with the `opts` of
   app.episode/read-files! over the config. It gives a map of the

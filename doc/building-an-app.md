@@ -1095,6 +1095,13 @@ A file without a type, or with one such as `application/octet-stream`,
 is almost always an MP3, so it counts as playable. If the browser can't
 play it after all, the audio element fires an error when it starts.
 
+For a page of the queue, `library/queue` gives its episodes, the current
+one first, each with its title, show, artwork and position, and the
+seconds left of each and of them all. To change it, give
+`library/update-profile` the functions of `profile.queue`: `enqueue` to
+add an episode at the end, `play-next` to put it after the current one,
+`move` to place it, and `dequeue` to take it out.
+
 To queue an episode of a show that the listener isn't subscribed to, e.g.
 from a search or a link, add it to the library first:
 

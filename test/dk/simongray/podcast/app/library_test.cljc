@@ -668,6 +668,27 @@
       (let [moved (assoc-in @lib [:feeds guid :websub :hubs] ["https://other.example.org/"])]
         (is (= "https://other.example.org/" (:url (get (library/hub-requests moved @websubs callback) guid))))))))
 
+(deftest the-queue-for-a-page
+  (let [ep3 [guid "https://example.com/ep0003"]
+        ep2 [guid "https://example.com/ep0002"]
+        lib (-> library
+                (library/update-profile #(profile.queue/dequeue-all %1 (profile.queue/queue %1) %2))
+                (library/update-profile profile.queue/enqueue ep3)
+                (library/update-profile profile.queue/enqueue ep2)
+                (library/step [:progress ep3 754 3600] {:at (at 10)}))
+        {:keys [episodes remaining]} (library/queue lib)]
+    (is (= [ep3 ep2] (map :id episodes)) "the current episode first")
+    (is (= {:title     "Episode 3 - The Future"
+            :show      "Podcasting 2.0 Namespace Example"
+            :position  754
+            :duration  3600
+            :remaining 2846}
+           (select-keys (first episodes) [:title :show :position :duration :remaining])))
+    (is (= 0 (:position (second episodes))) "one that hasn't started")
+    (is (= 2846 remaining) "the time left of those whose duration is known")
+    (is (= {:episodes [] :remaining 0}
+           (library/queue (library/update-profile lib #(profile.queue/dequeue-all %1 [ep3 ep2] %2)))))))
+
 (deftest what-a-player-needs
   (let [id    [guid "https://example.com/ep0003"]
         lib   (-> library
