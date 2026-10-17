@@ -76,6 +76,20 @@
        (seq missing) (update :rss/items #(into (vec %) missing)))
      (into {} (map fact) missing)]))
 
+(def head-items
+  "How many of the newest items of a feed its start must have, as the feed
+  had them, to show nothing new."
+  3)
+
+(defn same-start?
+  "Whether the start of a feed, `head`, has the newest items of `feed`, by
+  their guids, in the same order."
+  [feed head]
+  (let [guids  #(map guid/item-guid (take head-items (:rss/items %)))
+        newest (guids head)]
+    (boolean (and (seq newest)
+                  (= newest (take (count newest) (guids feed)))))))
+
 (defn fetched
   "The entry `old` of the feed `feed-guid` after a fetch from `url` gave
   the fresh feed of `result` at `at`, with the next check by `cadence`, and
@@ -85,7 +99,10 @@
   retains, its ETag and Last-Modified, the new URL of a feed that moved,
   and the :guid that the feed gives itself there. Its :changed-at is `at`
   unless the feed is the one it had, since a server without validators
-  answers 200 for a feed that didn't change."
+  answers 200 for a feed that didn't change, and its :whole-at is `at`. A
+  server that answered so to the validators of the entry, with the same
+  newest items, is marked as one that doesn't :validate?, since a feed
+  that stamps the time of each answer differs every time."
   [old feed-guid url result at cadence]
   (let [{:keys [status etag last-modified not-before websub
                 permanent-url new-feed-url]} result
@@ -93,32 +110,40 @@
         [feed retained] (with-retained old fresh at)
         url             (or permanent-url new-feed-url url)
         same?           (and (= feed (:feed old))
-                             (= retained (:retained old {})))]
+                             (= retained (:retained old {})))
+        asked?          (boolean (or (:etag old) (:last-modified old)))
+        nothing-new?    (same-start? (:feed old) fresh)]
     [(-> (dissoc old :etag :last-modified :websub :status :retained :gone?)
          (assoc :url url
                 :guid (guid/feed-guid fresh url)
                 :feed feed
                 :changed-at (if same? (:changed-at old at) at)
                 :fetched-at at
+                :whole-at at
                 :next-check (check-at fresh at not-before cadence)
                 :failures 0)
          (cond->
-           (seq retained) (assoc :retained retained)
-           status         (assoc :status status)
-           etag           (assoc :etag etag)
-           last-modified  (assoc :last-modified last-modified)
-           websub         (assoc :websub websub)))
+           (seq retained)     (assoc :retained retained)
+           status             (assoc :status status)
+           etag               (assoc :etag etag)
+           last-modified      (assoc :last-modified last-modified)
+           websub             (assoc :websub websub)
+           (and asked? nothing-new?) (assoc :validates? false)))
      same?]))
 
 (defn unchanged
   "The entry `old` after the server answered 304 at `at` with `result`,
-  and its next check by `cadence`."
-  [old {:keys [not-before] :as result} at cadence]
+  and its next check by `cadence`. A server that answered so validates,
+  but the start of a feed that showed nothing new, a result that's
+  :head?, says nothing of that."
+  [old {:keys [not-before head?] :as result} at cadence]
   (-> (dissoc old :gone?)
       (assoc :fetched-at at
              :next-check (check-at (:feed old) at not-before cadence)
-             :failures 0
-             :status 304)))
+             :failures 0)
+      (cond->
+        head?       (assoc :head-at at)
+        (not head?) (assoc :status 304 :validates? true))))
 
 (defn failed
   "The entry `old` after a fetch failed at `at` with `result`, with one

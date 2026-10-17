@@ -355,6 +355,47 @@
                         (is (= {url nil "https://example.org/new.xml" 5} @asked)
                             "the pages of a paged feed at its first fetch alone"))))))
 
+(deftest checking-the-start-first
+  (let [asked   (atom [])
+        newer   (update show :rss/items #(cons (assoc (first %) :rss/guid {:content "new"}) %))
+        whole   (fn [result] (fn [u _] (swap! asked conj :whole) (assoc result :url u)))
+        head    (fn [feed] (fn [u _] (swap! asked conj :head) {:url u :feed feed}))
+        refresh #(async/then (feeds/refresh! %1 (merge {:feed-guids [guid] :head-check? true} %2))
+                             :feeds)]
+    (run #(async/then
+           ;; a server that answered its own validators with the same feed
+           (refresh feeds {:at (at 3600) :fetch (whole fresh) :fetch-head (head show)})
+           (fn [ignored]
+             (is (= [:whole] @asked) "whole, until the server shows that it can't answer 304")
+             (is (false? (get-in ignored [guid :validates?])))
+             (reset! asked [])
+             (async/then
+              (refresh ignored {:at (at 7200) :fetch (whole fresh) :fetch-head (head show)})
+              (fn [checked]
+                (is (= [:head] @asked) "then its start, which shows nothing new")
+                (is (= [(at 7200) (at 3600)] ((juxt :head-at :whole-at) (get checked guid))))
+                (reset! asked [])
+                (async/then
+                 (refresh checked {:at (at 10800) :fetch (whole (assoc fresh :feed newer)) :fetch-head (head newer)})
+                 (fn [changed]
+                   (is (= [:head :whole] @asked) "and whole when the start has a new item")
+                   (is (= "new" (feed.guid/item-guid (first (get-in changed [guid :feed :rss/items])))))
+                   (reset! asked [])
+                   (async/then
+                    (refresh ignored {:at (at 93600) :fetch (whole fresh) :fetch-head (head show)})
+                    (fn [_]
+                      (is (= [:whole] @asked) "or once the whole feed is a day old")
+                      (reset! asked [])
+                      (async/then
+                       (refresh ignored {:at (at 7200) :fetch (whole fresh) :fetch-head (head show)
+                                         :head-check? false})
+                       (fn [_]
+                         (is (= [:whole] @asked) "and only when the refresh asks for it"))))))))))))
+    (run #(async/then
+           (feeds/refresh! feeds {:at (at 3600) :feed-guids [guid] :fetch (fn [u _] {:status 304 :url u})})
+           (fn [{:keys [feeds]}]
+             (is (true? (get-in feeds [guid :validates?])) "a server that answers 304 validates"))))))
+
 (deftest podping
   (let [other (feeds/add feeds "https://example.org/other.xml" (assoc fresh :feed (feed.guid/with-key show "b1")) now)]
     (is (= ["b1"] (feeds/affected other [{:iris ["https://example.org/other.xml"]}])))

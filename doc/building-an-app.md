@@ -425,6 +425,15 @@ went, e.g. for a status line or a log. Schedule the next refresh at
 after a new subscription. After a refresh that found the device offline,
 it waits five minutes, the config's `:offline-seconds`.
 
+A refresh sends each feed's ETag and Last-Modified, so that most feeds
+cost a 304 with no body. Some servers give neither, or answer 200 anyway,
+and their feeds would come whole every time, to be parsed again. With
+`:head-check? true`, such a feed is first read only to the end of its
+third item, most often 10 to 30 KB, and fetched whole only when its newest
+episodes changed, or at least once a day, the `:whole-every` of the
+`:cadence`, so that an edit further down shows up too. The entry of each
+feed says whether its server answers 304, as `:validates?`.
+
 A platform gives a task in the background little time, e.g. half a
 minute. Give `refresh!` that budget as `:max-seconds`, or a maximum
 number of feeds as `:max-feeds`, and the feeds that it doesn't reach stay

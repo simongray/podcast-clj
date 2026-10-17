@@ -15,9 +15,11 @@
                      :guid         \"917393e3-…\"  ; what the feed says now
                      :changed-at   #inst \"…\"
                      :fetched-at   #inst \"…\"
+                     :whole-at     #inst \"…\"   ; when it last came whole
                      :next-check   #inst \"…\"
                      :failures     0
-                     :status       200}}
+                     :status       200
+                     :validates?   true}}       ; whether it answers 304
 
   The feed keeps the items that a fetch no longer brings back, after the
   fresh ones, since many hosts serve only the newest items. Each has a fact
@@ -32,6 +34,7 @@
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds.impl :as impl]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.util.time :as time]
@@ -52,12 +55,32 @@
 
   A feed is gone after its server answers 410 (RFC 9110, section
   15.5.11), or after :gone-after-failures failures in a row, about a month
-  at the last wait. It's then fetched only when asked for by name."
+  at the last wait. It's then fetched only when asked for by name.
+
+  A refresh with :head-check? fetches a feed whose server never answers
+  304 whole only once its start shows something new, or at least every
+  :whole-every seconds, so that an edit further down shows up too."
   {:max-wait            43200
    :silent              43200
    :complete            604800
    :after-failure       [900 3600 14400 86400]
-   :gone-after-failures 30})
+   :gone-after-failures 30
+   :whole-every         86400})
+
+(defn- head-checked?
+  "Whether a refresh at `at` with `cadence` checks the feed of the entry
+  `old` by its start first: when the entry holds a feed whose server can't
+  answer 304, as it gives no validators or ignored them, and the feed came
+  whole within the :whole-every of `cadence`."
+  [old at cadence]
+  (let [whole-at (:whole-at old)]
+    (boolean (and (:feed old)
+                  whole-at
+                  (or (false? (:validates? old))
+                      (not (or (:etag old) (:last-modified old))))
+                  (< (- (inst-ms at) (inst-ms whole-at))
+                     (* 1000 (:whole-every cadence)))))))
+
 
 (def default-concurrency
   "How many feeds are fetched at once, by default."
@@ -291,6 +314,13 @@
   - :feed-guids, the feeds to fetch instead of the due ones, e.g. those
     that a Podping names, but for those of local files
   - :fetch, in place of dk.simongray.podcast/fetch!
+  - :head-check?, true to read only the start of a feed whose server can't
+    answer 304, as it gives no ETag or Last-Modified or ignores them, and
+    to fetch it whole only when its newest items changed, or when the
+    whole feed is older than the :whole-every of the cadence. Most often
+    the start is the first 32 KB of a feed of megabytes, which needn't be
+    parsed whole, e.g. on the main thread of a web page.
+  - :fetch-head, in place of discovery/fetch-head!
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
@@ -328,15 +358,18 @@
   feed stays where it is, and the report has :fetch/move-unverified."
   ([feeds]
    (refresh! feeds {}))
-  ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence
-                  max-pages online? max-feeds max-seconds on-feed-fn now-fn]
+  ([feeds {:keys [at feed-guids fetch fetch-head head-check? credentials-of
+                  concurrency cadence max-pages online? max-feeds max-seconds
+                  on-feed-fn now-fn]
            :or   {fetch       podcast/fetch!
+                  fetch-head  discovery/fetch-head!
                   concurrency default-concurrency
                   cadence     {}
                   now-fn      time/now}
            :as   opts}]
    {:pre [(map? opts)]}
    (let [at     (or at (now-fn))
+         whole-cadence (merge default-cadence cadence)
          start  (now-fn)
          wanted (vec (remove (comp :local? feeds)
                              (or feed-guids (due feeds at))))
@@ -355,7 +388,8 @@
                    (let [credentials (when credentials-of (credentials-of url))]
                      (cond-> common
                        credentials (assoc :credentials credentials))))
-         fetch1 (fn [feed-guid]
+         fetch-whole
+                (fn [feed-guid]
                   (let [{:keys [url etag last-modified feed]}
                         (get feeds feed-guid)
 
@@ -385,6 +419,18 @@
 
                            :else
                            [feed-guid value]))))))
+         ;; the start of a feed whose server can't answer 304, which shows
+         ;; nothing new, counts as one, and costs no whole fetch or parse
+         fetch1 (fn [feed-guid]
+                  (let [{:keys [url feed] :as old} (get feeds feed-guid)]
+                    (if (and head-check? (head-checked? old at whole-cadence))
+                      (async/then
+                       (async/attempt #(fetch-head url (assoc (private url) :items impl/head-items)))
+                       (fn [{:keys [value]}]
+                         (if (impl/same-start? feed (:feed value))
+                           [feed-guid {:status 304 :head? true}]
+                           (fetch-whole feed-guid))))
+                      (fetch-whole feed-guid))))
          told   (fn [feed-guid]
                   (async/then
                    (fetch1 feed-guid)

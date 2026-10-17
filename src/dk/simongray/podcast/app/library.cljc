@@ -455,6 +455,9 @@
     feeds or within a deadline, to hear of each fetch as it ends, and to
     stop, as app.feeds/refresh! takes them. The feeds left out stay due,
     and the :left of the :counts says how many there are.
+  - :head-check?, true to read only the start of a feed whose server can't
+    answer 304, and fetch it whole only when its newest episodes changed,
+    as app.feeds/refresh! takes it
   - :store, the store that the library is saved to, from which it loads
     the feeds that it fetches and doesn't hold, as load! does. Without
     it, such a feed isn't fetched, and the report has :library/not-loaded.
@@ -473,7 +476,8 @@
          clock      (:now-fn opts time/now)
          started    (clock)
          feeds-opts (-> opts
-                        (select-keys [:feed-guids :fetch :credentials-of
+                        (select-keys [:feed-guids :fetch :fetch-head :head-check?
+                                      :credentials-of
                                       :concurrency :cadence :max-pages :send
                                       :timeout-seconds :max-bytes
                                       :user-agent :allow-pred :online?
