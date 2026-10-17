@@ -157,7 +157,7 @@
    (if cache (kept! cache url) nil)
    (fn [copy]
      (let [asked (cond-> {"Accept" accept}
-                   (:etag copy)          (assoc "If-None-Match" (:etag copy))
+                   (:etag copy)          (assoc "If-None-Match" (headers/if-none-match (:etag copy)))
                    (:last-modified copy) (assoc "If-Modified-Since"
                                                 (:last-modified copy)))]
        (async/then
