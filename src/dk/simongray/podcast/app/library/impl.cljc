@@ -903,18 +903,21 @@
 
 ;; Measured in Chrome on a parsed feed of 20 MB: 1152 ms to read its EDN,
 ;; 38 ms to read its Transit, and 346 ms to parse its XML again.
+(def edn-slow?
+  "Whether EDN reads slowly on this platform, as it does in ClojureScript."
+  #?(:clj false :cljs true))
+
 (defn slow-format
   "The :library/slow-format diagnostic of a restore of `library` with
   `opts` that read documents in EDN, in ClojureScript, or nil."
   [library opts]
-  #?(:clj  nil
-     :cljs (when (= edn-codec (codec library opts))
-             (diagnostics/describe
-              {:id     :library/slow-format
-               :reason (str "ClojureScript reads EDN about 30 times slower "
-                            "than Transit, slower than it parses the feeds "
-                            "again: give the config of the library the "
-                            ":codec of dk.simongray.like-minded.transit")}))))
+  (when (and edn-slow? (= edn-codec (codec library opts)))
+    (diagnostics/describe
+     {:id     :library/slow-format
+      :reason (str "ClojureScript reads EDN about 30 times slower than "
+                   "Transit, slower than it parses the feeds again: give "
+                   "the config of the library the :codec of "
+                   "dk.simongray.like-minded.transit")})))
 
 (defn- migrated
   "The saved library `saved`, of its :version or else of version 1,
