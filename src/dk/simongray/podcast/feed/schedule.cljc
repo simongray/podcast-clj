@@ -79,12 +79,15 @@
       (v (quot n 2))
       (quot (+ (v (dec (quot n 2))) (v (quot n 2))) 2))))
 
-(defn- cadence
-  "The median gap in milliseconds between the ten most recent items of
-  `feed` dated no later than `at-ms`, or nil when fewer than two of them
-  differ in date."
-  [feed at-ms]
-  (let [recent (take 10 (dates feed at-ms))
+(defn cadence
+  "How often `feed` publishes as of `at`: the median gap in milliseconds
+  between its ten most recent items dated no later than `at`, or nil when
+  fewer than two of them differ in date.
+
+  It's the schedule to show for a feed that doesn't state one, e.g. about
+  every seven days."
+  [feed at]
+  (let [recent (take 10 (dates feed (inst-ms at)))
         gaps   (filter pos? (map - recent (rest recent)))]
     (when (seq gaps)
       (median gaps))))
@@ -102,12 +105,13 @@
       (+ at-ms (quot period frequency)))))
 
 (defn- cadence-due
-  "When the recent items of `feed` say to look at it again after `at-ms`:
-  the date of the latest plus the median gap between them, or `at-ms`
-  plus that gap when that time is past. It's nil without a gap."
-  [feed at-ms]
-  (when-let [gap (cadence feed at-ms)]
-    (let [due (+ (first (dates feed at-ms)) gap)]
+  "When the recent items of `feed` say to look at it again after `at`, in
+  milliseconds: the date of the latest plus the median gap between them,
+  or `at` plus that gap when that time is past. It's nil without a gap."
+  [feed at]
+  (when-let [gap (cadence feed at)]
+    (let [at-ms (inst-ms at)
+          due   (+ (first (dates feed at-ms)) gap)]
       (if (> due at-ms)
         due
         (+ at-ms gap)))))
@@ -146,7 +150,7 @@
                      (when (and (number? ttl) (pos? ttl))
                        (+ at-ms (* 60000.0 ttl)))
                      (syndication-due feed at-ms)
-                     (cadence-due feed at-ms))
+                     (cadence-due feed at))
            due   (some-> due (min (+ at-ms (syndication-periods "yearly"))))]
        (time/latest (some-> due long time/->inst) not-before)))))
 

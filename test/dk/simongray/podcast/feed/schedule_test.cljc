@@ -27,6 +27,21 @@
       (is (nil? (schedule/next-episode {:podcast/update-frequency {:rrule {:freq "SECONDLY"} :dtstart #inst "2016-01-01T00:00:00Z"}}
                                        #inst "2026-01-06T00:00:00Z"))))))
 
+(deftest how-often-it-publishes
+  (let [at   #inst "2026-03-01T12:00:00Z"
+        feed (fn [& dates] {:rss/items (map #(hash-map :rss/pub-date %) dates)})
+        week (* 7 24 3600 1000)]
+    (is (= week (schedule/cadence (feed #inst "2026-02-26T09:00:00Z" #inst "2026-02-19T09:00:00Z"
+                                        #inst "2026-02-05T09:00:00Z" #inst "2026-01-29T09:00:00Z")
+                                  at))
+        "the median gap, which a skipped week doesn't move")
+    (is (= week (schedule/cadence (feed #inst "2062-02-26T09:00:00Z" #inst "2026-02-26T09:00:00Z"
+                                        #inst "2026-02-19T09:00:00Z")
+                                  at))
+        "an item dated after `at` doesn't count")
+    (is (nil? (schedule/cadence (feed #inst "2026-02-26T09:00:00Z" #inst "2026-02-26T09:00:00Z") at)))
+    (is (nil? (schedule/cadence {} at)))))
+
 (deftest when-to-check-again
   (let [at     #inst "2026-03-01T12:00:00Z"
         weekly (fn [& dates] {:rss/items (map #(hash-map :rss/pub-date %) dates)})]

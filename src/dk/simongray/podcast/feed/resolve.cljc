@@ -610,9 +610,14 @@
 
 (defn license
   "The license of `x`, or of an `item` of `feed`, which is the item's own
-  or else the feed's."
-  ([x] (:podcast/license x))
-  ([feed item] (impl/inherited :podcast/license feed item)))
+  or else the feed's.
+
+  It's the map of podcast:license, with the :name, the :version and the
+  :url of its terms when it names a license of spec/licenses. A url that
+  the feed gives comes first."
+  ([x] (some-> (:podcast/license x) impl/with-terms))
+  ([feed item]
+   (some-> (impl/inherited :podcast/license feed item) impl/with-terms)))
 
 (defn chat
   "The chat of `x`, or of an `item` of `feed`, which is the item's own or
@@ -647,6 +652,28 @@
   own or else the feed's."
   ([x] (:podcast/locations x))
   ([feed item] (impl/inherited :podcast/locations feed item)))
+
+;; podcast namespace, location: osm is the first letter of the type of an
+;; OpenStreetMap object and its id, e.g. R113314, and geo a geo URI
+;; (RFC 5870). OpenStreetMap's wiki, Browsing: mlat and mlon place a marker.
+(defn location-url
+  "The URL of a map of the `location`, one of those that locations gives,
+  or nil when it has neither an osm nor a geo.
+
+  It's the page of the OpenStreetMap object that osm names, or else a map
+  with a marker at the coordinates of geo. The `opts` can give the :base
+  URL of another map with the same paths, in place of OpenStreetMap's."
+  ([location]
+   (location-url location {}))
+  ([{:keys [osm geo] :as location}
+    {:keys [base] :or {base "https://www.openstreetmap.org/"} :as opts}]
+   {:pre [(map? opts)]}
+   (let [{:keys [type id]} (when (map? osm) osm)
+         {:keys [lat lon]} (when (map? geo) geo)
+         kind              (case type "N" "node" "W" "way" "R" "relation" nil)]
+     (cond
+       (and kind (number? id))           (str base kind "/" id)
+       (and (number? lat) (number? lon)) (str base "?mlat=" lat "&mlon=" lon)))))
 
 (defn value
   "The value block of `x`, or the one that applies to an `item` of `feed`,
@@ -683,6 +710,28 @@
              (or (not (inst? end))
                  (< (inst-ms at) (inst-ms end)))))))
 
+;; podcast namespace, trailer: an app previews the most recent trailer by
+;; default
+(defn trailers
+  "The trailers of `feed`, the most recent first, which preview the show or
+  one of its seasons.
+
+  Each is a map of the :url and, when the feed declares them, the :title,
+  the :published instant, the :type, the :length in bytes and the :season
+  that it's for. A trailer without a URL is left out."
+  [feed]
+  (->> (:podcast/trailers feed)
+       (keep (fn [{:keys [url content pubdate type length season]}]
+               (when url
+                 (let [title (impl/text content)]
+                   (cond-> {:url url}
+                     title            (assoc :title title)
+                     (inst? pubdate)  (assoc :published pubdate)
+                     type             (assoc :type type)
+                     (number? length) (assoc :length length)
+                     (number? season) (assoc :season season))))))
+       (sort-by #(if-let [d (:published %)] (inst-ms d) 0) >)))
+
 (defn medium
   "What the content of `feed` is, in lower case, or \"podcast\" when that's
   unstated."
@@ -702,6 +751,14 @@
   [feed]
   (or (true? (:itunes/complete feed))
       (true? (:complete (:podcast/update-frequency feed)))))
+
+;; podcast namespace, updateFrequency: the node value "might be displayed
+;; alongside other information about the podcast"
+(defn update-frequency
+  "The release schedule that `feed` intends, as the text of its
+  podcast:updateFrequency, e.g. \"Every weekday\", or nil."
+  [feed]
+  (impl/text (:content (:podcast/update-frequency feed))))
 
 (defn locked?
   "Whether `feed` forbids other platforms to import it."
@@ -824,6 +881,16 @@
   [feed]
   (vec (impl/category-paths [] (:itunes/categories feed))))
 
+(defn language
+  "The language of `feed`, as its tag is written, e.g. \"en-US\", or nil."
+  [feed]
+  (impl/text (:rss/language feed)))
+
+(defn copyright
+  "The copyright notice of `feed`, or nil."
+  [feed]
+  (impl/text (:rss/copyright feed)))
+
 (defn serial?
   "Whether `feed` is serial, by its itunes:type, so that its episodes are
   meant to be heard in order, the first first."
@@ -927,11 +994,14 @@
 
       ((:artwork show-properties) feed)"
   {:title title :description description :author author :link link
-   :published published :images images :artwork artwork :explicit? explicit?
-   :txt txt :ai-content? ai-content? :people people :funding funding
+   :language language :copyright copyright :published published
+   :images images :artwork artwork :explicit? explicit? :txt txt
+   :ai-content? ai-content? :people people :funding funding
    :license license :chat chat :social-interacts social-interacts
-   :locations locations :value value :live-items live-items :medium medium
-   :list-feed? list-feed? :complete? complete? :locked? locked?
+   :locations locations :value value :live-items live-items
+   :trailers trailers :medium medium :list-feed? list-feed?
+   :serial? serial? :complete? complete?
+   :update-frequency update-frequency :locked? locked?
    :new-feed-url new-feed-url :self-url self-url :hubs hubs :podroll podroll
    :remote-items remote-items :publisher publisher :categories categories})
 

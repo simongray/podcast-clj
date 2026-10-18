@@ -3,7 +3,15 @@
   pick an answer with, from image shapes and codecs to the ranking of
   transcripts and the search for where a property came from."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.whatwg-mime :as mime]))
+
+(defn text
+  "The string `s` without the space around it, or nil when it's blank or
+  isn't a string."
+  [s]
+  (when (string? s)
+    (not-empty (str/trim s))))
 
 (defn email-name
   "The name in the RSS email field `s`, written as \"address (Name)\", or
@@ -182,6 +190,17 @@
             (and (coll? v) (empty? v)))
       (get feed k)
       v)))
+
+;; podcast namespace, license: the node value is the identifier of a
+;; license of its list, licenses.json, or the name of a custom license,
+;; which then needs the url of its terms
+(defn with-terms
+  "The podcast:license `license` with the :name, :version and :url of the
+  license of spec/licenses that it names, its own url first, or as it is."
+  [{:keys [content] :as license}]
+  (let [known (some->> (text content) str/lower-case (get spec/licenses))]
+    (cond->> license
+      known (merge known))))
 
 (defn social-interact
   "The podcast:socialInteract `interact` with its protocol in lower case, or

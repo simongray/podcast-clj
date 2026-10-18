@@ -137,6 +137,26 @@
   "Every role of the Podcast Taxonomy Project."
   (into #{} (mapcat val) taxonomy))
 
+;; licenses.json of the podcast namespace, as of 2026-10-18
+(def licenses
+  "The well-known licenses that podcast:license names, by identifier in
+  lower case, each with its :name, its :version when it has one, and the
+  :url of its terms."
+  {"arr"             {:name "All Rights Reserved"
+                      :url  "https://en.wikipedia.org/wiki/All_rights_reserved"}
+   "cc-by-4.0"       {:name    "Creative Commons Attribution"
+                      :version "4.0"
+                      :url     "https://creativecommons.org/licenses/by/4.0/"}
+   "cc-by-nc-4.0"    {:name    "Creative Commons Attribution - NonCommercial"
+                      :version "4.0"
+                      :url     "https://creativecommons.org/licenses/by-nc/4.0/deed.en"}
+   "cc-by-nc-nd-4.0" {:name    "Creative Commons Attribution - NonCommercial - NoDerivs"
+                      :version "4.0"
+                      :url     "https://creativecommons.org/licenses/by-nc-nd/4.0/deed.en"}
+   "pod-v4v-1.0"     {:name    "Podcast V4V License"
+                      :version "1.0"
+                      :url     "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/license/v4v-4.0.md"}})
+
 ;; Apple Podcasts' list of categories, and A Podcaster's Guide to RSS,
 ;; itunes:category, as of 2026-09-29; PSP-1 requires the list too
 (def categories

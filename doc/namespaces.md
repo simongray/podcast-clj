@@ -121,7 +121,7 @@ key-value store, memory, and an encrypted form of any of them.
 | `feed.rss` | Parsing and writing feeds: `parse` reads an RSS document into a feed map, `emit` writes one back, `report` gives the diagnostics, and `parse-tree` stops at the Hiccup. For a document that may not be a feed, `try-parse` gives a diagnostic where `parse` throws. |
 | `feed` | Hiccup to feed maps and back, and `diff` between two parses. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order and `blocked?`. |
-| `feed.schedule` | When a feed says that it changes, with `next-episode` from its update frequency and `next-check` for when to fetch it again. |
+| `feed.schedule` | When a feed says that it changes, with `next-episode` from its update frequency, `cadence` for how often it publishes, and `next-check` for when to fetch it again. |
 | `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`, and the start of a feed for a preview with `fetch-head!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and the directories. Only `check-files!` sends requests, and `files` and `report` are pure. |
 | `feed.check.rules` | The rules that judge the facts of a check, by the standards and the `requirements` of PSP-1 and the directories, with `verdicts` for one file. |
@@ -131,7 +131,7 @@ key-value store, memory, and an encrypted form of any of them.
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
 | `feed.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
 | `feed.local` | A show of local files that no feed serves, e.g. an audiobook: `feed` builds its feed from what each file says about itself, for `library/subscribe-local`. |
-| `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations of the specs, and the URIs of the namespaces. |
+| `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations and lists of the specs, e.g. the `licenses` of podcast:license, and the URIs of the namespaces. |
 | `feed.repair` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails. |
 | `feed.quirks` | The normalisations of the tree, and the variant namespace URIs that feeds use. |
 | `feed.coerce` | The value types of the registry, from strings and back. |

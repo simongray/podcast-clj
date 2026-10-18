@@ -878,6 +878,14 @@ For an episode with video, `:media-kinds` says whether it offers
 video plays, and `:content-links` are the places outside the feed where it
 can be watched, e.g. on YouTube.
 
+The facts of a show are in its view too, e.g. its `:categories`,
+`:language` and `:copyright`, the `:update-frequency` that it states, and
+its `:trailers`, the newest first. A `:license` from the namespace's list
+of licenses comes with its name and the URL of its terms. For a show that
+states no schedule, `schedule/cadence` estimates from its feed how often
+it publishes, and `resolve/location-url` gives a map of each of its
+`:locations`.
+
 Links and images in the notes are made absolute against the web page of
 the episode or the show, and a link written as a bare domain, as many
 feeds do, gets `https://`. To do it your own way, give `:notes-url-fn` a

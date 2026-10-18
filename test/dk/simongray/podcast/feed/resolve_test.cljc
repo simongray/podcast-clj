@@ -481,7 +481,53 @@
         "the next page of a paged feed, as the feed writes it")
     (is (= "/2025.xml" (resolve/next-page {:atom/links [{:href "/2025.xml" :rel "prev-archive"}]})) "or of an archived one")
     (is (nil? (resolve/next-page f)))
-    (is (= [["Technology"] ["News" "Tech News"]] (resolve/categories f)))))
+    (is (= [["Technology"] ["News" "Tech News"]] (resolve/categories f)))
+    (is (= "en-US" (resolve/language f)))
+    (is (nil? (resolve/language {:rss/language " "})))
+    (is (= "Podcast Index LLC 2026" (resolve/copyright f)))
+    (testing "the schedule as its text"
+      (is (= "Every Monday until Dec 31, 2023"
+             (resolve/update-frequency {:podcast/update-frequency {:content "\n  Every Monday until Dec 31, 2023\n"}})))
+      (is (nil? (resolve/update-frequency {:podcast/update-frequency {:complete true}})))
+      (is (nil? (resolve/update-frequency f))))
+    (testing "the trailers, the most recent first"
+      (is (= [{:url "https://example.org/trailers/teaser" :title "Coming April 1st, 2021"
+               :published #inst "2021-04-01T13:00:00Z" :type "audio/mp3" :length 12345678}]
+             (resolve/trailers f)))
+      (is (= ["S4" "Show" "Undated"]
+             (map :title (resolve/trailers {:podcast/trailers [{:url "https://t/1" :content "Show" :pubdate #inst "2021-04-01T00:00:00Z"}
+                                                               {:url "https://t/0" :content "Undated"}
+                                                               {:content "Nowhere" :pubdate #inst "2026-01-01T00:00:00Z"}
+                                                               {:url "https://t/4" :content "S4" :season 4
+                                                                :pubdate #inst "2023-08-01T00:00:00Z"}]}))))
+      (is (empty? (resolve/trailers {}))))))
+
+(deftest licenses-and-places
+  (testing "a license of the namespace's list, with its name and terms"
+    (is (= {:content "CC-BY-NC-ND-4.0" :name "Creative Commons Attribution - NonCommercial - NoDerivs"
+            :version "4.0" :url "https://creativecommons.org/licenses/by-nc-nd/4.0/deed.en"}
+           (resolve/license {:podcast/license {:content "CC-BY-NC-ND-4.0"}})))
+    (is (= "All Rights Reserved" (:name (resolve/license {:podcast/license {:content " arr "}}))))
+    (is (= "https://own/terms"
+           (:url (resolve/license {:podcast/license {:content "cc-by-4.0" :url "https://own/terms"}})))
+        "the feed's url first")
+    (is (= {:content "my-podcast-license-v1" :url "https://example.org/mypodcastlicense/full.pdf"}
+           (resolve/license @example))
+        "a custom license as it is")
+    (is (= "Creative Commons Attribution"
+           (:name (resolve/license {:podcast/license {:content "CC-BY-4.0"}} {})))
+        "an item inherits it with its terms")
+    (is (nil? (resolve/license {}))))
+  (testing "a map of a location"
+    (is (= "https://www.openstreetmap.org/relation/113314"
+           (resolve/location-url (first (resolve/locations @example)))))
+    (is (= "https://www.openstreetmap.org/way/5013364"
+           (resolve/location-url {:osm {:type "W" :id 5013364 :revision 3} :geo {:lat 1 :lon 2}})))
+    (is (= "https://www.openstreetmap.org/?mlat=33.5159981&mlon=-86.8146098"
+           (resolve/location-url {:content "Birmingham" :geo {:lat 33.5159981 :lon -86.8146098}})))
+    (is (= "https://maps.example/relation/1"
+           (resolve/location-url {:osm {:type "R" :id 1}} {:base "https://maps.example/"})))
+    (is (nil? (resolve/location-url {:content "Austin, TX" :osm "R?" :geo "nowhere"})))))
 
 (deftest renditions-in-a-media-group
   (let [item {:media/group {:contents [{:url "https://a/1.mp4" :type "video/mp4" :is-default true}
@@ -575,7 +621,8 @@
               :people [{:name "Host" :role "host" :group "cast"}]
               :images [{:href "https://s/art.png" :source :itunes}]
               :txt {"ai-content" ["true"]} :ai-content? true
-              :medium "podcast" :list-feed? false :complete? false :locked? false}
+              :medium "podcast" :list-feed? false :serial? false :complete? false
+              :locked? false}
              show))
       (is (= {:title "Ep" :published #inst "2026-01-01T00:00:00Z" :duration 60
               :numbering {:type "full"} :artwork "https://s/art.png" :explicit? true
