@@ -410,8 +410,9 @@
                      (constantly {:rank rank :removed? false})
                      at))))))
 
-;; A search leaves out gpodder.net until the listener asks for it, as
-;; AntennaPod does, which found its search broken too often
+;; A search asks the Podcast Index first, the open index, and leaves out
+;; gpodder.net until the listener asks for it, as AntennaPod does, which
+;; found its search broken too often
 ;; https://github.com/AntennaPod/AntennaPod/pull/7047
 (def default-preferences
   "How the listener likes to listen until they change it:
@@ -445,7 +446,7 @@
    :continuous?           false
    :rewinds               [[60 3] [3600 10] [86400 30]]
    :subscription-defaults {}
-   :search-sources        [:apple :podcastindex :fyyd]})
+   :search-sources        [:podcastindex :apple :fyyd]})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
