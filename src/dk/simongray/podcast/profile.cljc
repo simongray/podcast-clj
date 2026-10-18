@@ -68,6 +68,10 @@
   [device]
   {:device device :subscriptions {} :episodes {} :queue {}})
 
+;; New episodes join the inbox until the listener chooses otherwise, as in
+;; Castro and AntennaPod, rather than go nowhere
+;; https://castro.fm/support/auto-queue-and-auto-archive
+;; https://github.com/AntennaPod/AntennaPod/blob/3d105d598dfa582c6cb22ba40b56d11780366890/ui/preferences/src/main/res/values/arrays.xml#L71-L95
 (def default-settings
   "The settings of a subscription until the listener changes them:
 
@@ -92,7 +96,7 @@
     nil"
   {:auto-queue?    false
    :auto-queue-max nil
-   :inbox?         false
+   :inbox?         true
    :join-where     nil
    :skip-intro     0
    :skip-outro     0
@@ -342,6 +346,29 @@
                        #(clojure.core/merge % settings)
                        at)
     profile))
+
+(defn new-episodes
+  "Where the new episodes of a show with the `settings` go, as the one
+  choice that an app offers: :inbox, :queue at its end, :next after the
+  current episode, or :none. With an :auto-queue-max, it's the queue,
+  though the rest may join the inbox."
+  [{:keys [auto-queue? inbox?] :as settings}]
+  (cond
+    (= :next auto-queue?) :next
+    auto-queue?           :queue
+    inbox?                :inbox
+    :else                 :none))
+
+(defn new-episodes-settings
+  "The settings that send the new episodes of a show to `choice`, one of
+  those of new-episodes, e.g. for configure, or for the
+  :subscription-defaults of prefer."
+  [choice]
+  (case choice
+    :inbox {:auto-queue? false :inbox? true}
+    :queue {:auto-queue? :back :inbox? false}
+    :next  {:auto-queue? :next :inbox? false}
+    :none  {:auto-queue? false :inbox? false}))
 
 (defn title
   "The title of the subscription `feed-guid` in `profile`: the listener's

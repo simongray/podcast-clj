@@ -64,6 +64,18 @@
       (is (nil? (profile/takeover s "feed-b" "https://evil/rss")) "a guid without a subscription")
       (is (nil? (profile/takeover (profile/unsubscribe s "feed-a" t2) "feed-a" "https://evil/rss")) "or with a removed one"))))
 
+(deftest where-new-episodes-go
+  (is (= :inbox (profile/new-episodes profile/default-settings)) "the inbox by default")
+  (doseq [choice [:inbox :queue :next :none]]
+    (is (= choice (profile/new-episodes (merge profile/default-settings (profile/new-episodes-settings choice))))
+        "each choice reads back as itself"))
+  (is (= :queue (profile/new-episodes {:auto-queue? true :auto-queue-max 1 :inbox? true}))
+      "the queue, though the rest join the inbox")
+  (let [s (-> (profile/make "phone")
+              (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+              (profile/configure "feed-a" (profile/new-episodes-settings :next) t1))]
+    (is (= :next (profile/new-episodes (profile/settings s "feed-a"))))))
+
 (deftest remote-items-of-other-shows
   (let [id    ["feed-x" "x1"]
         added (profile/add-remote-item (profile/make "phone") id {:feed-url "https://x/rss"} t0)

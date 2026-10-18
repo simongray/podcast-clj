@@ -697,6 +697,27 @@
     (is (= {:episodes [] :remaining 0}
            (library/queue (library/update-profile lib #(profile.queue/dequeue-all %1 [ep3 ep2] %2)))))))
 
+(deftest the-inbox-for-a-page
+  (let [[ep1 ep2 ep3] (map #(vector guid (str "https://example.com/ep000" %)) [1 2 3])
+        arrived       (fn [lib id]
+                        (library/update-profile lib #(crdt/write %1 [:inbox id] (constantly {:removed? false}) %2)))
+        lib           (reduce arrived
+                              (library/update-profile library #(profile.queue/dequeue-all %1 (profile.queue/queue %1) %2))
+                              [ep2 ep3 ep1])
+        {:keys [episodes]} (library/inbox lib)]
+    (is (= [ep3 ep2 ep1] (map :id episodes)) "the newest first, whatever the order they arrived in")
+    (is (= {:title     "Episode 3 - The Future"
+            :show      "Podcasting 2.0 Namespace Example"
+            :published #inst "2020-10-09T04:30:38Z"}
+           (select-keys (first episodes) [:title :show :published])))
+    (let [back (-> lib
+                   (library/update-profile profile.queue/dismiss ep2)
+                   (library/update-profile profile.queue/undismiss ep2))]
+      (is (= [ep3 ep2 ep1] (map :id (:episodes (library/inbox back))))
+          "and one put back takes its place again"))
+    (is (= {:episodes []}
+           (library/inbox (library/update-profile lib #(profile.queue/dismiss-all %1 [ep1 ep2 ep3] %2)))))))
+
 (deftest what-a-player-needs
   (let [id    [guid "https://example.com/ep0003"]
         lib   (-> library

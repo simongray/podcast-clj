@@ -1008,6 +1008,25 @@
               :chapters-url (:chapters-url view)
               :transcript   (:transcript view)})))))
 
+(defn- listed
+  "The row of the episode `id` of `library` in a list of episodes, as queue
+  describes it, with the `opts` of episode, or nil when the library
+  doesn't hold its feed in memory."
+  [library opts [feed-guid :as id]]
+  (when-let [view (episode library id (assoc opts :except #{:notes :text :links :chapters}))]
+    (let [entry    (profile/episode-entry (:profile library) id)
+          position (or (:position entry) 0)
+          duration (or (:duration entry) (:duration view))]
+      (into {:id id :position position}
+            (remove (comp nil? val))
+            {:title     (:title view)
+             :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
+             :artwork   (:artwork view)
+             :published (resolve/published (second (impl/item-of library id)))
+             :duration  duration
+             :remaining (when (number? duration)
+                          (max 0 (- duration position)))}))))
+
 (defn queue
   "The queue of `library`, the current episode first, for a page of it, with
   the `opts` of episode: a map of its :episodes and the seconds :remaining
@@ -1015,6 +1034,7 @@
 
       {:episodes  [{:id        [feed-guid item-guid]
                     :title     \"…\" :show \"…\" :artwork \"https://…\"
+                    :published #inst \"…\"  ; when it gave a date
                     :duration  3600       ; when it's known
                     :position  754        ; where the listener left it
                     :remaining 2846}      ; when the duration is known
@@ -1027,24 +1047,28 @@
    (queue library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (let [profile  (:profile library)
-         unused   #{:notes :text :links :chapters}
-         row      (fn [[feed-guid :as id]]
-                    (when-let [view (episode library id (assoc opts :except unused))]
-                      (let [entry    (profile/episode-entry profile id)
-                            position (or (:position entry) 0)
-                            duration (or (:duration entry) (:duration view))]
-                        (into {:id id :position position}
-                              (remove (comp nil? val))
-                              {:title     (:title view)
-                               :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
-                               :artwork   (:artwork view)
-                               :duration  duration
-                               :remaining (when (number? duration)
-                                            (max 0 (- duration position)))}))))
-         episodes (into [] (keep row) (profile.queue/queue profile))]
+   (let [episodes (into [] (keep #(listed library opts %))
+                        (profile.queue/queue (:profile library)))]
      {:episodes  episodes
       :remaining (reduce + 0 (keep :remaining episodes))})))
+
+(defn inbox
+  "The inbox of `library`, the newest episode first, for a page of it, with
+  the `opts` of episode: a map of its :episodes, each as queue gives them.
+
+  They're in the order of their dates, rather than of their arrival, so
+  that an episode put back with undismiss takes its place again. An
+  episode whose feed the library doesn't hold in memory is left out, as
+  loaded? tells."
+  ([library]
+   (inbox library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   {:episodes (->> (profile.queue/inbox (:profile library))
+                   (keep #(listed library opts %))
+                   ;; stable, so the episodes of a date keep their arrival
+                   (sort-by :published #(compare %2 %1))
+                   vec)}))
 
 (defn read-files!
   "Read the files of the episode `id` of `library`, with the `opts` of

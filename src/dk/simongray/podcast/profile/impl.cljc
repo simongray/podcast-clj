@@ -155,6 +155,14 @@
     (when (crdt/live? e)
       [[[:inbox id] #(assoc % :removed? true)]])))
 
+(defn back-in-inbox
+  "The writes that put the episode `id` back in the inbox of `profile`, if
+  it was dismissed from it."
+  [profile id]
+  (let [e (get-in profile [:inbox id])]
+    (when (and e (not (crdt/live? e)))
+      [[[:inbox id] #(assoc % :removed? false)]])))
+
 (defn afresh
   "The episode entry `e`, or an empty one in place of the tombstone of a
   forgotten episode."

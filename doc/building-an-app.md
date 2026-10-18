@@ -407,10 +407,14 @@ the chapters of a local episode, give `episode/read-files!` the same
 
 This fetches whatever is due: the lists that the listener follows, the
 feeds of new subscriptions, and the feeds whose next check has come. The
-new episodes go to the queue of a show with `:auto-queue?`, at its end,
-or right after the current episode with `:next`, or to the inbox with
-`:inbox?`. With `:auto-queue-max`, only the newest of one fetch join the
-queue, and the others the inbox when `:inbox?` is set too. With
+new episodes go to the inbox, unless the show's settings say otherwise:
+to its queue with `:auto-queue?`, at its end, or right after the current
+episode with `:next`, or nowhere with `:inbox? false`. With
+`:auto-queue-max`, only the newest of one fetch join the queue, and the
+others the inbox unless `:inbox?` is false. For a choice of these in the
+app, e.g. a select on a show's page, `profile/new-episodes` reads the
+settings as one value, and `profile/new-episodes-settings` gives the
+settings of a value. With
 `:join-where`, criteria of `criteria/where`, only the new episodes that
 meet them join either, e.g. `{:type #{"full" "bonus"}}` leaves the
 trailers out. An episode that the listener already played or removed on
@@ -1520,7 +1524,7 @@ and it syncs like the rest:
 (swap! lib library/update-profile
        (fn [profile at]
          (-> profile
-             (profile/configure guid {:folder "News" :inbox? true} at)
+             (profile/configure guid {:folder "News" :auto-queue? :next} at)
              (profile/tag guid "Daily" at)
              (profile.marks/star id at)
              (profile.marks/bookmark id 754 "The interview starts" at)
@@ -1536,9 +1540,11 @@ and it syncs like the rest:
 Each has a function to read it back, such as `profile/folders`,
 `profile/tagged`, `profile.queue/inbox`, `profile.marks/starred`,
 `profile.marks/bookmarks`, `profile.marks/clips` and
-`profile.queue/playlist`. To show the size of the inbox on the app's
-icon, give `(count (profile.queue/inbox profile))` to
-`navigator.setAppBadge` in a browser, or to the platform's badge.
+`profile.queue/playlist`. For a screen of the inbox, `library/inbox`
+gives its episodes, the newest first, as `library/queue` gives those of
+the queue. To show the size of the inbox on the app's icon, give
+`(count (profile.queue/inbox profile))` to `navigator.setAppBadge` in a
+browser, or to the platform's badge.
 
 For a screen of the shows, `library/shows` gives each subscription in
 the listener's order, with its title, its artwork, when its newest
@@ -1564,6 +1570,9 @@ To change many episodes at once, e.g. to clear the inbox or the queue,
 `profile.queue/dismiss-all`, `profile.queue/enqueue-all` and
 `profile.queue/dequeue-all` take the ids, and write them with one stamp.
 To mark every episode of a show as heard, use `library/mark-show-played`.
+A refresh never brings back an episode that the listener dismissed from
+the inbox, so to undo a dismiss, `profile.queue/undismiss` and
+`profile.queue/undismiss-all` put them back.
 
 - A show is in one folder at most, but it can have many tags. Both go into
   OPML with `profile.opml/to-opml`, and `profile.opml/from-opml` reads

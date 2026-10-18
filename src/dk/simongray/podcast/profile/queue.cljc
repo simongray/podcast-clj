@@ -64,7 +64,8 @@
          (not (profile/played? profile id)))))
 
 (defn inbox
-  "The episode ids in the inbox of `profile`, the latest to arrive first."
+  "The episode ids in the inbox of `profile`, the latest to arrive first,
+  where an episode put back with undismiss arrived when it was put back."
   [profile]
   (filterv #(in-inbox? profile %) (crdt/live-by-stamp (:inbox profile))))
 
@@ -82,6 +83,23 @@
   [profile ids at]
   (profile.impl/written profile
                         (mapcat #(profile.impl/out-of-inbox profile %) ids)
+                        at))
+
+(defn undismiss
+  "Put the episode `id` that the listener dismissed back in the inbox of
+  `profile` at `at`, e.g. to undo the dismiss. A refresh never puts it
+  back, since the tombstone tells it that the listener has handled it."
+  [profile id at]
+  (if-let [writes (profile.impl/back-in-inbox profile id)]
+    (crdt/write-each profile writes at)
+    profile))
+
+(defn undismiss-all
+  "Put the episodes `ids` that the listener dismissed back in the inbox of
+  `profile` at `at` with one stamp, e.g. to undo a dismiss-all."
+  [profile ids at]
+  (profile.impl/written profile
+                        (mapcat #(profile.impl/back-in-inbox profile %) ids)
                         at))
 
 (defn ^:no-doc place

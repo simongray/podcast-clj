@@ -99,10 +99,14 @@
                (:added (feed/new-episodes "https://a/rss" before (feed-a [(dated "a2" 2) (dated "a3" 3) (dated "a4" 4) (dated "a1" 1)]))))
             "by the first two dates, since the items that a library keeps of a feed follow those it serves")
         (is (= {:added [] :backfilled [] :renamed []} (feed/new-episodes "https://a/rss" nil after)))))
-    (testing "without auto-queue the new episodes are reported, not queued"
+    (testing "without auto-queue the new episodes are reported, not queued, and join the inbox"
       (let [{:keys [profile added]} (profile.queue/refresh s "https://a/rss" before after t1)]
         (is (= 2 (count added)))
-        (is (= [] (profile.queue/queue profile)))))
+        (is (= [] (profile.queue/queue profile)))
+        (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (profile.queue/inbox profile)) "by default")
+        (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/configure s "feed-a" {:inbox? false} t0)
+                                                                        "https://a/rss" before after t1))))
+            "unless the show's settings say otherwise")))
     (testing "with auto-queue they join the queue, oldest first"
       (let [{:keys [profile]} (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? true} t0) "https://a/rss" before after t1)]
         (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile.queue/queue profile)))
@@ -169,7 +173,7 @@
             p      (:profile (profile.queue/refresh capped "https://a/rss" before after t1))]
         (is (= [["feed-a" "a4"]] (profile.queue/queue p)))
         (is (= [["feed-a" "a3"]] (profile.queue/inbox p)))
-        (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? true :auto-queue-max 1} t0)
+        (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/configure s "feed-a" {:auto-queue? true :auto-queue-max 1 :inbox? false} t0)
                                                                         "https://a/rss" before after t1))))
             "or nowhere without :inbox?")))
     (testing "only those that meet the :join-pred, which go nowhere else"
@@ -252,7 +256,19 @@
       (let [s' (profile.queue/dismiss-all s (profile.queue/inbox s) t1)]
         (is (= [] (profile.queue/inbox s')))
         (is (= #{t1} (set (map :updated-at (vals (:inbox s'))))))
-        (is (identical? s (profile.queue/dismiss-all s [["feed-x" "none"]] t1)) "and nothing for none")))))
+        (is (identical? s (profile.queue/dismiss-all s [["feed-x" "none"]] t1)) "and nothing for none")))
+    (testing "an episode dismissed by mistake can be put back, on every device"
+      (let [s'     (profile.queue/dismiss s a t1)
+            back   (profile.queue/undismiss s' a t2)
+            laptop (profile/merge (profile/make "laptop") back)]
+        (is (= [a c2 c b] (profile.queue/inbox back)) "as one that arrives when it's put back")
+        (is (= (profile.queue/inbox back) (profile.queue/inbox laptop)))
+        (is (identical? s (profile.queue/undismiss s a t2)) "and one that wasn't dismissed stays")
+        (is (identical? s' (profile.queue/undismiss s' ["feed-x" "none"] t2)))))
+    (testing "and many at once, with one stamp"
+      (let [back (profile.queue/undismiss-all (profile.queue/dismiss-all s [a b] t1) [a b] t2)]
+        (is (= #{a b c c2} (set (profile.queue/inbox back))))
+        (is (= #{t2} (set (map #(:updated-at (get-in back [:inbox %])) [a b]))))))))
 
 (deftest many-at-once-in-the-queue
   (let [s (-> (profile/make "phone")
