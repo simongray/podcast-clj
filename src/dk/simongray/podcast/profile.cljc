@@ -410,6 +410,9 @@
                      (constantly {:rank rank :removed? false})
                      at))))))
 
+;; A search leaves out gpodder.net until the listener asks for it, as
+;; AntennaPod does, which found its search broken too often
+;; https://github.com/AntennaPod/AntennaPod/pull/7047
 (def default-preferences
   "How the listener likes to listen until they change it:
 
@@ -429,7 +432,10 @@
   - :subscription-defaults, the settings of a new subscription, as
     profile/configure takes them. A new subscription gets them when it's
     made, so a change of them leaves the shows that the listener has as
-    they are."
+    they are.
+  - :search-sources, the directories that a search asks, as
+    directory/sources names them, in the order that the listener puts
+    them in, e.g. for the :sources of directory/search!"
   {:skip-forward          30
    :skip-back             15
    :playback-rate         1.0
@@ -438,7 +444,8 @@
    :track-buttons         :chapters
    :continuous?           false
    :rewinds               [[60 3] [3600 10] [86400 30]]
-   :subscription-defaults {}})
+   :subscription-defaults {}
+   :search-sources        [:apple :podcastindex :fyyd]})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."

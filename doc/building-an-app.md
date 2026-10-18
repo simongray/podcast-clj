@@ -209,6 +209,16 @@ answer as `:pending`:
 ;; prints e.g. [:fyyd :gpodder] 3, then [:fyyd] 6, then nil 6
 ```
 
+Those results reorder as the directories answer, since the shows that
+more of them have move up. For a list from each directory, which stays
+as it came, search each on its own with `:sources`, e.g. those of the
+listener's preference `:search-sources`, in their order:
+
+```clojure
+(for [source (:search-sources (profile/preferences profile))]
+  (directory/search! "podcasting 2.0" {:sources [source]}))
+```
+
 For the charts, use `directory/fetch-chart!`, optionally for one category
 of Apple Podcasts. A source without a chart for the category, the country
 or the language ends up in the `:report`:
