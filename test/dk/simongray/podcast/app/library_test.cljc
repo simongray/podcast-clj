@@ -9,7 +9,9 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.like-minded.document :as document]
+            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
+            [dk.simongray.like-minded.transit :as transit]
             #?(:cljs [dk.simongray.like-minded.store.indexeddb :as indexeddb])
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
@@ -37,6 +39,12 @@
 (defn- at
   [seconds]
   (time/->inst (+ (inst-ms now) (* 1000 seconds))))
+
+(defn- restored-report
+  "The report of the last restore of `lib`, without :library/slow-format,
+  which ClojureScript gives a restore of documents in EDN."
+  [lib]
+  (remove #(= :library/slow-format (:id %)) (:report (:restore lib))))
 
 (def url "https://example.com/feed.xml")
 
@@ -264,7 +272,7 @@
          (run #(library/save! library s)
               #(async/then (library/restore! (library/make "phone") s)
                            (fn [restored]
-                             (is (= [] (:report (:restore restored))))
+                             (is (= [] (restored-report restored)))
                              (is (= (ids library) (ids restored)))))
               forget!)))))
 
@@ -1229,7 +1237,7 @@
                         (is (= [] delete))))
          #(async/then (library/restore! (made) s)
                       (fn [lib]
-                        (is (= [] (:report (:restore lib))))
+                        (is (= [] (restored-report lib)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)))
                         (is (= (ids library) (ids lib)) "the index read back")))
@@ -1241,7 +1249,7 @@
               (async/then (library/restore! (made) s)
                           (fn [lib]
                             (is (= [:library/index-rebuilt]
-                                   (map :id (:report (:restore lib)))))
+                                   (map :id (restored-report lib))))
                             (is (= (ids library) (ids lib))
                                 "an index built again from the feeds"))))
          #(do (reset! documents {})
@@ -1256,7 +1264,7 @@
               (async/then (library/restore! (made) s)
                           (fn [lib]
                             (is (= [:library/unreadable-document]
-                                   (map :id (:report (:restore lib)))))
+                                   (map :id (restored-report lib))))
                             (is (= {} (:feeds lib))))))
          #(async/then (library/save! (library/make "phone" {:config {:search? false}})
                                      (store/memory))
@@ -1312,19 +1320,19 @@
                         (is (= [doc-name] delete) "and its old document gone")))
          #(async/then (library/restore! (made) s)
                       (fn [lib]
-                        (is (= [] (:report (:restore lib))))
+                        (is (= [] (restored-report lib)))
                         (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title])))))
          #(do (swap! documents dissoc (library.impl/document-name guid later))
               (async/then (library/restore! (made) s)
                           (fn [lib]
                             (is (= [[:library/unreadable-document (library.impl/document-name guid later)]]
-                                   (map (juxt :id :name) (:report (:restore lib)))))
+                                   (map (juxt :id :name) (restored-report lib))))
                             (is (= {:url url} (get-in lib [:feeds guid]))
                                 "a feed whose document is gone, to fetch again"))))
          #(do (reset! documents {"library.edn" {:body (saved (select-keys library library/saved-keys)) :version "1"}})
               (async/then (library/restore! (made) s)
                           (fn [lib]
-                            (is (= [] (:report (:restore lib))))
+                            (is (= [] (restored-report lib)))
                             (is (= (:feeds library) (:feeds lib)) "a library of version 1, with the feeds inline")
                             (library/save! lib s))))
          #(is (contains? @documents doc-name) "and written out at the next save")
@@ -1332,7 +1340,7 @@
               (async/then (library/restore! (made) s)
                           (fn [lib]
                             (is (= [[:library/newer-format (:version too-new)]]
-                                   (map (juxt :id :version) (:report (:restore lib)))))
+                                   (map (juxt :id :version) (restored-report lib))))
                             (is (= (:profile (made)) (:profile lib)) "nothing of a newer version")
                             (async/then (library/save! lib s)
                                         (fn [{:keys [error]}]
@@ -1343,8 +1351,101 @@
                      {:body (saved {:version 2 :profile (assoc (:profile library) :subscriptions "nope")}) :version "3"})
               (async/then (library/restore! (made) s)
                           (fn [lib]
-                            (is (= [:library/malformed-profile] (map :id (:report (:restore lib)))))
+                            (is (= [:library/malformed-profile] (map :id (restored-report lib))))
                             (is (= (:profile (made)) (:profile lib)) "the profile it had")))))))
+
+(deftest a-library-saved-in-transit
+  (let [documents (atom {})
+        s         (store/memory documents)
+        config    {:now-fn (constantly now) :codec transit/codec}
+        made      #(library/make "phone" {:config config})
+        in-transit (assoc-in library [:config :codec] transit/codec)
+        feed-name (library.impl/document-name guid (get-in library [:feeds guid :changed-at]) transit/codec)]
+    (run #(library/save! library s)
+         #(async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
+                      (fn [lib]
+                        (is (= #?(:clj [] :cljs [:library/slow-format])
+                               (map :id (:report (:restore lib))))
+                            "EDN reads slowly in ClojureScript")))
+         #(async/then (library/restore! (made) s)
+                      (fn [lib]
+                        (is (= [] (restored-report lib)) "a library saved in EDN reads with the codec of Transit")
+                        (is (= (:feeds library) (:feeds lib)))
+                        (async/then (library/save! lib s)
+                                    (fn [{:keys [put delete]}]
+                                      (is (= "library.transit.json" (peek put)))
+                                      (is (some #{feed-name} put) "each feed written anew in Transit")
+                                      (is (= #{"library.edn" (library.impl/document-name guid (get-in library [:feeds guid :changed-at]))}
+                                             (set (remove (fn [n] (re-find #"\.ciff$" n)) delete)))
+                                          "and the documents in EDN gone")))))
+         #(async/then (library/restore! (made) s)
+                      (fn [lib]
+                        (is (= [] (restored-report lib)))
+                        (is (= (:profile library) (:profile lib)))
+                        (is (= (:feeds library) (:feeds lib)) "read back from Transit")
+                        (is (= (:feed (get-in in-transit [:feeds guid]))
+                               (:feed (transit/read-str (:body (get @documents feed-name)))))))))))
+
+(deftest replicas-that-share-a-store
+  (let [s         (store/memory)
+        config    {:now-fn (constantly now)}
+        tab       (fn [n] (library/make "phone" {:replica n :config config}))
+        id        [guid "https://example.com/ep0003"]
+        other-key (feed.guid/feed-guid other other-url)
+        listened  #(get-in % [:profile :listened guid "2026-09"])
+        heard     (atom [])
+        told      (replica/channel "replicas-test")
+        hearing   (replica/channel "replicas-test")
+        tabs      (atom {})]
+    (replica/listen! hearing #(swap! heard conj %))
+    (is (library/shared? (tab "1")))
+    (is (= "phone/1" (get-in (tab "1") [:profile :replica])))
+    (is (not (library/shared? library)))
+    (run #(library/save! library s)
+         #(async/then (async/all [(library/restore! (tab "1") s) (library/restore! (tab "2") s)])
+                      (fn [[one two]]
+                        (is (= "phone/1" (get-in one [:profile :replica])) "a restore keeps the replica of the context")
+                        (is (some? (get-in one [:stored :version])))
+                        (reset! tabs {:one (-> (assoc-in one [:config :channel] told)
+                                               (library/step [:progress id 100 3600] {:at (at 10)})
+                                               (library/step [:progress id 160 3600] {:at (at 70)}))
+                                      :two (-> two
+                                               (library/step [:progress id 200 3600] {:at (at 30)})
+                                               (library/step [:progress id 230 3600] {:at (at 60)})
+                                               (library/subscribe other-url {:status 200 :url other-url :feed other} {:at (at 80)})
+                                               (library/update-profile profile.marks/star id))})
+                        (library/read-saved! one s)))
+         #(async/then (library/save! (:one @tabs) s)
+                      (fn [{:keys [library]}]
+                        (is (some? (get-in library [:stored :version])))
+                        (swap! tabs assoc :one library)
+                        (library/save! (:two @tabs) s)))
+         #(async/then (library/read-saved! (:one @tabs) s)
+                      (fn [stored]
+                        (let [one    (:one @tabs)
+                              caught (library/rebase one (:stored one) stored)]
+                          (testing "a save catches up with what another saved, and the other with that"
+                            (is (= "phone/1" (get-in caught [:profile :replica])))
+                            (is (= [id] (profile.marks/starred (:profile caught))))
+                            (is (= #{guid other-key} (set (keys (library/subscriptions caught)))))
+                            (is (= {"phone/1" 60 "phone/2" 30}
+                                   (update-vals (listened caught) :seconds))
+                                "a count of each replica, so that neither tab's listening is lost")
+                            (is (library/loaded? caught other-key) "a feed new to it, read")
+                            (is (identical? (get-in one [:feeds guid :feed]) (get-in caught [:feeds guid :feed]))
+                                "a feed it holds, kept as it was"))
+                          (library/read-saved! caught s))))
+         #(async/then (library/read-saved! (library/make "phone" {:replica "1" :config config}) s)
+                      (fn [stored]
+                        (is (some? stored) "a library that never read the store reads all of it")))
+         ;; a message reaches the other channel as a task of its own
+         #?(:clj  (constantly nil)
+            :cljs #(js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+         (fn []
+           (is (= 1 (count @heard)) "the replica with a channel told the other on it")
+           (is (= "memory" (:saved (first @heard))))
+           (replica/close! told)
+           (replica/close! hearing)))))
 
 (deftest feeds-on-demand
   (let [documents (atom {})

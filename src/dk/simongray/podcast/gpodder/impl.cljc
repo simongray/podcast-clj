@@ -435,8 +435,9 @@
   since the last push counts, this one or those in the registry of
   `state`, and never what came from a server."
   [state pushed names device]
-  (let [ours?   #(or (= (:device %) (:device state))
-                     (contains? (:devices state) (:device %)))
+  (let [writer  #(crdt/device-of state (:device %))
+        ours?   #(or (= (writer %) (:device state))
+                     (contains? (:devices state) (writer %)))
         changed (fn [k entries]
                   (for [[id e] entries
                         :let  [stamp (some-> (:updated-at e) inst-ms)]

@@ -1,19 +1,15 @@
 (ns inspector.worker
   "The refresh of the player's feeds in a web worker, so that the page
-  stays responsive while the feeds are fetched and parsed.
+  stays responsive while the feeds are fetched and parsed, as
+  dk.simongray.podcast.app.worker serves it.
 
-  When the page asks, the worker restores the library from the store that
-  inspector.shared names, refreshes its feeds through the inspector's
-  proxy, saves it, and posts what it found. The page saves before it asks,
-  and restores and merges when the worker answers. Both write under the
-  Web Lock of inspector.shared, so that one writes at a time.
-
-  A web worker has no DOMParser, so the worker installs that of
-  @xmldom/xmldom to parse the feeds with."
+  The worker writes the library that inspector.shared names as a replica
+  of the browser's device, and tells the page on the channel when it saved
+  it. A web worker has no DOMParser, so the worker parses with that of
+  @xmldom/xmldom."
   (:require ["@xmldom/xmldom" :as xmldom]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
-            [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.wary-fetch.proxy :as proxy]
+            [dk.simongray.podcast.app.worker :as worker]
             [inspector.shared :as shared]))
 
 (defn- parser
@@ -24,36 +20,9 @@
                                      (when-not (= level "warning")
                                        (throw (js/Error. message))))}))
 
-(defn- refreshed!
-  "A promise of the result of the refresh of the library of the `device`
-  in the shared store, which is saved there."
-  [device]
-  (let [store (indexeddb/store shared/store-name)]
-    (shared/locked
-     #(-> (library/restore! (library/make device) store)
-          (.then (fn [lib]
-                   (library/refresh!
-                    lib
-                    {:send (proxy/sender (str js/location.origin "/proxy"))})))
-          (.then (fn [lib]
-                   (.then (library/save! lib store)
-                          (fn [_] (:refresh lib)))))))))
-
 (defn ^:export init
-  "Install a DOMParser, and answer each message of the page, which names
-  the :device of the library, with the :refresh result as EDN, or with
-  the :error.
-
-  The store doesn't keep the result, and the page needs its report, since
-  the next refresh waits for the feeds that failed."
+  "Answer the page's requests to refresh the library."
   []
-  (when-not (exists? js/DOMParser)
-    (set! (.-DOMParser js/globalThis) parser))
-  (set! (.-onmessage js/self)
-        (fn [^js e]
-          (let [device (.. e -data -device)]
-            (-> (refreshed! device)
-                (.then #(js/postMessage #js {:refresh (pr-str %)}))
-                (.catch (fn [error]
-                          (js/postMessage
-                           (clj->js {:error (str error)})))))))))
+  (worker/serve! {:store  (indexeddb/store shared/store-name)
+                  :config (shared/config)
+                  :parser parser}))

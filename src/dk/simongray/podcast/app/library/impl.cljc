@@ -706,9 +706,71 @@
           (filter (comp keep? key))
           (merge-with later mine theirs))))
 
+(declare entry-document)
+
+(defn rebased-entries
+  "The feeds entries of `mine` and `theirs`, as merged-entries joins them,
+  but the entry of `mine` that holds its feed in memory stays where the
+  other names the same document, saved with `codec`, so that it isn't
+  read again."
+  [mine theirs keep? codec]
+  (let [document (fn [feed-guid e]
+                   (or (:document e) (entry-document feed-guid e codec)))]
+    (into {}
+          (map (fn [[feed-guid e]]
+                 (let [own (get mine feed-guid)]
+                   [feed-guid
+                    (if (and (:feed own)
+                             (not (:feed e))
+                             (= (document feed-guid own) (:document e)))
+                      own
+                      e)])))
+          (merged-entries mine theirs keep?))))
+
+(defn printed
+  "The EDN of `x`, whole."
+  [x]
+  (binding [*print-length*         nil
+            *print-level*          nil
+            *print-namespace-maps* false]
+    (pr-str x)))
+
+(def edn-codec
+  "The codec of the documents of a saved library in EDN, the default: a map
+  of the :extension of their names, and the functions that :encode a map
+  as the body of a document and :decode it."
+  {:extension ".edn"
+   :encode    printed
+   :decode    edn/read-string})
+
+(defn codec
+  "The codec of the documents of `library` with `opts`: the :codec of the
+  options or of the config, or else EDN's."
+  [library opts]
+  (:codec (options library opts) edn-codec))
+
+(defn codec-of
+  "The codec of the document `name`, by its extension: the `codec` of the
+  library, or else EDN's."
+  [codec name]
+  (if (str/ends-with? (str name) (:extension codec))
+    codec
+    edn-codec))
+
 (def saved-name
-  "The name of the document of a saved library."
+  "The name of the document of a library saved in EDN."
   "library.edn")
+
+(defn library-name
+  "The name of the document of a library saved with `codec`."
+  [codec]
+  (str "library" (:extension codec)))
+
+(defn library-document?
+  "Whether `name` is that of the document of a saved library, in any
+  codec."
+  [name]
+  (boolean (re-matches #"library\.[a-z.]+" (str name))))
 
 (def version
   "The version of the shape of a saved library: 4 since a played episode
@@ -738,77 +800,76 @@
 
 (defn document-name
   "The name of the document of the feed `feed-guid` that changed at the
-  instant `changed-at`: feed-<id>-<milliseconds>.edn. The id is the guid
-  when it's a UUID, and else its UUIDv5, since a guid can be any text and
-  a document's name must be a plain file name in every store."
-  [feed-guid changed-at]
-  (let [id (if (guid/guid? feed-guid)
-             (str/lower-case feed-guid)
-             (guid/uuid-v5 guid/podcast-namespace (str feed-guid)))]
-    (str "feed-" id "-" (inst-ms changed-at) ".edn")))
+  instant `changed-at`, with `codec`, EDN's by default:
+  feed-<id>-<milliseconds>.edn. The id is the guid when it's a UUID, and
+  else its UUIDv5, since a guid can be any text and a document's name must
+  be a plain file name in every store."
+  ([feed-guid changed-at]
+   (document-name feed-guid changed-at edn-codec))
+  ([feed-guid changed-at codec]
+   (let [id (if (guid/guid? feed-guid)
+              (str/lower-case feed-guid)
+              (guid/uuid-v5 guid/podcast-namespace (str feed-guid)))]
+     (str "feed-" id "-" (inst-ms changed-at) (:extension codec)))))
 
 (defn feed-document?
-  "Whether `name` is that of the document of a feed."
+  "Whether `name` is that of the document of a feed, in any codec."
   [name]
-  (boolean (re-matches #"feed-[0-9a-f-]{36}-\d+\.edn" (str name))))
+  (boolean (re-matches #"feed-[0-9a-f-]{36}-\d+\.[a-z.]+" (str name))))
 
 (defn entry-document
-  "The name of the document of the feeds entry `entry` of `feed-guid`, by
-  when its feed changed, or was fetched for an entry that doesn't say."
-  [feed-guid entry]
-  (document-name feed-guid (or (:changed-at entry)
-                               (:fetched-at entry)
-                               (time/->inst 0))))
-
-(defn printed
-  "The EDN of `x`, whole."
-  [x]
-  (binding [*print-length*         nil
-            *print-level*          nil
-            *print-namespace-maps* false]
-    (pr-str x)))
+  "The name of the document of the feeds entry `entry` of `feed-guid` with
+  `codec`, by when its feed changed, or was fetched for an entry that
+  doesn't say."
+  [feed-guid entry codec]
+  (document-name feed-guid
+                 (or (:changed-at entry) (:fetched-at entry) (time/->inst 0))
+                 codec))
 
 (defn feed-body
-  "The EDN of the document of the feeds `entry`: its feed and the facts of
-  the items that it retains."
-  [entry]
-  (printed (select-keys entry [:feed :retained])))
+  "The document of the feeds `entry` with `codec`: its feed and the facts
+  of the items that it retains."
+  [entry codec]
+  ((:encode codec) (select-keys entry [:feed :retained])))
 
 (defn saved-map
-  "The parts of `library` that `keys` names, as library.edn holds them:
-  with the :version, and each feeds entry with the name of the document
-  of its feed in place of the feed and its retained items."
-  [library keys]
+  "The parts of `library` that `keys` names, as its saved document with
+  `codec` holds them: with the :version, the profile without the replica
+  of this context, and each feeds entry with the name of the document of
+  its feed in place of the feed and its retained items."
+  [library keys codec]
   (let [outlined (fn [[feed-guid entry]]
                    [feed-guid
                     (if (:feed entry)
                       (-> (dissoc entry :feed :retained)
-                          (assoc :document (entry-document feed-guid entry)))
+                          (assoc :document (entry-document feed-guid entry codec)))
                       entry)])]
     (cond-> (assoc (select-keys library keys) :version version)
-      (some #{:feeds} keys) (update :feeds #(into {} (map outlined) %)))))
+      (some #{:feeds} keys)   (update :feeds #(into {} (map outlined) %))
+      (some #{:profile} keys) (update :profile crdt/with-replica nil))))
 
 (defn feeds-plan
-  "The documents of the `feeds` of a library to put into a store that
-  holds the documents of the `names`, and the names to delete from it, as
-  a map of :put and :delete.
+  "The documents of the `feeds` of a library to put with `codec` into a
+  store that holds the documents of the `names`, and the names to delete
+  from it, as a map of :put and :delete.
 
   A feed's document is put when the store doesn't hold its name, and a
-  feed document that no feed names is deleted. Without `names`, as of a
-  store that can't list, it's every document and no deletes."
-  [feeds names]
+  feed document that no feed names is deleted, that of another codec too.
+  Without `names`, as of a store that can't list, it's every document and
+  no deletes."
+  [feeds names codec]
   (let [held   (set names)
         wanted (into {}
                      (for [[feed-guid entry] feeds
                            :when (:feed entry)]
-                       [(entry-document feed-guid entry) entry]))
+                       [(entry-document feed-guid entry codec) entry]))
         asleep (into #{}
                      (keep #(when (unloaded? %) (:document %)))
                      (vals feeds))]
     {:put    (for [[name entry] wanted
                    :when (not (contains? held name))]
                {:name name
-                :body (feed-body entry)})
+                :body (feed-body entry codec)})
      :delete (->> held
                   (filter #(and (feed-document? %)
                                 (not (contains? wanted %))
@@ -830,15 +891,30 @@
       (reduce reindexed library (remove indexed feeds)))))
 
 (defn- read-map
-  "The map that the EDN of the :body of `document` holds, as text or as
-  the bytes of UTF-8, or nil when it doesn't read as one."
-  [{:keys [body] :as document}]
+  "The map that the :body of `document` holds, as text or as the bytes of
+  UTF-8, decoded with `codec`, or nil when it doesn't read as one."
+  [{:keys [body] :as document} codec]
   (let [x (try
-            (edn/read-string (if (string? body) body (bytes/decode body)))
+            ((:decode codec) (if (string? body) body (bytes/decode body)))
             (catch #?(:clj Throwable :cljs :default) _
               nil))]
     (when (map? x)
       x)))
+
+;; Measured in Chrome on a parsed feed of 20 MB: 1152 ms to read its EDN,
+;; 38 ms to read its Transit, and 346 ms to parse its XML again.
+(defn slow-format
+  "The :library/slow-format diagnostic of a restore of `library` with
+  `opts` that read documents in EDN, in ClojureScript, or nil."
+  [library opts]
+  #?(:clj  nil
+     :cljs (when (= edn-codec (codec library opts))
+             (diagnostics/describe
+              {:id     :library/slow-format
+               :reason (str "ClojureScript reads EDN about 30 times slower "
+                            "than Transit, slower than it parses the feeds "
+                            "again: give the config of the library the "
+                            ":codec of dk.simongray.like-minded.transit")}))))
 
 (defn- migrated
   "The saved library `saved`, of its :version or else of version 1,
@@ -852,25 +928,27 @@
 
 (defn with-saved
   "The `library` with the parts that `keys` names of the saved library, the
-  :value of the `attempt` to fetch its document, brought up to this
-  version, and the report of what didn't read, as a pair.
+  :value of the `attempt` to fetch its document `name`, brought up to this
+  version, and the report of what didn't read, as a pair. The document is
+  read with the codec of the library, or EDN's, by its extension.
 
   A saved library of a newer version leaves the library as it is, and a
   saved profile that breaks the rules of profile/problem leaves its
   profile, with :library/newer-format or :library/malformed-profile in the
   report."
-  [library keys {:keys [value error] :as attempt}]
+  [library keys name {:keys [value error] :as attempt}]
   (let [unreadable #(diagnostics/describe
-                     {:id :library/unreadable-document :name saved-name
+                     {:id :library/unreadable-document :name name
                       :reason %})
-        saved      (when-not error (read-map value))
+        saved      (when-not error
+                     (read-map value (codec-of (codec library {}) name)))
         v          (:version saved 1)
         problem    (when (some #{:profile} keys)
                      (some-> (:profile saved) profile/problem))]
     (cond
       error              [library [(unreadable (async/explain error))]]
       (nil? value)       [library []]
-      (nil? saved)       [library [(unreadable "It isn't a map in EDN")]]
+      (nil? saved)       [library [(unreadable "It doesn't read as a map")]]
       (not (pos-int? v)) [library [(unreadable "Its version is no number")]]
 
       (< version v)
@@ -887,7 +965,11 @@
                                :reason (str problem)})]]
 
       :else
-      [(clojure.core/merge library (select-keys (migrated saved) keys)) []])))
+      [(cond-> (clojure.core/merge library (select-keys (migrated saved) keys))
+         ;; the replica belongs to this context, not to the one that saved
+         (get-in library [:profile :replica])
+         (assoc-in [:profile :replica] (get-in library [:profile :replica])))
+       []])))
 
 (defn with-feeds
   "The `library` and its `report`, a pair, with the feed and the retained
@@ -897,24 +979,27 @@
 
   An entry whose document is missing or doesn't read keeps only its URL,
   so that the next refresh fetches it again, with
-  :library/unreadable-document in the report."
+  :library/unreadable-document in the report. Each document is read with
+  the codec of the library, or EDN's, by its extension."
   [[library report] store wanted?]
   (let [outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
                        :when (and (unloaded? entry) (wanted? feed-guid))]
                    [feed-guid document])
-        loaded   (fn [{:keys [value error]}]
-                   (let [{:keys [feed retained]} (when-not error
-                                                   (read-map value))]
+        own      (codec library {})
+        loaded   (fn [document {:keys [value error]}]
+                   (let [{:keys [feed retained]}
+                         (when-not error
+                           (read-map value (codec-of own document)))]
                      (cond
                        (map? feed)  (cond-> {:feed feed}
                                       (map? retained) (assoc :retained
                                                              retained))
                        error        {:reason (async/explain error)}
                        (nil? value) {:reason "It isn't in the store"}
-                       :else        {:reason "It isn't a feed in EDN"})))
+                       :else        {:reason "It doesn't read as a feed"})))
         fetch!   (fn [[feed-guid document]]
                    (async/then (async/attempt #((:fetch store) document {}))
-                               #(vector feed-guid document (loaded %))))
+                               #(vector feed-guid document (loaded document %))))
         applied  (fn [[library report] [feed-guid document read]]
                    (if (:feed read)
                      [(update-in library [:feeds feed-guid]

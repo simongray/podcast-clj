@@ -1,24 +1,24 @@
 (ns inspector.shared
-  "The library that the player's page and its web worker share in
-  IndexedDB, and the Web Lock that one writer of it holds at a time.
+  "What the player's page and its web worker share: the IndexedDB database
+  of the library, and the config of the library in either.
 
   It sits apart from inspector.worker, so that the page requires it without
-  pulling the worker's own module into the page.")
+  pulling the worker's own module into the page."
+  (:require [dk.simongray.like-minded.replica :as replica]
+            [dk.simongray.like-minded.transit :as transit]
+            [dk.simongray.wary-fetch.proxy :as proxy]))
 
 (def store-name
   "The IndexedDB database of the library that the page and the worker
-  share."
+  share, and the name of the channel on which they tell each other that
+  they saved it."
   "inspector-library")
 
-(def lock-name
-  "The Web Lock that one writer of the shared library holds at a time."
-  "inspector-library")
-
-;; Web Locks API, W3C Working Draft of 24 September 2025, section 3.2.1
-(defn locked
-  "A promise of what `f` gives, called while this page or worker holds the
-  Web Lock lock-name, or at once where the platform has no Web Locks."
-  [f]
-  (if-let [locks (some-> js/globalThis .-navigator .-locks)]
-    (.request ^js locks lock-name (fn [_] (f)))
-    (js/Promise.resolve (f))))
+(defn config
+  "The config of the library in the page or the worker: its requests go
+  through the inspector's proxy, its documents are in Transit, and a save
+  tells the others on a channel of this context."
+  []
+  {:send    (proxy/sender (str js/location.origin "/proxy"))
+   :codec   transit/codec
+   :channel (replica/channel store-name)})

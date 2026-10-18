@@ -132,11 +132,11 @@
 (defn archive
   "The `profile` with the played episodes `ids` moved to the archive at
   `at`: their entries go, and their guids join the archive of this device,
-  unless the archive of a device holds them already."
+  or of its replica, unless the archive of a device holds them already."
   [profile ids at]
   (let [fresh  (group-by first (remove (partial archived? profile) ids))
         writes (for [[feed-guid ids] fresh]
-                 [[:archive feed-guid (:device profile)]
+                 [[:archive feed-guid (crdt/author profile)]
                   (fn [{:keys [items]}]
                     (let [items (into (or items #{}) (map second) ids)]
                       {:items items :n (count items)}))])

@@ -436,9 +436,9 @@
   [{:keys [profile error] :as state}]
   [:div
    [:p.muted (str "The listener's profile (dk.simongray.podcast.profile), "
-                  "running in this browser and kept in localStorage; "
-                  "Replicant renders it, the audio element in the bar "
-                  "reports to it, and its effects drive the audio.")]
+                  "running in this browser and kept in IndexedDB, which "
+                  "its tabs share; Replicant renders it, the audio element "
+                  "in the bar reports to it, and its effects drive the audio.")]
    (when error [:p.error error])
    (when-let [id (profile.queue/current profile)]
      [:p "Now playing: " (episode-link state id)])

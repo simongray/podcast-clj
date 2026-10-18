@@ -5,6 +5,7 @@
   A profile is one map:
 
       {:device         \"8f1c9e2a-…\"   ; this device's id
+       :replica        \"8f1c9e2a-…/1\" ; this tab's, when several share it
        :clock          #inst \"…\"      ; the latest stamp written or merged
        :subscriptions  {feed-guid {:url :title :image :added-at :guid
                                    :removed?}}
@@ -16,7 +17,7 @@
        :episodes       {id {:position :duration :reported-at}}
        :played         {id {:played? true :played-at}}
        :hidden         {id {:hidden? true}}           ; as the listener chose
-       :archive        {feed-guid {device-id {:items #{item-guid} :n 1}}}
+       :archive        {feed-guid {author {:items #{item-guid} :n 1}}}
        :queue          {id {:rank \"V\" :removed? false}}
        :queue-moves    {id {:rank \"W\" :removed? false}}  ; moved ranks
        :playlists      {name {id {:rank \"V\" :removed? false}}}
@@ -27,16 +28,17 @@
        :clips          {id {754 {:duration :title :removed?}}}
        :ratings        {id {:rating 4 :worst 1 :best 5 :removed?}}
        :filters        {name {:criteria {:where {:status :unplayed}} :removed?}}
-       :listened       {feed-guid {\"2026-09\" {device-id {:seconds 5400.0}}}}
+       :listened       {feed-guid {\"2026-09\" {author {:seconds 5400.0}}}}
        :payments       {id {:status :paid :sats 50 :address :removed?}}
        :preferences    {:skip-forward {:value 30} ...}
        :devices        {device-id {:name :platform ... :seen {…}}}
        :retired        {device-id {}}}
 
   A profile is a CRDT of dk.simongray.mind-meld: each write takes the time
-  it happens at, and stamps what it changed with that time and the :device
-  of the profile. It syncs through dk.simongray.like-minded with the
-  sync-options. A feed is identified by its key, the guid that its first
+  it happens at, and stamps what it changed with that time and the author
+  of the profile, its :replica or else its :device, which also keys the
+  counts of :archive and :listened. It syncs through
+  dk.simongray.like-minded with the sync-options. A feed is identified by its key, the guid that its first
   fetch settled on, and an episode by its id, [feed-guid item-guid].
   Once nothing has changed a played episode for a year, compact moves it
   from :episodes and :played to the :archive of its show.
@@ -834,6 +836,14 @@
   two listening counts of one device, by the higher."
   [a b]
   (crdt/merge impl/collections a b))
+
+(defn rebase
+  "The profile `onto` with what `profile` changed since `base`, as the
+  replica of `profile`, as dk.simongray.mind-meld/rebase does: how a tab or
+  worker catches up with a profile that another one saved in the storage
+  that they share."
+  [profile base onto]
+  (crdt/rebase impl/collections profile base onto))
 
 ;; a merge spreads the values of another device to every device, where a
 ;; bad value makes a function throw, or two devices disagree

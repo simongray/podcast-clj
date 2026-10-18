@@ -444,20 +444,38 @@ ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
 
 In a web page, parsing the feeds that changed can hold up the page for a
-moment, so run the refresh in a web worker, with a store that both
-share, e.g. like-minded's `store.indexeddb`:
+moment, so refresh in a web worker with `dk.simongray.podcast.app.worker`.
+The worker is a replica of the device of its own, sharing the library's
+store with the page, as [Share the library between tabs and
+workers](#share-the-library-between-tabs-and-workers) has it. In the
+worker, a module of its own, e.g. with `:web-worker true` in shadow-cljs:
 
-1. The page saves the library and posts the worker a message.
-2. The worker restores the library, refreshes it, saves it, and posts
-   back the `:refresh`, which the store doesn't keep.
-3. The page restores the library, merges it into its own, and puts the
-   `:refresh` back, since its report tells `next-refresh` which feeds
-   failed.
+```clojure
+(worker/serve! {:store  data
+                :config config
+                :parser #(xmldom/DOMParser.)})  ; a worker has no DOMParser
+```
 
-Hold a Web Lock around each save and restore, with
-`navigator.locks.request`, so that one of them writes at a time. The
-inspector's player does this in `web/inspector/worker.cljs`, where the
-worker is a shadow-cljs module with `:web-worker true`.
+On the page, save first, ask, and put the `:refresh` into the library,
+since the store doesn't keep it, and `next-refresh` reads which feeds
+failed from it:
+
+```clojure
+(def client
+  (worker/client "/js/worker.js" config))
+
+(-> (replica/save! app [:library] data)
+    (.then #(worker/refresh! client device-id {:head-check? true}))
+    (.then (fn [{:keys [refresh]}]
+             (.then (replica/catch-up! app [:library] data)
+                    #(swap! app assoc-in [:library :refresh] refresh)))))
+```
+
+One refresh runs at a time across the tabs, and the worker of another
+answers `:busy?`, catching up through the channel when the first saves.
+`worker/fetch!` fetches and parses one feed in the worker, e.g. for the
+page of a show outside the library, and gives it back in the codec of the
+config. The inspector's player does all of this in `web/inspector/`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -636,12 +654,29 @@ read it back into a new library when the app starts:
 (def data (folder/store "data"))
 
 (library/save! @lib data)
-;; => {:put ["feed-917393e3-1b1e-5cef-ace4-edaa54e1f810-1759233600000.edn"
-;;           "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
-;;     :delete []}
+;; => {:put     ["feed-917393e3-1b1e-5cef-ace4-edaa54e1f810-1759233600000.edn"
+;;               "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
+;;     :delete  []
+;;     :library {…}}
 
 (reset! lib (library/restore! (library/make device-id) data))
 ```
+
+In ClojureScript, save the documents in Transit rather than EDN, which
+ClojureScript reads about 30 times slower: a parsed feed of 20 MB takes
+1.2 s to read back from EDN in Chrome, longer than parsing its XML again,
+and 40 ms from Transit. Add `com.cognitect/transit-cljs` to your deps, and
+give the config like-minded's codec:
+
+```clojure
+(require '[dk.simongray.like-minded.transit :as transit])
+
+(library/make device-id {:config {:codec transit/codec}})
+```
+
+A library saved in EDN still reads, and the next save writes it in
+Transit. A restore in ClojureScript that reads EDN has
+`:library/slow-format` in its report, as a reminder.
 
 This writes the profile, the followed lists and the last sync to
 `library.edn`, and each feed to a document of its own. The search index
@@ -694,6 +729,44 @@ deletes the documents of any other index there:
   the page asked for `navigator.storage.persist()` and got it. If the
   browser clears them, `restore!` returns the library as `make` made it,
   and the next sync brings the profile back from the other devices.
+
+### Share the library between tabs and workers
+
+The tabs and workers of a web app share the browser's storage, and each
+writes the library. Without care, one tab's save writes over another's,
+and with one device id between them, one would lose the listening counts
+of the other. So make each of them a replica of the device, with a name
+that like-minded leases it, and keep the library in an atom with
+`dk.simongray.podcast.app.replica`:
+
+```clojure
+(require '[dk.simongray.like-minded.replica :as like-minded.replica]
+         '[dk.simongray.podcast.app.replica :as replica])
+
+(def channel
+  (like-minded.replica/channel "my-app"))
+
+(def config
+  {:codec transit/codec :channel channel})
+
+(.then (replica/open! data device-id config)
+       #(swap! app assoc :library %))
+
+(replica/listen! app [:library] data channel)
+
+(replica/save! app [:library] data)  ; after each change
+```
+
+A replica's save first catches up with what another tab or worker saved
+since it last read the store or wrote it, then tells the others on the
+channel, and `listen!` catches each up as it hears that. Saves and
+restores of one store take turns across the tabs, through a Web Lock. A
+hidden page can miss what the others tell, so catch it up with
+`replica/catch-up!` when it's visible again.
+
+Without `app.replica`, the same takes `library/with-replica`,
+`read-saved!` and `rebase`: catch up with `rebase` rather than `merge`,
+since a whole merge can bring back what another replica compacted.
 
 
 ## Build the show and episode pages
@@ -1699,9 +1772,11 @@ In the page:
 - Save the library to IndexedDB, since a large feed takes more than
   localStorage holds, and keep a database for each account, e.g.
   `(indexeddb/store (str "my-app-" account-id))`.
-- Let one tab sync at a time, e.g. with `navigator.locks`, and before each
-  step, merge in the library that the last step saved, since the tabs
-  share the device id.
+- Make each tab a replica of the device, as [Share the library between
+  tabs and workers](#share-the-library-between-tabs-and-workers) has it,
+  and catch it up with `replica/catch-up!` before each step.
+  like-minded runs one step of a device at a time, and a step that
+  begins while another runs does nothing, with `:sync/overlapping-step`.
 - Offer to retire the devices that `crdt/lagging` lists, since private
   windows and cleared site data leave devices that never sync again.
 
@@ -2290,12 +2365,14 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.html-pieces :as html]
             [dk.simongray.httpsig :as httpsig]
             [dk.simongray.httpsig.cavage :as cavage]
+            [dk.simongray.like-minded.replica :as like-minded.replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
+            [dk.simongray.like-minded.transit :as transit]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.play-nice.media :as media-element]
             [dk.simongray.play-nice.media.capabilities :as capabilities]
@@ -2308,7 +2385,9 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
+            [dk.simongray.podcast.app.replica :as replica]
             [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]

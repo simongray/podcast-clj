@@ -1,6 +1,11 @@
 (ns inspector.player
   "The inspector's player in the browser: a library with the listener's
-  profile, kept in localStorage, and the audio of the current episode.
+  profile, kept in IndexedDB, and the audio of the current episode.
+
+  Each tab writes the library as a replica of the browser's device, as
+  dk.simongray.podcast.app.replica has it, and catches up with what the
+  other tabs and the worker save, so that none writes over another. The
+  titles of the episodes that the page shows live in localStorage.
 
   The server only supplies episode data, at /episode.edn. The player sits
   in a bar on every page. Clicking a link fetches the next page and swaps
@@ -50,6 +55,8 @@
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
+            [dk.simongray.podcast.app.replica :as replica]
+            [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
@@ -58,7 +65,9 @@
             [replicant.dom :as replicant]))
 
 (def storage-key
-  "Where the state lives between visits."
+  "Where the titles of the episodes live between visits, and where the
+  whole state lived before, whose library the first visit since takes
+  over."
   "dk.simongray.podcast.profile")
 
 (def device-key
@@ -75,6 +84,24 @@
   data."}
   app
   (atom nil))
+
+(defonce ^{:doc "The store of the library that the tabs and the worker
+  share, made at its first use: the IndexedDB database of inspector.shared,
+  unless something else is put here first, e.g. a store in memory for a
+  test."}
+  library-store
+  (atom nil))
+
+(defn- the-store
+  []
+  (or @library-store
+      (reset! library-store (indexeddb/store shared/store-name))))
+
+(defonce ^{:doc "The config of the library in this tab, made at its first
+  use, with the channel on which the tabs and the worker tell each other
+  that they saved it."}
+  config
+  (delay (shared/config)))
 
 (defn- audio-element
   []
@@ -117,31 +144,36 @@
 
 (defn- read-state
   "The state saved as the string `s`, or nil when there is none, when it
-  can't be read, or when its profile has a problem."
+  can't be read, or when the profile of its library has a problem."
   [s]
   (when-let [state (try (some-> s reader/read-string) (catch :default _ nil))]
-    (when-not (profile/problem (get-in state [:library :profile]))
+    (when-not (some-> (get-in state [:library :profile]) profile/problem)
       state)))
 
-(defn- load-state
-  "The state of the last visit, or a fresh one under the id of this
-  browser, which is kept from now on."
+(defn- open-state!
+  "A promise of the state of the last visit, or of a fresh one under the id
+  of this browser, which is kept from now on: the library of the store, as
+  the replica that this tab leases, and the titles. A library that this
+  browser kept in localStorage before, but not in the store, is taken
+  over."
   []
-  (let [state (read-state (stored storage-key))
-        id    (or (stored device-key)
-                  (get-in state [:library :device])
-                  (str (random-uuid)))]
+  (let [kept (read-state (stored storage-key))
+        id   (or (stored device-key)
+                 (get-in kept [:library :device])
+                 (str (random-uuid)))]
     (store! device-key id)
-    (or state {:library (library/make id) :titles {}})))
+    (.then (replica/open! (the-store) id @config)
+           (fn [lib]
+             {:library (cond-> lib
+                         (and (:library kept) (not (:stored lib)))
+                         (library/merge (:library kept)))
+              :titles  (or (:titles kept) {})}))))
 
 (defn with-other-tab
-  "The page `state` with `other`, the state another tab of this browser
-  saved, merged in: the libraries with their sync cursors, and the titles
-  of both."
+  "The page `state` with `other`, the titles that another tab of this
+  browser saved, merged in. The library catches up through the store."
   [state other]
-  (-> state
-      (update :library library/merge (:library other))
-      (update :titles merge (:titles other))))
+  (update state :titles merge (:titles other)))
 
 (defn with-synced
   "The page `state` with `library`, the result of a sync, merged into its
@@ -153,9 +185,32 @@
       (assoc :syncing? false
              :synced   (select-keys (:sync library) [:at :report]))))
 
-(defn- save!
+(defn- save-titles!
+  "Keep the titles of the page `state` in localStorage."
   [state]
-  (store! storage-key (pr-str (select-keys state [:library :titles]))))
+  (store! storage-key (pr-str (select-keys state [:titles]))))
+
+(defonce ^{:doc "Whether a save of the library is under way, and whether
+  another is to follow it, :running or :again, or nil."}
+  saving
+  (atom nil))
+
+(defn- save-library!
+  "Save the library of the page to the store, or once more after the save
+  under way, since the library changes every few seconds while an episode
+  plays."
+  []
+  (case @saving
+    :running (reset! saving :again)
+    :again   nil
+    (do (reset! saving :running)
+        (-> (replica/save! app [:library] (the-store))
+            (.then #(when (:error %)
+                      (js/console.error "The library wasn't saved" (clj->js %))))
+            (.finally (fn []
+                        (let [again? (= :again @saving)]
+                          (reset! saving nil)
+                          (when again? (save-library!)))))))))
 
 (defn- backend
   "The inspector's WebDAV folder on this origin, as a backend."
@@ -210,14 +265,6 @@
   (when-let [h (get-in @app [:folder :handle])]
     (.then (folder/query-permission! h) #(use-folder! h %))))
 
-(defn- one-at-a-time
-  "Run `f`, which gives a promise, while no other tab of this browser runs
-  it, where the browser has Web Locks."
-  [f]
-  (if (exists? js/navigator.locks)
-    (.request js/navigator.locks "inspector-sync" (fn [_] (f)))
-    (f)))
-
 (defn- episode-query
   "The address at `path` of the episode `guid` of the feed at `url`, e.g.
   of /episode.edn."
@@ -255,34 +302,40 @@
                     (swap! app assoc-in [:titles id] (reader/read-string %))))
           (.catch (fn [_] nil))))))
 
+(defonce ^{:doc "The promise of the last sync of this tab, which the next
+  one waits for."}
+  last-sync
+  (atom (js/Promise.resolve nil)))
+
 (defn sync!
   "Sync this browser with the other devices through `backends`, by default
-  the inspector's folder and the sync folder of this browser, and show the
-  result on the queue page.
+  the inspector's folder and the sync folder of this browser, once the
+  sync of this tab before it is done, and show the result on the queue
+  page.
 
-  The tabs of this browser share its device id, so they sync one at a
-  time, and each step starts from what the last one saved."
+  The tabs of this browser are replicas of one device, so each step
+  starts from what the other tabs saved, and like-minded runs one step of
+  the device at a time."
   ([]
    (sync! (backends)))
   ([backends]
    (swap! app assoc :syncing? true)
-   (-> (one-at-a-time
-        (fn []
-          (when-let [other (read-state (stored storage-key))]
-            (swap! app with-other-tab other))
-          (.then (library/sync! (:library @app) backends)
-                 #(swap! app with-synced %))))
-       (.catch (fn [e]
-                 (let [message "The sync through the inspector failed."
-                       failed  {:id      :library/backend-failed
-                                :backend "inspector"
-                                :reason  (str e)
-                                :message message}]
-                   (swap! app assoc
-                          :syncing? false
-                          :synced   {:at (time/now) :report [failed]}))))
-       (.then (fn [_] (check-folder!)))
-       (.then (fn [_] (fetch-unknown!))))))
+   (let [step (fn []
+                (-> (replica/catch-up! app [:library] (the-store))
+                    (.then #(library/sync! (:library @app) backends))
+                    (.then #(swap! app with-synced %))))]
+     (-> (swap! last-sync #(.then % step step))
+         (.catch (fn [e]
+                   (let [message "The sync through the inspector failed."
+                         failed  {:id      :library/backend-failed
+                                  :backend "inspector"
+                                  :reason  (str e)
+                                  :message message}]
+                     (swap! app assoc
+                            :syncing? false
+                            :synced   {:at (time/now) :report [failed]}))))
+         (.then (fn [_] (check-folder!)))
+         (.then (fn [_] (fetch-unknown!)))))))
 
 (defn- playing?
   []
@@ -945,9 +998,14 @@
                      (fn [_] (swap-content! js/location.href false))))
 
 (defn- listen-to-other-tabs!
-  "Merge in the state another tab of this browser saves, so that neither
-  tab's saves overwrite the other's changes."
+  "Catch up with the library that another tab or the worker saves, as it
+  says on the channel, and when the page comes back, since a hidden page
+  can miss that, and merge in the titles another tab keeps."
   []
+  (replica/listen! app [:library] (the-store) (:channel @config))
+  (.addEventListener js/document "visibilitychange"
+                     #(when (= "visible" (.-visibilityState js/document))
+                        (replica/catch-up! app [:library] (the-store))))
   (.addEventListener js/window "storage"
                      (fn [e]
                        (when (= storage-key (.-key e))
@@ -963,55 +1021,40 @@
                         (sync!)))
   (js/window.setInterval sync-when-due! 30000))
 
-(defn- refreshed!
-  "Restore the library that the worker saved, and merge it into the page's
-  with the result of the refresh, by the event `e` of the worker's answer.
-  The time of the answer and any error go under :refreshed."
-  [^js e]
-  (let [{:keys [error refresh]} (js->clj (.-data e) :keywordize-keys true)
-        store  (indexeddb/store shared/store-name)
-        device (get-in @app [:library :device])
-        done   #(assoc % :refreshing? false :refreshed %2)]
-    (if error
-      (swap! app done {:at (time/now) :error error})
-      (.then (shared/locked #(library/restore! (library/make device) store))
-             (fn [restored]
-               (swap! app #(-> %
-                               (update :library library/merge restored)
-                               (assoc-in [:library :refresh]
-                                         (reader/read-string refresh))
-                               (done {:at (time/now)}))))))))
+(defn- refreshed
+  "The page `state` once the worker answered a refresh with `answer`:
+  the :refresh, which the store doesn't keep, in the library, and the time
+  of the answer and any error under :refreshed."
+  [state {:keys [refresh error failed busy?]}]
+  (cond-> (assoc state
+                 :refreshing? false
+                 :refreshed   (cond-> {:at (time/now)}
+                                (or failed error) (assoc :error (str (or failed error)))))
+    (and refresh (not busy?)) (assoc-in [:library :refresh] refresh)))
 
-(defn- worker-failed!
-  "Note the error event `e` of the worker, which failed to load or threw,
-  so that the next refresh that's due asks again."
-  [^js e]
-  (swap! app assoc
-         :refreshing? false
-         :refreshed   {:at (time/now) :error (or (.-message e) "no message")}))
-
-(defonce ^{:doc "The web worker that refreshes the feeds of the library,
-  made on first use, or nil where the browser has none."}
+(defonce ^{:doc "The client of the web worker that refreshes the feeds of
+  the library, made on first use, or nil where the browser has none."}
   refresher
   (delay (when (exists? js/Worker)
-           (doto (js/Worker. "/js/worker.js")
-             (.addEventListener "message" refreshed!)
-             (.addEventListener "error" worker-failed!)))))
+           (worker/client "/js/worker.js" @config))))
 
 (defn- refresh-when-due!
-  "Ask the worker to refresh the feeds, once the library has one due:
-  save the library to the store that the worker shares first."
+  "Ask the worker to refresh the feeds, once the library has one due: save
+  the library to the store that the worker shares first, and catch up
+  with what the worker saved after."
   []
-  (when-let [^js w (when (and (not (:refreshing? @app))
-                              (some-> (library/next-refresh (:library @app))
-                                      inst-ms
-                                      (<= (js/Date.now))))
-                     @refresher)]
+  (when-let [client (when (and (not (:refreshing? @app))
+                               (some-> (library/next-refresh (:library @app))
+                                       inst-ms
+                                       (<= (js/Date.now))))
+                      @refresher)]
     (swap! app assoc :refreshing? true)
-    (let [store  (indexeddb/store shared/store-name)
-          device (get-in @app [:library :device])]
-      (.then (shared/locked #(library/save! (:library @app) store))
-             (fn [_] (.postMessage w #js {:device device}))))))
+    (-> (replica/save! app [:library] (the-store))
+        (.then #(worker/refresh! client (get-in @app [:library :device]) {}))
+        (.then (fn [answer]
+                 (.then (replica/catch-up! app [:library] (the-store))
+                        (fn [_] (swap! app refreshed answer)))))
+        (.catch #(swap! app refreshed {:failed (str %)})))))
 
 (defn- refresh-on-its-own!
   "Refresh the feeds in the worker now, and whenever one is due."
@@ -1029,35 +1072,46 @@
   - add an episode that the URL asks for, or play one from its t
   - fetch the episodes like the one of an item page, and ask the browser
     whether it plays the page's files
-  - sync and refresh on its own"
+  - sync and refresh on its own
+
+  It gives a promise that settles once the player is mounted, since the
+  state comes from IndexedDB."
   []
-  (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
-  (let [{:keys [device profile]} (:library @app)]
-    (when (not= (browser-name) (get-in profile [:devices device :name]))
-      (operate! crdt/identify {:name (browser-name)})))
-  (save! @app)
-  (.then (media/volume-locked!) #(swap! app assoc :volume-locked? %))
-  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event node]} event]
-                             (handle! event dom-event node)))
-  (add-watch app ::render
-             (fn [_ _ old new]
-               (let [kept [:library :titles]]
-                 (when (not= (select-keys old kept) (select-keys new kept))
-                   (save! new)))
-               (when-not (profile.queue/current
-                          (get-in new [:library :profile]))
-                 (off-lock-screen!))
-               ;; the media element reports its time four times a second,
-               ;; and its tracks at each cue, and only the bar shows them
-               (render! (not= (dissoc old :media :reported :tracks)
-                              (dissoc new :media :reported :tracks)))))
-  (intercept-navigation!)
-  (listen-to-other-tabs!)
-  (render! true)
-  (restore-folder!)
-  (add-from-query!)
-  (play-from-link!)
-  (fill-recommended!)
-  (fill-playable!)
-  (sync-on-its-own!)
-  (refresh-on-its-own!))
+  (.then
+   (open-state!)
+   (fn [state]
+     (replicant/set-dispatch! (fn [{:replicant/keys [dom-event node]} event]
+                                (handle! event dom-event node)))
+     (reset! app (assoc state :can-pick? (exists? js/showDirectoryPicker)))
+     (add-watch app ::render
+                (fn [_ _ old new]
+                  ;; what a save notes of the store is no change to save
+                  (when (not= (dissoc (:library old) :stored)
+                              (dissoc (:library new) :stored))
+                    (save-library!))
+                  (when (not= (:titles old) (:titles new))
+                    (save-titles! new))
+                  (when-not (profile.queue/current
+                             (get-in new [:library :profile]))
+                    (off-lock-screen!))
+                  ;; the media element reports its time four times a
+                  ;; second, and its tracks at each cue, and only the bar
+                  ;; shows them
+                  (render! (not= (dissoc old :media :reported :tracks)
+                                 (dissoc new :media :reported :tracks)))))
+     (let [{:keys [device profile]} (:library @app)]
+       (if (not= (browser-name) (get-in profile [:devices device :name]))
+         (operate! crdt/identify {:name (browser-name)})
+         (save-library!)))
+     (save-titles! @app)
+     (.then (media/volume-locked!) #(swap! app assoc :volume-locked? %))
+     (intercept-navigation!)
+     (listen-to-other-tabs!)
+     (render! true)
+     (restore-folder!)
+     (add-from-query!)
+     (play-from-link!)
+     (fill-recommended!)
+     (fill-playable!)
+     (sync-on-its-own!)
+     (refresh-on-its-own!))))

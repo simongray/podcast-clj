@@ -608,6 +608,11 @@
     {:id :library/index-rebuilt :level :info
      :doc "The search index was built again from the feeds, since some of its
            documents were missing or didn't read. The :reason says why."}
+    {:id :library/slow-format :level :warning
+     :doc "The library was read from documents in EDN in ClojureScript, which
+           reads EDN about 30 times slower than Transit, and slower than it
+           parses the feeds again. Give the config of the library the :codec
+           of dk.simongray.like-minded.transit."}
     {:id :library/push-not-applied :level :info
      :doc "A WebSub hub pushed a feed that couldn't be applied, so the feed is
            due at once and the next refresh fetches it. The :reason says why,
