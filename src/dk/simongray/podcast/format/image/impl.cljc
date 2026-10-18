@@ -363,16 +363,38 @@
     (mapv (fn [group] (hex-of (map #(mean group %) [0 1 2])))
           (take n groups))))
 
+(defn linear
+  "The channels of the red, green and blue `rgb`, each from 0 to 255, as
+  linear light from 0 to 1, as sRGB defines it."
+  [rgb]
+  (map #(let [c (/ % 255.0)]
+          (if (<= c 0.04045)
+            (/ c 12.92)
+            (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
+       rgb))
+
 ;; WCAG 2.2, the definitions of relative luminance and contrast ratio
 (defn luminance
   "The relative luminance of the red, green and blue `rgb`."
   [rgb]
-  (let [linear #(let [c (/ % 255.0)]
-                  (if (<= c 0.04045)
-                    (/ c 12.92)
-                    (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
-        [r g b] (map linear rgb)]
+  (let [[r g b] (linear rgb)]
     (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))))
+
+;; CSS Color 4, sections 9.2 and 18.6: OKLab from linear sRGB, by way of
+;; LMS, and the chroma of OKLCH, the distance from the axis of the greys
+;; https://www.w3.org/TR/css-color-4/#ok-lab
+(defn chroma
+  "The chroma of the red, green and blue `rgb` in OKLCH: 0 for a grey, and
+  about 0.3 at most for the most vivid colours of sRGB."
+  [rgb]
+  (let [[r g b] (linear rgb)
+        cbrt    #(Math/cbrt %)
+        l       (cbrt (+ (* 0.4122214708 r) (* 0.5363325363 g) (* 0.0514459929 b)))
+        m       (cbrt (+ (* 0.2119034982 r) (* 0.6806995451 g) (* 0.1073969566 b)))
+        s       (cbrt (+ (* 0.0883024619 r) (* 0.2817188376 g) (* 0.6299787005 b)))
+        a       (+ (* 1.9779984951 l) (* -2.4285922050 m) (* 0.4505937099 s))
+        b*      (+ (* 0.0259040371 l) (* 0.7827717662 m) (* -0.8086757660 s))]
+    (Math/sqrt (+ (* a a) (* b* b*)))))
 
 #?(:clj
    (defn- decoded-pixels

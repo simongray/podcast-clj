@@ -212,7 +212,7 @@
       "only #rrggbb")
   (is (= 21.0 (image/contrast "#000000" "#ffffff")))
   (is (= {:background "#a90000" :text "#ffffff" :accent "#f0c040" :accent-text "#000000" :complement "#00a9a9"
-          :palette ["#a90000" "#1a1a1a" "#f0c040"]}
+          :seed "#a90000" :palette ["#a90000" "#1a1a1a" "#f0c040"]}
          (image/scheme ["#a90000" "#1a1a1a" "#f0c040"]))
       "an accent that stands apart from the background, where the dark grey doesn't")
   (is (= ["#002fff" "#ffffff"] ((juxt :accent :accent-text) (image/scheme ["#ffd000" "#ffc010"])))
@@ -221,6 +221,14 @@
       "or else the colour of the text, as the complement of dark red is only 2.7:1")
   (is (= "#000000" (:accent (image/scheme ["#f4f4f4" "#eeeeee"]))) "and a grey its own complement")
   (is (nil? (image/scheme []))))
+
+(deftest a-seed-to-colour-by
+  (is (= "#24476b" (image/seed-color ["#ffffff" "#111111" "#24476b"]))
+      "the first colour with a hue, past the white and the black that most of the artwork is")
+  (is (= "#a90000" (image/seed-color ["#a90000" "#24476b"])))
+  (is (nil? (image/seed-color ["#ffffff" "#808080" "#f4f4f0"])) "none among greys, or off-whites")
+  (is (nil? (image/seed-color [])))
+  (is (nil? (:seed (image/scheme ["#000000" "#ffffff"])))))
 
 #?(:clj
    (deftest the-colour-of-an-image
@@ -235,7 +243,7 @@
          (is (= "#2040a0" (image/dominant-color b)))
          (is (= ["#2040a0" "#c03020"] (image/palette b)))
          (is (= {:background "#2040a0" :text "#ffffff" :accent "#ffffff" :accent-text "#000000" :complement "#a08020"
-                 :palette ["#2040a0" "#c03020"]}
+                 :seed "#2040a0" :palette ["#2040a0" "#c03020"]}
                 (image/colors b))
              "white for the accent, as the red is only 1.6:1 against the blue"))
        (is (nil? (image/dominant-color (png 10 10 (constantly 0x00FF0000) java.awt.image.BufferedImage/TYPE_INT_ARGB)))

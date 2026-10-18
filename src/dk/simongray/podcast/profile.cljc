@@ -436,7 +436,9 @@
     they are.
   - :search-sources, the directories that a search asks, as
     directory/sources names them, in the order that the listener puts
-    them in, e.g. for the :sources of directory/search!"
+    them in, e.g. for the :sources of directory/search!
+  - :appearance, whether an app is :light or :dark, or :auto, as the device
+    has it"
   {:skip-forward          30
    :skip-back             15
    :playback-rate         1.0
@@ -446,7 +448,8 @@
    :continuous?           false
    :rewinds               [[60 3] [3600 10] [86400 30]]
    :subscription-defaults {}
-   :search-sources        [:podcastindex :apple :fyyd]})
+   :search-sources        [:podcastindex :apple :fyyd]
+   :appearance            :auto})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."

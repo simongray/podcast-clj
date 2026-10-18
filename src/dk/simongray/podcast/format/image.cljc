@@ -175,6 +175,17 @@
       "#000000"
       "#ffffff")))
 
+;; Material 3's dynamic colour derives a whole scheme from one source
+;; colour, which a grey can't be, since it has no hue; artwork whose most
+;; common colour is white or black still has one further down its palette
+;; https://m3.material.io/styles/color/dynamic/user-generated-source
+(defn seed-color
+  "The first colour of the `palette` that has some chroma, i.e. 0.04 or
+  more in OKLCH, to derive the colours of a UI from, e.g. by its hue, or
+  nil where every colour of it is about grey."
+  [palette]
+  (first (filter #(some-> (impl/rgb-of %) impl/chroma (>= 0.04)) palette)))
+
 ;; WCAG 2.2, success criterion 1.4.11: a control has a contrast of 3:1
 (defn scheme
   "The colours of a UI by the `palette` of an image, the most common colour
@@ -192,6 +203,7 @@
        :accent      accent
        :accent-text (contrast-color accent)
        :complement  complement
+       :seed        (seed-color palette)
        :palette     palette})))
 
 (defn palette
@@ -226,6 +238,7 @@
        :accent      \"#e8c070\"     ; for controls, e.g. a progress bar
        :accent-text \"#000000\"     ; for text on the accent
        :complement  \"#00a9a9\"     ; the opposite hue of the background
+       :seed        \"#a90000\"     ; the first colour with a hue, or nil
        :palette     [\"#a90000\" …]} ; the most common colours, most first
 
   The accent is the first other colour of the palette that stands apart
