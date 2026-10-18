@@ -3,8 +3,9 @@
   profile, kept in IndexedDB, and the audio of the current episode.
 
   Each tab writes the library as a replica of the browser's device, as
-  dk.simongray.podcast.app.replica has it, and catches up with what the
-  other tabs and the worker save, so that none writes over another. The
+  dk.simongray.like-minded.replica has it with the library's kind, and
+  catches up with what the other tabs and the worker save, so that none
+  writes over another. The
   titles of the episodes that the page shows live in localStorage.
 
   The server only supplies episode data, at /episode.edn. The player sits
@@ -36,6 +37,7 @@
   due, as inspector.worker describes."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
+            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
@@ -55,7 +57,6 @@
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
-            [dk.simongray.podcast.app.replica :as replica]
             [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
@@ -165,7 +166,7 @@
                            :path   [:library]
                            :store  (the-store)
                            :device id
-                           :config (shared/config)})
+                           :kind   (library/replica-kind (shared/config))})
            (fn [r]
              (reset! the-replica r)
              (swap! app #(cond-> (assoc % :titles (or (:titles kept) {}))

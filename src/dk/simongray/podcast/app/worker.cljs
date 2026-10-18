@@ -11,8 +11,8 @@
   through a Web Lock, and the worker of another answers that it's busy.
 
   On the page, client starts the worker, and refresh! and fetch! ask it.
-  refresh! saves the replica of app.replica first, catches it up after,
-  and puts in the :refresh, which the store doesn't keep. The answers
+  refresh! saves the replica of like-minded.replica/open! first, catches
+  it up after, and puts in the :refresh, which the store doesn't keep. The answers
   that hold a feed travel in the codec of the config, so give both sides
   the codec of dk.simongray.like-minded.transit, since EDN reads slower
   than the feed parses.
@@ -21,11 +21,10 @@
   shadow-cljs, whose init calls serve!. A web worker has no DOMParser, so
   give serve! one, e.g. that of @xmldom/xmldom."
   (:require [cljs.reader :as reader]
-            [dk.simongray.like-minded.replica :as like-minded.replica]
+            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.library.impl :as library.impl]
-            [dk.simongray.podcast.app.replica :as replica]))
+            [dk.simongray.podcast.app.library.impl :as library.impl]))
 
 (def refresh-lock
   "The Web Lock that the refresh of a worker holds, so that one runs at a
@@ -58,17 +57,16 @@
   writes as, taken at the first request for it."
   [device]
   (or (get @leases device)
-      (get (swap! leases assoc device (like-minded.replica/lease! device)) device)))
+      (get (swap! leases assoc device (replica/lease! device)) device)))
 
 (defn- refreshed!
   "A promise of the :refresh of the library of `device` in the :store of
-  `served`, refreshed with `opts` and saved, posting the progress of
-  request `id` as it goes."
+  `served`, refreshed with `opts` and saved, which tells the page on the
+  channel of the config, posting the progress of request `id` as it goes."
   [{:keys [store config]} id device opts]
   (.then (lease! device)
          (fn [{:keys [name]}]
-           (-> (library/restore! (library/make device {:replica name
-                                                       :config  (replica/with-channel config store)})
+           (-> (library/restore! (library/make device {:replica name :config config})
                                  store)
                (.then (fn [lib]
                         (library/refresh!
@@ -121,12 +119,16 @@
   - :dom-parser, a DOMParser class for a worker without one, e.g. that of
     @xmldom/xmldom, which throws on what a browser reports as a
     parsererror"
-  [{:keys [dom-parser] :as served}]
+  [{:keys [store dom-parser] :as served}]
   (when (and dom-parser (not (exists? js/DOMParser)))
     (set! (.-DOMParser js/globalThis) (throwing dom-parser)))
-  (set! (.-onmessage js/self)
-        (fn [^js e]
-          (answer! served (reader/read-string (.-data e))))))
+  ;; the library's saves tell the replicas of the pages on a channel of the
+  ;; store, as like-minded.replica's do
+  (let [served (assoc-in served [:config :channel]
+                         (replica/channel (replica/channel-name store)))]
+    (set! (.-onmessage js/self)
+          (fn [^js e]
+            (answer! served (reader/read-string (.-data e)))))))
 
 (defn client
   "A web worker of the script at `url`, which serve! answers, for the
@@ -174,7 +176,7 @@
 
 (defn refresh!
   "A promise of the refresh of the library of the `replica` of
-  app.replica in the worker of `client`, with the `opts` of
+  like-minded.replica/open! in the worker of `client`, with the `opts` of
   library/refresh! that are data, e.g. :feed-guids and :head-check?,
   calling `on-progress` with the :done and :total of each fetch that
   ends.
@@ -191,7 +193,7 @@
    (-> (replica/save! replica)
        (.then #(ask! client
                      {:refresh true
-                      :device  (:device (replica/library-of replica))
+                      :device  (:device (replica/state-of replica))
                       :opts    opts}
                      on-progress))
        (.then (fn [{:keys [refresh] :as answer}]

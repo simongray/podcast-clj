@@ -733,18 +733,17 @@ deletes the documents of any other index there:
 The tabs and workers of a web app share the browser's storage, and each
 writes the library. Without care, one tab's save writes over another's,
 and with one device id between them, one would lose the listening counts
-of the other. So make each of them a replica of the device, with a name
-that like-minded leases it, and keep the library in an atom with
-`dk.simongray.podcast.app.replica`:
+of the other. So make each of them a replica of the device with
+like-minded's `replica/open!`, and give it the library's kind:
 
 ```clojure
-(require '[dk.simongray.podcast.app.replica :as replica])
+(require '[dk.simongray.like-minded.replica :as replica])
 
 (.then (replica/open! {:state  app
                        :path   [:library]
                        :store  data
                        :device device-id
-                       :config {:codec transit/codec}})
+                       :kind   (library/replica-kind {:codec transit/codec})})
        #(reset! the-replica %))
 
 (replica/save! @the-replica)  ; after each change
@@ -759,9 +758,10 @@ turns across the tabs, through a Web Lock, and a save asked for while
 another waits its turn is that one, so save as often as the library
 changes.
 
-Without `app.replica`, the same takes `library/with-replica`,
-`read-saved!` and `rebase`: catch up with `rebase` rather than `merge`,
-since a whole merge can bring back what another replica compacted.
+The kind is made of `restore!`, `save!`, `read-saved!` and `rebase`, with
+the library as a replica of `library/with-replica`. Use them on their own
+to catch up elsewhere, with `rebase` rather than `merge`, since a whole
+merge can bring back what another replica compacted.
 
 
 ## Build the show and episode pages
@@ -2361,6 +2361,7 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.html-pieces :as html]
             [dk.simongray.httpsig :as httpsig]
             [dk.simongray.httpsig.cavage :as cavage]
+            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
             [dk.simongray.like-minded.store.folder :as folder]
@@ -2380,7 +2381,6 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
-            [dk.simongray.podcast.app.replica :as replica]
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.comments :as comments]

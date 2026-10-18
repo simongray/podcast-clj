@@ -1844,6 +1844,34 @@
                                             :reason (async/explain error)})]})
          (assoc (reduce outlined library chosen) :unload {:report []}))))))
 
+(defn replica-kind
+  "The kind of a replica of like-minded.replica/open! whose state is a
+  library with `config`, e.g. that of a tab of a web app: it's restored
+  as the replica that the tab leases, saved with save!, which catches up
+  first, read back with read-saved! and caught up with rebase.
+
+      (replica/open! {:state  app
+                      :path   [:library]
+                      :store  data
+                      :device device-id
+                      :kind   (library/replica-kind {:codec transit/codec})})"
+  [config]
+  (let [versioned (fn [lib]
+                    {:state lib :version (get-in lib [:stored :version])})]
+    {:open       (fn [store {:keys [device replica]}]
+                   (async/then (restore! (make device {:replica replica :config config})
+                                         store)
+                               versioned))
+     :save       (fn [store lib _base]
+                   (async/then (save! lib store)
+                               (fn [{written :library :as result}]
+                                 (cond-> result
+                                   written (into (versioned written))))))
+     :read-saved (fn [store lib _base]
+                   (async/then (read-saved! lib store)
+                               #(some-> % versioned)))
+     :rebase     rebase}))
+
 (defn plan
   "The episodes to download and the files to delete on this device with
   `files`, for the profile and feeds of `library`, with the `opts` of
