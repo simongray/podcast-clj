@@ -4,25 +4,17 @@
   dk.simongray.podcast.app.worker serves it.
 
   The worker writes the library that inspector.shared names as a replica
-  of the browser's device, and tells the page on the channel when it saved
-  it. A web worker has no DOMParser, so the worker parses with that of
+  of the browser's device, and tells the page when it saved it. A web
+  worker has no DOMParser, so the worker parses with that of
   @xmldom/xmldom."
   (:require ["@xmldom/xmldom" :as xmldom]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.podcast.app.worker :as worker]
             [inspector.shared :as shared]))
 
-(defn- parser
-  "An xmldom DOMParser that throws on the errors that a browser's parser
-  reports as a parsererror element."
-  []
-  (xmldom/DOMParser. #js {:onError (fn [level message _context]
-                                     (when-not (= level "warning")
-                                       (throw (js/Error. message))))}))
-
 (defn ^:export init
   "Answer the page's requests to refresh the library."
   []
-  (worker/serve! {:store  (indexeddb/store shared/store-name)
-                  :config (shared/config)
-                  :parser parser}))
+  (worker/serve! {:store      (indexeddb/store shared/store-name)
+                  :config     (shared/config)
+                  :dom-parser xmldom/DOMParser}))

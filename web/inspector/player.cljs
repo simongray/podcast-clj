@@ -97,11 +97,10 @@
   (or @library-store
       (reset! library-store (indexeddb/store shared/store-name))))
 
-(defonce ^{:doc "The config of the library in this tab, made at its first
-  use, with the channel on which the tabs and the worker tell each other
-  that they saved it."}
-  config
-  (delay (shared/config)))
+(defonce ^{:doc "The replica of the library in this tab, once open-state!
+  has opened it."}
+  the-replica
+  (atom nil))
 
 (defn- audio-element
   []
@@ -151,23 +150,27 @@
       state)))
 
 (defn- open-state!
-  "A promise of the state of the last visit, or of a fresh one under the id
-  of this browser, which is kept from now on: the library of the store, as
-  the replica that this tab leases, and the titles. A library that this
-  browser kept in localStorage before, but not in the store, is taken
-  over."
+  "A promise of the state of the last visit in the page's state, or of a
+  fresh one under the id of this browser, which is kept from now on: the
+  library of the store, as the replica that this tab leases, and the
+  titles. A library that this browser kept in localStorage before, but
+  not in the store, is taken over."
   []
   (let [kept (read-state (stored storage-key))
         id   (or (stored device-key)
                  (get-in kept [:library :device])
                  (str (random-uuid)))]
     (store! device-key id)
-    (.then (replica/open! (the-store) id @config)
-           (fn [lib]
-             {:library (cond-> lib
-                         (and (:library kept) (not (:stored lib)))
-                         (library/merge (:library kept)))
-              :titles  (or (:titles kept) {})}))))
+    (.then (replica/open! {:state  app
+                           :path   [:library]
+                           :store  (the-store)
+                           :device id
+                           :config (shared/config)})
+           (fn [r]
+             (reset! the-replica r)
+             (swap! app #(cond-> (assoc % :titles (or (:titles kept) {}))
+                           (and (:library kept) (not (get-in % [:library :stored])))
+                           (update :library library/merge (:library kept))))))))
 
 (defn with-other-tab
   "The page `state` with `other`, the titles that another tab of this
@@ -190,27 +193,15 @@
   [state]
   (store! storage-key (pr-str (select-keys state [:titles]))))
 
-(defonce ^{:doc "Whether a save of the library is under way, and whether
-  another is to follow it, :running or :again, or nil."}
-  saving
-  (atom nil))
-
 (defn- save-library!
-  "Save the library of the page to the store, or once more after the save
-  under way, since the library changes every few seconds while an episode
-  plays."
+  "Save the library of the page to the store. The saves asked for while
+  one waits its turn are that one, since the library changes every few
+  seconds while an episode plays."
   []
-  (case @saving
-    :running (reset! saving :again)
-    :again   nil
-    (do (reset! saving :running)
-        (-> (replica/save! app [:library] (the-store))
-            (.then #(when (:error %)
-                      (js/console.error "The library wasn't saved" (clj->js %))))
-            (.finally (fn []
-                        (let [again? (= :again @saving)]
-                          (reset! saving nil)
-                          (when again? (save-library!)))))))))
+  (some-> @the-replica
+          replica/save!
+          (.then #(when (:error %)
+                    (js/console.error "The library wasn't saved" (clj->js %))))))
 
 (defn- backend
   "The inspector's WebDAV folder on this origin, as a backend."
@@ -321,7 +312,7 @@
   ([backends]
    (swap! app assoc :syncing? true)
    (let [step (fn []
-                (-> (replica/catch-up! app [:library] (the-store))
+                (-> (replica/catch-up! @the-replica)
                     (.then #(library/sync! (:library @app) backends))
                     (.then #(swap! app with-synced %))))]
      (-> (swap! last-sync #(.then % step step))
@@ -998,14 +989,9 @@
                      (fn [_] (swap-content! js/location.href false))))
 
 (defn- listen-to-other-tabs!
-  "Catch up with the library that another tab or the worker saves, as it
-  says on the channel, and when the page comes back, since a hidden page
-  can miss that, and merge in the titles another tab keeps."
+  "Merge in the titles another tab keeps. The replica catches up with the
+  library that the other tabs and the worker save on its own."
   []
-  (replica/listen! app [:library] (the-store) (:channel @config))
-  (.addEventListener js/document "visibilitychange"
-                     #(when (= "visible" (.-visibilityState js/document))
-                        (replica/catch-up! app [:library] (the-store))))
   (.addEventListener js/window "storage"
                      (fn [e]
                        (when (= storage-key (.-key e))
@@ -1022,26 +1008,22 @@
   (js/window.setInterval sync-when-due! 30000))
 
 (defn- refreshed
-  "The page `state` once the worker answered a refresh with `answer`:
-  the :refresh, which the store doesn't keep, in the library, and the time
-  of the answer and any error under :refreshed."
-  [state {:keys [refresh error failed busy?]}]
-  (cond-> (assoc state
-                 :refreshing? false
-                 :refreshed   (cond-> {:at (time/now)}
-                                (or failed error) (assoc :error (str (or failed error)))))
-    (and refresh (not busy?)) (assoc-in [:library :refresh] refresh)))
+  "The page `state` once the worker answered a refresh, with the time of
+  the answer and the `error`, if any, under :refreshed."
+  [state error]
+  (assoc state
+         :refreshing? false
+         :refreshed   (cond-> {:at (time/now)}
+                        error (assoc :error (str error)))))
 
 (defonce ^{:doc "The client of the web worker that refreshes the feeds of
   the library, made on first use, or nil where the browser has none."}
   refresher
   (delay (when (exists? js/Worker)
-           (worker/client "/js/worker.js" @config))))
+           (worker/client "/js/worker.js" (shared/config)))))
 
 (defn- refresh-when-due!
-  "Ask the worker to refresh the feeds, once the library has one due: save
-  the library to the store that the worker shares first, and catch up
-  with what the worker saved after."
+  "Ask the worker to refresh the feeds, once the library has one due."
   []
   (when-let [client (when (and (not (:refreshing? @app))
                                (some-> (library/next-refresh (:library @app))
@@ -1049,12 +1031,9 @@
                                        (<= (js/Date.now))))
                       @refresher)]
     (swap! app assoc :refreshing? true)
-    (-> (replica/save! app [:library] (the-store))
-        (.then #(worker/refresh! client (get-in @app [:library :device]) {}))
-        (.then (fn [answer]
-                 (.then (replica/catch-up! app [:library] (the-store))
-                        (fn [_] (swap! app refreshed answer)))))
-        (.catch #(swap! app refreshed {:failed (str %)})))))
+    (-> (worker/refresh! client @the-replica {})
+        (.then #(swap! app refreshed (:error %)))
+        (.catch #(swap! app refreshed %)))))
 
 (defn- refresh-on-its-own!
   "Refresh the feeds in the worker now, and whenever one is due."
@@ -1079,10 +1058,10 @@
   []
   (.then
    (open-state!)
-   (fn [state]
+   (fn [_]
      (replicant/set-dispatch! (fn [{:replicant/keys [dom-event node]} event]
                                 (handle! event dom-event node)))
-     (reset! app (assoc state :can-pick? (exists? js/showDirectoryPicker)))
+     (swap! app assoc :can-pick? (exists? js/showDirectoryPicker))
      (add-watch app ::render
                 (fn [_ _ old new]
                   ;; what a save notes of the store is no change to save

@@ -11,11 +11,11 @@
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.transit :as transit]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.replica :as app.replica]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
-            [inspector.player :as shell]
-            [inspector.shared :as shared]))
+            [inspector.player :as shell]))
 
 (def page-html
   "The inspector's page skeleton the player mounts into."
@@ -104,7 +104,7 @@
   (let [bar     (js/document.getElementById "player-bar")
         app     (js/document.getElementById "app")
         device  (get-in @shell/app [:library :device])
-        channel (replica/channel shared/store-name)
+        channel (replica/channel (app.replica/channel-name s))
         titles  {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}]
     (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                    #js {:key shell/storage-key :newValue (pr-str {:titles titles})}))

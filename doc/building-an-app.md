@@ -451,31 +451,29 @@ workers](#share-the-library-between-tabs-and-workers) has it. In the
 worker, a module of its own, e.g. with `:web-worker true` in shadow-cljs:
 
 ```clojure
-(worker/serve! {:store  data
-                :config config
-                :parser #(xmldom/DOMParser.)})  ; a worker has no DOMParser
+(worker/serve! {:store      data
+                :config     config
+                :dom-parser xmldom/DOMParser})  ; a worker has no DOMParser
 ```
 
-On the page, save first, ask, and put the `:refresh` into the library,
-since the store doesn't keep it, and `next-refresh` reads which feeds
-failed from it:
+On the page, give the client the replica:
 
 ```clojure
 (def client
   (worker/client "/js/worker.js" config))
 
-(-> (replica/save! app [:library] data)
-    (.then #(worker/refresh! client device-id {:head-check? true}))
-    (.then (fn [{:keys [refresh]}]
-             (.then (replica/catch-up! app [:library] data)
-                    #(swap! app assoc-in [:library :refresh] refresh)))))
+(worker/refresh! client @the-replica {:head-check? true})
 ```
 
-One refresh runs at a time across the tabs, and the worker of another
-answers `:busy?`, catching up through the channel when the first saves.
-`worker/fetch!` fetches and parses one feed in the worker, e.g. for the
-page of a show outside the library, and gives it back in the codec of the
-config. The inspector's player does all of this in `web/inspector/`.
+It saves the replica first, so that the worker reads what the page has,
+catches it up with what the worker saved after, and puts the `:refresh`
+into the library, since the store doesn't keep it and `next-refresh`
+reads which feeds failed from it. One refresh runs at a time across the
+tabs, and the worker of another answers `:busy?`, whose page catches up
+when the first saves. `worker/fetch!` fetches and parses one feed in the
+worker, e.g. for the page of a show outside the library, and gives it
+back in the codec of the config. Both fail when the worker does. The
+inspector's player does all of this in `web/inspector/`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -740,29 +738,26 @@ that like-minded leases it, and keep the library in an atom with
 `dk.simongray.podcast.app.replica`:
 
 ```clojure
-(require '[dk.simongray.like-minded.replica :as like-minded.replica]
-         '[dk.simongray.podcast.app.replica :as replica])
+(require '[dk.simongray.podcast.app.replica :as replica])
 
-(def channel
-  (like-minded.replica/channel "my-app"))
+(.then (replica/open! {:state  app
+                       :path   [:library]
+                       :store  data
+                       :device device-id
+                       :config {:codec transit/codec}})
+       #(reset! the-replica %))
 
-(def config
-  {:codec transit/codec :channel channel})
-
-(.then (replica/open! data device-id config)
-       #(swap! app assoc :library %))
-
-(replica/listen! app [:library] data channel)
-
-(replica/save! app [:library] data)  ; after each change
+(replica/save! @the-replica)  ; after each change
 ```
 
-A replica's save first catches up with what another tab or worker saved
-since it last read the store or wrote it, then tells the others on the
-channel, and `listen!` catches each up as it hears that. Saves and
-restores of one store take turns across the tabs, through a Web Lock. A
-hidden page can miss what the others tell, so catch it up with
-`replica/catch-up!` when it's visible again.
+`open!` restores the library into the atom, and gives the replica to save
+it with. A save first catches up with what another tab or worker saved
+since this one last read the store or wrote it, then tells the others,
+and each catches up as it hears that, and when its page is visible again,
+since a hidden page can miss it. The saves and restores of one store take
+turns across the tabs, through a Web Lock, and a save asked for while
+another waits its turn is that one, so save as often as the library
+changes.
 
 Without `app.replica`, the same takes `library/with-replica`,
 `read-saved!` and `rebase`: catch up with `rebase` rather than `merge`,
@@ -1774,7 +1769,8 @@ In the page:
   `(indexeddb/store (str "my-app-" account-id))`.
 - Make each tab a replica of the device, as [Share the library between
   tabs and workers](#share-the-library-between-tabs-and-workers) has it,
-  and catch it up with `replica/catch-up!` before each step.
+  and catch it up with `(replica/catch-up! @the-replica)` before each
+  step.
   like-minded runs one step of a device at a time, and a step that
   begins while another runs does nothing, with `:sync/overlapping-step`.
 - Offer to retire the devices that `crdt/lagging` lists, since private
@@ -2365,7 +2361,6 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.html-pieces :as html]
             [dk.simongray.httpsig :as httpsig]
             [dk.simongray.httpsig.cavage :as cavage]
-            [dk.simongray.like-minded.replica :as like-minded.replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
             [dk.simongray.like-minded.store.folder :as folder]
