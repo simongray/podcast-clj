@@ -1091,7 +1091,7 @@ The media element and the page's Media Session are set by
 add to your app yourself, since podcast-clj doesn't depend on it:
 
 ```clojure
-dk.simongray/play-nice {:mvn/version "0.2.0"}
+dk.simongray/play-nice {:mvn/version "0.3.0"}
 ```
 
 What `playback` returns goes as it is to `source!` of its `media`

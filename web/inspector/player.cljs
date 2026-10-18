@@ -506,7 +506,7 @@
     (when-let [{:keys [seek-time] :as details}
                (and el
                     (.hasPointerCapture bar id)
-                    (controls/pointer-seek e (:media @app)))]
+                    (controls/slider-seek e (:media @app)))]
       (if (= "pointermove" (.-type e))
         (media/seek! el seek-time {:fast true})
         (press! details)))))
@@ -699,7 +699,7 @@
           (remote/watch! el (keep! :remote))
           ;; a key on the seek bar is its own, before the bar's
           (controls/listen! seek-bar el @handlers
-                            {:keymap controls/seek-bar-keys})
+                            {:keymap controls/slider-keys})
           (controls/listen! bar el @handlers)
           (tabs/attach! el "podcast-inspector"))))
 

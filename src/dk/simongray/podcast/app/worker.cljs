@@ -101,8 +101,8 @@
 
 (defn- throwing
   "A function that makes a parser of the class `DOMParser`, e.g. that of
-  @xmldom/xmldom, which throws on the errors that a browser's parser
-  reports as a parsererror element."
+  xmldom, which throws on the errors that a browser's parser reports as a
+  parsererror element."
   [DOMParser]
   (fn []
     (DOMParser. #js {:onError (fn [level message _context]
@@ -117,8 +117,7 @@
     like-minded.store.indexeddb
   - :config, the config of the library, e.g. with its :send and :codec
   - :dom-parser, a DOMParser class for a worker without one, e.g. that of
-    @xmldom/xmldom, which throws on what a browser reports as a
-    parsererror"
+    xmldom, which throws on what a browser reports as a parsererror"
   [{:keys [store dom-parser] :as served}]
   (when (and dom-parser (not (exists? js/DOMParser)))
     (set! (.-DOMParser js/globalThis) (throwing dom-parser)))

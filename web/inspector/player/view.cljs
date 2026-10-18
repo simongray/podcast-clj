@@ -101,7 +101,7 @@
                  (/ (or current-time 0) duration)
                  0)]
     [:div.seek-bar
-     (merge (controls/seek-aria media)
+     (merge (controls/slider-attributes media)
             {:tabindex   0
              :aria-label "Position"
              :on         {:pointerdown [:seek-at]
