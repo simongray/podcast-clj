@@ -1156,10 +1156,11 @@
   that the listener heard last, best first, with the `opts` below, or nil
   when the library keeps no index.
 
-  Each result has its :feed and :item, as in search. The metadata of the
-  results has the :terms that found them, as more-like-this of
-  dk.simongray.drop-in-search gives them, e.g. to tell the listener why
-  an episode came up. The `opts` are those of more-like-this, and these:
+  Each result has its :feed and :item, as in search, and the :terms of the
+  query that it holds, the best first, e.g. to tell the listener why it
+  came up. The metadata of the results has the :terms of the query, as
+  more-like-this of dk.simongray.drop-in-search gives them, pairs of a
+  term and its weight. The `opts` are those of more-like-this, and these:
 
   - :limit, the most episodes, 10 by default
   - :where, the criteria of criteria/where that an episode meets,
@@ -1184,16 +1185,23 @@
   - :weight-fn, a function of an id of `ids` or :unlike that gives how
     much it weighs, 1 by default
 
-  The words that more than 40% of the shows use are left out, as the
-  :group-fn of more-like-this is the show by default. The words are those
-  of the titles, notes, keywords, chapters and transcripts, but not the
-  shows' names and people, which every episode of a show shares, and they
-  have two letters or more. Left out too are the words that link the
-  episodes of `ids` to others by chance: their numbers, e.g. the 561 of
-  \"#561: TonIO\" or a date, and the names of their shows' hosts and
-  authors, e.g. the \"Adam & Dave\" of every episode's notes. The
-  criteria read the profile of the library, and the time of its clock
-  unless the `opts` give :at.
+  The words are those of the titles, notes, keywords, chapters and
+  transcripts, but not the shows' names and people, which every episode
+  of a show shares, and they have two letters or more. By default:
+
+  - a word is one that the episodes of `ids` use twice, or once in a
+    title, which counts three times, as :min-term-freq has it
+  - a result holds two of the words at least, as :min-match has it
+  - a word in more than 8% of the episodes in the languages of the
+    episodes of `ids` is left out, e.g. ad text and function words, as
+    :max-doc-freq has it, and so is one that more than 40% of the shows
+    use, as the :group-fn of more-like-this is the show
+
+  Left out too are the words that link the episodes of `ids` to others by
+  chance: their numbers, e.g. the 561 of \"#561: TonIO\" or a date, and the
+  names of their shows' hosts and authors, e.g. the \"Adam & Dave\" of
+  every episode's notes. The criteria read the profile of the library, and
+  the time of its clock unless the `opts` give :at.
 
       (recommend library [id] {:limit 5})
       (recommend library nil {:where {:status   :unplayed
@@ -1243,13 +1251,20 @@
                          (update :stop-words concat (impl/chance-words seeds))
                          (update :fields #(or % impl/topic-fields))
                          (update :min-word-length #(or % 2))
+                         (update :min-term-freq #(or % 2))
+                         (update :min-match #(or % 2))
+                         (update :max-doc-freq #(or % (impl/common-cap library seeds)))
                          (update :limit #(or % 10))
                          (update :group-fn #(or % feed.search/feed-guid-of))
                          (update :max-per-group #(or % max-per-show))
                          (->> (impl/index-opts library feed-urls locate))
                          (update :filter-pred #(if % (every-pred by-id %) by-id)))
-           found     (search/more-like-this index (map :document seeds) opts)]
-       (with-meta (mapv locate found) (meta found))))))
+           found     (search/more-like-this index (map :document seeds) opts)
+           terms     (:terms (meta found))
+           held      (fn [{:keys [id]}]
+                       (impl/held-terms terms (:document (impl/seed library id))))]
+       (with-meta (mapv #(assoc (locate %) :terms (held %)) found)
+         (meta found))))))
 
 (defn snippet
   "A window of the text of the `result` that search gave for the query `q`

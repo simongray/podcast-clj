@@ -1525,19 +1525,22 @@ page, e.g. under "Maybe you're also interested in…", give its id to
 
 ```clojure
 (library/recommend @lib [id] {:limit 5})
-;; => [{:id [feed-guid "…"] :score 9.3 :stored {…} :feed {…} :item {…}}
+;; => [{:id [feed-guid "…"] :score 9.3 :stored {…} :feed {…} :item {…}
+;;      :terms ["ukraine" "russia" "putin"]}
 ;;     …]
 ```
 
 It looks for the words that set the episode apart, those that its title
-and notes hold and few other shows use, and returns the unplayed episodes
-that hold the most of them. The names of its show's hosts, its numbers
-and its dates are left out, since they link it to other episodes by
-chance. By default, the results are episodes of other shows, in the
-languages of the episode, and at most two of each show. The words are
-under `:terms` in the metadata of the results, e.g. to tell the listener
-why an episode came up. For a list of them, `library/listed` gives each
-id the row that `library/queue` gives its episodes.
+and notes use twice and few other episodes use, and returns the unplayed
+episodes that hold at least two of them, the most first. Each result's
+`:terms` are those it holds, e.g. to tell the listener why it came up.
+The names of the show's hosts, numbers and dates are left out, since they
+link the episode to others by chance, and so are words in more than 8% of
+the episodes in its language, e.g. ad text and function words. By
+default, the results are episodes of other shows, in the languages of the
+episode, and at most two of each show. For a list of them,
+`library/listed` gives each id the row that `library/queue` gives its
+episodes.
 
 Without ids, it starts from the last ten episodes that the listener
 heard, and the last weighs the most, e.g. for a list on the front page.

@@ -6,6 +6,7 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.analysis :as analysis]
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
@@ -730,6 +731,45 @@
                                  (resolve/language-tag (:rss/language feed)))
                   feed-guid)))
         (:feeds library)))
+
+;; Ad text and function words are in many of a language's episodes, e.g.
+;; adswizz in 31% of the English ones of Apple's charts and vil in 17% of
+;; the Danish, and topics in few, e.g. ukraine in 1.2% and rss in 4.7%.
+;; The share of the shows that use a word can't tell them apart, since many
+;; shows cover a topic such as Ukraine.
+(def common-share
+  "The share of the episodes in a language that a word may be in, at most,
+  to say what an episode is about."
+  0.08)
+
+(def least-common
+  "The fewest episodes that common-share caps a word at, since a share of
+  the episodes of a small library is too few to tell by."
+  10)
+
+(defn common-cap
+  "The most episodes of `library` that a word of the episodes `seeds`, as
+  seed gives them, may be in, as more-like-this takes its :max-doc-freq:
+  common-share of the episodes of the shows in the seeds' languages, or of
+  all of them when the seeds declare none."
+  [library seeds]
+  (let [languages (languages-of seeds)
+        feeds     (if (seq languages)
+                    (map #(get-in library [:feeds % :feed]) (shows-in library languages))
+                    (map :feed (vals (:feeds library))))
+        episodes  (reduce + 0 (map (comp count :rss/items) feeds))]
+    (max least-common (long (* common-share episodes)))))
+
+(defn held-terms
+  "The `terms` of a query of more-like-this, pairs of a term and its
+  weight, the best first, that the fields of topic-fields of the search
+  `document` hold, as the terms alone."
+  [terms document]
+  (let [held (into #{}
+                   (comp (mapcat #(analysis/tokens (get-in document [:fields %])))
+                         (mapcat #(if (vector? %) % [%])))
+                   topic-fields)]
+    (into [] (comp (map first) (filter held)) terms)))
 
 ;; The tests of a result by its id come before those that locate its feed
 ;; and item, since locating builds a map of the items of each feed, which

@@ -328,18 +328,36 @@
   (let [grinders [coffee "0"]
         titles   (fn [found]
                    (mapv (comp :rss/title :item) found))
+        ;; the episodes of the shelf have a line of notes each, so most of
+        ;; these tests take a word that an episode uses once, and a result
+        ;; that holds one of its words
+        loose    {:min-term-freq 1 :min-match 1}
+        rec      (fn
+                   ([lib ids]
+                    (library/recommend lib ids loose))
+                   ([lib ids opts]
+                    (library/recommend lib ids (merge loose opts))))
         liked    (fn
                    ([lib]
-                    (titles (library/recommend lib [grinders])))
+                    (titles (rec lib [grinders])))
                    ([lib opts]
-                    (titles (library/recommend lib [grinders] opts))))]
+                    (titles (rec lib [grinders] opts))))]
     (testing "the unplayed episodes most like one, of other shows in its language"
       (is (= ["Grinders compared" "Machines"] (liked shelf)))
       (is (= ["espresso" "grinders"]
-             (take 2 (map first (:terms (meta (library/recommend shelf [grinders])))))))
+             (take 2 (map first (:terms (meta (rec shelf [grinders])))))))
+      (is (= [["grinders" "burr"] ["grinders" "burr"]]
+             (map #(take 2 (:terms %)) (rec shelf [grinders])))
+          "each with the words of the query that it holds, the best first")
       (is (nil? (library/recommend (library/make "phone" {:config {:search? false}})
                                    [grinders]))
           "no index, no recommendations"))
+    (testing "the words and the results that the evidence takes, by default"
+      (is (= #{"espresso" "grinders"}
+             (set (map first (:terms (meta (library/recommend shelf [grinders] {:min-match 1}))))))
+          "words that it uses twice, or once in its title")
+      (is (= [] (titles (library/recommend shelf [grinders])))
+          "and results that hold two of them, which none here does"))
     (testing "the options"
       (is (= ["Grinders compared" "Machines" "Roasting at home"]
              (liked shelf {:same-show? true}))
@@ -360,12 +378,11 @@
                     {:where {:hidden? #{true false}}}))))
     (testing "the episodes that the listener heard last, without ids"
       (let [heard (library/update-profile shelf profile/progress grinders 60)]
-        (is (= [] (titles (library/recommend shelf))))
-        (is (= (liked shelf) (titles (library/recommend heard))))
-        (is (= [] (titles (library/recommend
-                           (library/update-profile heard profile/forget grinders))))
+        (is (= [] (titles (rec shelf nil))))
+        (is (= (liked shelf) (titles (rec heard nil))))
+        (is (= [] (titles (rec (library/update-profile heard profile/forget grinders) nil)))
             "but not one that the profile forgot")
-        (is (= [] (titles (library/recommend heard {:from {:not {:show coffee}}})))
+        (is (= [] (titles (rec heard nil {:from {:not {:show coffee}}})))
             "nor one that the criteria of :from leave out")))
     (testing "the episodes to start from that the criteria of :from take"
       (is (= [] (liked shelf {:from {:not {:show coffee}}}))))
@@ -373,14 +390,14 @@
       (let [grind "55555555-5555-5555-8555-555555555555"
             feed  (show-of grind "Grind Weekly" "en"
                            [["Burrs" "Burr grinders for espresso beans."]])]
-        (is (= [] (titles (library/recommend shelf [[grind "0"]]))))
+        (is (= [] (titles (rec shelf [[grind "0"]]))))
         (is (= ["Espresso grinders" "Grinders compared" "Machines" "Roasting at home"]
-               (titles (library/recommend shelf [[grind "0"]]
-                                          {:feeds {grind {:feed feed
-                                                          :url  "https://example.com/grind.xml"}}}))))))
+               (titles (rec shelf [[grind "0"]]
+                            {:feeds {grind {:feed feed
+                                            :url  "https://example.com/grind.xml"}}}))))))
     (testing "episodes unliked, and the weights of episodes"
       (let [weight (fn [ids opts]
-                     (->> (library/recommend shelf ids opts)
+                     (->> (rec shelf ids opts)
                           meta
                           :terms
                           (into {})))
@@ -419,6 +436,15 @@
                               ["44444444-4444-5444-8444-444444444444" "Bikes"
                                [["Gears" "The gears of a bicycle."]]]])]
         (is (= ["Async"] (titles (library/recommend numbered [[coffee "0"]]))))))))
+
+(deftest the-cap-of-a-common-word
+  (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) "Notes."]))
+        lib      (-> (library/make "phone" {:config {:search? true}})
+                     (library/subscribe "https://example.com/en.xml" (show-of coffee "Talk" "en" (episodes 250)))
+                     (library/subscribe "https://example.com/da.xml" (show-of brew "Snak" "da" (episodes 100))))
+        cap      #(library.impl/common-cap lib [(library.impl/seed lib %)])]
+    (is (= 20 (cap [coffee "0"])) "8% of the episodes in the language of the episode")
+    (is (= 10 (cap [brew "0"])) "but never fewer than 10")))
 
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
