@@ -438,7 +438,11 @@
     directory/sources names them, in the order that the listener puts
     them in, e.g. for the :sources of directory/search!
   - :appearance, whether an app is :light or :dark, or :auto, as the device
-    has it"
+    has it
+  - :contrast, whether an app has the :standard contrast or :more, or
+    :auto, as the device asks
+  - :artwork-colors?, whether an app takes its colours from the artwork of
+    what plays or of the show on screen, or keeps its own"
   {:skip-forward          30
    :skip-back             15
    :playback-rate         1.0
@@ -449,7 +453,9 @@
    :rewinds               [[60 3] [3600 10] [86400 30]]
    :subscription-defaults {}
    :search-sources        [:podcastindex :apple :fyyd]
-   :appearance            :auto})
+   :appearance            :auto
+   :contrast              :auto
+   :artwork-colors?       true})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
