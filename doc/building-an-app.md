@@ -1141,6 +1141,24 @@ and the headphones send their events through `library/step` too:
     (.play audio)))
 ```
 
+A save of the library to IndexedDB takes a few steps, which a page that
+reloads or closes never finishes, so the page can lose the last position
+or the episode it just started. The `app.unsaved` namespace keeps them
+in localStorage at once, under a prefix of your app's: call
+`(unsaved/keep-position! "my-app" id position duration)` at each report
+of the position, `(unsaved/keep-played! "my-app" id)` as an episode
+starts, and `(unsaved/saved! "my-app" started)` once a save that began
+at `started` is done. As the page starts, give the library what was
+kept:
+
+```clojure
+(swap! lib unsaved/restored (unsaved/kept-played "my-app")
+                            (unsaved/kept-position "my-app"))
+```
+
+The library takes them with the time they were kept at, so the profile
+still decides between them and the moves of other devices.
+
 The lock screen follows the media element by itself, so it shows how far
 the episode has come. The next and previous buttons go to the chapters
 of the episode by default. The listener's preference
@@ -2413,6 +2431,7 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.app.unsaved :as unsaved]
             [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
