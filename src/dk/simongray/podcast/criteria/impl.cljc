@@ -260,6 +260,8 @@
                   (fn [feed _] (= (boolean v) (resolve/serial? feed))))
    :complete?   (fn [v _]
                   (fn [feed _] (= (boolean v) (resolve/complete? feed))))
+   :show-explicit? (fn [v _]
+                     (fn [feed _] (= (boolean v) (boolean (resolve/explicit? feed)))))
    :publisher   (fn [v _]
                   (fn [feed _]
                     (in? v (:feed-guid (resolve/publisher feed)))))

@@ -46,6 +46,9 @@
     \"audiobook\", or a set of them
   - :serial? and :complete?, whether its episodes are meant to be heard in
     order, and whether it says it will publish no more of them
+  - :show-explicit?, whether the show itself is marked explicit, whatever
+    its episodes say, e.g. to leave out the episodes of an explicit show
+    that marks some of them clean
   - :publisher, the feed guid of the show's publisher, or a set of them
 
   These are about the listener:

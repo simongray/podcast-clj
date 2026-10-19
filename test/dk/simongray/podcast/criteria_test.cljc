@@ -71,6 +71,8 @@
       "timestamps in the notes count, and so does a linked file")
   (is (= ["Season one, episode two"] (titles {:where {:explicit? false}}))
       "the feed's flag is inherited unless the item says otherwise")
+  (is (= [] (titles {:where {:explicit? false :show-explicit? false}}))
+      "but the show's own flag holds for every episode")
   (is (= ["Season one, episode two"] (titles {:where {:person "norgaard"}})) "names are folded")
   (is (= ["Trailer" "Season one, episode one: Café" "Season two, episode one" "Bonus"]
          (titles {:where {:person "host"}}))
