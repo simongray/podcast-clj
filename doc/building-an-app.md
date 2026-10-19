@@ -1531,10 +1531,13 @@ page, e.g. under "Maybe you're also interested in…", give its id to
 
 It looks for the words that set the episode apart, those that its title
 and notes hold and few other shows use, and returns the unplayed episodes
-that hold the most of them. By default, they're episodes of other shows,
-in the languages of the episode, and at most two of each show. The words
-are under `:terms` in the metadata of the results, e.g. to tell the
-listener why an episode came up.
+that hold the most of them. The names of its show's hosts, its numbers
+and its dates are left out, since they link it to other episodes by
+chance. By default, the results are episodes of other shows, in the
+languages of the episode, and at most two of each show. The words are
+under `:terms` in the metadata of the results, e.g. to tell the listener
+why an episode came up. For a list of them, `library/listed` gives each
+id the row that `library/queue` gives its episodes.
 
 Without ids, it starts from the last ten episodes that the listener
 heard, and the last weighs the most, e.g. for a list on the front page.
@@ -1548,8 +1551,18 @@ These options change what it returns:
   under half an hour
 - `:same-show? true` for episodes of the same show too, `:same-language?
   false` for any language, and `:max-per-show` for another cap than two
+- `:from`, criteria that the episodes to start from meet, e.g. `{:not
+  {:explicit? true}}`, so that an explicit episode leads to none
 - `:unlike`, the ids of episodes whose words count against, e.g. those
   that the listener rated low
+
+For the page of a show that the library doesn't hold, e.g. one found in a
+search, give its feed as `:feeds`, and the ids can name its episodes:
+
+```clojure
+(library/recommend @lib [(feed.guid/episode-id feed url item)]
+                   {:feeds {(feed.guid/feed-guid feed url) {:feed feed :url url}}})
+```
 
 The docstring has the rest, e.g. `:weight-fn` and the options of
 `more-like-this` of drop-in-search, which finds the episodes.

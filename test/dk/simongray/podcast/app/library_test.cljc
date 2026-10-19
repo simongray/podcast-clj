@@ -341,8 +341,9 @@
                                    [grinders]))
           "no index, no recommendations"))
     (testing "the options"
-      (is (= ["Grinders compared" "Roasting at home" "Machines" "Tea"]
-             (liked shelf {:same-show? true})))
+      (is (= ["Grinders compared" "Machines" "Roasting at home"]
+             (liked shelf {:same-show? true}))
+          "but not Tea, which only the name of its show links")
       (is (= ["Grinders compared" "Machines" "Espresso"]
              (liked shelf {:same-language? false})))
       (is (= ["Espresso"] (liked shelf {:where {:language "da"}}))
@@ -363,7 +364,20 @@
         (is (= (liked shelf) (titles (library/recommend heard))))
         (is (= [] (titles (library/recommend
                            (library/update-profile heard profile/forget grinders))))
-            "but not one that the profile forgot")))
+            "but not one that the profile forgot")
+        (is (= [] (titles (library/recommend heard {:from {:not {:show coffee}}})))
+            "nor one that the criteria of :from leave out")))
+    (testing "the episodes to start from that the criteria of :from take"
+      (is (= [] (liked shelf {:from {:not {:show coffee}}}))))
+    (testing "the episodes of a show that the library doesn't hold"
+      (let [grind "55555555-5555-5555-8555-555555555555"
+            feed  (show-of grind "Grind Weekly" "en"
+                           [["Burrs" "Burr grinders for espresso beans."]])]
+        (is (= [] (titles (library/recommend shelf [[grind "0"]]))))
+        (is (= ["Espresso grinders" "Grinders compared" "Machines" "Roasting at home"]
+               (titles (library/recommend shelf [[grind "0"]]
+                                          {:feeds {grind {:feed feed
+                                                          :url  "https://example.com/grind.xml"}}}))))))
     (testing "episodes unliked, and the weights of episodes"
       (let [weight (fn [ids opts]
                      (->> (library/recommend shelf ids opts)
@@ -376,6 +390,23 @@
         (is (< (get (weight both {}) "espresso")
                (get (weight both {:weight-fn {grinders 4 [coffee "1"] 1}})
                     "espresso")))))
+    (testing "the words that link episodes by chance"
+      (let [hosted (reduce (fn [lib [guid title episodes]]
+                             (library/subscribe lib
+                                                (str "https://example.com/" guid ".xml")
+                                                (assoc (show-of guid title "en" episodes)
+                                                       :podcast/people [{:content "Adam Curry"}])))
+                           (library/make "phone" {:config {:search? true}})
+                           [[coffee "Async Talk" [["Runtimes" "Adam on async runtimes, Mon 22 Sep, with @js."]]]
+                            [brew "Adam's Kitchen" [["Recipes" "Adam cooks on Mon 22 Sep, with @js."]
+                                                    ["Async" "Async runtimes and threads."]]]
+                            ;; so that "on" and "with" are words that most shows use
+                            ["44444444-4444-5444-8444-444444444444" "Bikes"
+                             [["Gears" "Riding on gears with care."]]]])
+            terms  (set (map first (:terms (meta (library/recommend hosted [[coffee "0"]])))))]
+        (is (= ["Async"] (titles (library/recommend hosted [[coffee "0"]]))))
+        (is (empty? (filter terms ["adam" "mon" "sep" "js" "22"]))
+            "a host, a date and a handle, but not a topic")))
     (testing "the number of an episode, which links it to nothing"
       (let [numbered (reduce (fn [lib [guid title episodes]]
                                (library/subscribe lib

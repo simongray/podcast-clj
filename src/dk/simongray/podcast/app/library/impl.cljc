@@ -583,6 +583,18 @@
                                   (:podcast/live-items feed)))]
       [entry (with-fact entry item)])))
 
+(defn where-pred
+  "The predicate of a feed and one of its items for the `criteria` of
+  criteria/where, which read the profile of `library`, whose feeds have
+  the `urls` of library/urls, the :at of the `opts` or the time of its
+  clock, and their :scale."
+  [library urls criteria opts]
+  (criteria/where criteria (assoc (select-keys opts [:scale])
+                                  :profile (:profile library)
+                                  :url     urls
+                                  :at      (time-of library opts)
+                                  :index   (:index library))))
+
 (defn index-opts
   "The `opts` of a query of the index of `library`, whose feeds have the
   `urls` of library/urls, with their :where, the criteria of
@@ -590,12 +602,8 @@
   :filter-pred of a result with the :feed and :item that `locate` gives
   it. The criteria leave the shows out."
   [library urls locate opts]
-  (let [ctx    (assoc (select-keys opts [:scale])
-                      :profile (:profile library)
-                      :url     urls
-                      :at      (time-of library opts)
-                      :index   (:index library))
-        meets? (some-> (:where opts) (criteria/where ctx))
+  (let [meets? (when-let [criteria (:where opts)]
+                 (where-pred library urls criteria opts))
         tests  (cond-> []
                  (:filter-pred opts) (conj (:filter-pred opts))
                  meets?              (conj (fn [{:keys [feed item]}]
@@ -614,27 +622,93 @@
      :item     item
      :document (feed.search/item-document feed item {:url url})}))
 
+(def topic-fields
+  "The fields of the search document of an episode that say what it's
+  about, which recommend reads: not the show's name, nor its people, which
+  every episode of a show shares."
+  #{:title :description :keywords :chapters :transcript})
+
+;; CLDR's names of the months and days, which both Java and Intl hold, in
+;; the language of a show, since a date in its notes, e.g. "Mon 22 Sep",
+;; is written in it
+(defn- calendar-names*
+  [tag]
+  #?(:clj  (let [symbols (java.text.DateFormatSymbols/getInstance
+                          (java.util.Locale/forLanguageTag tag))]
+             (concat (.getMonths symbols) (.getShortMonths symbols)
+                     (.getWeekdays symbols) (.getShortWeekdays symbols)))
+     :cljs (let [named  (fn [k style d]
+                          (.format (js/Intl.DateTimeFormat. tag (js-obj k style)) d))
+                 months (map #(js/Date. 2000 % 1) (range 12))
+                 days   (map #(js/Date. 2000 0 (+ 2 %)) (range 7))]
+             (try
+               (concat (map #(named "month" "long" %) months)
+                       (map #(named "month" "short" %) months)
+                       (map #(named "weekday" "long" %) days)
+                       (map #(named "weekday" "short" %) days))
+               ;; a tag that Intl doesn't take
+               (catch :default _ nil)))))
+
+(def calendar-names
+  "The names of the months and the days of the week in the language `tag`,
+  long and short, e.g. \"September\" and \"Sep\" in English."
+  (memoize (fn [tag] (into #{} (remove str/blank?) (calendar-names* tag)))))
+
+;; A show's hosts are named in the notes of every episode, e.g. "Adam &
+;; Dave", and its numbers are its episodes' and dates, so they link it to
+;; other shows by chance: to any Adam, or any episode 561. A guest of an
+;; episode isn't left out, since the guest's other episodes are like it.
+(defn chance-words
+  "The words of the episodes `seeds`, as seed gives them, that link them to
+  other episodes by chance rather than by what they're about:
+
+  - the numbers in their documents, e.g. of episodes and dates
+  - the names of the months and days in the languages of their shows,
+    which their dates hold
+  - the handles that they mention, e.g. the js of @js
+  - the words of the names of the people and the authors of their shows"
+  [seeds]
+  (into #{}
+        (mapcat (fn [{:keys [feed item document]}]
+                  (let [texts (filter string? (vals (:fields document)))]
+                    (concat (mapcat #(re-seq #"\d+" %) texts)
+                            (calendar-names (or (not-empty (resolve/language-tag
+                                                            (:rss/language feed)))
+                                                "en"))
+                            (mapcat #(map second (re-seq #"@([^\s@,:;!?()\[\]<>\"']+)" %))
+                                    texts)
+                            (mapcat #(re-seq #"[^\s&,.]+" (str %))
+                                    (concat (map :name (resolve/people feed))
+                                            [(resolve/author feed)
+                                             (resolve/author item)]))))))
+        seeds))
+
 ;; The positions are sorted by when they were reported, and only the
 ;; entries of the first are made, since making them all takes seconds for
 ;; a listener who has heard thousands of episodes
 (defn heard-last
   "The ids of the `n` episodes of `library` that the listener heard last,
   the last first, of those that the library holds and the profile hasn't
-  forgotten."
-  [library n]
-  (let [profile (:profile library)
-        ;; the last first, and equal times by id, the same everywhere
-        later   (fn [[a x] [b y]]
-                  (let [c (compare y x)]
-                    (if (zero? c) (compare a b) c)))]
-    (->> (:episodes profile)
-         (keep (fn [[id e]]
-                 (when-let [at (and (crdt/live? e) (:reported-at e))]
-                   [id (inst-ms at)])))
-         (sort later)
-         (map first)
-         (filter #(and (profile/episode-entry profile %) (item-of library %)))
-         (take n))))
+  forgotten, and that `pred` of a feed and an item takes, when given."
+  ([library n]
+   (heard-last library n (constantly true)))
+  ([library n pred]
+   (let [profile (:profile library)
+         ;; the last first, and equal times by id, the same everywhere
+         later   (fn [[a x] [b y]]
+                   (let [c (compare y x)]
+                     (if (zero? c) (compare a b) c)))
+         takes?  (fn [id]
+                   (when-let [[{:keys [feed]} item] (item-of library id)]
+                     (pred feed item)))]
+     (->> (:episodes profile)
+          (keep (fn [[id e]]
+                  (when-let [at (and (crdt/live? e) (:reported-at e))]
+                    [id (inst-ms at)])))
+          (sort later)
+          (map first)
+          (filter #(and (profile/episode-entry profile %) (takes? %)))
+          (take n)))))
 
 (defn- languages-of
   "The primary subtags of the languages of the episodes `seeds`, as seed

@@ -1008,24 +1008,26 @@
               :chapters-url (:chapters-url view)
               :transcript   (:transcript view)})))))
 
-(defn- listed
+(defn listed
   "The row of the episode `id` of `library` in a list of episodes, as queue
   describes it, with the `opts` of episode, or nil when the library
-  doesn't hold its feed in memory."
-  [library opts [feed-guid :as id]]
-  (when-let [view (episode library id (assoc opts :except #{:notes :text :links :chapters}))]
-    (let [entry    (profile/episode-entry (:profile library) id)
-          position (or (:position entry) 0)
-          duration (or (:duration entry) (:duration view))]
-      (into {:id id :position position}
-            (remove (comp nil? val))
-            {:title     (:title view)
-             :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
-             :artwork   (:artwork view)
-             :published (resolve/published (second (impl/item-of library id)))
-             :duration  duration
-             :remaining (when (number? duration)
-                          (max 0 (- duration position)))}))))
+  doesn't hold its feed in memory, e.g. for the results of recommend."
+  ([library id]
+   (listed library id {}))
+  ([library [feed-guid :as id] opts]
+   (when-let [view (episode library id (assoc opts :except #{:notes :text :links :chapters}))]
+     (let [entry    (profile/episode-entry (:profile library) id)
+           position (or (:position entry) 0)
+           duration (or (:duration entry) (:duration view))]
+       (into {:id id :position position}
+             (remove (comp nil? val))
+             {:title     (:title view)
+              :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
+              :artwork   (:artwork view)
+              :published (resolve/published (second (impl/item-of library id)))
+              :duration  duration
+              :remaining (when (number? duration)
+                           (max 0 (- duration position)))})))))
 
 (defn queue
   "The queue of `library`, the current episode first, for a page of it, with
@@ -1047,7 +1049,7 @@
    (queue library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (let [episodes (into [] (keep #(listed library opts %))
+   (let [episodes (into [] (keep #(listed library % opts))
                         (profile.queue/queue (:profile library)))]
      {:episodes  episodes
       :remaining (reduce + 0 (keep :remaining episodes))})))
@@ -1065,7 +1067,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    {:episodes (->> (profile.queue/inbox (:profile library))
-                   (keep #(listed library opts %))
+                   (keep #(listed library % opts))
                    ;; stable, so the episodes of a date keep their arrival
                    (sort-by :published #(compare %2 %1))
                    vec)}))
@@ -1171,17 +1173,27 @@
   - :recent, the number of the episodes that the listener heard last to
     start from without `ids`, 10 by default, where the last weighs the
     most
+  - :from, the criteria of criteria/where that the episodes to start
+    from meet, whether `ids` names them or the listener heard them last,
+    e.g. {:not {:explicit? true}}
+  - :feeds, the shows that the library doesn't hold whole, whose episodes
+    `ids` can name, e.g. a show found in a search, as a map of the feed
+    guid of each to a map of its parsed :feed and its :url
   - :unlike, ids of episodes whose words count against those of `ids`,
     e.g. the ones that the listener rated low
   - :weight-fn, a function of an id of `ids` or :unlike that gives how
     much it weighs, 1 by default
 
   The words that more than 40% of the shows use are left out, as the
-  :group-fn of more-like-this is the show by default, and so are the
-  numbers of the episodes of `ids`, e.g. the 561 of \"#561: TonIO\",
-  which link them only to episodes of the same number. The criteria read
-  the profile of the library, and the time of its clock unless the `opts`
-  give :at.
+  :group-fn of more-like-this is the show by default. The words are those
+  of the titles, notes, keywords, chapters and transcripts, but not the
+  shows' names and people, which every episode of a show shares, and they
+  have two letters or more. Left out too are the words that link the
+  episodes of `ids` to others by chance: their numbers, e.g. the 561 of
+  \"#561: TonIO\" or a date, and the names of their shows' hosts and
+  authors, e.g. the \"Adam & Dave\" of every episode's notes. The
+  criteria read the profile of the library, and the time of its clock
+  unless the `opts` give :at.
 
       (recommend library [id] {:limit 5})
       (recommend library nil {:where {:status   :unplayed
@@ -1190,14 +1202,25 @@
    (recommend library nil {}))
   ([library ids]
    (recommend library ids {}))
-  ([library ids {:keys [same-show? max-per-show recent unlike weight-fn]
+  ([library ids {:keys [same-show? max-per-show recent from feeds unlike
+                        weight-fn]
                  :or   {max-per-show 2 recent 10}
                  :as   opts}]
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
-     (let [recent?   (nil? ids)
-           ids       (if recent? (impl/heard-last library recent) ids)
-           seeds     (keep #(impl/seed library %) ids)
+     (let [feed-urls (urls library)
+           from?     (if from
+                       (impl/where-pred library feed-urls from opts)
+                       (constantly true))
+           recent?   (nil? ids)
+           ids       (if recent? (impl/heard-last library recent from?) ids)
+           ;; in place of the library's own entry of a show, which may hold
+           ;; only the episode that the listener played of it
+           holding   (cond-> library
+                       feeds (update :feeds clojure.core/merge feeds))
+           seeds     (->> ids
+                          (keep #(impl/seed holding %))
+                          (filter #(from? (:feed %) (:item %))))
            by-id     (impl/id-pred library seeds opts)
            ;; the last heard weighs as many as there are, and the first 1
            ranks     (zipmap ids (range (count ids) 0 -1))
@@ -1207,13 +1230,9 @@
                        :else     (constantly 1))
            locate    (feed.search/located (update-vals (:feeds library)
                                                        :feed))
-           ;; an episode's number, e.g. the 561 of "#561: TonIO", links it
-           ;; only to the episodes of other shows with that number
-           numbers   (keep #(some-> (resolve/numbering (:item %)) :episode str)
-                           seeds)
            opts      (-> opts
                          (dissoc :same-show? :same-language? :max-per-show
-                                 :recent :unlike :weight-fn)
+                                 :recent :from :feeds :unlike :weight-fn)
                          (assoc :where       (criteria/visible
                                               (:where opts {:status :unplayed}))
                                 :unlike      (keep #(:document
@@ -1221,12 +1240,13 @@
                                                    unlike)
                                 :weight-fn   (comp weight-of :id)
                                 :same-group? (boolean same-show?))
-                         (update :stop-words concat numbers)
+                         (update :stop-words concat (impl/chance-words seeds))
+                         (update :fields #(or % impl/topic-fields))
+                         (update :min-word-length #(or % 2))
                          (update :limit #(or % 10))
                          (update :group-fn #(or % feed.search/feed-guid-of))
                          (update :max-per-group #(or % max-per-show))
-                         (->> (impl/index-opts library (urls library)
-                                               locate))
+                         (->> (impl/index-opts library feed-urls locate))
                          (update :filter-pred #(if % (every-pred by-id %) by-id)))
            found     (search/more-like-this index (map :document seeds) opts)]
        (with-meta (mapv locate found) (meta found))))))
