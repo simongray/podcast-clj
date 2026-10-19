@@ -22,10 +22,10 @@
                       [dk.simongray.podcast.util.ring :as ring]
                       [dk.simongray.wary-fetch :as http]
                       [dk.simongray.wary-fetch.headers :as headers]
-                      [dk.simongray.webcrypto.bytes :as bytes]]))
+                      [dk.simongray.webcrypto.bytes :as bytes]
+                      [dk.simongray.webcrypto.hash :as hash]]))
   #?(:clj (:import [java.io File]
                    [java.nio.file CopyOption Files StandardCopyOption]
-                   [java.security MessageDigest]
                    [java.util Date])))
 
 ;; Pocket Casts, PodcastImage.kt; Next.js, the Image component, imageSizes
@@ -45,10 +45,10 @@
   (str path "?url=" (url/percent-encode url) "&w=" width))
 
 (defn sizes
-  "The thumbnails of the artwork at `url` from the handler at `path`, as
-  maps of :href and :width, as resolve/artwork-sizes gives the sizes that
-  a feed names. They're nil for a URL that isn't http or https, e.g. a
-  data URL."
+  "The thumbnails of the artwork at `url` from the handler at `path`, at
+  the `widths`, by default those of widths, as maps of :href and :width,
+  as resolve/artwork-sizes gives the sizes that a feed names. They're nil
+  for a URL that isn't http or https, e.g. a data URL."
   ([path url]
    (sizes path url widths))
   ([path url widths]
@@ -82,7 +82,7 @@
       :timeout-seconds 30}))
 
 #?(:clj
-   (def ^:private safety
+   (def safety
      "The headers of every answer, as wary-fetch's proxy sends them: a
      browser that opens one as a page runs no scripts, sniffs no other type
      and lets no other site embed it."
@@ -134,9 +134,8 @@
 #?(:clj
    (defn- hashed
      "The SHA-256 of the text `s`, in hexadecimal."
-     [^String s]
-     (bytes/hex (.digest (MessageDigest/getInstance "SHA-256")
-                         (.getBytes s "UTF-8")))))
+     [s]
+     (bytes/hex (hash/digest :sha-256 (bytes/encode s)))))
 
 #?(:clj
    (defn- entry-file
@@ -208,9 +207,11 @@
          (doseq [[_ thumbnail] thumbnails
                  :when         (:data thumbnail)]
            (written! (image-file dir h thumbnail) (:data thumbnail)))
+         ;; an artwork that format.image can't scale keeps its nil
          (written! (entry-file dir h)
-                   (.getBytes (pr-str (update entry :thumbnails update-vals
-                                              #(dissoc % :data)))
+                   (.getBytes (pr-str (cond-> entry
+                                        thumbnails (update :thumbnails update-vals
+                                                           #(dissoc % :data))))
                               "UTF-8"))
          (prune! (io/file dir) max-bytes h)))))
 
@@ -244,9 +245,7 @@
      [thumbnails]
      (update-vals thumbnails
                   (fn [{:keys [data] :as thumbnail}]
-                    (let [digest (.digest (MessageDigest/getInstance "SHA-256")
-                                          ^bytes data)
-                          tag    (subs (bytes/hex digest) 0 32)]
+                    (let [tag (subs (bytes/hex (hash/digest :sha-256 data)) 0 32)]
                       (assoc thumbnail :etag (str "\"" tag "\"")))))))
 
 #?(:clj
@@ -362,14 +361,19 @@
                                                    (store! cache-dir max-cache-bytes entry)
                                                    entry))
                                         (catch Exception _
-                                          (when (:thumbnails stale)
+                                          (when (seq (:thumbnails stale))
                                             stale))))]
                 (cond
                   (nil? entry)
                   (redirect url nil)
 
-                  (nil? (:thumbnails entry))
+                  ;; empty, as an entry that an earlier version kept was
+                  (empty? (:thumbnails entry))
                   (redirect url 86400)
+
+                  ;; e.g. a width that the cache didn't make before
+                  (nil? (get-in entry [:thumbnails width]))
+                  (redirect url nil)
 
                   :else
                   (sent request entry width cache-dir max-age)))))))))

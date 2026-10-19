@@ -1009,9 +1009,9 @@
               :transcript   (:transcript view)})))))
 
 (defn listed
-  "The row of the episode `id` of `library` in a list of episodes, as queue
-  describes it, with the `opts` of episode, or nil when the library
-  doesn't hold its feed in memory, e.g. for the results of recommend."
+  "The row of the episode `id` of `library` in a list of episodes, e.g. of
+  the results of recommend, as queue describes it, with the `opts` of
+  episode, or nil when the library doesn't hold its feed in memory."
   ([library id]
    (listed library id {}))
   ([library [feed-guid :as id] opts]
@@ -1185,17 +1185,19 @@
   - :weight-fn, a function of an id of `ids` or :unlike that gives how
     much it weighs, 1 by default
 
-  The words are those of the titles, notes, keywords, chapters and
-  transcripts, but not the shows' names and people, which every episode
-  of a show shares, and they have two letters or more. By default:
+  The words are those of the titles, notes, keywords and chapters, but
+  not the shows' names and people, which every episode of a show shares,
+  and they have two letters or more. By default:
 
   - a word is one that the episodes of `ids` use twice, or once in a
-    title, which counts three times, as :min-term-freq has it
+    title, which counts three times, or in keywords or chapters, which
+    count twice, as :min-term-freq has it
   - a result holds two of the words at least, as :min-match has it
   - a word in more than 8% of the episodes in the languages of the
-    episodes of `ids` is left out, e.g. ad text and function words, as
-    :max-doc-freq has it, and so is one that more than 40% of the shows
-    use, as the :group-fn of more-like-this is the show
+    episodes of `ids`, or of all episodes when they name none, is left
+    out, e.g. ad text and function words, as :max-doc-freq has it, and so
+    is one that more than 40% of the shows use, as the :group-fn of
+    more-like-this is the show
 
   Left out too are the words that link the episodes of `ids` to others by
   chance: their numbers, e.g. the 561 of \"#561: TonIO\" or a date, and the
@@ -1262,7 +1264,8 @@
            found     (search/more-like-this index (map :document seeds) opts)
            terms     (:terms (meta found))
            held      (fn [{:keys [id]}]
-                       (impl/held-terms terms (:document (impl/seed library id))))]
+                       (impl/held-terms terms (:document (impl/seed library id))
+                                        (:fields opts)))]
        (with-meta (mapv #(assoc (locate %) :terms (held %)) found)
          (meta found))))))
 

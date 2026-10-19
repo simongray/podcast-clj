@@ -66,7 +66,7 @@
        body)))
 
 #?(:clj
-   (def ^:private art
+   (def art
      "The URL of the artwork of the tests."
      "https://example.org/art.jpg"))
 
@@ -153,7 +153,16 @@
        (is (= [307 "https://example.org/a%20b.jpg" "no-store"]
               (check ((artwork/handler {:send (fn [_] (throw (ex-info "offline" {})))})
                       (asked "https://example.org/a b.jpg" 64))))
-           "a Location that HTTP allows"))))
+           "a Location that HTTP allows")
+       (with-temp-dir
+         (fn [dir]
+           (let [fetches (atom [])
+                 cached  (artwork/handler {:cache-dir (io/file dir "artwork")
+                                           :send      (stub fetches [(fn [_] {:status 200 :headers {} :body webp})])})]
+             (is (= [307 art "max-age=86400"] (check (cached (asked art 64)))))
+             (is (= [307 art "max-age=86400"] (check (cached (asked art 128))))
+                 "and so does the cache that keeps it, at another width")
+             (is (= 1 (count @fetches)) "without a fetch")))))))
 
 #?(:clj
    (deftest the-oldest-go-first

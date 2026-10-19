@@ -642,11 +642,12 @@
                           (.format (js/Intl.DateTimeFormat. tag (js-obj k style)) d))
                  months (map #(js/Date. 2000 % 1) (range 12))
                  days   (map #(js/Date. 2000 0 (+ 2 %)) (range 7))]
+             ;; realised inside the try, which a lazy seq would leave
              (try
-               (concat (map #(named "month" "long" %) months)
-                       (map #(named "month" "short" %) months)
-                       (map #(named "weekday" "long" %) days)
-                       (map #(named "weekday" "short" %) days))
+               (vec (concat (map #(named "month" "long" %) months)
+                            (map #(named "month" "short" %) months)
+                            (map #(named "weekday" "long" %) days)
+                            (map #(named "weekday" "short" %) days)))
                ;; a tag that Intl doesn't take
                (catch :default _ nil)))))
 
@@ -690,26 +691,24 @@
 (defn heard-last
   "The ids of the `n` episodes of `library` that the listener heard last,
   the last first, of those that the library holds and the profile hasn't
-  forgotten, and that `pred` of a feed and an item takes, when given."
-  ([library n]
-   (heard-last library n (constantly true)))
-  ([library n pred]
-   (let [profile (:profile library)
-         ;; the last first, and equal times by id, the same everywhere
-         later   (fn [[a x] [b y]]
-                   (let [c (compare y x)]
-                     (if (zero? c) (compare a b) c)))
-         takes?  (fn [id]
-                   (when-let [[{:keys [feed]} item] (item-of library id)]
-                     (pred feed item)))]
-     (->> (:episodes profile)
-          (keep (fn [[id e]]
-                  (when-let [at (and (crdt/live? e) (:reported-at e))]
-                    [id (inst-ms at)])))
-          (sort later)
-          (map first)
-          (filter #(and (profile/episode-entry profile %) (takes? %)))
-          (take n)))))
+  forgotten, and that `pred` of a feed and an item takes."
+  [library n pred]
+  (let [profile (:profile library)
+        ;; the last first, and equal times by id, the same everywhere
+        later   (fn [[a x] [b y]]
+                  (let [c (compare y x)]
+                    (if (zero? c) (compare a b) c)))
+        takes?  (fn [id]
+                  (when-let [[{:keys [feed]} item] (item-of library id)]
+                    (pred feed item)))]
+    (->> (:episodes profile)
+         (keep (fn [[id e]]
+                 (when-let [at (and (crdt/live? e) (:reported-at e))]
+                   [id (inst-ms at)])))
+         (sort later)
+         (map first)
+         (filter #(and (profile/episode-entry profile %) (takes? %)))
+         (take n))))
 
 (defn- languages-of
   "The primary subtags of the languages of the episodes `seeds`, as seed
@@ -762,13 +761,13 @@
 
 (defn held-terms
   "The `terms` of a query of more-like-this, pairs of a term and its
-  weight, the best first, that the fields of topic-fields of the search
-  `document` hold, as the terms alone."
-  [terms document]
+  weight, the best first, that the `fields` of the search `document` hold,
+  as the terms alone."
+  [terms document fields]
   (let [held (into #{}
                    (comp (mapcat #(analysis/tokens (get-in document [:fields %])))
                          (mapcat #(if (vector? %) % [%])))
-                   topic-fields)]
+                   fields)]
     (into [] (comp (map first) (filter held)) terms)))
 
 ;; The tests of a result by its id come before those that locate its feed

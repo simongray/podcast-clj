@@ -533,7 +533,8 @@
     (show "b" "22222222-2222-5222-8222-222222222222" [["Grinders compared" "Conical burr grinders for espresso."]
                                                       ["Bicycles" "Gears."]])
     (show "c" "33333333-3333-5333-8333-333333333333" [["Gardening" "Tomatoes."]])
-    (show "d" "44444444-4444-5444-8444-444444444444" [["Kværne" "Conical kværne."]] "da")
+    ;; two words that the English episodes share, as recommend asks
+    (show "d" "44444444-4444-5444-8444-444444444444" [["Conical burr kværne" "Kværne."]] "da")
     (with-redefs [service/corpus-dir         dir
                   service/making-recommender (delay nil)]
       (testing "the item page leaves them to the player, which fetches them once it's shown"
