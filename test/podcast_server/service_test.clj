@@ -158,6 +158,17 @@
         (is (= 403 (:status (response-for c :get url :headers {"sec-fetch-site" "cross-site"})))
             "a page of another site")))))
 
+(deftest the-thumbnails-of-artwork
+  (with-temp-dir
+    (fn [dir]
+      (let [c   (connector dir false)
+            url (str "/artwork?url=" (url/percent-encode "https://example.org/art.jpg") "&w=64")]
+        (is (= 400 (:status (response-for c :get "/artwork"))) "no url to fetch")
+        (is (= 400 (:status (response-for c :get (str/replace url "w=64" "w=65")))) "a width outside the list")
+        (is (= 403 (:status (response-for c :get url :headers {"sec-fetch-site" "cross-site"})))
+            "a page of another site")
+        (is (= (io/file dir "data" "artwork") (service/artwork-dir {:data-dir (io/file dir "data")})))))))
+
 (deftest the-media-files
   (let [episode (byte-array (map unchecked-byte (range 1000)))]
     (with-server {"/ep.mp3" {:body episode :headers {"Content-Type" "audio/mpeg"}}}

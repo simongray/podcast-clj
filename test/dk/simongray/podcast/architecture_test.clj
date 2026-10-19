@@ -32,7 +32,7 @@
    "feed.discovery" 3 "feed.discovery.impl" 3 "feed.publish" 3 "feed.search" 3
    "feed.integrity" 3 "feed.local" 3
    "format.chapters" 3 "format.transcript" 3 "format.transcript.impl" 3 "format.opml" 3
-   "format.image" 3 "format.image.impl" 3 "format.hls" 3
+   "format.image" 3 "format.image.impl" 3 "format.hls" 3 "artwork" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
    "format.media.mp4.impl" 3 "format.media.ogg" 3 "format.media.ogg.impl" 3
    "format.media.aac" 3

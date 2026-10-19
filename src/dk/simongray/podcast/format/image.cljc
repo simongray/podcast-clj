@@ -15,7 +15,9 @@
   that it still needs. An image embedded in text, e.g. the artwork of a
   chapter, is a data URL, which data-url and from-data-url write and read.
   Only colors, palette and dominant-color decode an image, through the
-  platform, for the colours that an app can colour its UI by."
+  platform, for the colours that an app can colour its UI by, and
+  thumbnails, for the small copies that a server can send in place of
+  artwork of 3000 pixels."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.image.impl :as impl]
@@ -247,6 +249,46 @@
   nil where the platform can't decode the image, as dominant-color says."
   [b]
   (impl/with-pixels b #(scheme (impl/palette-of % 5))))
+
+;; imgproxy, Configuration options, Security: IMGPROXY_MAX_SRC_RESOLUTION
+;; https://docs.imgproxy.net/3.22.x/configuration/options
+(def max-pixels
+  "The most pixels of an image that thumbnails decodes, 25 million, e.g.
+  5000 by 5000. imgproxy refuses more than 16.8 million by default, to
+  stop images that decode to more memory than their size suggests."
+  25000000)
+
+(defn thumbnails
+  "The image in the bytes `b` scaled down to each of the `widths`, as a
+  map of each width to a map of the thumbnail's :type, :width, :height
+  and :data, its bytes. A thumbnail is a JPEG, or a PNG when the image
+  has transparency, and it's never wider than the image itself. On the
+  JVM it gives the map, and in ClojureScript a promise of it.
+
+  The platform decodes the image: ImageIO on the JVM, which reads JPEG,
+  PNG and GIF, and the browser's own decoder in ClojureScript. Node has
+  no decoder, so there it's nil. It's nil for an image that it can't
+  scale too, so that a server can send the image itself instead:
+
+  - another format, e.g. WebP or SVG on the JVM
+  - a CMYK JPEG, or one that EXIF turns, since a browser turns it too
+  - an animated GIF on the JVM. A browser scales its first frame.
+  - more than the :max-pixels of `opts`, by default max-pixels"
+  ([b widths]
+   (thumbnails b widths {}))
+  ([b widths opts]
+   (let [{:keys [type color orientation width height #?(:cljs alpha?)]} (read (view/whole b))
+         most (:max-pixels opts max-pixels)]
+     (if (and (#{"image/jpeg" "image/png" "image/gif"} type)
+              (not= :cmyk color)
+              (contains? #{nil 1} orientation)
+              (or (nil? width) (nil? height) (<= (* width height) most)))
+       #?(:clj  (impl/thumbnails b widths most)
+          ;; a PNG unless the header rules transparency out, as a GIF's
+          ;; header doesn't tell
+          :cljs (impl/thumbnails b widths most (not (false? alpha?))))
+       #?(:clj  nil
+          :cljs (js/Promise.resolve nil))))))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the

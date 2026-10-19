@@ -4,10 +4,13 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.webcrypto.bytes :as bytes])
-  #?(:clj (:import [java.io ByteArrayInputStream]
-                   [javax.imageio ImageIO]
-                   [javax.imageio ImageReader]
-                   [javax.imageio.stream MemoryCacheImageInputStream])))
+  #?(:clj (:import [java.awt RenderingHints]
+                   [java.awt.image BufferedImage]
+                   [java.io ByteArrayInputStream ByteArrayOutputStream]
+                   [javax.imageio IIOImage ImageIO ImageReader ImageWriteParam
+                    ImageWriter]
+                   [javax.imageio.stream MemoryCacheImageInputStream
+                    MemoryCacheImageOutputStream])))
 
 ;; WHATWG MIME Sniffing Standard, section 6.1
 (def signatures
@@ -447,3 +450,149 @@
   [b f]
   #?(:clj  (some-> (decoded-pixels b 64) f)
      :cljs (.then (drawn-pixels b 32) #(some-> % f))))
+
+#?(:clj
+   (defn- drawn
+     "The `image` drawn at `width` by `height` with bilinear interpolation,
+     keeping its transparency when it has any."
+     ^BufferedImage [^BufferedImage image width height]
+     (let [type (if (.hasAlpha (.getColorModel image))
+                  BufferedImage/TYPE_INT_ARGB
+                  BufferedImage/TYPE_INT_RGB)
+           out  (BufferedImage. (int width) (int height) type)
+           g    (.createGraphics out)]
+       (try
+         (.setRenderingHint g RenderingHints/KEY_INTERPOLATION
+                            RenderingHints/VALUE_INTERPOLATION_BILINEAR)
+         (.drawImage g image 0 0 (int width) (int height) nil)
+         out
+         (finally
+           (.dispose g))))))
+
+;; Chris Campbell, "The Perils of Image.getScaledInstance()", 2007: bilinear
+;; interpolation in one step from a large image to a small one looks no
+;; better than nearest neighbour (JDK-6574349), so halve it until the next
+;; half would be too small
+;; https://bugs.openjdk.org/browse/JDK-6574349
+#?(:clj
+   (defn- scaled-down
+     "The `image` scaled down to `width`, in halves, with the height in
+     proportion. An image no wider than `width` stays as it is."
+     ^BufferedImage [^BufferedImage image width]
+     (loop [^BufferedImage image image]
+       (let [w (.getWidth image)
+             h (.getHeight image)]
+         (cond
+           (<= w width)
+           image
+
+           (>= (quot w 2) width)
+           (recur (drawn image (quot w 2) (max 1 (quot h 2))))
+
+           :else
+           (drawn image width (max 1 (Math/round (/ (* (double h) width) w)))))))))
+
+#?(:clj
+   (defn- encoded
+     "The `image` as a map of its :type, :width, :height and :data, the
+     bytes of a JPEG, or of a PNG when it has transparency."
+     [^BufferedImage image]
+     (let [alpha? (.hasAlpha (.getColorModel image))
+           out    (ByteArrayOutputStream.)]
+       (if alpha?
+         (ImageIO/write image "png" out)
+         (let [^ImageWriter writer (first (iterator-seq
+                                           (ImageIO/getImageWritersByFormatName
+                                            "jpeg")))
+               param (doto (.getDefaultWriteParam writer)
+                       (.setCompressionMode ImageWriteParam/MODE_EXPLICIT)
+                       (.setCompressionQuality (float 0.85)))]
+           (try
+             (with-open [stream (MemoryCacheImageOutputStream. out)]
+               (.setOutput writer stream)
+               (.write writer nil (IIOImage. image nil nil) param))
+             (finally
+               (.dispose writer)))))
+       {:type   (if alpha? "image/png" "image/jpeg")
+        :width  (.getWidth image)
+        :height (.getHeight image)
+        :data   (.toByteArray out)})))
+
+;; ImageReadParam's source subsampling reads every nth pixel as it decodes,
+;; so a JPEG of 3000 pixels a side never takes the 36 MB of its full size
+#?(:clj
+   (defn thumbnails
+     "The image in the bytes `b` scaled down to each of the `widths`, as a
+     map of each width to the image that encoded gives, or nil when ImageIO
+     can't decode it, when it has more than `max-pixels` or when it's an
+     animated GIF."
+     [b widths max-pixels]
+     (try
+       (with-open [in (MemoryCacheImageInputStream. (ByteArrayInputStream. b))]
+         (when-let [^ImageReader reader (first (iterator-seq
+                                                (ImageIO/getImageReaders in)))]
+           (try
+             (.setInput reader in)
+             (let [w (.getWidth reader 0)
+                   h (.getHeight reader 0)]
+               (when (and (<= (* (long w) h) max-pixels)
+                          (not (and (= "gif" (str/lower-case
+                                              (.getFormatName reader)))
+                                    (> (.getNumImages reader true) 1))))
+                 (let [step  (max 1 (quot w (* 2 (apply max widths))))
+                       param (doto (.getDefaultReadParam reader)
+                               (.setSourceSubsampling step step 0 0))]
+                   (loop [image          (.read reader 0 param)
+                          [width & more] (sort > widths)
+                          result         {}]
+                     (if width
+                       (let [scaled (scaled-down image width)]
+                         (recur scaled more (assoc result width
+                                                   (encoded scaled))))
+                       result)))))
+             (finally
+               (.dispose reader)))))
+       (catch Exception _
+         nil))))
+
+;; HTML, section 4.12.5.1.14: an imageSmoothingQuality of high lets the
+;; browser filter as it scales down, where low may sample alone
+;; https://html.spec.whatwg.org/multipage/canvas.html#image-smoothing
+#?(:cljs
+   (defn- drawn-thumbnail
+     "A promise of the `bitmap` drawn `width` pixels wide, with the height in
+     proportion, as the map that thumbnails gives of each width: a PNG when
+     `alpha?`, and a JPEG otherwise."
+     [bitmap width alpha?]
+     (let [w       (min width (.-width bitmap))
+           h       (max 1 (js/Math.round (/ (* (.-height bitmap) w) (.-width bitmap))))
+           canvas  (js/OffscreenCanvas. w h)
+           context (.getContext canvas "2d")
+           type    (if alpha? "image/png" "image/jpeg")]
+       (set! (.-imageSmoothingQuality context) "high")
+       (.drawImage context bitmap 0 0 w h)
+       (-> (.convertToBlob canvas #js {:type type :quality 0.85})
+           (.then #(.arrayBuffer %))
+           (.then (fn [buffer]
+                    {:type type :width w :height h :data (js/Uint8Array. buffer)}))))))
+
+#?(:cljs
+   (defn thumbnails
+     "A promise of the image in the bytes `b` scaled down to each of the
+     `widths`, as in the JVM's thumbnails, which the browser decodes, or of
+     nil where it can't, e.g. in Node, which has no decoder, or for an image
+     of more than `max-pixels`. The image has transparency when `alpha?`."
+     [b widths max-pixels alpha?]
+     (if (and (exists? js/createImageBitmap) (exists? js/OffscreenCanvas))
+       (-> (js/createImageBitmap (js/Blob. #js [b]))
+           (.then (fn [bitmap]
+                    (if (> (* (.-width bitmap) (.-height bitmap)) max-pixels)
+                      (do (.close bitmap)
+                          nil)
+                      (-> (js/Promise.all
+                           (into-array (map #(drawn-thumbnail bitmap % alpha?) widths)))
+                          (.then (fn [drawn]
+                                   (.close bitmap)
+                                   (zipmap widths drawn)))))))
+           (.catch (constantly nil)))
+       (js/Promise.resolve nil))))

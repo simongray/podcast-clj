@@ -251,6 +251,51 @@
        (is (= [nil nil] [(image/dominant-color (bytes/of [1 2 3])) (image/colors (bytes/of [1 2 3]))])
            "bytes that aren't an image"))))
 
+#?(:clj
+   (defn- written-image
+     "The bytes of an image of `w` by `h` pixels in `format`, e.g. jpeg,
+     blue on the left and red on the right, of the BufferedImage `type`,
+     whose transparent kinds are transparent at the top."
+     [w h format type]
+     (let [img (java.awt.image.BufferedImage. w h type)
+           out (java.io.ByteArrayOutputStream.)]
+       (doseq [x (range w) y (range h)]
+         (.setRGB img x y (unchecked-int (cond
+                                           (< y 10)        0x00FFFFFF
+                                           (< x (quot w 2)) 0xFF2040A0
+                                           :else           0xFFC03020))))
+       (javax.imageio.ImageIO/write img ^String format out)
+       (.toByteArray out))))
+
+#?(:clj
+   (deftest thumbnails-of-an-image
+     (let [jpeg   (written-image 1000 500 "jpeg" java.awt.image.BufferedImage/TYPE_INT_RGB)
+           result (image/thumbnails jpeg [64 128 256 512])]
+       (is (= {64  ["image/jpeg" 64 32]
+               128 ["image/jpeg" 128 64]
+               256 ["image/jpeg" 256 128]
+               512 ["image/jpeg" 512 256]}
+              (update-vals result (juxt :type :width :height)))
+           "each width, with the height in proportion")
+       (let [decoded (javax.imageio.ImageIO/read (java.io.ByteArrayInputStream. (:data (get result 64))))
+             rgb     (fn [x y] (let [c (.getRGB decoded x y)]
+                                 (mapv #(bit-and (bit-shift-right c %) 255) [16 8 0])))
+             near?   (fn [a b] (every? #(<= (abs %) 8) (map - a b)))]
+         (is (= [64 32] [(.getWidth decoded) (.getHeight decoded)]) "a JPEG that decodes")
+         (is (near? [0x20 0x40 0xA0] (rgb 8 24)) "blue on the left")
+         (is (near? [0xC0 0x30 0x20] (rgb 56 24)) "and red on the right"))
+       (is (= {512 [320 160]} (update-vals (image/thumbnails (written-image 320 160 "png" java.awt.image.BufferedImage/TYPE_INT_RGB) [512])
+                                           (juxt :width :height)))
+           "never wider than the image itself")
+       (is (= "image/png" (:type (get (image/thumbnails (written-image 300 300 "png" java.awt.image.BufferedImage/TYPE_INT_ARGB) [64]) 64)))
+           "a PNG for an image with transparency")
+       (is (= 64 (:width (get (image/thumbnails (written-image 300 300 "gif" java.awt.image.BufferedImage/TYPE_BYTE_INDEXED) [64]) 64)))
+           "a GIF of one frame")
+       (is (nil? (image/thumbnails jpeg [64] {:max-pixels 1000})) "an image of more pixels than allowed")
+       (is (nil? (image/thumbnails (bytes/of [0x52 0x49 0x46 0x46 0 0 0 0 0x57 0x45 0x42 0x50]) [64]))
+           "WebP, which ImageIO doesn't read")
+       (is (nil? (image/thumbnails (bytes/of [1 2 3]) [64])) "bytes that aren't an image"))))
+
 #?(:cljs
    (defn- drawn-png
      "A promise of the bytes of a PNG image that the browser draws, 300 by
@@ -265,6 +310,24 @@
        (-> (.convertToBlob canvas)
            (.then #(.arrayBuffer %))
            (.then #(js/Uint8Array. %))))))
+
+#?(:cljs
+   (deftest thumbnails-of-an-image
+     (async done
+       (-> (if (exists? js/OffscreenCanvas)
+             (-> (drawn-png)
+                 (.then #(image/thumbnails % [64 512]))
+                 (.then (fn [result]
+                          (is (= {64  ["image/png" 64 43]
+                                  512 ["image/png" 300 200]}
+                                 (update-vals result (juxt :type :width :height)))
+                              "drawn by the browser, a PNG since a PNG's header allows transparency, and never wider than the image")
+                          (image/colors (:data (get result 64)))))
+                 (.then #(is (= "#2040a0" (:background %)) "with the colours of the image")))
+             (.then (image/thumbnails (bytes/of [0x89 0x50 0x4E 0x47]) [64])
+                    #(is (nil? %) "no thumbnails in Node, which has no decoder")))
+           (.catch (fn [e] (is false (str "rejected: " e))))
+           (.finally done)))))
 
 #?(:cljs
    (deftest the-colour-of-an-image

@@ -8,6 +8,7 @@
     that sites don't let a page read
   - /media, through which the client saves the media files of the
     episodes of the listener's feeds
+  - /artwork, thumbnails of the artwork of shows and episodes
   - /dav/, a folder of sync documents over WebDAV
   - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
@@ -24,6 +25,7 @@
             [dk.simongray.like-minded.store.folder :as folder]
             [dk.simongray.like-minded.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.analytics.op3 :as op3]
+            [dk.simongray.podcast.artwork :as artwork]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.client :as client]
@@ -395,6 +397,11 @@
   [{:keys [data-dir] :as settings}]
   (folder/store data-dir))
 
+(defn artwork-dir
+  "The folder of the thumbnails of artwork in the :data-dir of `settings`."
+  [{:keys [data-dir] :as settings}]
+  (io/file data-dir "artwork"))
+
 (def max-document-bytes
   "The most bytes that a document of the sync folder can hold."
   (* 32 1024 1024))
@@ -524,7 +531,9 @@
   app when it's nil, and the sync folder holds no more than their
   :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
   once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
-  with proxy-send. The media files pass through as they arrive. With a
+  with proxy-send. The media files pass through as they arrive. The
+  thumbnails of artwork are made four at a time too, and kept in
+  artwork-dir. With a
   :public-url, there are the routes of the actor's document and WebFinger
   too, with the actor's key kept in the data folder, and those of the
   `hubs`, the server's WebSub hubs, when given."
@@ -550,9 +559,12 @@
         proxy       (at-most 4 30 (proxy/handler
                                    {:user-agent client/user-agent
                                     :send       (proxy-send settings
-                                                            actor-key)}))]
+                                                            actor-key)}))
+        thumbnails  (at-most 4 30 (artwork/handler
+                                   {:cache-dir (artwork-dir settings)}))]
     (cond-> #{["/proxy" :any proxy :route-name ::proxy]
               ["/media" :any (media-handler lib) :route-name ::media]
+              ["/artwork" :any thumbnails :route-name ::artwork]
               ["/dav" :any dav :route-name ::dav-collection]
               ["/dav/*path" :any dav :route-name ::dav]
               ["/api/2/*path" :any gpodder :route-name ::gpodder]}

@@ -54,6 +54,23 @@ To save an episode on the device, fetch it through `/media`, e.g.
 episodes of the listener's feeds as they arrive, and passes a Range on so
 that a download can resume, but refuses any other URL.
 
+To show artwork small, take its thumbnails from `/artwork`, e.g.
+`/artwork?url=…&w=128`. Most feeds name one artwork of 3000 pixels, which
+a list of episodes would otherwise download whole for each row. The
+server makes thumbnails 64, 128, 256 and 512 pixels wide, keeps them in
+`artwork/` in its data folder, and redirects to the artwork itself when it
+can't scale it, e.g. a WebP image. Give an img the srcset of their sizes,
+and keep the artwork as its src:
+
+```clojure
+(let [sizes (artwork/sizes "/artwork" url)]
+  [:img {:src    url
+         :srcset (str/join ", " (map #(str (:href %) " " (:width %) "w") sizes))
+         :sizes  "48px"}])
+```
+
+Here `artwork` is `dk.simongray.podcast.artwork`.
+
 [How to build a podcast app](../doc/building-an-app.md#sync-the-listeners-of-a-website)
 says what else a page needs, e.g. where to keep the library. The
 client's pages can only run scripts from the server's own files, so an
