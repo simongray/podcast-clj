@@ -544,23 +544,18 @@
   result is never before the time of the call.
 
   The feed of a subscription that was never fetched is due at once, unless
-  the last refresh failed to fetch it. Then it waits the first wait of the
-  :after-failure of the cadence, as a feed that failed once does. A feed
-  that's gone, of local files or held for remote items alone is never
-  due. After a refresh that found the device offline, the next waits the
-  :offline-seconds of the config."
+  its fetch failed. Then it waits as its entry says, e.g. the first wait
+  of the :after-failure of the cadence after one failure, as a feed that
+  was fetched does. A feed that's gone, of local files or held for remote
+  items alone is never due. After a refresh that found the device
+  offline, the next waits the :offline-seconds of the config."
   ([library]
    (next-refresh library {}))
   ([library opts]
    {:pre [(map? opts)]}
    (let [at       (impl/time-of library opts)
-         {:keys [offline-seconds cadence]} (impl/options library opts)
+         {:keys [offline-seconds]} (impl/options library opts)
          {:keys [report] last-at :at} (:refresh library)
-         wait     (-> (clojure.core/merge feeds/default-cadence cadence)
-                      :after-failure
-                      first)
-         failed   (set (keep :feed-guid report))
-         retry    #(if (contains? failed %) (time/later last-at wait) at)
          check    #(or (:next-check %) at)
          checked? (fn [[feed-guid entry]]
                     (not (or (:gone? entry)
@@ -569,13 +564,202 @@
          checks   (concat (map (comp check val)
                                (filter checked? (:feeds library)))
                           (map check (vals (:fetched-lists library)))
-                          (map retry (keys (impl/pending library))))
+                          (map check (vals (impl/pending library))))
          offline? (some (comp #{:refresh/offline} :id) report)]
      (when (seq checks)
        (time/latest at
                     (apply time/earliest checks)
                     (when offline?
                       (time/later last-at offline-seconds)))))))
+
+(defn due
+  "What a refresh of `library` with the `opts` of refresh! fetches, as data
+  for fetch-due! in another context, e.g. a web worker.
+
+  It's a map of the :at of the refresh, the :feed-guids to fetch, the
+  earliest due first, the entries of their :feeds, and the entries of the
+  followed :lists that are due, each by URL. The entries hold neither the
+  feeds nor the lists, but name the document of each feed in the store.
+  The lists of a list that the refresh follows are fetched by the next,
+  and a feed that the library holds in its document alone isn't due until
+  load! reads it."
+  ([library]
+   (due library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [at        (impl/time-of library opts)
+         opts      (impl/options library opts)
+         codec     (impl/codec library opts)
+         unfetched (impl/pending library)
+         asked     (:feed-guids opts)
+         held      (into (set (unloaded library))
+                         (remove (set (concat asked (keys unfetched)))
+                                 (filter #(impl/alone? library %)
+                                         (keys (:feeds library)))))
+         feeds     (clojure.core/merge (apply dissoc (:feeds library) held)
+                                       unfetched)
+         wanted    (into []
+                         (filter #(and (contains? feeds %)
+                                       (not (:local? (get feeds %)))))
+                         (if asked
+                           (distinct (concat (keys unfetched) asked))
+                           (feeds/due feeds at)))
+         outlined  (fn [feed-guid]
+                     (let [entry (get feeds feed-guid)]
+                       (cond-> entry
+                         (:feed entry)
+                         (-> (dissoc :feed :retained)
+                             (assoc :document (impl/entry-document feed-guid entry codec))))))]
+     {:at         at
+      :feed-guids wanted
+      :feeds      (into {} (map (juxt identity outlined)) wanted)
+      :lists      (update-vals (impl/due-lists library at opts) #(dissoc % :list))})))
+
+(defn fetch-due!
+  "Fetch what a refresh is `due` to fetch, as due gives it, with the
+  documents of its feeds in `store` and the `opts` of refresh! and the
+  config, and put the documents of the feeds that changed into `store`.
+  It gives what the refresh found, for refreshed, in ClojureScript as a
+  promise:
+
+      {:at        #inst \"…\"
+       :from      {feed-guid {:document \"…\" :fetched-at #inst \"…\"}}
+       :feeds     {feed-guid {…}}       ; the entries of the feeds fetched
+       :documents {\"feed-….edn\" \"…\"}  ; of the feeds that changed
+       :changed   [feed-guid …] :moved {feed-guid \"https://…\"}
+       :lists     [[url fetched] …]
+       :counts    {…} :seconds 4.2 :report [...]}
+
+  The entries name their documents rather than hold their feeds, as those
+  of due do, and a feed that failed keeps its failures. The documents hold
+  each feed as it was fetched, before the cuts of the library's
+  :keep-fn, :max-items and remote items, which refreshed makes."
+  ([due store]
+   (fetch-due! due store {}))
+  ([{:keys [at feed-guids feeds lists] :as due} store opts]
+   {:pre [(map? opts)]}
+   (let [opts       (clojure.core/merge impl/default-config
+                                        {:send client/send! :fetch podcast/fetch!}
+                                        opts)
+         codec      (impl/codec {} opts)
+         clock      (:now-fn opts time/now)
+         started    (clock)
+         feeds-opts (-> opts
+                        (select-keys [:fetch :fetch-head :head-check?
+                                      :credentials-of
+                                      :concurrency :cadence :max-pages :send
+                                      :timeout-seconds :max-bytes
+                                      :user-agent :allow-pred :online?
+                                      :max-feeds :max-seconds :on-feed-fn
+                                      :now-fn :signal])
+                        (assoc :at at :feed-guids feed-guids))
+         from       (update-vals feeds #(select-keys % [:document :fetched-at]))
+         outlined   (fn [feed-guid entry]
+                      (cond-> entry
+                        (:feed entry)
+                        (-> (dissoc :feed :retained)
+                            (assoc :document (impl/entry-document feed-guid entry codec)))))]
+     (async/then
+      (impl/with-feeds [{:feeds feeds :config {:codec codec}} []] store (set feed-guids))
+      (fn [[{loaded :feeds} report]]
+        (async/then
+         (async/all [(impl/fetch-lists! lists opts)
+                     (feeds/refresh! loaded feeds-opts)])
+         (fn [[lists step]]
+           (let [fetched   (into {}
+                                 (for [feed-guid (:checked step)]
+                                   [feed-guid (get-in step [:feeds feed-guid])]))
+                 documents (into {}
+                                 (for [[feed-guid entry] fetched
+                                       :when (:feed entry)
+                                       :let  [name (impl/entry-document feed-guid entry codec)]
+                                       :when (not= name (get-in from [feed-guid :document]))]
+                                   [name (impl/feed-body entry codec)]))]
+             (async/then
+              (store/put-all! store (for [[name body] documents]
+                                      {:name name :body body}))
+              (fn [_]
+                {:at        at
+                 :from      from
+                 :feeds     (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
+                 :documents documents
+                 :changed   (:changed step)
+                 :moved     (:moved step)
+                 :lists     lists
+                 :counts    (impl/counted step)
+                 :seconds   (/ (- (inst-ms (clock)) (inst-ms started)) 1000.0)
+                 :report    (into report (:report step))}))))))))))
+
+(defn refreshed
+  "The `library` with what a refresh `found`, as fetch-due! gives it,
+  applied at its time with `opts`, and the result under :refresh, as
+  refresh! gives it.
+
+  An entry that `found` holds replaces the library's own only while the
+  library still has the entry that the refresh was due with, so that a
+  feed that changed meanwhile, e.g. by a subscription in another tab,
+  stays as it is, and so does a list that the listener no longer follows.
+  The feeds that changed are read from the documents that `found` holds,
+  with the codec of the library."
+  ([library found]
+   (refreshed library found {}))
+  ([library {:keys [at from feeds documents changed moved lists counts seconds report]
+             :as   found}
+    opts]
+   {:pre [(map? opts)]}
+   (let [opts     (clojure.core/merge {:send client/send! :fetch podcast/fetch!}
+                                      (impl/options library opts))
+         codec    (impl/codec library opts)
+         now-from (fn [feed-guid]
+                    (let [entry (get-in library [:feeds feed-guid])]
+                      (cond-> (select-keys entry [:document :fetched-at])
+                        (:feed entry)
+                        (assoc :document (impl/entry-document feed-guid entry codec)))))
+         read     (fn [feed-guid {:keys [document] :as entry}]
+                    (let [own (get-in library [:feeds feed-guid])]
+                      (cond
+                        (contains? documents document)
+                        (let [read (impl/read-feed codec document
+                                                   {:value {:body (get documents document)}})]
+                          (when (:feed read)
+                            (-> (dissoc entry :document)
+                                (clojure.core/merge read)
+                                (update :feed guid/with-key feed-guid))))
+
+                        (and document (:feed own))
+                        (-> (dissoc entry :document)
+                            (clojure.core/merge (select-keys own [:feed :retained])))
+
+                        :else
+                        entry)))
+         taken    (into {}
+                        (keep (fn [[feed-guid entry]]
+                                (when (= (get from feed-guid) (now-from feed-guid))
+                                  (some->> (read feed-guid entry) (vector feed-guid)))))
+                        feeds)
+         followed (filter #(contains? (:fetched-lists library) (first %)) lists)
+         listed   (impl/lists-applied library followed at opts)
+         offline? (some (comp #{:refresh/offline} :id) report)
+         [listed lists-report] (if offline?
+                                 (impl/offline-lists (:library listed) library
+                                                     (:report listed))
+                                 [(:library listed) (:report listed)])
+         {lib :library :as done}
+         (impl/applied listed
+                       {:feeds   (clojure.core/merge (:feeds listed) taken)
+                        :changed (filterv taken changed)
+                        :moved   (select-keys moved (keys taken))}
+                       at
+                       opts)]
+     (assoc lib :refresh (-> {:at at}
+                             (into (select-keys done [:added :backfilled
+                                                      :renamed :moved]))
+                             (assoc :counts  counts
+                                    :seconds seconds
+                                    :report  (-> []
+                                                 (into lists-report)
+                                                 (into report)
+                                                 (into (:report done)))))))))
 
 ;; WebSub 5.1: a subscriber can subscribe at any of the hubs of a topic
 (defn hub-requests
@@ -1932,6 +2116,272 @@
                                            {:id     :library/save-failed
                                             :reason (async/explain error)})]})
          (assoc (reduce outlined library chosen) :unload {:report []}))))))
+
+(defn documents
+  "The documents of `library` as a map of their names to their bodies, in
+  the codec of its config, but for those that the :except of `opts` names,
+  e.g. those that a store holds already.
+
+  They're the library's own document, which holds the parts that
+  saved-keys names and the manifest of the search index, the document of
+  each feed that it holds in memory, and the segments of the index. The
+  library's own document is always among them, since every change of the
+  library changes it. A feed's document and a segment are named by what
+  they hold, so a store that holds one never needs it again."
+  ([library]
+   (documents library {}))
+  ([library {:keys [except] :or {except #{}} :as opts}]
+   {:pre [(map? opts)]}
+   (let [codec  (impl/codec library opts)
+         except (set except)
+         files  (some-> (:index library) (impl/index-files except))
+         saved  (cond-> (impl/saved-map library saved-keys codec)
+                  files (assoc :index (:body (peek files))))]
+     (-> (into {}
+               (for [[feed-guid entry] (:feeds library)
+                     :when (:feed entry)
+                     :let  [name (impl/entry-document feed-guid entry codec)]
+                     :when (not (contains? except name))]
+                 [name (impl/feed-body entry codec)]))
+         (into (map (juxt :name :body)) (some-> files pop))
+         (assoc (impl/library-name codec) ((:encode codec) saved))))))
+
+(defn document-names
+  "The names of the documents of `library`, as documents gives them, and of
+  those of the feeds that it holds in their documents alone."
+  [library]
+  (let [codec (impl/codec library {})]
+    (-> #{(impl/library-name codec)}
+        (into (keep (fn [[feed-guid entry]]
+                      (if (:feed entry)
+                        (impl/entry-document feed-guid entry codec)
+                        (:document entry))))
+              (:feeds library))
+        (into (some-> (:index library) impl/segment-names)))))
+
+(defn- needs
+  "The names of the documents that from-saved reads for `library` from the
+  `saved` map of its own document, and that `docs`, a map of names to
+  bodies, lack: those of the feeds that `library` doesn't hold in memory as
+  they are, and those of the search index, unless its manifest is the one
+  of the index of `library`."
+  [library saved docs]
+  (let [codec  (impl/codec library {})
+        same?  (fn [feed-guid document]
+                 (let [own (get-in library [:feeds feed-guid])]
+                   (and (:feed own)
+                        (= document (impl/entry-document feed-guid own codec)))))
+        feeds  (for [[feed-guid {:keys [document]}] (:feeds saved)
+                     :when (and document (not (same? feed-guid document)))]
+                 document)
+        index  (when-let [index (:index library)]
+                 (let [manifest (or (:index saved) (get docs ciff/manifest-name))]
+                   (cond
+                     (nil? manifest)
+                     [ciff/manifest-name]
+
+                     (not= manifest (impl/manifest index))
+                     (impl/manifest-segments manifest))))]
+    (vec (remove #(contains? docs %) (concat feeds index)))))
+
+(defn- from-saved
+  "The `library` with what the documents `docs` hold, as from-documents
+  reads them, where `saved` is the map that the library's own document
+  `name` among them holds, or nil when it doesn't read."
+  [library docs name saved]
+  (let [codec (impl/codec library {})
+        kept  (fn [[feed-guid {:keys [document] :as entry}]]
+                (let [own (get-in library [:feeds feed-guid])]
+                  [feed-guid
+                   (if (and document
+                            (:feed own)
+                            (= document (impl/entry-document feed-guid own codec)))
+                     (-> (dissoc entry :document)
+                         (clojure.core/merge (select-keys own [:feed :retained])))
+                     entry)]))
+        read  (fn [[feed-guid {:keys [document] :as entry}]]
+                (when (impl/unloaded? entry)
+                  [feed-guid document
+                   (impl/read-feed codec document
+                                   {:value (when-let [body (get docs document)]
+                                             {:body body})})]))
+        index (fn [[lib _ :as step]]
+                (let [manifest (:index saved)]
+                  (cond
+                    (nil? (:index lib))
+                    step
+
+                    (and manifest (= manifest (impl/manifest (:index lib))))
+                    step
+
+                    :else
+                    (impl/with-index
+                     step
+                     {:value (if manifest
+                               (cons {:name ciff/manifest-name :body manifest}
+                                     (for [n (impl/manifest-segments manifest)
+                                           :when (contains? docs n)]
+                                       {:name n :body (get docs n)}))
+                               (for [[n body] docs
+                                     :when (impl/index-document? n)]
+                                 {:name n :body body}))}))))
+        [lib report] (impl/with-saved-map library saved-keys name saved)]
+    (if (some (comp #{:library/newer-format} :id) report)
+      (assoc lib :restore {:report report})
+      (let [lib          (update lib :feeds #(into {} (map kept) %))
+            [lib report] (-> [lib report]
+                             (impl/with-read-feeds (keep read (:feeds lib)))
+                             index)]
+        (assoc lib :restore {:report report})))))
+
+(defn from-documents
+  "The `library` with what the documents `docs` hold, a map of their names
+  to their bodies, e.g. those that read! fetches: the parts of its own
+  document that saved-keys names, each feed from its document, and the
+  search index.
+
+  It reads the documents in the codec of the config of `library`, e.g.
+  that of dk.simongray.like-minded.transit, of any version that restore!
+  reads, among them those that save! wrote. A feed that `library` holds in
+  memory with the same document stays as it is, and so does the index
+  when its manifest is the same, so give it the library as it is to read
+  only what changed. The result has the :report of what didn't read under
+  :restore, as restore! has it, and a document that `docs` lack doesn't
+  read. Without the library's own document, it's `library` as it is."
+  [library docs]
+  (let [codec (impl/codec library {})
+        name  (impl/library-name codec)]
+    (if (contains? docs name)
+      (from-saved library docs name (impl/read-map {:body (get docs name)} codec))
+      (assoc library :restore {:report []}))))
+
+(defn read!
+  "The library in `store`, read onto `library` with from-documents, and the
+  version of its own document, as a map of the :library and the :version,
+  in ClojureScript as a promise.
+
+  It fetches the library's own document, in the codec of the config of
+  `library`, and then the documents that it names and `library` doesn't
+  hold, so give it the library as it is to read only what changed. It
+  takes no lock, so it starts over when a document is missing because
+  another context wrote the store meanwhile. A store without the library's
+  document gives `library` as it is, with no version. When the store fails
+  to give the library's own document, it fails too, so that nothing writes
+  over what it holds."
+  [library store]
+  (let [codec    (impl/codec library {})
+        own      (impl/library-name codec)
+        fetch!   (fn [name]
+                   (let [opts (if (impl/index-document? name) {:as :bytes} {})]
+                     (async/then (async/attempt #((:fetch store) name opts))
+                                 (fn [{:keys [value]}] [name value]))))
+        own!     (fn []
+                   (async/then ((:fetch store) own {})
+                               #(when % [own %])))
+        rounds   (fn rounds [saved docs tried]
+                   (let [wanted (remove tried (needs library saved docs))]
+                     (if (empty? wanted)
+                       docs
+                       (async/then (async/all fetch! wanted)
+                                   (fn [fetched]
+                                     (rounds saved
+                                             (into docs (for [[name doc] fetched
+                                                              :when doc]
+                                                          [name (:body doc)]))
+                                             (into tried wanted)))))))]
+    (letfn [(attempt [tries]
+              (async/then
+               (own!)
+               (fn [[name {:keys [body version]} :as found]]
+                 (if-not found
+                   {:library (assoc library :restore {:report []}) :version nil}
+                   (let [saved (impl/read-map {:body body} codec)
+                         docs  {name body}]
+                     (async/then
+                      (rounds saved docs #{name})
+                      (fn [docs]
+                        (let [done #(hash-map :library (from-saved library docs name saved)
+                                              :version version)]
+                          (if (and (seq (needs library saved docs)) (pos? tries))
+                            (async/then ((:fetch store) name {})
+                                        #(if (= version (:version %))
+                                           (done)
+                                           (attempt (dec tries))))
+                            (done))))))))))]
+      (attempt 3))))
+
+(defn write!
+  "Write `library` to `store` with the `opts` below, and give the :version
+  of its own document and the names of the documents that it put and
+  deleted, as a map of :version, :put and :delete, in ClojureScript as a
+  promise. It gives a map of :conflict? and :put when the library's own
+  document isn't of the :if-version, and a map of :error otherwise, as
+  save! does.
+
+  - :if-version, the version of the library's own document in the store
+    to write over, as read! gives it, or nil when there's to be none yet.
+    Without it, the document is written whatever its version.
+  - :before, the library that `library` comes from, as read! gave it or
+    write! wrote it, whose documents go once `library` no longer has them
+
+  It puts the documents of documents that the store lacks, and the
+  library's own document last, on condition of the :if-version. Then it
+  deletes the documents of :before that `library` doesn't have, and the
+  manifest that save! writes beside the library's own document, which now
+  holds it. It deletes nothing else, so it never deletes what another
+  context put for a write still under way.
+
+  It takes no lock and reads nothing but the names in the store, so on a
+  conflict, read! the store again and change what it gives, as swap! does
+  with an atom."
+  ([library store]
+   (write! library store {}))
+  ([library store {:keys [before] :as opts}]
+   {:pre [(map? opts)]}
+   (let [refused (newer-format library)
+         codec   (impl/codec library opts)
+         own     (impl/library-name codec)
+         delete! (fn [name]
+                   (async/then (async/attempt #((:delete store) name))
+                               #(when-not (:error %) name)))
+         stale   (fn [held]
+                   (let [now (document-names library)]
+                     (->> (concat (remove now (some-> before document-names))
+                                  [ciff/manifest-name])
+                          (filter (set held))
+                          distinct)))
+         written (fn [held]
+                   (let [docs (documents library (assoc opts :except (set held)))
+                         puts (for [[name body] (sort-by key (dissoc docs own))]
+                                {:name name :body body})]
+                     (async/then
+                      (store/put-all! store puts)
+                      (fn [put]
+                        (async/then
+                         ((:put store) own (get docs own) (select-keys opts [:if-version]))
+                         (fn [{:keys [conflict? version]}]
+                           (if conflict?
+                             {:conflict? true :put put}
+                             (async/then (if (:delete store)
+                                           (async/all delete! (stale held))
+                                           [])
+                                         (fn [deleted]
+                                           {:version version
+                                            :put     (conj put own)
+                                            :delete  (filterv some? deleted)})))))))))]
+     (async/then
+      (async/attempt
+       #(cond
+          refused         nil
+          (:put store)    (async/then (if-let [list (:list store)] (list) [])
+                                      (fn [listed] (written (map :name listed))))
+          :else           (throw (ex-info "The store is read only" {}))))
+      (fn [{:keys [value error]}]
+        (cond
+          refused {:error refused}
+          error   (diagnostics/failed {:id     :library/save-failed
+                                       :reason (async/explain error)})
+          :else   value))))))
 
 (defn replica-kind
   "The kind of a replica of like-minded.replica/open! whose state is a

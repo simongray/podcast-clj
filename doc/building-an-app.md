@@ -482,12 +482,12 @@ On the page, give the client the replica:
 It saves the replica first, so that the worker reads what the page has,
 catches it up with what the worker saved after, and puts the `:refresh`
 into the library, since the store doesn't keep it and `next-refresh`
-reads which feeds failed from it. One refresh runs at a time across the
-tabs, and the worker of another answers `:busy?`, whose page catches up
-when the first saves. `worker/fetch!` fetches and parses one feed in the
-worker, e.g. for the page of a show outside the library, and gives it
-back in the codec of the config. Both fail when the worker does. The
-inspector's player does all of this in `web/inspector/`.
+reads from it whether the device was offline. One refresh runs at a time
+across the tabs, and the worker of another answers `:busy?`, whose page
+catches up when the first saves. `worker/fetch!` fetches and parses one
+feed in the worker, e.g. for the page of a show outside the library, and
+gives it back in the codec of the config. Both fail when the worker does.
+The inspector's player does all of this in `web/inspector/`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -776,6 +776,46 @@ The kind is made of `restore!`, `save!`, `read-saved!` and `rebase`, with
 the library as a replica of `library/with-replica`. Use them on their own
 to catch up elsewhere, with `rebase` rather than `merge`, since a whole
 merge can bring back what another replica compacted.
+
+### Change the library in the store, as an atom
+
+Rather than keep a replica in each tab, you can treat the library's
+document in the store as the one place that every tab changes, as you
+would an atom. `library/read!` gives the library and the version of its
+document, and `library/write!` writes a change on condition of that
+version. When another tab wrote first, it gives `:conflict?`, so read the
+store again and make the same change to what it holds, as `swap!` does:
+
+```clojure
+(defn swap-library!
+  "Write `f` of the library that `known` holds, as read! gives it, to
+  `store`, and again onto the stored library while another tab writes
+  first."
+  [store {:keys [library version]} f]
+  (let [changed (f library)
+        written (library/write! changed store {:if-version version :before library})]
+    (if (:conflict? written)
+      (recur store (library/read! library store) f)
+      {:library changed :version (:version written)})))
+```
+
+Each feed and each segment of the search index is a document named by
+what it holds, so `write!` puts only those that the store lacks, and the
+library's own document last, which holds the profile, the entries of the
+feeds and the manifest of the index. Give `read!` the library as it is,
+since it reads only what changed, and tell the other tabs of the new
+version, e.g. on a BroadcastChannel, so that they read it too. Both read
+and write in the codec of the config alone, and `read!` reads a library
+that `save!` wrote. In ClojureScript, both return promises.
+
+`library/documents` and `library/from-documents` are the pure halves of
+the two, for a store of your own. To refresh in a web worker this way,
+give the worker what `library/due` says is due. There,
+`library/fetch-due!` reads those feeds from their documents, fetches
+them and puts the documents of the feeds that changed, and returns what
+it found, which the page applies with `library/refreshed`. That takes an
+entry only where the library still has the one that was due, so a feed
+that another tab changed meanwhile stays as it is.
 
 
 ## Build the show and episode pages
