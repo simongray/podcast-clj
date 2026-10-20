@@ -22,11 +22,13 @@
                       [dk.simongray.podcast.util.ring :as ring]
                       [dk.simongray.wary-fetch :as http]
                       [dk.simongray.wary-fetch.headers :as headers]
+                      [dk.simongray.wary-fetch.proxy :as proxy]
                       [dk.simongray.webcrypto.bytes :as bytes]
                       [dk.simongray.webcrypto.hash :as hash]]))
   #?(:clj (:import [java.io File]
                    [java.nio.file CopyOption Files StandardCopyOption]
-                   [java.util Date])))
+                   [java.util Date]
+                   [java.util.concurrent Semaphore TimeUnit])))
 
 ;; Pocket Casts, PodcastImage.kt; Next.js, the Image component, imageSizes
 ;; https://github.com/Automattic/pocket-casts-android/blob/cedff55/modules/services/repositories/src/main/java/au/com/shiftyjelly/pocketcasts/repositories/images/PodcastImage.kt
@@ -48,7 +50,11 @@
   "The thumbnails of the artwork at `url` from the handler at `path`, at
   the `widths`, by default those of widths, as maps of :href and :width,
   as resolve/artwork-sizes gives the sizes that a feed names. They're nil
-  for a URL that isn't http or https, e.g. a data URL."
+  for a URL that isn't http or https, e.g. a data URL.
+
+  The handler doesn't scale an artwork up, so a thumbnail can be narrower
+  than its :width: the widths above the artwork's own lead to one
+  thumbnail at its own width, under the smallest of them."
   ([path url]
    (sizes path url widths))
   ([path url widths]
@@ -65,71 +71,55 @@
      - :max-cache-bytes, the most that the folder holds, 200 MB, the
        thumbnails used longest ago dropped first
      - :max-age, the seconds that a browser keeps a thumbnail, a week
+     - :max-jobs, the most artworks that it fetches and scales at once, 2,
+       since each can take some 40 MB of heap while it reads and decodes
+       an artwork of 20 MB
+     - :wait-seconds, how long a request waits for a job when the folder
+       has no thumbnails of its artwork, 10, before it gets a redirect to
+       the artwork
+     - :retry-seconds, how long the folder keeps a failed fetch, 5 minutes,
+       so that no request fetches the artwork again until then
      - :send, the function that sends a request, client/send!
      - :allow-pred, a predicate of the URLs that it fetches, url/public?
      - :max-bytes, the most that an artwork can hold, 20 MB, as Podverse
        allows
-     - :max-pixels, the most pixels of an artwork, image/max-pixels
-     - :timeout-seconds and :user-agent, as http/send! takes them"
+     - :timeout-seconds and :user-agent, as http/send! takes them
+
+     The options can hold the :max-pixels of format.image/thumbnails too."
      {:widths          widths
       :cache-dir       nil
       :max-cache-bytes (* 200 1024 1024)
       :max-age         604800
+      :max-jobs        2
+      :wait-seconds    10
+      :retry-seconds   300
       :send            client/send!
       :allow-pred      url/public?
       :max-bytes       (* 20 1024 1024)
-      :max-pixels      image/max-pixels
       :timeout-seconds 30}))
 
 #?(:clj
-   (def safety
-     "The headers of every answer, as wary-fetch's proxy sends them: a
-     browser that opens one as a page runs no scripts, sniffs no other type
-     and lets no other site embed it."
-     {"Content-Security-Policy"      "default-src 'none'; sandbox"
-      "X-Content-Type-Options"       "nosniff"
-      "Cross-Origin-Resource-Policy" "same-origin"}))
-
-#?(:clj
-   (defn- refused
-     "The answer with `status` and the text `message`."
-     [status message]
-     (ring/text-response status message safety)))
-
-;; Fetch Metadata Request Headers, W3C Working Draft of 2021-03-29: an img
-;; sends Sec-Fetch-Mode no-cors, and a link that a page opens navigate
-#?(:clj
    (defn refusal
      "The Ring response that refuses `request`, or nil when the handler
-     answers it with the `opts` over defaults. It refuses:
+     answers it with the `opts` over defaults. It refuses what wary-fetch's
+     proxy refuses, and a w parameter that isn't one of the :widths:
 
      - a method other than GET and HEAD
+     - a request that the handler sent itself, by its Via header, e.g. for
+       a url parameter that names the handler
      - a page of another site, or a link that opens it as a page, so that
        its redirects can't send a reader anywhere
-     - a url parameter that isn't an http or https URL
-     - a w parameter that isn't one of the :widths"
+     - a url parameter that isn't an http or https URL"
      ([request]
       (refusal request {}))
-     ([{:keys [request-method headers query-string] :as request} opts]
-      (let [{:strs [url w]} (url/query-params query-string)
-            headers         (update-keys headers str/lower-case)
-            opts            (merge defaults opts)]
-        (cond
-          (not (#{:get :head} request-method))
-          (assoc-in (refused 405 "The thumbnails answer GET and HEAD.")
-                    [:headers "Allow"] "GET, HEAD")
-
-          (or (= "navigate" (get headers "sec-fetch-mode"))
-              (= "cross-site" (get headers "sec-fetch-site")))
-          (refused 403 (str "The thumbnails are for the pages of their own"
-                            " site, and aren't pages themselves."))
-
-          (not (url/web-url? url))
-          (refused 400 "The url parameter names no http or https URL.")
-
-          (not (some #(= (str %) w) (:widths opts)))
-          (refused 400 (str "The w parameter is one of "
-                            (str/join ", " (:widths opts)) ".")))))))
+     ([request opts]
+      (or (proxy/refusal request)
+          (let [{:strs [w]} (url/query-params (:query-string request))
+                widths      (:widths (merge defaults opts))]
+            (when-not (some #(= (str %) w) widths)
+              (ring/text-response 400 (str "The w parameter is one of "
+                                           (str/join ", " widths) ".")
+                                  proxy/safety)))))))
 
 #?(:clj
    (defn- hashed
@@ -198,14 +188,15 @@
 #?(:clj
    (defn- store!
      "Keep the `entry` of an artwork in the folder `dir`, with the :data of
-     each of its thumbnails in a file of its own, and drop the oldest past
-     `max-bytes`."
+     each of its thumbnails in a file of its own, once for the widths that
+     share one, and drop the oldest past `max-bytes`."
      [dir max-bytes {:keys [url thumbnails] :as entry}]
      (when dir
        (let [h (hashed url)]
          (.mkdirs (io/file dir))
-         (doseq [[_ thumbnail] thumbnails
-                 :when         (:data thumbnail)]
+         (doseq [thumbnail (vals (into {} (map (juxt :width identity))
+                                       (vals thumbnails)))
+                 :when     (:data thumbnail)]
            (written! (image-file dir h thumbnail) (:data thumbnail)))
          ;; an artwork that format.image can't scale keeps its nil
          (written! (entry-file dir h)
@@ -248,6 +239,9 @@
                     (let [tag (subs (bytes/hex (hash/digest :sha-256 data)) 0 32)]
                       (assoc thumbnail :etag (str "\"" tag "\"")))))))
 
+;; RFC 9110, section 7.6.3: the Via of wary-fetch's proxy, which refusal
+;; refuses, so that an artwork whose url names the handler isn't fetched
+;; again and again
 #?(:clj
    (defn- fetched
      "The entry of the artwork at `url`, fetched with the `opts`, or the
@@ -260,7 +254,7 @@
            request  (http/with-options
                       {:url     url
                        :as      :bytes
-                       :headers (cond-> {}
+                       :headers (cond-> {"Via" proxy/via}
                                   etag          (assoc "If-None-Match" etag)
                                   last-modified (assoc "If-Modified-Since"
                                                        last-modified))}
@@ -286,12 +280,44 @@
                          {:status (:status response)}))))))
 
 #?(:clj
+   (defn- failed
+     "The entry of the artwork at `url` after a fetch at `now` failed: the
+     `stale` entry, or else one that is :failed?, fresh for `retry-seconds`,
+     so that no request fetches the artwork again until then."
+     [url stale now retry-seconds]
+     (assoc (or stale {:url url :failed? true})
+            :fresh-until (+ now (* 1000 retry-seconds)))))
+
+#?(:clj
+   (defn- renewed!
+     "The entry of the artwork at `url`, fetched again in place of the
+     `stale` one with the `opts` and kept in their folder, when one of the
+     `jobs` is free. A request that has stale thumbnails takes a job only
+     when one is free at once, and any other waits :wait-seconds for one.
+     Without a job, the entry is the stale one, or nil."
+     [url stale ^Semaphore jobs
+      {:keys [cache-dir max-cache-bytes wait-seconds retry-seconds] :as opts}]
+     (if (.tryAcquire jobs (if (seq (:thumbnails stale)) 0 wait-seconds)
+                      TimeUnit/SECONDS)
+       (try
+         (let [entry (try
+                       (fetched url stale opts)
+                       (catch Exception _
+                         (failed url stale (System/currentTimeMillis)
+                                 retry-seconds)))]
+           (store! cache-dir max-cache-bytes entry)
+           entry)
+         (finally
+           (.release jobs)))
+       stale)))
+
+#?(:clj
    (defn- redirect
-     "The answer that sends the browser to the artwork at `url` itself, kept
-     for `seconds`, or not at all for nil."
+     "The answer that sends the browser to `url`, kept for `seconds`, or not
+     at all for nil."
      [url seconds]
      {:status  307
-      :headers (assoc safety
+      :headers (assoc proxy/safety
                       "Location"      (url/legal-url url)
                       "Cache-Control" (if seconds
                                         (str "max-age=" seconds)
@@ -305,7 +331,7 @@
      the browser has it."
      [request entry width dir max-age]
      (let [{:keys [type etag data] :as thumbnail} (get-in entry [:thumbnails width])
-           headers (assoc safety
+           headers (assoc proxy/safety
                           "ETag"          etag
                           "Cache-Control" (str "max-age=" max-age))]
        (if (ring/not-modified? (update-keys (:headers request) str/lower-case)
@@ -314,6 +340,44 @@
          (ring/response 200 type
                         (or data (image-file dir (hashed (:url entry)) thumbnail))
                         headers)))))
+
+#?(:clj
+   (defn- smallest-width
+     "The smallest width of the `entry` whose thumbnail is as wide as the
+     one at `width`, which differs from `width` when the widths above the
+     artwork's own share it."
+     [entry width]
+     (let [{:keys [thumbnails]} entry
+           shown                (:width (get thumbnails width))]
+       (apply min (keep (fn [[w thumbnail]]
+                          (when (= shown (:width thumbnail)) w))
+                        thumbnails)))))
+
+#?(:clj
+   (defn- answer
+     "The answer to the `request` for the thumbnail of the artwork at `url`
+     at `width` by its `entry`, with the :cache-dir and :max-age of `opts`."
+     [request url entry width {:keys [cache-dir max-age] :as opts}]
+     (cond
+       (or (nil? entry) (:failed? entry))
+       (redirect url nil)
+
+       ;; empty, as an entry that an earlier version kept was
+       (empty? (:thumbnails entry))
+       (redirect url 86400)
+
+       ;; e.g. a width that the cache didn't make before
+       (nil? (get-in entry [:thumbnails width]))
+       (redirect url nil)
+
+       ;; a width above the artwork's own, so that every such width leads
+       ;; to one URL, which a browser fetches and keeps once; the URL is
+       ;; relative, so it keeps the handler's path
+       (< (smallest-width entry width) width)
+       (redirect (thumbnail-url "" url (smallest-width entry width)) max-age)
+
+       :else
+       (sent request entry width cache-dir max-age))))
 
 #?(:clj
    (defn- shared
@@ -333,23 +397,29 @@
      It answers a request with a refusal as refusal gives it, or with the
      thumbnail of the artwork at its url parameter, at the width of its w
      parameter, which a browser keeps for the :max-age of `opts`. It keeps
-     each artwork's thumbnails in its :cache-dir at every width, and fetches
-     the artwork again when its freshness ends, with its ETag and
-     Last-Modified. When the artwork didn't change, it keeps them.
+     each artwork's thumbnails in its :cache-dir, and fetches the artwork
+     again when its freshness ends, with its ETag and Last-Modified. When
+     the artwork didn't change, it keeps them.
 
-     It sends a redirect to the artwork itself when format.image can't scale
-     it, which a browser keeps for a day, or when the fetch fails and the
-     folder has no thumbnails of it, which a browser doesn't keep."
+     It fetches and scales :max-jobs artworks at most at once, but sends
+     thumbnails from the folder without waiting for a job. When a fetch
+     fails, it sends the thumbnails it has, and keeps them, or the failure,
+     for :retry-seconds before it fetches the artwork again.
+
+     It sends a redirect to the artwork itself when format.image can't
+     scale it, which a browser keeps for a day, or when it has no
+     thumbnails of it and the fetch fails or waits too long for a job,
+     which a browser doesn't keep. A width above the artwork's own gets a
+     redirect to the smallest such width, since they share one thumbnail."
      ([]
       (handler {}))
      ([opts]
-      (let [{:keys [cache-dir max-cache-bytes max-age] :as opts}
-            (merge defaults opts)
+      (let [{:keys [cache-dir max-jobs] :as opts} (merge defaults opts)
+            jobs    (Semaphore. max-jobs)
             running (atom {})]
         (fn [request]
           (or (refusal request opts)
               (let [{:strs [url w]} (url/query-params (:query-string request))
-                    width           (parse-long w)
                     stale           (stored cache-dir url)
                     entry           (if (and stale (< (System/currentTimeMillis)
                                                       (:fresh-until stale)))
@@ -357,23 +427,8 @@
                                           stale)
                                       (try
                                         (shared running url
-                                                #(let [entry (fetched url stale opts)]
-                                                   (store! cache-dir max-cache-bytes entry)
-                                                   entry))
+                                                #(renewed! url stale jobs opts))
                                         (catch Exception _
                                           (when (seq (:thumbnails stale))
                                             stale))))]
-                (cond
-                  (nil? entry)
-                  (redirect url nil)
-
-                  ;; empty, as an entry that an earlier version kept was
-                  (empty? (:thumbnails entry))
-                  (redirect url 86400)
-
-                  ;; e.g. a width that the cache didn't make before
-                  (nil? (get-in entry [:thumbnails width]))
-                  (redirect url nil)
-
-                  :else
-                  (sent request entry width cache-dir max-age)))))))))
+                (answer request url entry (parse-long w) opts))))))))

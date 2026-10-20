@@ -53,6 +53,8 @@ Libraries in repositories of their own do some of the work:
   WebVTT transcripts, as a browser reads them
 - [ical-clj](https://github.com/simongray/ical-clj) parses the recurrence
   rules of podcast:updateFrequency and works out when they recur
+- [colour-coded](https://github.com/simongray/colour-coded) decodes images
+  and scales them down
 
 The tables below follow the order of the three kinds. Names in them are
 relative to the root, and everything runs on the JVM and in ClojureScript
@@ -115,6 +117,16 @@ key-value store, memory, and an encrypted form of any of them.
 | `gpodder.api` | The gpodder API as data: `request` for the request map of a call, `response` for what its answer says, and `apis` for the paths of each server. |
 | `gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder, with `stepper` to sync that profile through other backends. |
 
+## Servers
+
+The [podcast server](../server/README.md) serves this Ring handler beside
+the proxy of wary-fetch, the WebDAV server of like-minded and
+`gpodder.server`. A server of your own can mount it too.
+
+| Namespace | Contents |
+|---|---|
+| `artwork` | Thumbnails of artwork for a server's pages: a Ring handler that fetches the artwork, scales it with `format.image/thumbnails` and keeps the thumbnails in a folder, and `sizes`, the srcset of an img that takes them. |
+
 ## Feeds
 
 | Namespace | Contents |
@@ -155,8 +167,7 @@ key-value store, memory, and an encrypted form of any of them.
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers and the word timing of WebVTT, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url` for data URLs, and `colors`, which picks the colours of a UI from an image, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one colour at a time. And `thumbnails`, which scales an image down to a few widths, on the JVM and in a browser. |
-| `artwork` | Thumbnails of artwork for a server's pages: a Ring handler that fetches the artwork, scales it with `format.image/thumbnails` and keeps the thumbnails in a folder, and `sizes`, the srcset of an img that takes them. |
+| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. Also `data-url` and `from-data-url` for data URLs, and `colors`, which picks the colours of a UI from an image, with `dominant-color`, `palette`, `complementary-color` and `contrast-color` for one colour at a time. And `thumbnails`, which scales an image down to a few widths with colour-coded, on the JVM and in a browser. |
 | `format.media` | The duration, chapters, artwork, codecs and video size of a media file, read with byte ranges by `read!`. |
 | `format.hls` | HLS playlists: the variants, renditions and duration of a stream, read by `read!`, and `playlist?` to tell a stream from a file. |
 | `format.media.id3` | What the ID3v2 tags at the start of an MP3 or AAC file say about it, as id3-clj reads them: the tags, the duration, the artwork and the chapters in seconds. |

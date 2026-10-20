@@ -17,9 +17,11 @@
   Only colors, palette and dominant-color decode an image, through the
   platform, for the colours that an app can colour its UI by, and
   thumbnails, for the small copies that a server can send in place of
-  artwork of 3000 pixels."
+  artwork of 3000 pixels. The image namespace of colour-coded decodes and
+  scales the images for them."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
+            [dk.simongray.colour-coded.image :as colour-image]
             [dk.simongray.podcast.format.image.impl :as impl]
             [dk.simongray.podcast.util.bytes.ranges :as ranges]
             [dk.simongray.podcast.util.bytes.view :as view]
@@ -250,43 +252,37 @@
   [b]
   (impl/with-pixels b #(scheme (impl/palette-of % 5))))
 
-;; imgproxy, Configuration options, Security: IMGPROXY_MAX_SRC_RESOLUTION
-;; https://docs.imgproxy.net/3.22.x/configuration/options
-(def max-pixels
-  "The most pixels of an image that thumbnails decodes, 25 million, e.g.
-  5000 by 5000. imgproxy refuses more than 16.8 million by default, to
-  stop images that decode to more memory than their size suggests."
-  25000000)
-
 (defn thumbnails
-  "The image in the bytes `b` scaled down to each of the `widths`, as a
-  map of each width to a map of the thumbnail's :type, :width, :height
-  and :data, its bytes. A thumbnail is a JPEG, or a PNG when the image
-  has transparency, and it's never wider than the image itself. On the
-  JVM it gives the map, and in ClojureScript a promise of it.
+  "The image in the bytes `b` scaled down to each of the `widths`, with the
+  :max-pixels of `opts`, as colour-coded's image/thumbnails gives them: a
+  map of each width to a map of the thumbnail's :type, :width, :height and
+  :data, its bytes. On the JVM it gives the map, and in ClojureScript a
+  promise of it.
 
-  The platform decodes the image: ImageIO on the JVM, which reads JPEG,
-  PNG and GIF, and the browser's own decoder in ClojureScript. Node has
-  no decoder, so there it's nil. It's nil for an image that it can't
-  scale too, so that a server can send the image itself instead:
+  A thumbnail is a JPEG, or a PNG when the image has transparency. It's
+  never wider than the image: the widths at or above the image's own share
+  one thumbnail, the image at its own width.
 
-  - another format, e.g. WebP or SVG on the JVM
+  The platform decodes the image: ImageIO on the JVM, and the browser's
+  own decoder in ClojureScript. Node has no decoder, so there it's nil. It's
+  nil for an image that it can't scale too, so that a server can send the
+  image itself instead:
+
+  - a format other than JPEG, PNG and GIF, e.g. WebP or SVG
   - a CMYK JPEG, or one that EXIF turns, since a browser turns it too
   - an animated GIF on the JVM. A browser scales its first frame.
-  - more than the :max-pixels of `opts`, by default max-pixels"
+  - more than the :max-pixels of `opts`, by default colour-coded's 25
+    million, which the header tells before the image is decoded"
   ([b widths]
    (thumbnails b widths {}))
   ([b widths opts]
-   (let [{:keys [type color orientation width height #?(:cljs alpha?)]} (read (view/whole b))
-         most (:max-pixels opts max-pixels)]
+   (let [{:keys [type color orientation width height]} (read (view/whole b))
+         most (:max-pixels opts colour-image/max-pixels)]
      (if (and (#{"image/jpeg" "image/png" "image/gif"} type)
               (not= :cmyk color)
               (contains? #{nil 1} orientation)
               (or (nil? width) (nil? height) (<= (* width height) most)))
-       #?(:clj  (impl/thumbnails b widths most)
-          ;; a PNG unless the header rules transparency out, as a GIF's
-          ;; header doesn't tell
-          :cljs (impl/thumbnails b widths most (not (false? alpha?))))
+       (colour-image/thumbnails b widths {:max-pixels most})
        #?(:clj  nil
           :cljs (js/Promise.resolve nil))))))
 

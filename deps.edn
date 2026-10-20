@@ -8,8 +8,9 @@
  ;; like-minded for syncing it and for the stores, websub-clj for WebSub,
  ;; whatwg-mime for media types, langtag-clj for language tags,
  ;; webcrypto-clj for bytes, their encodings, hashes and HMACs, id3-clj for
- ;; the ID3v2 tags of media files, webvtt-clj for WebVTT transcripts, and
- ;; ical-clj for the recurrence rules of podcast:updateFrequency.
+ ;; the ID3v2 tags of media files, webvtt-clj for WebVTT transcripts,
+ ;; ical-clj for the recurrence rules of podcast:updateFrequency, and
+ ;; colour-coded for decoding and scaling images.
  ;; The Clojure version here is the floor the library needs, and the one its
  ;; pom states; development and the tests run on the current release through
  ;; :override-deps, and the :test-floor alias on the floor itself.
@@ -32,7 +33,8 @@
          dk.simongray/webcrypto-clj  {:mvn/version "0.1.3"}
          dk.simongray/id3-clj        {:mvn/version "0.1.1"}
          dk.simongray/webvtt-clj     {:mvn/version "0.1.0"}
-         dk.simongray/ical-clj       {:mvn/version "0.2.0"}}
+         dk.simongray/ical-clj       {:mvn/version "0.2.0"}
+         dk.simongray/colour-coded   {:mvn/version "0.1.0"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public
@@ -133,8 +135,8 @@
 
   ;; wary-fetch, qname-hiccup, html-pieces, drop-in-search, mind-meld,
   ;; like-minded, websub-clj, whatwg-mime, langtag-clj, webcrypto-clj,
-  ;; id3-clj, webvtt-clj, ical-clj and httpsig-clj, and the inspector's
-  ;; play-nice, from checkouts beside this one, to change them and
+  ;; id3-clj, webvtt-clj, ical-clj, colour-coded and httpsig-clj, and the
+  ;; inspector's play-nice, from checkouts beside this one, to change them and
   ;; podcast-clj at once, e.g. clojure -M:dev:local:nrepl, or
   ;; clojure -M:cljs:local compile test
   :local {:override-deps
@@ -151,6 +153,7 @@
            dk.simongray/id3-clj        {:local/root "../id3-clj"}
            dk.simongray/webvtt-clj     {:local/root "../webvtt-clj"}
            dk.simongray/ical-clj       {:local/root "../ical-clj"}
+           dk.simongray/colour-coded   {:local/root "../colour-coded"}
            dk.simongray/httpsig-clj    {:local/root "../httpsig-clj"}
            dk.simongray/play-nice      {:local/root "../play-nice"}}}
 

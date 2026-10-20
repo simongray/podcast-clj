@@ -9,6 +9,7 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.format.image :as image]
+            #?(:cljs [dk.simongray.podcast.format.image.impl :as impl])
             [dk.simongray.podcast.test-support :refer [ascii be fetch-from le run view]]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.webcrypto.bytes :as bytes]))
@@ -318,12 +319,14 @@
              (-> (drawn-png)
                  (.then #(image/thumbnails % [64 512]))
                  (.then (fn [result]
-                          (is (= {64  ["image/png" 64 43]
-                                  512 ["image/png" 300 200]}
+                          (is (= {64  ["image/jpeg" 64 43]
+                                  512 ["image/jpeg" 300 200]}
                                  (update-vals result (juxt :type :width :height)))
-                              "drawn by the browser, a PNG since a PNG's header allows transparency, and never wider than the image")
+                              "drawn by the browser, a JPEG since no pixel is transparent, and never wider than the image")
                           (image/colors (:data (get result 64)))))
-                 (.then #(is (= "#2040a0" (:background %)) "with the colours of the image")))
+                 (.then #(is (every? (fn [d] (<= (abs d) 4))
+                                     (map - (impl/rgb-of "#2040a0") (impl/rgb-of (:background %))))
+                             "with the colours of the image, within what JPEG changes")))
              (.then (image/thumbnails (bytes/of [0x89 0x50 0x4E 0x47]) [64])
                     #(is (nil? %) "no thumbnails in Node, which has no decoder")))
            (.catch (fn [e] (is false (str "rejected: " e))))

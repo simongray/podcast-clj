@@ -1,12 +1,14 @@
 (ns dk.simongray.podcast.artwork-test
   "The URLs of thumbnails of artwork, and on the JVM the handler that makes
   them, over a stub of the network and a temporary folder: the refusals,
-  the redirects, the cache and its checks with the artwork's ETag."
+  the redirects, the cache and its checks with the artwork's ETag, the
+  wait after a failure, and the jobs."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is #?(:clj testing)]]
             [dk.simongray.podcast.artwork :as artwork]
             #?@(:clj [[clojure.java.io :as io]
                       [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+                      [dk.simongray.wary-fetch.proxy :as proxy]
                       [dk.simongray.wary-fetch.url :as url]])))
 
 (deftest the-sizes-of-the-thumbnails
@@ -79,6 +81,8 @@
        (is (= 403 (:status (h (asked art 64 {"sec-fetch-mode" "navigate"}))))
            "a link that opens it as a page, so that its redirect sends no reader anywhere")
        (is (= 400 (:status (h (asked "file:///etc/passwd" 64)))))
+       (is (= 502 (:status (h (asked art 64 {"via" "1.1 wary-fetch"}))))
+           "a request that it sent itself, for an artwork whose url names it")
        (is (= 400 (:status (h (asked art 100)))) "a width outside the list")
        (is (= 400 (:status (h {:request-method :get :query-string "w=64" :headers {}})))))))
 
@@ -103,7 +107,8 @@
                      (get-in made [:headers "Cache-Control"])]))
              (is (= [128 128] (let [img (javax.imageio.ImageIO/read (java.io.ByteArrayInputStream. (body-bytes made)))]
                                 [(.getWidth img) (.getHeight img)])))
-             (is (= {:url art :as :bytes :headers {}} (select-keys (first @sent) [:url :as :headers]))))
+             (is (= {:url art :as :bytes :headers {"Via" proxy/via}} (select-keys (first @sent) [:url :as :headers]))
+                 "with the Via of wary-fetch's proxy, which the handler refuses"))
            (testing "another width, from the folder, without a request, as the server checks the artwork no sooner than a day"
              (is (= [200 1] [(:status again) (count @sent)]))
              (is (= 64 (.getWidth (javax.imageio.ImageIO/read (java.io.ByteArrayInputStream. (body-bytes again)))))))
@@ -130,11 +135,75 @@
            (let [entry (first (filter #(re-find #"\.edn$" (.getName ^java.io.File %)) (file-seq cache)))]
              (expire entry)
              (is (= 200 (:status (h (asked art 64)))) "a 304 keeps the thumbnails")
-             (is (= {"If-None-Match" "\"v1\""} (:headers (second @sent))))
+             (is (= {"If-None-Match" "\"v1\"" "Via" proxy/via} (:headers (second @sent))))
              (expire entry)
              (is (= 200 (:status (h (asked art 64))))
                  "and a failed check sends the thumbnails it has")
-             (is (= 3 (count @sent)))))))))
+             (is (= 3 (count @sent)))
+             (is (= 200 (:status (h (asked art 64)))))
+             (is (= 3 (count @sent)) "and waits a while before it checks again")))))))
+
+#?(:clj
+   (deftest a-failure-waits-a-while
+     (with-temp-dir
+       (fn [dir]
+         (let [sent   (atom [])
+               cache  (io/file dir "artwork")
+               h      (artwork/handler {:cache-dir cache
+                                        :send      (stub sent [(fn [_] (throw (ex-info "offline" {})))
+                                                               (fn [_] {:status 200 :headers {} :body (jpeg 200 200)})])})
+               expire #(spit % (pr-str (assoc (read-string (slurp %)) :fresh-until 0)))]
+           (is (= [307 "no-store"] ((juxt :status #(get-in % [:headers "Cache-Control"])) (h (asked art 64)))))
+           (is (= 307 (:status (h (asked art 128)))))
+           (is (= 1 (count @sent)) "without a fetch, though the folder has no thumbnails")
+           (run! expire (filter #(re-find #"\.edn$" (.getName ^java.io.File %)) (file-seq cache)))
+           (is (= 200 (:status (h (asked art 64)))) "and fetches the artwork after the while")
+           (is (= 2 (count @sent))))))))
+
+#?(:clj
+   (deftest jobs-at-most
+     (with-temp-dir
+       (fn [dir]
+         (let [slow    "https://slow.example/art.jpg"
+               started (promise)
+               gate    (promise)
+               sent    (atom [])
+               b       (jpeg 200 200)
+               h       (artwork/handler {:cache-dir    (io/file dir "artwork")
+                                         :max-jobs     1
+                                         :wait-seconds 0
+                                         :send         (fn [{:keys [url]}]
+                                                         (swap! sent conj url)
+                                                         (when (= slow url)
+                                                           (deliver started true)
+                                                           @gate)
+                                                         {:status 200 :headers {} :body b})})
+               _       (h (asked art 64))
+               busy    (future (h (asked slow 64)))]
+           @started
+           (is (= 200 (:status (h (asked art 128)))) "thumbnails from the folder, without a job")
+           (is (= [307 "no-store"] ((juxt :status #(get-in % [:headers "Cache-Control"]))
+                                    (h (asked "https://example.org/other.jpg" 64))))
+               "and the artwork itself when no job is free")
+           (deliver gate true)
+           (is (= 200 (:status @busy)))
+           (is (= [art slow] @sent)))))))
+
+#?(:clj
+   (deftest one-copy-above-the-artworks-width
+     (with-temp-dir
+       (fn [dir]
+         (let [cache (io/file dir "artwork")
+               h     (artwork/handler {:cache-dir cache
+                                       :send      (fn [_] {:status 200 :headers {} :body (jpeg 100 100)})})
+               width #(.getWidth (javax.imageio.ImageIO/read (java.io.ByteArrayInputStream. (body-bytes %))))]
+           (is (= 64 (width (h (asked art 64)))))
+           (is (= 100 (width (h (asked art 128)))) "the artwork at its own width")
+           (is (= [307 (str "?url=" (url/percent-encode art) "&w=128") "max-age=604800"]
+                  ((juxt :status #(get-in % [:headers "Location"]) #(get-in % [:headers "Cache-Control"]))
+                   (h (asked art 512))))
+               "and a wider width leads to it, so that a browser keeps one copy")
+           (is (= 3 (count (rest (file-seq cache)))) "as does the folder, beside the entry"))))))
 
 #?(:clj
    (deftest redirects-to-the-artwork-itself

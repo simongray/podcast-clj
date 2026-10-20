@@ -522,21 +522,26 @@
   (some-> public-url (str "/actor")))
 
 (defn routes
-  "The routes of the proxy, the media files, the sync folder `sync-store`
-  and the gpodder API, in Pedestal's set syntax. The gpodder API names
-  episodes by the feeds in `lib`, an atom of the server's library, and
-  the media files are those of its episodes.
+  "The routes of the proxy, the media files, the thumbnails of artwork,
+  the sync folder `sync-store` and the gpodder API, in Pedestal's set
+  syntax. The gpodder API names episodes by the feeds in `lib`, an atom of
+  the server's library, and the media files are those of its episodes.
 
   The :password of `settings` lets in the apps of the gpodder API, or any
   app when it's nil, and the sync folder holds no more than their
-  :max-sync-documents and :max-sync-bytes. The proxy fetches four files at
-  once, of 32 MB at most, so that a heap of 256 MB holds them, and signs
-  with proxy-send. The media files pass through as they arrive. The
-  thumbnails of artwork are made four at a time too, and kept in
-  artwork-dir. With a
-  :public-url, there are the routes of the actor's document and WebFinger
-  too, with the actor's key kept in the data folder, and those of the
-  `hubs`, the server's WebSub hubs, when given."
+  :max-sync-documents and :max-sync-bytes. The proxy signs with
+  proxy-send, and the media files pass through as they arrive. The
+  thumbnails are kept in artwork-dir.
+
+  The proxy fetches four files at once, of 32 MB at most, and the
+  thumbnails take two artworks at once, of 20 MB at most, as
+  artwork/defaults has it. With files that large, all six fit in a heap
+  of 320 MB, though not in 256 MB, so compose.yaml gives the server 384
+  MB. Four artworks at once needed all of 384 MB.
+
+  With a :public-url, there are the routes of the actor's document and
+  WebFinger too, with the actor's key kept in the data folder, and those
+  of the `hubs`, the server's WebSub hubs, when given."
   [sync-store lib {:keys [password max-sync-documents max-sync-bytes]
                    :as   settings}
    hubs]
@@ -560,8 +565,9 @@
                                    {:user-agent client/user-agent
                                     :send       (proxy-send settings
                                                             actor-key)}))
-        thumbnails  (at-most 4 30 (artwork/handler
-                                   {:cache-dir (artwork-dir settings)}))]
+        ;; without at-most, which would hold up the thumbnails of the
+        ;; folder too, since the handler counts its own jobs
+        thumbnails  (artwork/handler {:cache-dir (artwork-dir settings)})]
     (cond-> #{["/proxy" :any proxy :route-name ::proxy]
               ["/media" :any (media-handler lib) :route-name ::media]
               ["/artwork" :any thumbnails :route-name ::artwork]

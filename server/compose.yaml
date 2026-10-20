@@ -24,7 +24,9 @@ services:
       PODCAST_SERVER_OP3_TOKEN: ${PODCAST_SERVER_OP3_TOKEN:-}
       # where the public internet reaches it, for signed requests and WebSub
       PODCAST_SERVER_PUBLIC_URL: ${PODCAST_SERVER_PUBLIC_URL:-}
-      JDK_JAVA_OPTIONS: -Xmx256m
+      # the proxy's four fetches and the two thumbnails at once; see routes
+      # in podcast_server/service.clj
+      JDK_JAVA_OPTIONS: -Xmx384m
     volumes:
       - data:/data
       - ${PODCAST_CLIENT_DIR:?the folder of the built files of the client}:/client:ro
