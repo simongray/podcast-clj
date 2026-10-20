@@ -424,7 +424,9 @@ episode with `:next`, or nowhere with `:inbox? false`. With
 others the inbox unless `:inbox?` is false. For a choice of these in the
 app, e.g. a select on a show's page, `profile/new-episodes` reads the
 settings as one value, and `profile/new-episodes-settings` gives the
-settings of a value. With
+settings of a value. If your app offers no such choice, give the config
+`:new-episodes`, e.g. `:inbox`, and every show's new episodes go there,
+whatever its settings say, without changing them for other apps. With
 `:join-where`, criteria of `criteria/where`, only the new episodes that
 meet them join either, e.g. `{:type #{"full" "bonus"}}` leaves the
 trailers out. An episode that the listener already played or removed on

@@ -182,7 +182,22 @@
             r     (profile.queue/refresh both "https://a/rss" before after t1 {:join-pred a4?})]
         (is (= [["feed-a" "a4"]] (profile.queue/queue (:profile r))))
         (is (= [] (profile.queue/inbox (:profile r))))
-        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (:added r)) "though both are new")))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (:added r)) "though both are new")))
+    (testing "where :new-episodes sends them, whatever the settings say"
+      (let [queued (profile/configure s "feed-a" {:auto-queue? true :inbox? false} t0)
+            {:keys [profile]} (profile.queue/refresh queued "https://a/rss" before after t1
+                                                     {:new-episodes :inbox})]
+        (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (profile.queue/inbox profile)))
+        (is (= [] (profile.queue/queue profile)))
+        (is (= (profile/settings queued "feed-a") (profile/settings profile "feed-a"))
+            "which stay as they were")
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]]
+               (profile.queue/queue (:profile (profile.queue/refresh s "https://a/rss" before after t1
+                                                                     {:new-episodes :queue})))))
+        (is (= [] (profile.queue/inbox (:profile (profile.queue/refresh (profile/unsubscribe queued "feed-a" t1)
+                                                                        "https://a/rss" before after t2
+                                                                        {:new-episodes :inbox}))))
+            "but nothing joins for a show that the listener left")))))
 
 (deftest the-bound-on-new-episodes
   (let [dated  (fn [id day] {:rss/guid {:content id} :rss/title id :rss/pub-date (time/->inst (* day 86400000))})

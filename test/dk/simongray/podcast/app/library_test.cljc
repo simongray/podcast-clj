@@ -583,13 +583,16 @@
             fetch   (fn [url _] {:status 200 :url url :feed (if (= url other-url) other newer)})
             refresh #(library/refresh! % {:at later :fetch fetch :send (fn [_] {:status 304 :headers {} :body ""})})
             picky   (library/update-profile library profile/configure guid {:join-where {:text "nothing like it"}})
-            broad   (library/update-profile library profile/configure guid {:join-where {:text "new"}})]
+            broad   (library/update-profile library profile/configure guid {:join-where {:text "new"}})
+            inbox   (assoc-in broad [:config :new-episodes] :inbox)]
         (run (fn []
-               (async/then (async/all [(refresh picky) (refresh broad)])
-                           (fn [[picky broad]]
+               (async/then (async/all [(refresh picky) (refresh broad) (refresh inbox)])
+                           (fn [[picky broad inbox]]
                              (is (= [[guid "new"]] (get-in picky [:refresh :added])) "though it's new")
                              (is (= [] (profile.queue/queue (:profile picky))))
-                             (is (= [[guid "new"]] (profile.queue/queue (:profile broad))))))))))))
+                             (is (= [[guid "new"]] (profile.queue/queue (:profile broad))))
+                             (is (= [[[guid "new"]] []] ((juxt profile.queue/inbox profile.queue/queue) (:profile inbox)))
+                                 "or the inbox, where the config's :new-episodes sends them")))))))))
 
 (deftest hidden-episodes-out-of-the-lists
   (let [id  [guid "https://example.com/ep0003"]

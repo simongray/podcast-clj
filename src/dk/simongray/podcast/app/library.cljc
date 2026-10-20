@@ -36,6 +36,7 @@
        :max-items      500            ; the most items of a feed, all by default
        :archive-after  31536000000    ; when played episodes are archived, in ms
        :only-newer?    false          ; older episodes that appear are new too
+       :new-episodes   :inbox         ; where every show's new episodes go
        :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
        :local-file-fn  f              ; the downloaded file of an episode id
        :cache          store          ; for companion files, see read-files!
