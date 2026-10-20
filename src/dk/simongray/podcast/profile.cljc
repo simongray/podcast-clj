@@ -438,12 +438,9 @@
   - :search-sources, the directories that a search asks, as
     directory/sources names them, in the order that the listener puts
     them in, e.g. for the :sources of directory/search!
-  - :appearance, whether an app is :light or :dark, or :auto, as the device
-    has it
-  - :contrast, whether an app has the :standard contrast or :more, or
-    :auto, as the device asks
-  - :artwork-colors?, whether an app takes its colours from the artwork of
-    what plays or of the show on screen, or keeps its own"
+  - :appearance, :contrast and :artwork-colors?, deprecated, since how an
+    app looks is that app's own preference, which prefer keeps under a key
+    of the app's namespace"
   {:skip-forward          30
    :skip-back             15
    :playback-rate         1.0
@@ -466,7 +463,11 @@
 (defn prefer
   "Change the listener's `preferences` in `profile` at `at`, with the keys of
   default-preferences, and :downloads, the listener's rules for
-  dk.simongray.podcast.downloads."
+  dk.simongray.podcast.downloads.
+
+  An app keeps preferences of its own under keys of its own namespace,
+  e.g. :com.example.player/theme, which sync with the others, and which
+  other apps leave alone."
   [profile preferences at]
   (crdt/write-each profile
                    (for [[k v] preferences]

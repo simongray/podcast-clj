@@ -151,7 +151,9 @@ than by day keeps the document small.
 The preferences have one entry per field, and the settings of a
 subscription are one entry that mind-meld merges field by field, so a skip
 amount changed on one device and a playback rate changed on another both
-survive. The settings of a subscription are kept apart from it, so they
+survive. An app keeps its own preferences, e.g. its colours, as entries
+under keys of its own namespace, so other apps leave them alone. The
+settings of a subscription are kept apart from it, so they
 survive an unsubscription. The folder is one of these settings,
 so a show that two devices move at the same time ends up in the later
 folder, never in two. Likewise, an episode's position and its played mark

@@ -275,6 +275,17 @@
     (is (= 20 (:skip-intro (profile/settings (profile/unsubscribe merged "feed-a" t3) "feed-a")))
         "settings outlive the subscription, for when it comes back")))
 
+(deftest an-apps-own-preferences
+  (let [phone  (profile/prefer (profile/make "phone") {:com.example.player/theme :dark} t1)
+        laptop (-> (profile/merge (profile/make "laptop") phone)
+                   (profile/prefer {:skip-forward 45} t2))
+        merged (profile/merge phone laptop)]
+    (is (= [:dark 45] ((juxt :com.example.player/theme :skip-forward) (profile/preferences merged)))
+        "under a key of the app's namespace, which syncs with the others")
+    (is (nil? (profile/problem merged)))
+    (is (= :dark (:appearance (profile/preferences (profile/prefer (profile/make "phone") {:appearance :dark} t1))))
+        "and a deprecated key that a profile holds still reads")))
+
 (deftest folders-of-shows
   (let [s (-> (profile/make "phone")
               (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
