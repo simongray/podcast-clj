@@ -648,6 +648,54 @@
         (is (profile/played? renamed ["feed-a" "a1-new"]))
         (is (= renamed (profile/rename-episode renamed a ["feed-a" "a1-new"] later)))))))
 
+(defn as-replica
+  "The `profile` that `f` gives for it, written by the replica `author` of
+  its device, as the tabs of a browser once wrote."
+  [profile author f]
+  (-> (f (assoc profile :device author))
+      (assoc :device (:device profile))))
+
+(deftest what-the-replicas-of-a-device-wrote
+  (let [day    (* 24 60 60 1000)
+        far    (time/->inst (+ (inst-ms t3) (* 31 day)))
+        year   (time/->inst (+ (inst-ms t3) (* 366 day)))
+        heard  (fn [s id at position]
+                 (:profile (profile.player/step s [:progress id position 3600] at)))
+        phone  (-> (crdt/identify (profile/make "phone") {:name "Phone"} t0)
+                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                   (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+                   (profile.queue/enqueue a t0)
+                   (as-replica "phone/1" #(-> (heard % a t1 100)
+                                              (heard a (time/later t1 10) 110)
+                                              (profile.queue/dequeue a (time/later t1 20))
+                                              (profile/mark-played b (time/later t1 30))))
+                   (as-replica "phone/2" #(-> (heard % c t1 200)
+                                              (heard c (time/later t1 20) 220))))
+        laptop (-> (crdt/identify (profile/make "laptop") {:name "Laptop"} t0)
+                   (profile/merge phone)
+                   (crdt/acknowledge [phone] t2))
+        phone  (crdt/acknowledge (profile/merge phone laptop) [laptop] t3)]
+    (testing "what the replicas heard adds up on every device"
+      (is (= {"feed-a" {"2026-01" 10} "feed-b" {"2026-01" 20}}
+             (profile/listened phone)
+             (profile/listened laptop)))
+      (is (= {"feed-a" {"2026-01" 20} "feed-b" {"2026-01" 20}}
+             (profile/listened (-> phone (heard a t4 200) (heard a (time/later t4 10) 210))))
+          "and with what the device hears itself"))
+    (testing "the registry counts what the replicas wrote as the device's"
+      (is (= {} (crdt/lagging phone)))
+      (is (= {} (:queue (profile/compact phone far))) "so a replica's tombstone goes"))
+    (testing "a replica's played mark moves to the archive of the device"
+      (let [moved (profile/compact phone year)]
+        (is (profile/played? moved b))
+        (is (= #{"phone"} (set (keys (get-in moved [:archive "feed-a"])))))))
+    (testing "a replica's archive still reads"
+      (let [archived (as-replica phone "phone/1" #(profile.impl/archive % [b] year))]
+        (is (= #{"phone/1"} (set (keys (get-in archived [:archive "feed-a"])))))
+        (is (profile/played? archived b))
+        (is (= (:archive archived) (:archive (profile/compact archived year)))
+            "so the device doesn't archive the episode again")))))
+
 (deftest the-changes-since-a-state
   (let [taken   (-> (profile/make "phone")
                     (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)

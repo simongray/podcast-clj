@@ -40,7 +40,6 @@
        :local-file-fn  f              ; the downloaded file of an episode id
        :cache          store          ; for companion files, see read-files!
        :codec          transit/codec  ; of the saved documents, EDN by default
-       :channel        ch             ; where save! tells the other tabs
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
@@ -53,7 +52,6 @@
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.like-minded :as like-minded]
             [dk.simongray.like-minded.document :as like-minded.document]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
@@ -94,21 +92,18 @@
 
   The `device` is a stable id that tells the listener's devices apart,
   made once per installation. The `opts` describe the device for the other
-  devices, such as its :name and :platform, and give the :config, and the
-  :replica that this context writes as, when several share the device's
-  store, as with-replica says."
+  devices, such as its :name and :platform, and give the :config."
   ([device]
    (make device {}))
-  ([device {:keys [config replica] :as opts}]
+  ([device {:keys [config] :as opts}]
    {:pre [(map? opts)]}
-   (let [description (dissoc opts :config :at :replica)
+   (let [description (dissoc opts :config :at)
          config      (clojure.core/merge default-config config)
          described   (fn [p]
                        (let [at (impl/time-of {:config config} opts)]
                          (crdt/identify p description at)))]
      {:device        device
       :profile       (cond-> (profile/make device)
-                       replica           (crdt/with-replica replica)
                        (seq description) described)
       :feeds         {}
       :fetched-lists {}
@@ -1664,16 +1659,24 @@
                  (assoc-in [:profile :device] device))
        (seq description) (update :profile crdt/identify description at)))))
 
-(defn- joined
-  "The `library` with `result` joined in, with `profile` as the profile,
-  and the feeds of both picked by `feeds-fn`, as merge describes it."
-  [library result profile feeds-fn]
-  (let [synced  (impl/newer :at (:sync library) (:sync result))
+(defn merge
+  "The `library` with `result` merged in, a library that came from an
+  earlier value of `library`, e.g. by a refresh or a sync.
+
+  The profiles merge, so nothing that the listener did meanwhile is lost.
+  A feed or a list stays only while the merged profile subscribes to it,
+  has a remote item of it, or follows it, so one that the listener left
+  on another device goes. Of two entries of one feed or list, the later
+  fetch wins. The later :refresh and :sync are kept too, and the rest is
+  that of `library`."
+  [library result]
+  (let [profile (profile/merge (:profile library) (:profile result))
+        synced  (impl/newer :at (:sync library) (:sync result))
         refresh (impl/newer :at (:refresh library) (:refresh result))
         needed  (into (set (keys (profile/subscriptions profile)))
                       (map ffirst)
                       (profile/remote-items profile))
-        feeds   (feeds-fn (:feeds library) (:feeds result) needed)
+        feeds   (impl/merged-entries (:feeds library) (:feeds result) needed)
         lists   (impl/merged-entries (:fetched-lists library)
                                      (:fetched-lists result)
                                      (profile.opml/lists profile))
@@ -1696,47 +1699,6 @@
               synced  (assoc :sync synced)
               refresh (assoc :refresh refresh))
             changed)))
-
-(defn merge
-  "The `library` with `result` merged in, a library that came from an
-  earlier value of `library`, e.g. by a refresh or a sync.
-
-  The profiles merge, so nothing that the listener did meanwhile is lost.
-  A feed or a list stays only while the merged profile subscribes to it,
-  has a remote item of it, or follows it, so one that the listener left
-  on another device goes. Of two entries of one feed or list, the later
-  fetch wins. The later :refresh and :sync are kept too, and the rest is
-  that of `library`.
-
-  Catch up with what another tab or worker saved with rebase instead."
-  [library result]
-  (joined library
-          result
-          (profile/merge (:profile library) (:profile result))
-          impl/merged-entries))
-
-(defn rebase
-  "The `library` caught up with `stored`, the library as another tab or
-  worker of the device saved it in the store that they share, with what
-  `library` changed since `base` on top.
-
-  The `base` is the library that this one was when it last read the store
-  or wrote it, e.g. its own :stored after read-saved!, or the library
-  that it gave save!. The profiles rebase as profile/rebase does, so
-  nothing that either did is lost, and nothing that the other compacted
-  comes back. The feeds and lists join as merge joins them, but a feed
-  that this one holds in memory stays so when the other saved the same
-  document of it. The :stored of `stored` comes along."
-  [library base stored]
-  (cond-> (joined library
-                  stored
-                  (profile/rebase (:profile library)
-                                  (:profile base)
-                                  (:profile stored))
-                  (fn [mine theirs needed]
-                    (impl/rebased-entries mine theirs needed
-                                          (impl/codec library {}))))
-    (:stored stored) (assoc :stored (:stored stored))))
 
 (defn unsynced?
   "Whether the profile of `library` changed since its last sync, by the
@@ -1789,35 +1751,6 @@
   (some #(when (= :library/newer-format (:id %)) %)
         (get-in library [:restore :report])))
 
-(defn shared?
-  "Whether `library` is a replica of its device, one of the tabs or
-  workers that share the device's store, as with-replica makes it."
-  [library]
-  (some? (get-in library [:profile :replica])))
-
-(defn with-replica
-  "The `library`, written from now on as the replica `name` of its device,
-  or as the device itself when `name` is nil.
-
-  Give each tab and worker of a web app that share the device's store a
-  replica of its own, e.g. the :name that like-minded.replica/lease!
-  gives it, so that none of them loses what another writes. A replica's
-  save! catches up with what the others saved since it last read the
-  store or wrote it, and tells them on the :channel of the config, so
-  that they catch up with read-saved! and rebase."
-  [library name]
-  (update library :profile crdt/with-replica name))
-
-;; Web Locks API, W3C Working Draft of 24 September 2025, section 3.2.1,
-;; through like-minded: a save writes many documents, library's last, and
-;; deletes after, so a restore while it runs in another tab could miss one.
-(defn- locked
-  "What `f` gives while no other save!, restore!, read-saved!, load! or
-  unload! of `store` runs in this process, or in any tab or worker of the
-  site in a browser."
-  [store f]
-  (store/exclusively (str "dk.simongray.podcast.app.library/" (:name store)) f))
-
 (defn- saved-attempt
   "The attempt to fetch the document of the library saved in `store` with
   the codec of `library`, or in EDN by an earlier version, as a map of its
@@ -1832,58 +1765,6 @@
                   (if (or value error (= own impl/saved-name))
                     attempt
                     (tried impl/saved-name))))))
-
-(defn- stored-as
-  "The `library` noting that `value`, the document of a saved library,
-  holds its profile now, for a save! or a read-saved! to come."
-  [library value]
-  (assoc library :stored {:version (:version value)
-                          :profile (:profile library)}))
-
-(defn- newly-saved
-  "The library that another context saved in `store` since `library` last
-  read it or wrote it, as read-saved! gives it, without the lock."
-  [library store]
-  (async/then
-   (saved-attempt library store)
-   (fn [{:keys [value name] :as attempt}]
-     (when (and value (not= (:version value) (get-in library [:stored :version])))
-       (let [[stored report] (impl/with-saved library saved-keys name attempt)
-             newer   (some #(when (= :library/newer-format (:id %)) %) report)
-             codec   (impl/codec library {})
-             document (fn [feed-guid e]
-                        (or (:document e) (impl/entry-document feed-guid e codec)))
-             ;; the feeds that this one holds in memory, or doesn't have,
-             ;; whose document the other saved anew
-             wanted  (set (for [[feed-guid e] (:feeds stored)
-                                :let  [own (get-in library [:feeds feed-guid])]
-                                :when (and (impl/unloaded? e)
-                                           (or (nil? own) (:feed own))
-                                           (not= (:document e)
-                                                 (some->> own (document feed-guid))))]
-                            feed-guid))]
-         ;; a newer version of the app saved it, so this one leaves it be
-         (when newer
-           (throw (ex-info "The saved library is of a newer version"
-                           {::refused newer})))
-         (when (empty? report)
-           (async/then (impl/with-feeds [stored report] store wanted)
-                       (fn [[stored _]]
-                         (stored-as stored value)))))))))
-
-(defn read-saved!
-  "The library that another tab or worker of the device saved in `store`
-  since `library` last read it or wrote it, or nil when none did, in
-  ClojureScript as a promise.
-
-  It reads the feeds that `library` holds in memory, or doesn't have,
-  whose documents the other saved anew, and leaves the rest in their
-  documents. Give it to rebase with the :stored of the library as it is
-  by then, e.g. when the :channel of the config says that another saved:
-
-      (swap! app update :library #(library/rebase % (:stored %) saved))"
-  [library store]
-  (locked store #(newly-saved library store)))
 
 (defn- written!
   "Write `library` to `store` as save! does, with the parts that `keys`
@@ -1921,33 +1802,21 @@
                    (fn [names]
                      (async/then
                       ((:put store) name body {})
-                      (fn [{:keys [version]}]
+                      (fn [_]
                         (let [delete (if (:delete store) delete [])]
                           (async/then (async/all (map delete! delete))
                                       (fn [attempts]
-                                        {:put     (conj names name)
-                                         :delete  (deleted delete attempts)
-                                         :library (stored-as library
-                                                             {:version version})}))))))))]
+                                        {:put    (conj names name)
+                                         :delete (deleted delete attempts)}))))))))]
     (if (:put store)
       (async/then (if-let [list (:list store)] (list) [])
                   (comp saved planned))
       (throw (ex-info "The store is read only" {})))))
 
-(defn- caught-up
-  "The `library` caught up with what another context saved in `store` since
-  it last read it or wrote it, when it's a replica, without the lock."
-  [library store]
-  (if (shared? library)
-    (async/then (newly-saved library store)
-                #(if % (rebase library (:stored library) %) library))
-    library))
-
 (defn save!
   "Write `library` to `store` with the `opts` below, and give the names of
-  the documents it put and deleted and the library as written, as a map of
-  :put, :delete and :library, or a map of :error, in ClojureScript as a
-  promise.
+  the documents it put and deleted, as a map of :put and :delete, or a
+  map of :error, in ClojureScript as a promise.
 
   It writes the library's own document, library.edn in the codec of its
   config, EDN by default, with the parts of `library` that :keys in `opts`
@@ -1962,13 +1831,8 @@
   its own, e.g. over a folder, IndexedDB or the origin private file
   system, since it deletes the documents of any other library there.
 
-  A replica, as with-replica makes it, first catches up with what another
-  tab or worker saved since it last read the store or wrote it, as
-  rebase does, and tells the others on the :channel of the config after.
-  Then the :library is the library as written, to rebase the library as
-  it is by then on:
-
-      (swap! app update :library library/rebase given (:library result))
+  It writes over what the store holds, so where several tabs or workers
+  share the store, write the library with write! instead.
 
   The :error is :library/save-failed when the store failed, and
   :library/newer-format when `library` was restored from a library of a
@@ -1977,28 +1841,16 @@
    (save! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
    {:pre [(map? opts)]}
-   (let [refused (newer-format library)
-         channel (:channel (impl/options library opts))]
+   (let [refused (newer-format library)]
      (async/then
-      (async/attempt
-       #(when-not refused
-          (locked store
-                  (fn []
-                    (async/then (caught-up library store)
-                                (fn [library]
-                                  (written! library store keys opts)))))))
+      (async/attempt #(when-not refused (written! library store keys opts)))
       (fn [{:keys [value error]}]
         (cond
           refused {:error refused}
-          (::refused (ex-data error)) {:error (::refused (ex-data error))}
           error   (diagnostics/failed
                    {:id     :library/save-failed
                     :reason (async/explain error)})
-          :else   (do (when (and channel (shared? library))
-                        (replica/announce! channel
-                                           {:saved   (:name store)
-                                            :version (get-in value [:library :stored :version])}))
-                      value)))))))
+          :else   value))))))
 
 (defn restore!
   "The `library` with what was saved to `store`, read with the `opts`
@@ -2028,10 +1880,7 @@
   The :load of `opts` says which feeds to read: :all by default, :none, or
   the guids of some. The others stay in their documents until load!
   reads them, e.g. the feeds of the shows on the screen, and the views
-  mark them as not loaded.
-
-  The library keeps the replica of `library`, and notes under :stored
-  what it read, for the next save! or read-saved! of a replica."
+  mark them as not loaded."
   ([library store]
    (restore! library store {}))
   ([library store {:keys [keys load] :or {keys saved-keys load :all}
@@ -2050,21 +1899,19 @@
                         step))
          slow       (impl/slow-format library opts)
          done       (fn [{:keys [value]} [library report]]
-                      (cond-> (assoc library :restore
-                                     {:report (cond-> report
-                                                (and value slow) (conj slow))})
-                        (and value (empty? report)) (stored-as value)))
+                      (assoc library :restore
+                             {:report (cond-> report
+                                        (and value slow) (conj slow))}))
          newer?     (fn [[_ report]]
                       (some (comp #{:library/newer-format} :id) report))]
-     (locked store
-             #(async/then (saved-attempt library store)
-                          (fn [{:keys [name] :as attempt}]
-                            (let [step (impl/with-saved library keys name attempt)]
-                              (if (newer? step)
-                                (done attempt step)
-                                (-> (impl/with-feeds step store wanted?)
-                                    (async/then indexed)
-                                    (async/then (partial done attempt)))))))))))
+     (async/then (saved-attempt library store)
+                 (fn [{:keys [name] :as attempt}]
+                   (let [step (impl/with-saved library keys name attempt)]
+                     (if (newer? step)
+                       (done attempt step)
+                       (-> (impl/with-feeds step store wanted?)
+                           (async/then indexed)
+                           (async/then (partial done attempt))))))))))
 
 (defn load!
   "The `library` with the feeds `feed-guids` read back from their
@@ -2077,10 +1924,9 @@
   the report."
   [library store feed-guids]
   (let [wanted? (if (= :all feed-guids) (constantly true) (set feed-guids))]
-    (locked store
-            #(async/then (impl/with-feeds [library []] store wanted?)
-                         (fn [[library report]]
-                           (assoc library :load {:report report}))))))
+    (async/then (impl/with-feeds [library []] store wanted?)
+                (fn [[library report]]
+                  (assoc library :load {:report report})))))
 
 (defn unload!
   "The `library` without the feeds `feed-guids` in memory, each written to
@@ -2106,10 +1952,8 @@
                                    (assoc :document name))))]
     (async/then
      (async/attempt
-      #(locked store
-               (fn []
-                 (store/put-all! store (for [[_ entry name] chosen]
-                                         {:name name :body (impl/feed-body entry codec)})))))
+      #(store/put-all! store (for [[_ entry name] chosen]
+                               {:name name :body (impl/feed-body entry codec)})))
      (fn [{:keys [error]}]
        (if error
          (assoc library :unload {:report [(diagnostics/describe
@@ -2382,34 +2226,6 @@
           error   (diagnostics/failed {:id     :library/save-failed
                                        :reason (async/explain error)})
           :else   value))))))
-
-(defn replica-kind
-  "The kind of a replica of like-minded.replica/open! whose state is a
-  library with `config`, e.g. that of a tab of a web app: it's restored
-  as the replica that the tab leases, saved with save!, which catches up
-  first, read back with read-saved! and caught up with rebase.
-
-      (replica/open! {:state  app
-                      :path   [:library]
-                      :store  data
-                      :device device-id
-                      :kind   (library/replica-kind {:codec transit/codec})})"
-  [config]
-  (let [versioned (fn [lib]
-                    {:state lib :version (get-in lib [:stored :version])})]
-    {:open       (fn [store {:keys [device replica]}]
-                   (async/then (restore! (make device {:replica replica :config config})
-                                         store)
-                               versioned))
-     :save       (fn [store lib _base]
-                   (async/then (save! lib store)
-                               (fn [{written :library :as result}]
-                                 (cond-> result
-                                   written (into (versioned written))))))
-     :read-saved (fn [store lib _base]
-                   (async/then (read-saved! lib store)
-                               #(some-> % versioned)))
-     :rebase     rebase}))
 
 (defn plan
   "The episodes to download and the files to delete on this device with

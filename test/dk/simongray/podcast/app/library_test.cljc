@@ -9,7 +9,6 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.like-minded.document :as document]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.transit :as transit]
             #?(:cljs [dk.simongray.like-minded.store.indexeddb :as indexeddb])
@@ -1668,90 +1667,36 @@
                                         (is (= (at 900) (library/next-refresh read {:at now}))
                                             "which a reload keeps")))))))))
 
+(defn- as-replica
+  "The `library` that `f` gives for it, written by the replica `author` of
+  its device, as the tabs of a browser once wrote."
+  [library author f]
+  (-> (f (assoc-in library [:profile :device] author))
+      (assoc-in [:profile :device] (:device library))))
+
 (deftest what-a-replica-wrote-reads-the-same
-  (let [s      (store/memory)
-        id     [guid "https://example.com/ep0003"]
-        tab    (-> (library/make "phone" {:replica "1"
-                                          :config  {:now-fn (constantly now) :codec transit/codec}})
-                   (library/subscribe url fresh)
-                   (library/step [:play id] {:at (at 0)})
-                   (library/step [:progress id 100 3600] {:at (at 10)})
-                   (library/step [:progress id 160 3600] {:at (at 70)})
-                   (dissoc :effects))
-        heard  #(profile/listened (:profile %))]
-    (is (= "phone/1" (crdt/author (:profile tab))) "a tab that wrote as a replica")
+  (let [s     (store/memory)
+        id    [guid "https://example.com/ep0003"]
+        tab   (-> (made)
+                  (library/subscribe url fresh)
+                  (as-replica "phone/1" #(-> (library/step % [:play id] {:at (at 0)})
+                                             (library/step [:progress id 100 3600] {:at (at 10)})
+                                             (library/step [:progress id 160 3600] {:at (at 70)})
+                                             (dissoc :effects))))
+        heard #(profile/listened (:profile %))
+        ids   #(set (keys (get-in % [:profile :listened guid "2026-09"])))]
+    (is (= #{"phone/1"} (ids tab)) "a tab that wrote as a replica")
     (run #(library/save! tab s)
          #(async/then (library/read! (made) s)
                       (fn [{lib :library}]
                         (is (= (heard tab) (heard lib)) "whose listening still counts")
-                        (is (= "phone" (crdt/author (:profile lib))) "for the device that writes as itself")
                         (let [more (-> lib
                                        (library/step [:progress id 200 3600] {:at (at 100)})
                                        (library/step [:progress id 230 3600] {:at (at 130)}))]
                           (is (< (get-in (heard lib) [guid "2026-09"])
                                  (get-in (heard more) [guid "2026-09"]))
-                              "and adds up with what it hears next")))))))
-
-(deftest replicas-that-share-a-store
-  (let [s         (store/memory)
-        config    {:now-fn (constantly now)}
-        tab       (fn [n] (library/make "phone" {:replica n :config config}))
-        id        [guid "https://example.com/ep0003"]
-        other-key (feed.guid/feed-guid other other-url)
-        listened  #(get-in % [:profile :listened guid "2026-09"])
-        heard     (atom [])
-        told      (replica/channel "replicas-test")
-        hearing   (replica/channel "replicas-test")
-        tabs      (atom {})]
-    (replica/listen! hearing #(swap! heard conj %))
-    (is (library/shared? (tab "1")))
-    (is (= "phone/1" (get-in (tab "1") [:profile :replica])))
-    (is (not (library/shared? library)))
-    (run #(library/save! library s)
-         #(async/then (async/all [(library/restore! (tab "1") s) (library/restore! (tab "2") s)])
-                      (fn [[one two]]
-                        (is (= "phone/1" (get-in one [:profile :replica])) "a restore keeps the replica of the context")
-                        (is (some? (get-in one [:stored :version])))
-                        (reset! tabs {:one (-> (assoc-in one [:config :channel] told)
-                                               (library/step [:progress id 100 3600] {:at (at 10)})
-                                               (library/step [:progress id 160 3600] {:at (at 70)}))
-                                      :two (-> two
-                                               (library/step [:progress id 200 3600] {:at (at 30)})
-                                               (library/step [:progress id 230 3600] {:at (at 60)})
-                                               (library/subscribe other-url {:status 200 :url other-url :feed other} {:at (at 80)})
-                                               (library/update-profile profile.marks/star id))})
-                        (library/read-saved! one s)))
-         #(async/then (library/save! (:one @tabs) s)
-                      (fn [{:keys [library]}]
-                        (is (some? (get-in library [:stored :version])))
-                        (swap! tabs assoc :one library)
-                        (library/save! (:two @tabs) s)))
-         #(async/then (library/read-saved! (:one @tabs) s)
-                      (fn [stored]
-                        (let [one    (:one @tabs)
-                              caught (library/rebase one (:stored one) stored)]
-                          (testing "a save catches up with what another saved, and the other with that"
-                            (is (= "phone/1" (get-in caught [:profile :replica])))
-                            (is (= [id] (profile.marks/starred (:profile caught))))
-                            (is (= #{guid other-key} (set (keys (library/subscriptions caught)))))
-                            (is (= {"phone/1" 60 "phone/2" 30}
-                                   (update-vals (listened caught) :seconds))
-                                "a count of each replica, so that neither tab's listening is lost")
-                            (is (library/loaded? caught other-key) "a feed new to it, read")
-                            (is (identical? (get-in one [:feeds guid :feed]) (get-in caught [:feeds guid :feed]))
-                                "a feed it holds, kept as it was"))
-                          (library/read-saved! caught s))))
-         #(async/then (library/read-saved! (library/make "phone" {:replica "1" :config config}) s)
-                      (fn [stored]
-                        (is (some? stored) "a library that never read the store reads all of it")))
-         ;; a message reaches the other channel as a task of its own
-         #?(:clj  (constantly nil)
-            :cljs #(js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
-         (fn []
-           (is (= 1 (count @heard)) "the replica with a channel told the other on it")
-           (is (= "memory" (:saved (first @heard))))
-           (replica/close! told)
-           (replica/close! hearing)))))
+                              "and adds up with what the device hears next")
+                          (is (= #{"phone/1" "phone"} (ids more)) "as itself")))))))
 
 (deftest feeds-on-demand
   (let [documents (atom {})
