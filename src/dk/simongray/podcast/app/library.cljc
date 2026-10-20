@@ -44,7 +44,8 @@
   Each function also takes the same keys as options, for one call, and
   :at, an instant to stamp each change with in place of the time of the
   clock. These options are functions or hold them, so they stay out of
-  the config, and you give them to each call, e.g. from a map of your own:
+  the config, which make refuses with any of them, and you give them to
+  each call, e.g. from a map of your own:
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of client/send!
@@ -106,11 +107,16 @@
   made once per installation. The `opts` describe the device for the other
   devices, such as its :name and :platform, and give the :config and the
   :codec of the documents, whose :extension the config keeps, EDN's by
-  default."
+  default. It throws for a config that holds one of the options that are
+  functions, e.g. :send, since each call takes those instead."
   ([device]
    (make device {}))
   ([device {:keys [config codec] :as opts}]
    {:pre [(map? opts)]}
+   (when-let [functions (seq (filter #(contains? config %) impl/function-keys))]
+     (throw (ex-info (str "The config of a library holds data alone, so give "
+                          (str/join ", " functions) " to each call instead")
+                     {:keys (vec functions)})))
    (let [description (dissoc opts :config :codec :at)
          config      (clojure.core/merge default-config
                                          config

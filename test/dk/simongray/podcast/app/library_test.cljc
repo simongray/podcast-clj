@@ -76,8 +76,8 @@
   (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z")))
 
 (def library
-  (-> (library/make "phone" {:name "Phone" :config {:languages ["es"] :now-fn (constantly now)}})
-      (library/subscribe url fresh {:auto-queue? true})))
+  (-> (library/make "phone" {:name "Phone" :at now :config {:languages ["es"]}})
+      (library/subscribe url fresh {:auto-queue? true :at now})))
 
 (def picks
   "An OPML list with the other show."
@@ -87,9 +87,9 @@
 
 (deftest a-slim-library
   (let [make    (fn [opts]
-                  (-> (library/make "phone" {:name "Phone" :config {:now-fn (constantly now)}})
-                      (library/follow-list "https://example.org/picks.opml" picks {:title "Picks"})
-                      (library/subscribe url fresh (assoc opts :auto-queue? true))))
+                  (-> (library/make "phone" {:name "Phone" :at now})
+                      (library/follow-list "https://example.org/picks.opml" picks {:title "Picks" :at now})
+                      (library/subscribe url fresh (assoc opts :auto-queue? true :at now))))
         fetch   (fn [u _]
                   (case u
                     "https://example.com/feed.xml"  {:status 200 :url u :feed newer :etag "\"v2\""}
@@ -504,7 +504,7 @@
                               {:feeds feeds})))))
 
 (deftest following-a-list
-  (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
+  (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\"" :at now})]
     (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (profile.opml/lists (:profile lib))))
     (is (= "\"p1\"" (get-in lib [:fetched-lists "https://example.org/picks.opml" :etag])))
     (is (= (at 86400) (get-in lib [:fetched-lists "https://example.org/picks.opml" :next-check])))
@@ -518,7 +518,7 @@
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
 (deftest the-step-that-fetches-what-is-due
-  (let [lib     (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks"})
+  (let [lib     (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :at now})
         later   (at 86400)
         asked   (atom [])
         fetch   (fn [url _]
@@ -532,11 +532,11 @@
                   {:status 304 :headers {} :body ""})]
     (run
      (fn []
-       (async/then (library/refresh! lib {:at later :fetch fetch :send send})
+       (async/then (library/refresh! lib {:at later :fetch fetch :send send :now-fn (constantly later)})
                    (fn [{:keys [added moved report counts seconds] lib' :library}]
                      (testing "a summary of the feeds: the new subscription's and the due one"
                        (is (= {:checked 2 :unchanged 0 :changed 2 :failed 0 :left 0} counts))
-                       (is (= 0.0 seconds) "by the clock of the config, which stands still here"))
+                       (is (= 0.0 seconds) "by the clock of the call, which stands still here"))
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
                        (is (= (at (* 2 86400)) (get-in lib' [:fetched-lists "https://example.org/picks.opml" :next-check]))))
@@ -641,7 +641,7 @@
 
 (deftest the-options-of-one-refresh
   (let [picks-url "https://example.org/picks.opml"
-        lib       (library/follow-list library picks-url picks {:title "Picks"})
+        lib       (library/follow-list library picks-url picks {:title "Picks" :at now})
         later     (at 86400)
         sent      (atom [])
         fetch     (fn [u _]
@@ -673,7 +673,7 @@
                          "not before the Retry-After")))))))
 
 (deftest an-offline-refresh
-  (let [lib   (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks"})
+  (let [lib   (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :at now})
         later (at (* 2 86400))
         sent  (atom 0)
         down  (fn [u] (swap! sent inc) (throw (ex-info (str "down: " u) {:type ::http/unresolved :url u})))
@@ -700,11 +700,12 @@
 
 (deftest when-to-refresh-again
   (let [next-check (get-in library [:feeds guid :next-check])]
-    (is (= next-check (library/next-refresh library)) "the next check of its one feed")
+    (is (= next-check (library/next-refresh library {:at now})) "the next check of its one feed")
     (is (= (at 999999) (library/next-refresh library {:at (at 999999)})) "never before the time of the call")
     (is (nil? (library/next-refresh (library/make "tablet"))) "nothing to fetch")
     (is (nil? (library/next-refresh (assoc-in library [:feeds guid :gone?] true))) "a feed that's gone is never due")
-    (is (= now (library/next-refresh (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks"})))
+    (is (= now (library/next-refresh (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :at now})
+                                     {:at now}))
         "the show of a list, never fetched, at once")))
 
 (deftest a-subscription-that-never-answered
@@ -743,9 +744,10 @@
 
 (deftest pushes-from-a-websub-hub
   (let [hubs     {:hubs ["https://hub.example.org/"] :topic url}
-        lib      (atom (-> (library/make "server" {:config {:now-fn (constantly now)}})
-                           (library/subscribe url (assoc fresh :websub hubs) {:auto-queue? true})
-                           (library/subscribe other-url {:status 200 :url other-url :feed other})))
+        lib      (atom (-> (library/make "server" {:at now})
+                           (library/subscribe url (assoc fresh :websub hubs) {:auto-queue? true :at now})
+                           (library/subscribe other-url {:status 200 :url other-url :feed other} {:at now})))
+        at-now   {:at now}
         websubs  (atom {})
         pushes   (atom nil)
         origin   "https://app.example.net"
@@ -755,10 +757,10 @@
                          :verified! #(swap! websubs websub/verified % now)
                          :deliver!  (fn [{:keys [request] :as delivery}]
                                       (let [[feed-guid] (websub/subscription-of @websubs request)
-                                            result      (library/pushed @lib feed-guid delivery)]
+                                            result      (library/pushed @lib feed-guid delivery at-now)]
                                         (reset! lib (:library result))
                                         (reset! pushes result)))))
-        asked    (library/hub-requests @lib @websubs callback)
+        asked    (library/hub-requests @lib @websubs callback at-now)
         _        (swap! websubs websub/asked guid (get asked guid) now)
         {:keys [hub topic secret] :as pending} (get-in @websubs [guid :pending])
         uri      (str/replace-first (:callback pending) origin "")
@@ -783,7 +785,7 @@
                                    :query-string   (str "hub.mode=subscribe&hub.topic=" url
                                                         "&hub.challenge=c1&hub.lease_seconds=864000")}))))
       (is (= :active (get-in @websubs [guid :state])))
-      (is (= {} (library/hub-requests @lib @websubs callback)))
+      (is (= {} (library/hub-requests @lib @websubs callback at-now)))
       (is (= [guid] (keys (library/hub-requests @lib @websubs callback {:at (get-in @websubs [guid :renew-at])})))))
     (testing "a pushed feed applied as a refresh is, with its new episode queued"
       (is (= 200 (push! (str/replace-first (fixture "feeds/namespace-example.xml") "<item>" (str new-item "<item>")))))
@@ -794,11 +796,11 @@
       (is (= [:library/push-not-applied] (map :id (:report @pushes))))
       (is (= now (get-in @lib [:feeds guid :next-check]))))
     (testing "an unsubscription once the listener leaves the show"
-      (let [left (library/hub-requests (library/unsubscribe @lib guid) @websubs callback)]
+      (let [left (library/hub-requests (library/unsubscribe @lib guid at-now) @websubs callback at-now)]
         (is (= :unsubscribe (get-in (websub/asked @websubs guid (get left guid) now) [guid :pending :mode])))))
     (testing "a subscription at the new hub when the feed names another"
       (let [moved (assoc-in @lib [:feeds guid :websub :hubs] ["https://other.example.org/"])]
-        (is (= "https://other.example.org/" (:url (get (library/hub-requests moved @websubs callback) guid))))))))
+        (is (= "https://other.example.org/" (:url (get (library/hub-requests moved @websubs callback at-now) guid))))))))
 
 (deftest the-queue-for-a-page
   (let [ep3 [guid "https://example.com/ep0003"]
@@ -847,7 +849,7 @@
         lib   (-> library
                   (stepped [:progress id 754 3600] {:at (at 10)})
                   (library/update-profile profile/configure guid {:playback-rate 1.5}))
-        view  (library/playback lib id)
+        view  (library/playback lib id {:at (at 10)})
         files {:chapters {:source   :file
                           :document {:chapters [{:start-time 0 :title "Intro"}
                                                 {:start-time 60 :title "Ads" :toc false}
@@ -1123,12 +1125,12 @@
         fetching (fn [feed] (fn [u _] {:status 200 :url u :feed feed}))
         key      (feed.guid/from-url other-url)
         declared (:podcast/guid other)
-        phone    (library/subscribe (library/make "phone" {:config {:now-fn (constantly now)}}) other-url)]
+        phone    (library/subscribe (library/make "phone" {:at now}) other-url)]
     (run #(async/then (library/refresh! phone {:at (at 60) :fetch (fetching plain)})
                       (fn [{phone' :library}]
                         (is (= {key key} (update-vals (library/subscriptions phone') :guid))
                             "settled on the guid of its URL, as the feed declares none")
-                        (let [laptop (update (library/make "laptop" {:config {:now-fn (constantly now)}})
+                        (let [laptop (update (library/make "laptop" {:at now})
                                              :profile profile/merge (:profile phone'))]
                           (async/then (library/refresh! laptop {:at (at 120) :fetch (fetching other)})
                                       (fn [{:keys [report] laptop' :library}]
@@ -1178,7 +1180,7 @@
 (deftest the-events-of-the-player
   (let [id    [guid "https://example.com/ep0003"]
         lib   (update library :profile profile.queue/enqueue id now)
-        {heard :library :keys [effects]} (library/step lib [:progress id 100 3600])]
+        {heard :library :keys [effects]} (library/step lib [:progress id 100 3600] {:at now})]
     (is (= [] effects) "beside the library")
     (is (= 100 (profile/resume-position (:profile heard) guid id)))
     (is (= [[:seek id 130]] (:effects (library/step heard [:skip id :forward]))))
@@ -1199,7 +1201,7 @@
         (is (= [[:nothing-next id]] (:effects (library/step heard [:ended id])))
             "only when the listener wants it")))
     (testing "a rewind after a pause"
-      (is (= 100 (:position (library/playback heard id))))
+      (is (= 100 (:position (library/playback heard id {:at now}))))
       (is (= 90 (:position (library/playback heard id {:at (at 7200)})))))
     (testing "every episode of a show played at once"
       (let [caught-up (library/mark-show-played lib guid)]
@@ -1210,7 +1212,7 @@
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
         backend   (library/backend (store/memory documents) {:app "test"})
-        laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
+        laptop    (-> (library/make "laptop" {:name "Laptop" :at now})
                       (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
      (fn []
@@ -1231,7 +1233,7 @@
 (deftest leaving-the-sync-and-coming-back
   (let [documents (atom {})
         backend   (library/backend (store/memory documents) {:app "test"})
-        laptop    (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
+        laptop    (library/make "laptop" {:name "Laptop" :at now})
         devices   #(set (keys (crdt/devices (:profile %))))]
     (run
      (fn []
@@ -1297,8 +1299,8 @@
 
 (deftest a-show-left-on-another-device
   (let [backend (library/backend (store/memory (atom {})) {:app "test"})
-        laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now-fn (constantly now)}})
-                    (library/subscribe url fresh {:auto-queue? true}))
+        laptop  (-> (library/make "laptop" {:name "Laptop" :at now})
+                    (library/subscribe url fresh {:auto-queue? true :at now}))
         phone   (library/unsubscribe library guid {:at (at 10)})]
     (run #(async/then (library/sync! phone [backend] {:at (at 20)})
                       (fn [_]
@@ -1317,8 +1319,8 @@
 (deftest merging-what-a-fetch-gave
   (let [id      [guid "https://example.com/ep0003"]
         fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})
-        indexed (-> (library/make "phone" {:config {:search? true :now-fn (constantly now)}})
-                    (library/subscribe url fresh {:auto-queue? true}))
+        indexed (-> (library/make "phone" {:at now :config {:search? true}})
+                    (library/subscribe url fresh {:auto-queue? true :at now}))
         backend (library/backend (store/memory (atom {})) {:app "test"})]
     (run
      (fn []
@@ -1350,15 +1352,17 @@
                          (is (= (:sync result) (:sync merged)))
                          (is (= (at 20) (library/next-sync merged {:at (at 12)})) "soon, since it changed")))))))))
 
-(deftest a-library-read-back-without-its-config
-  (let [saved (dissoc library :config)
-        lib   (assoc saved :config {:now-fn (constantly now)})]
-    (is (= saved (-> (edn/read-string (pr-str saved))
+(deftest a-library-is-a-value
+  (is (= library (-> (edn/read-string (pr-str library))
                      (update :index search/restore)))
-        "EDN without the clock of the config, with its index restored")
-    (is (= (at 86400) (get-in (library/follow-list lib "https://example.org/picks.opml" picks)
-                              [:fetched-lists "https://example.org/picks.opml" :next-check]))
-        "the defaults stand in for what the config leaves out")))
+      "EDN, its config too, with its index restored")
+  (is (= (at 86400) (get-in (library/follow-list (dissoc library :config) "https://example.org/picks.opml" picks
+                                                 {:at now})
+                            [:fetched-lists "https://example.org/picks.opml" :next-check]))
+      "and without its config, the defaults stand in")
+  (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"give :send, :now-fn to each call"
+                        (library/make "phone" {:config {:send identity :now-fn (constantly now)}}))
+      "but no library is made with a function in its config"))
 
 (deftest a-library-saved-and-restored
   (let [documents   (atom {})
@@ -1371,7 +1375,7 @@
                                 (if @fail?
                                   (throw (ex-info "The disk said no" {}))
                                   (delete name)))))
-        made        #(library/make "phone" {:config {:now-fn (constantly now)}})
+        made        #(library/make "phone" {:at now})
         ids         #(mapv :id (library/search % "future"))
         breaking    (fn [docs]
                       (into {} (for [[k v] docs]
@@ -1444,7 +1448,7 @@
 (deftest a-library-saved-in-parts
   (let [documents (atom {})
         s         (store/memory documents)
-        made      #(library/make "phone" {:config {:now-fn (constantly now)}})
+        made      #(library/make "phone" {:at now})
         doc-name  (library.impl/document-name guid (get-in library [:feeds guid :changed-at]))
         saved     #(binding [*print-namespace-maps* false] (pr-str %))
         too-new   {:version (inc library.impl/version) :profile {:from :the-future}}
@@ -1515,10 +1519,10 @@
   (let [documents (atom {})
         s         (store/memory documents)
         opts      {:codec transit/codec}
-        made      #(library/make "phone" {:config {:now-fn (constantly now)} :codec transit/codec})
+        made      #(library/make "phone" {:at now :codec transit/codec})
         feed-name (library.impl/document-name guid (get-in library [:feeds guid :changed-at]) transit/codec)]
     (run #(library/save! library s)
-         #(async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
+         #(async/then (library/restore! (library/make "phone" {:at now}) s)
                       (fn [{:keys [report]}]
                         (is (= #?(:clj [] :cljs [:library/slow-format])
                                (map :id report))
@@ -1553,7 +1557,7 @@
 (defn- made
   "A new library of the phone in Transit, on the test's clock."
   []
-  (library/make "phone" {:config {:now-fn (constantly now)} :codec transit/codec}))
+  (library/make "phone" {:at now :codec transit/codec}))
 
 (def transit-library
   "The library in Transit, as a web app keeps it."
@@ -1749,7 +1753,7 @@
 (deftest feeds-on-demand
   (let [documents (atom {})
         s         (store/memory documents)
-        made      #(library/make "phone" {:config {:now-fn (constantly now)}})
+        made      #(library/make "phone" {:at now})
         two       (library/subscribe library other-url {:status 200 :url other-url :feed other})
         other-key (feed.guid/feed-guid other other-url)
         fetched   (atom [])
@@ -1887,11 +1891,11 @@
                         (is (nil? (get-in lib' [:feeds guid :retained])) "and the old items aren't kept"))))))
 
 (deftest a-document-to-save-by-hand
-  (let [{:keys [name body]} (library/document library {:app "test"})
+  (let [{:keys [name body]} (library/document library {:app "test" :at now})
         written             (document/decode body profile/sync-options)]
     (is (= (str (get-in library [:profile :device]) ".edn") name) "the name that a backend gives it")
     (is (= (:profile library) (:state written)))
-    (is (= ["test" now] ((juxt :app :written-at) written)) "written now, by the clock of the library")))
+    (is (= ["test" now] ((juxt :app :written-at) written)) "written at the time of the call")))
 
 (deftest the-downloads
   (let [id  [guid "https://example.com/ep0003"]
@@ -1927,7 +1931,7 @@
       (is (= (:files filed) (:files (library/merge filed lib)))))
     (run #(async/then (library/save! filed s)
                       (fn [_]
-                        (async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
+                        (async/then (library/restore! (library/make "phone" {:at now}) s)
                                     (fn [{lib :library}]
                                       (is (= (:files filed) (:files lib)) "saved and read back"))))))))
 
@@ -1946,7 +1950,7 @@
         id      [g "01.mp3"]
         fetched (atom [])
         fetch   (fn [u _] (swap! fetched conj u) fresh)
-        phone   (-> (library/make "phone" {:config {:now-fn (constantly now)}})
+        phone   (-> (library/make "phone" {:at now})
                     (library/subscribe-local show)
                     (update :profile profile.queue/enqueue id now)
                     (update :profile profile/prefer {:downloads {:queue 1}} now))]
@@ -1963,7 +1967,7 @@
         (is (= ["01" "02" "03"] (map :rss/title (get-in more [:feeds g :feed :rss/items]))))
         (is (= 300 (:position (library/playback more id))) "and the progress of an episode stays")))
     (testing "another device with the same files"
-      (let [laptop (-> (library/make "laptop" {:config {:now-fn (constantly now)}})
+      (let [laptop (-> (library/make "laptop" {:at now})
                        (library/subscribe-local (dune "02.mp3" "01.mp3"))
                        (update :profile profile/merge (:profile (library/update-profile phone profile/progress id 300))))]
         (is (= 300 (:position (library/playback laptop id))) "shares the progress, by the guids that the files give")))

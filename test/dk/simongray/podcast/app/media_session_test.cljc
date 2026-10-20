@@ -37,10 +37,10 @@
                                     {:start-time 94 :title "Talk"}]}}})
 
 (def lib
-  (-> (library/make "phone" {:config {:search? false :now-fn (constantly now)}})
-      (library/subscribe url {:status 200 :url url :feed show})
-      (library/update-profile profile.queue/enqueue id)
-      (library/update-profile profile.queue/enqueue other)))
+  (-> (library/make "phone" {:at now :config {:search? false}})
+      (library/subscribe url {:status 200 :url url :feed show} {:at now})
+      (update :profile profile.queue/enqueue id now)
+      (update :profile profile.queue/enqueue other now)))
 
 (def heard
   "The library after the listener heard the other episode, then this one."
