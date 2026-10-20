@@ -1,6 +1,8 @@
 (ns dk.simongray.podcast.app.unsaved-test
   "The last moves of the player that a save of the library didn't have
-  before a reload: the episode played last, and the position."
+  before a reload: the episode played last, and the position. The
+  namespace is deprecated, and tested while it's there."
+  {:clj-kondo/config '{:linters {:deprecated-namespace {:level :off}}}}
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is]]
             [dk.simongray.podcast.app.library :as library]

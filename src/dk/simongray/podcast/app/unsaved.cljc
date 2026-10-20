@@ -1,7 +1,11 @@
-(ns dk.simongray.podcast.app.unsaved
+(ns ^:deprecated dk.simongray.podcast.app.unsaved
   "The last moves of a web app's player that the library's save may not
   have yet, kept in localStorage at once: the position of the episode that
   plays, and the episode that the listener played last.
+
+  Deprecated: a library/write! of a move lands before a reload, so a
+  player that writes each move as it happens needs no copy of it in
+  localStorage.
 
   A save of the library takes a few steps, e.g. to IndexedDB, which a page
   that reloads or closes never finishes, while localStorage writes at
