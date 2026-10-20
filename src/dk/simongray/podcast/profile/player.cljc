@@ -55,17 +55,16 @@
 
 (defn ^:no-doc ended
   "The result of a player event for `profile` when the episode `id` ended
-  at `at`, with the sleep timer `sleep` and the :continue-fn and the
-  deprecated :fallback-fn of the `opts` of step.
+  at `at`, with the sleep timer `sleep` and the :continue-fn of the `opts`
+  of step.
 
   The episode counts as played and leaves the queue if it was current,
   with the effect [:play next] when another episode is queued. Else, with
   the listener's :continuous?, the next is what :continue-fn gives for the
-  id. When nothing plays next, the effect is [:nothing-next id], unless
-  the `opts` have a :fallback-fn, whose episode plays and becomes current.
-  With a sleep timer, one episode less is left to play, and when none is
-  left, the effect is [:stop id] and the timer stops."
-  [profile id at sleep {:keys [continue-fn fallback-fn]}]
+  id. When nothing plays next, the effect is [:nothing-next id]. With a
+  sleep timer, one episode less is left to play, and when none is left,
+  the effect is [:stop id] and the timer stops."
+  [profile id at sleep {:keys [continue-fn]}]
   (let [profile' (profile/mark-played profile id at)
         current? (= id (profile.queue/current profile'))
         profile' (if current? (profile.queue/advance profile' at) profile')
@@ -76,13 +75,9 @@
         left     (some-> (:episodes sleep) dec)]
     (if (and left (not (pos? left)))
       (stepped profile' [[:stop id]] nil)
-      (let [fallback (when (and (not next) fallback-fn)
-                       (fallback-fn id))]
-        (stepped (cond-> profile' fallback (made-current fallback at))
-                 (if-let [next (or next fallback)]
-                   [[:play next]]
-                   (if fallback-fn [] [[:nothing-next id]]))
-                 (cond-> sleep left (assoc :episodes left)))))))
+      (stepped profile'
+               (if next [[:play next]] [[:nothing-next id]])
+               (cond-> sleep left (assoc :episodes left))))))
 
 (defn- moved
   "The result of a player event, with the `effects`, the sleep timer `sleep`
@@ -151,12 +146,7 @@
     position in one stretch of listening
   - :continue-fn, a function of the id of an episode that ended, which
     gives the episode to play next when none is queued, e.g. the next of
-    its show, or nil
-  - :fallback-fn, deprecated in favour of the effect [:nothing-next id]: a
-    function of the id of an episode that ended, which gives the episode
-    to play next when none is queued and :continue-fn gives none, or nil.
-    That episode becomes current, as with [:play id], and the effects
-    have no [:nothing-next id]."
+    its show, or nil"
   ([profile event at]
    (step profile event at {}))
   ([profile [kind id & args :as event] at

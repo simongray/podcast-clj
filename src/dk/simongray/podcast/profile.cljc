@@ -438,9 +438,9 @@
   - :search-sources, the directories that a search asks, as
     directory/sources names them, in the order that the listener puts
     them in, e.g. for the :sources of directory/search!
-  - :appearance, :contrast and :artwork-colors?, deprecated, since how an
-    app looks is that app's own preference, which prefer keeps under a key
-    of the app's namespace"
+
+  How an app looks is that app's own preference, which prefer keeps under
+  a key of the app's namespace."
   {:skip-forward          30
    :skip-back             15
    :playback-rate         1.0
@@ -450,10 +450,7 @@
    :continuous?           false
    :rewinds               [[60 3] [3600 10] [86400 30]]
    :subscription-defaults {}
-   :search-sources        [:podcastindex :apple :fyyd]
-   :appearance            :auto
-   :contrast              :auto
-   :artwork-colors?       true})
+   :search-sources        [:podcastindex :apple :fyyd]})
 
 (defn preferences
   "The listener's preferences in `profile`, over the defaults."
