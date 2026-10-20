@@ -2,11 +2,9 @@
   "The inspector's player in the browser: a library with the listener's
   profile, kept in IndexedDB, and the audio of the current episode.
 
-  Each tab writes the library as a replica of the browser's device, as
-  dk.simongray.like-minded.replica has it with the library's kind, and
-  catches up with what the other tabs and the worker save, so that none
-  writes over another. The
-  titles of the episodes that the page shows live in localStorage.
+  Each tab changes the library in the store as it would an atom, as
+  inspector.library has it, so that none writes over another. The titles
+  of the episodes that the page shows live in localStorage.
 
   The server only supplies episode data, at /episode.edn. The player sits
   in a bar on every page. Clicking a link fetches the next page and swaps
@@ -37,9 +35,7 @@
   due, as inspector.worker describes."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store.folder :as folder]
-            [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.store.webdav :as webdav]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.play-nice.controls :as controls]
@@ -61,6 +57,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
+            [inspector.library :as inspector-library]
             [inspector.player.view :as view]
             [inspector.shared :as shared]
             [replicant.dom :as replicant]))
@@ -84,23 +81,6 @@
   added here, as a remote item, so that the other devices can fetch its
   data."}
   app
-  (atom nil))
-
-(defonce ^{:doc "The store of the library that the tabs and the worker
-  share, made at its first use: the IndexedDB database of inspector.shared,
-  unless something else is put here first, e.g. a store in memory for a
-  test."}
-  library-store
-  (atom nil))
-
-(defn- the-store
-  []
-  (or @library-store
-      (reset! library-store (indexeddb/store shared/store-name))))
-
-(defonce ^{:doc "The replica of the library in this tab, once open-state!
-  has opened it."}
-  the-replica
   (atom nil))
 
 (defn- audio-element
@@ -153,41 +133,33 @@
 (defn- open-state!
   "A promise of the state of the last visit in the page's state, or of a
   fresh one under the id of this browser, which is kept from now on: the
-  library of the store, as the replica that this tab leases, and the
-  titles. A library that this browser kept in localStorage before, but
-  not in the store, is taken over."
+  library of the store, and the titles. A library that this browser kept
+  in localStorage before, but not in the store, is taken over."
   []
   (let [kept (read-state (stored storage-key))
         id   (or (stored device-key)
                  (get-in kept [:library :device])
                  (str (random-uuid)))]
     (store! device-key id)
-    (.then (replica/open! {:state  app
-                           :path   [:library]
-                           :store  (the-store)
-                           :device id
-                           :kind   (library/replica-kind (shared/config))})
-           (fn [r]
-             (reset! the-replica r)
-             (swap! app #(cond-> (assoc % :titles (or (:titles kept) {}))
-                           (and (:library kept) (not (get-in % [:library :stored])))
-                           (update :library library/merge (:library kept))))))))
+    (.then (inspector-library/open! app id)
+           (fn [{:keys [version]}]
+             (swap! app assoc :titles (or (:titles kept) {}))
+             (when (and (:library kept) (nil? version))
+               (inspector-library/change! app #(library/merge % (:library kept))))))))
 
 (defn with-other-tab
   "The page `state` with `other`, the titles that another tab of this
-  browser saved, merged in. The library catches up through the store."
+  browser saved, merged in. The library comes through the store."
   [state other]
   (update state :titles merge (:titles other)))
 
 (defn with-synced
-  "The page `state` with `library`, the result of a sync, merged into its
-  own, and the time and report of the sync under :synced for the queue
-  page."
+  "The page `state` once a sync gave `library`, with the time and report
+  of the sync under :synced for the queue page."
   [state library]
-  (-> state
-      (update :library library/merge library)
-      (assoc :syncing? false
-             :synced   (select-keys (:sync library) [:at :report]))))
+  (assoc state
+         :syncing? false
+         :synced   (select-keys (:sync library) [:at :report])))
 
 (defn- save-titles!
   "Keep the titles of the page `state` in localStorage."
@@ -195,14 +167,13 @@
   (store! storage-key (pr-str (select-keys state [:titles]))))
 
 (defn- save-library!
-  "Save the library of the page to the store. The saves asked for while
-  one waits its turn are that one, since the library changes every few
-  seconds while an episode plays."
+  "A promise of the save of the changes to the library of the page. The
+  saves asked for while one waits its turn are that one, since the
+  library changes every few seconds while an episode plays."
   []
-  (some-> @the-replica
-          replica/save!
-          (.then #(when (:error %)
-                    (js/console.error "The library wasn't saved" (clj->js %))))))
+  (.then (inspector-library/save! app)
+         #(when (:error %)
+            (js/console.error "The library wasn't saved" (clj->js %)))))
 
 (defn- backend
   "The inspector's WebDAV folder on this origin, as a backend."
@@ -305,17 +276,25 @@
   sync of this tab before it is done, and show the result on the queue
   page.
 
-  The tabs of this browser are replicas of one device, so each step
-  starts from what the other tabs saved, and like-minded runs one step of
-  the device at a time."
+  The tabs of this browser write as one device, so a step starts from the
+  library in the store, once this tab has read what the others wrote and
+  written its own changes, and like-minded runs one step of the device
+  at a time. The other devices
+  get only what the store holds, never a change that a retry could stamp
+  anew, since the registry of the profile needs a device's stamps in
+  order. What the step gives is merged into the library as one more
+  change."
   ([]
    (sync! (backends)))
   ([backends]
    (swap! app assoc :syncing? true)
    (let [step (fn []
-                (-> (replica/catch-up! @the-replica)
-                    (.then #(library/sync! (:library @app) backends))
-                    (.then #(swap! app with-synced %))))]
+                (-> (inspector-library/caught-up! app)
+                    (.then #(inspector-library/save! app))
+                    (.then #(library/sync! (:library @inspector-library/known) backends))
+                    (.then (fn [synced]
+                             (inspector-library/change! app #(library/merge % synced))
+                             (swap! app with-synced synced)))))]
      (-> (swap! last-sync #(.then % step step))
          (.catch (fn [e]
                    (let [message "The sync through the inspector failed."
@@ -441,7 +420,8 @@
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
   [event]
-  (let [state (swap! app update :library library/step event)]
+  (let [at    (time/now)
+        state (inspector-library/change! app #(library/step % event {:at at}))]
     (perform! (get-in state [:library :effects]))))
 
 (defonce ^{:doc "The function that hands the Media Session back to the
@@ -523,7 +503,9 @@
   "Apply `f`, a function of profile, to the profile of the library,
   with `args` and the time."
   [f & args]
-  (swap! app update :library #(apply library/update-profile % f args)))
+  (let [at (time/now)]
+    (inspector-library/change! app
+                               #(update % :profile (fn [p] (apply f p (concat args [at])))))))
 
 (defn- keep-rate
   "The `profile` with the playback rate `x` kept for the show `feed-guid`
@@ -740,7 +722,7 @@
     :play          (play! (first args))
     :skip          (let [[id amount] args] (skip! id amount))
     :ended         (dispatch! event)
-    :sleep         (swap! app update :library timed (first args))
+    :sleep         (inspector-library/change! app #(timed % (first args)))
     :play-next     (operate! profile.queue/play-next (first args))
     :dequeue       (operate! profile.queue/dequeue (first args))
     :prefer        (when-let [n (parse-long (.. e -target -value))]
@@ -990,8 +972,8 @@
                      (fn [_] (swap-content! js/location.href false))))
 
 (defn- listen-to-other-tabs!
-  "Merge in the titles another tab keeps. The replica catches up with the
-  library that the other tabs and the worker save on its own."
+  "Merge in the titles another tab keeps. The library that the other tabs
+  write comes through inspector.library."
   []
   (.addEventListener js/window "storage"
                      (fn [e]
@@ -1024,7 +1006,9 @@
            (worker/client "/js/worker.js" (shared/config)))))
 
 (defn- refresh-when-due!
-  "Ask the worker to refresh the feeds, once the library has one due."
+  "Ask the worker to fetch the feeds, once the library has one due, and
+  apply what it found to the library. The changes that wait are written
+  first, so that the worker finds the documents of the feeds."
   []
   (when-let [client (when (and (not (:refreshing? @app))
                                (some-> (library/next-refresh (:library @app))
@@ -1032,8 +1016,12 @@
                                        (<= (js/Date.now))))
                       @refresher)]
     (swap! app assoc :refreshing? true)
-    (-> (worker/refresh! client @the-replica {})
-        (.then #(swap! app refreshed (:error %)))
+    (-> (save-library!)
+        (.then #(worker/fetch-due! client (library/due (:library @app)) {} nil))
+        (.then (fn [{:keys [found]}]
+                 (when found
+                   (inspector-library/change! app #(library/refreshed % found)))
+                 (swap! app refreshed nil)))
         (.catch #(swap! app refreshed %)))))
 
 (defn- refresh-on-its-own!
@@ -1065,9 +1053,7 @@
      (swap! app assoc :can-pick? (exists? js/showDirectoryPicker))
      (add-watch app ::render
                 (fn [_ _ old new]
-                  ;; what a save notes of the store is no change to save
-                  (when (not= (dissoc (:library old) :stored)
-                              (dissoc (:library new) :stored))
+                  (when-not (identical? (:library old) (:library new))
                     (save-library!))
                   (when (not= (:titles old) (:titles new))
                     (save-titles! new))

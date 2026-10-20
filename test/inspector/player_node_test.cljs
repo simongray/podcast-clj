@@ -1,20 +1,22 @@
 (ns inspector.player-node-test
   "The browser player's shell on a DOM: mounted on jsdom under Node, it
   loads an episode the URL asks for, renders the bar and the queue page,
-  keeps the library in its store and the titles in localStorage, catches
-  up with what another tab saves, and a click on a skip button moves the
-  audio element. Node only: the browser build runs the views' tests."
+  keeps the library in its store and the titles in localStorage, reads
+  what another tab writes, and a click on a skip button moves the audio
+  element. Node only: the browser build runs the views' tests."
   (:require ["jsdom" :as jsdom]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing async]]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.transit :as transit]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.profile.marks :as profile.marks]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
-            [inspector.player :as shell]))
+            [inspector.library :as inspector-library]
+            [inspector.player :as shell]
+            [inspector.shared :as shared]))
 
 (def page-html
   "The inspector's page skeleton the player mounts into."
@@ -70,10 +72,11 @@
       (is (some? audio))
       (is (= "https://x/a.mp3" (.-src audio)))
       (is (= "/queue" (.-pathname js/location)) "the add parameters are gone from the URL"))
-    (testing "the library is kept in the store as a replica of this browser, with the episode as a remote item for the other devices, and the titles in localStorage"
+    (testing "the library is kept in the store, with the episode as a remote item for the other devices, and the titles in localStorage"
       (is (str/includes? (str (.getItem js/localStorage shell/storage-key)) "\"a\""))
       (is (some? ((:fetch s) "library.transit.json" {})))
-      (is (library/shared? (:library @shell/app)))
+      (is (= (:version @inspector-library/known) (:version ((:fetch s) "library.transit.json" {})))
+          "as this tab last wrote it")
       (is (= "https://x/rss"
              (:feed-url (get (profile/remote-items (get-in @shell/app [:library :profile])) ["feed" "a"]))))
       (is (nil? (profile/problem (get-in @shell/app [:library :profile])))))
@@ -96,25 +99,25 @@
       (is (string? (get-in @shell/app [:library :profile :devices (.getItem js/localStorage shell/device-key) :name]))))))
 
 (defn- other-tab!
-  "A promise of the tests of what another tab does: a replica of its own
-  that saves into the store `s` and tells on the channel, and keeps its
-  titles in localStorage."
+  "A promise of the tests of what another tab does: it changes the library
+  in the store `s` as the player does, tells the tabs on their channel,
+  and keeps its titles in localStorage."
   [s]
   (let [bar     (js/document.getElementById "player-bar")
         app     (js/document.getElementById "app")
         device  (get-in @shell/app [:library :device])
-        channel (replica/channel (replica/channel-name s))
+        channel (js/BroadcastChannel. shared/store-name)
         titles  {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}]
     (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                    #js {:key shell/storage-key :newValue (pr-str {:titles titles})}))
-    (-> (library/restore! (library/make device {:replica "9" :config {:codec transit/codec}}) s)
-        (.then #(library/save! (library/update-profile % profile.queue/enqueue ["feed" "b"]) s))
-        (.then (fn [_]
-                 (replica/announce! channel {:saved "memory"})
+    (-> (library/read! (library/make device {:config {:codec transit/codec}}) s)
+        (.then #(inspector-library/durable-swap! s % (fn [l] (library/update-profile l profile.queue/enqueue ["feed" "b"]))))
+        (.then (fn [{:keys [version]}]
+                 (.postMessage channel (pr-str {:version version}))
                  (later 100)))
         (.then (fn []
-                 (replica/close! channel)
-                 (testing "what another tab saves is caught up with"
+                 (.close channel)
+                 (testing "what another tab writes is read"
                    (is (str/includes? (.-textContent app) "From the other tab"))
                    (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on"))
                  (testing "a click on Play now makes a queued episode the current one"
@@ -130,7 +133,7 @@
     ;; reaches the folder of an inspector running on this machine
     (install-dom! "http://localhost:1/queue?add=https%3A%2F%2Fx%2Frss&guid=a&mode=next")
     (let [s (store/memory)]
-      (reset! shell/library-store s)
+      (reset! inspector-library/library-store s)
       (-> (shell/init)
           (.then #(later 100))
           (.then #(mounted s))
@@ -152,9 +155,32 @@
       (let [merged (shell/with-other-tab mine other)]
         (is (= [a] (profile.queue/queue (get-in merged [:library :profile]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
-    (testing "a sync step merges its result into the page's library, and gives the state of the step"
+    (testing "a sync step gives the state of the step"
       (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
-        (is (= [a b] (profile.queue/queue (get-in synced [:library :profile]))) "what this tab did meanwhile stays")
-        (is (= {:at (t 40) :report []} (get-in synced [:library :sync])))
+        (is (= [a] (profile.queue/queue (get-in synced [:library :profile]))) "and its library comes as a change")
         (is (false? (:syncing? synced)))
         (is (= {:at (t 40) :report []} (:synced synced)))))))
+
+(deftest a-change-written-after-another-tab
+  (async done
+    (let [s     (store/memory)
+          id    ["feed" "a"]
+          lib   (library/make "browser" {:config {:codec transit/codec}})
+          known (atom nil)]
+      (-> (library/write! lib s {:if-version nil})
+          (.then #(reset! known {:library lib :version (:version %)}))
+          ;; another tab writes first, on the version that both read
+          (.then #(library/write! (library/update-profile lib profile.queue/enqueue id)
+                                  s
+                                  {:if-version (:version @known) :before lib}))
+          (.then #(inspector-library/durable-swap! s @known (fn [l] (library/update-profile l profile.marks/star id))))
+          (.then (fn [{written :library}]
+                   (testing "a change that another tab's write refused is applied again to what it wrote"
+                     (is (= [id] (profile.queue/queue (:profile written))))
+                     (is (= [id] (profile.marks/starred (:profile written)))))
+                   (library/read! lib s)))
+          (.then (fn [{read :library}]
+                   (is (= [id] (profile.queue/queue (:profile read))))
+                   (is (= [id] (profile.marks/starred (:profile read))) "and both are in the store")))
+          (.catch #(is false (str %)))
+          (.finally done)))))
