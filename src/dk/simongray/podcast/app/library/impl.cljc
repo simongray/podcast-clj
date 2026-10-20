@@ -8,6 +8,7 @@
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.analysis :as analysis]
             [dk.simongray.drop-in-search.ciff :as ciff]
+            [dk.simongray.drop-in-search.segment :as segment]
             [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds :as feeds]
@@ -309,15 +310,29 @@
                            last-modified (assoc :last-modified last-modified)
                            credentials   (assoc :credentials credentials)))))
 
-(defn refresh-lists!
-  "Fetch the lists of `library` that are due at `at` with `opts`, and
-  apply them, in a future or a promise. The result is a map of the
-  :library and the :report."
+(defn due-lists
+  "The entries of the followed lists of `library` that are due at `at`,
+  by URL, or none when the :online? of `opts` is false."
   [library at opts]
-  (let [fetch! (fn [url]
-                 (let [entry (get-in library [:fetched-lists url])]
-                   (async/then (fetch-list! url entry opts) #(vector url %))))
-        apply1 (fn [{:keys [library] :as acc} [url fetched]]
+  (if (false? (:online? opts))
+    {}
+    (select-keys (:fetched-lists library)
+                 (feeds/due (:fetched-lists library) at))))
+
+(defn fetch-lists!
+  "Fetch the lists of the `entries`, by URL, with `opts` and the ETag and
+  Last-Modified of each, in a future or a promise of a vector of pairs of
+  a URL and what the fetch gave."
+  [entries opts]
+  (async/all (fn [[url entry]]
+               (async/then (fetch-list! url entry opts) #(vector url %)))
+             entries))
+
+(defn lists-applied
+  "The `library` with the `results` of fetch-lists! applied at `at`, with
+  the :list-seconds of `opts`, as a map of the :library and the :report."
+  [library results at opts]
+  (let [apply1 (fn [{:keys [library] :as acc} [url fetched]]
                  (let [{:keys [status list not-before error]} fetched
                        seconds (:list-seconds opts)
                        later   (time/latest (time/later at seconds)
@@ -337,11 +352,15 @@
                      :else
                      (->> (listed library url list at seconds fetched)
                           (assoc acc :library)))))]
-    (async/then (async/all fetch! (if (false? (:online? opts))
-                                    []
-                                    (feeds/due (:fetched-lists library) at)))
-                (fn [results]
-                  (reduce apply1 {:library library :report []} results)))))
+    (reduce apply1 {:library library :report []} results)))
+
+(defn refresh-lists!
+  "Fetch the lists of `library` that are due at `at` with `opts`, and
+  apply them, in a future or a promise. The result is a map of the
+  :library and the :report."
+  [library at opts]
+  (async/then (fetch-lists! (due-lists library at opts) opts)
+              #(lists-applied library % at opts)))
 
 (defn offline-lists
   "The `library` with the followed lists of `before` whose fetch failed
@@ -360,7 +379,10 @@
   "The feeds of the live subscriptions and remote items of `library` that
   it has no feed of yet, or holds for remote items alone but without an
   item that one names, e.g. one that came by sync, as feed entries to
-  fetch whole. A subscription names the URL before a remote item does."
+  fetch whole. A subscription names the URL before a remote item does.
+
+  A feed that was never fetched keeps the failures of its fetches and
+  when it's due again, which its entry holds."
   [library]
   (let [{:keys [profile feeds]} library
         lacking? (fn [feed-guid]
@@ -372,10 +394,15 @@
                          (and (alone? library feed-guid)
                               (not-every? items
                                           (remote-guids profile feed-guid))))))
+        failed  (fn [feed-guid]
+                  (let [entry (get feeds feed-guid)]
+                    (when-not (:feed entry)
+                      (select-keys entry [:failures :next-check]))))
         remote  (for [[[feed-guid] {:keys [feed-url]}]
                       (profile/remote-items profile)
                       :when (lacking? feed-guid)]
-                  [feed-guid {:url (get-in feeds [feed-guid :url] feed-url)}])
+                  [feed-guid (into {:url (get-in feeds [feed-guid :url] feed-url)}
+                                   (failed feed-guid))])
         subs    (for [[feed-guid {:keys [url]}] (profile/subscriptions profile)
                       :when (and url (not (contains? feeds feed-guid)))]
                   [feed-guid {:url url}])]
@@ -464,10 +491,11 @@
   A feed fetched for the first time is that of a new subscription, so its
   episodes aren't new ones, and neither are those of a feed of remote
   items. A feed that's still not fetched is left out, and fetched next
-  time. A feed that isn't loaded stays in its document."
+  time, but for one whose fetch failed, which keeps its failures and when
+  it's due again. A feed that isn't loaded stays in its document."
   [library {:keys [feeds changed moved] :as result} at opts]
   (let [before   (:feeds library)
-        kept?    #(or (:feed %) (unloaded? %))
+        kept?    #(or (:feed %) (unloaded? %) (:failures %))
         library  (assoc library :feeds (into {} (filter (comp kept? val))
                                              feeds))
         noted    (fn [acc feed-guid]
@@ -1012,7 +1040,7 @@
               (remove feeds indexed))
       (reduce reindexed library (remove indexed feeds)))))
 
-(defn- read-map
+(defn read-map
   "The map that the :body of `document` holds, as text or as the bytes of
   UTF-8, decoded with `codec`, or nil when it doesn't read as one."
   [{:keys [body] :as document} codec]
@@ -1051,28 +1079,19 @@
         (recur (assoc ((migrations v) s) :version (inc v)))
         s))))
 
-(defn with-saved
-  "The `library` with the parts that `keys` names of the saved library, the
-  :value of the `attempt` to fetch its document `name`, brought up to this
-  version, and the report of what didn't read, as a pair. The document is
-  read with the codec of the library, or EDN's, by its extension.
-
-  A saved library of a newer version leaves the library as it is, and a
-  saved profile that breaks the rules of profile/problem leaves its
-  profile, with :library/newer-format or :library/malformed-profile in the
-  report."
-  [library keys name {:keys [value error] :as attempt}]
+(defn with-saved-map
+  "The `library` with the parts that `keys` names of `saved`, the map that
+  the document `name` of a saved library holds, or nil when it doesn't
+  read as one, brought up to this version, and the report of what didn't
+  read, as a pair, as with-saved gives them."
+  [library keys name saved]
   (let [unreadable #(diagnostics/describe
                      {:id :library/unreadable-document :name name
                       :reason %})
-        saved      (when-not error
-                     (read-map value (codec-of (codec library {}) name)))
         v          (:version saved 1)
         problem    (when (some #{:profile} keys)
                      (some-> (:profile saved) profile/problem))]
     (cond
-      error              [library [(unreadable (async/explain error))]]
-      (nil? value)       [library []]
       (nil? saved)       [library [(unreadable "It doesn't read as a map")]]
       (not (pos-int? v)) [library [(unreadable "Its version is no number")]]
 
@@ -1096,57 +1115,123 @@
          (assoc-in [:profile :replica] (get-in library [:profile :replica])))
        []])))
 
+(defn with-saved
+  "The `library` with the parts that `keys` names of the saved library, the
+  :value of the `attempt` to fetch its document `name`, brought up to this
+  version, and the report of what didn't read, as a pair. The document is
+  read with the codec of the library, or EDN's, by its extension.
+
+  A saved library of a newer version leaves the library as it is, and a
+  saved profile that breaks the rules of profile/problem leaves its
+  profile, with :library/newer-format or :library/malformed-profile in the
+  report."
+  [library keys name {:keys [value error] :as attempt}]
+  (cond
+    error        [library [(diagnostics/describe
+                            {:id     :library/unreadable-document
+                             :name   name
+                             :reason (async/explain error)})]]
+    (nil? value) [library []]
+    :else        (with-saved-map library keys name
+                   (read-map value (codec-of (codec library {}) name)))))
+
+(defn segment-names
+  "The names of the documents of the segments of the search `index`."
+  [index]
+  (mapv segment/segment-name (:segments (search/restore index))))
+
+(defn index-files
+  "The files of the search `index` that a store with the documents of the
+  `names` lacks, as maps of :name and :body: the segments that it doesn't
+  hold, and the manifest last, as ciff/plan gives them."
+  [index names]
+  (:put (ciff/plan index names)))
+
+(defn manifest
+  "The manifest of the search `index`, as the text that index-files gives
+  for it."
+  [index]
+  (:body (peek (index-files index (segment-names index)))))
+
+(defn manifest-segments
+  "The names of the segments that the `manifest` of a search index lists,
+  as text or the bytes of UTF-8, or none when it doesn't read."
+  [manifest]
+  (let [m (try
+            (edn/read-string (if (string? manifest) manifest (bytes/decode manifest)))
+            (catch #?(:clj Exception :cljs :default) _
+              nil))]
+    (if (and (map? m) (sequential? (:segments m)))
+      (into [] (keep :name) (:segments m))
+      [])))
+
+(defn index-document?
+  "Whether `name` is that of a document of a search index: neither the
+  library's own nor one of a feed."
+  [name]
+  (not (or (library-document? name) (feed-document? name))))
+
+(defn read-feed
+  "What the `attempt` to fetch the `document` of a feed read, with the
+  `codec` of a library or EDN's, by its extension: a map of the :feed and
+  its :retained facts, or of the :reason that it doesn't read."
+  [codec document {:keys [value error]}]
+  (let [{:keys [feed retained]} (when-not error
+                                  (read-map value (codec-of codec document)))]
+    (cond
+      (map? feed)  (cond-> {:feed feed}
+                     (map? retained) (assoc :retained retained))
+      error        {:reason (async/explain error)}
+      (nil? value) {:reason "It isn't in the store"}
+      :else        {:reason "It doesn't read as a feed"})))
+
+(defn with-read-feeds
+  "The `library` and its `report`, a pair, with each of the `reads`,
+  triples of a feed guid, the name of its document and what read-feed gave
+  for it, in the entry of its feed. Each feed has its key, as
+  guid/with-key gives it.
+
+  An entry whose document didn't read keeps only its URL, so that the
+  next refresh fetches it again, with :library/unreadable-document in the
+  report."
+  [[library report] reads]
+  (let [applied (fn [[library report] [feed-guid document read]]
+                  (if (:feed read)
+                    [(update-in library [:feeds feed-guid]
+                                #(-> (clojure.core/merge % read)
+                                     (dissoc :document)))
+                     report]
+                    [(update-in library [:feeds feed-guid] select-keys [:url])
+                     (conj report (diagnostics/describe
+                                   {:id        :library/unreadable-document
+                                    :name      document
+                                    :feed-guid feed-guid
+                                    :reason    (:reason read)}))]))
+        ;; a feed keyed already stays as it is, e.g. one kept in memory
+        keyed   (fn [[feed-guid {:keys [feed] :as entry}]]
+                  [feed-guid (cond-> entry
+                               (and feed (not= feed-guid (::guid/key (meta feed))))
+                               (update :feed guid/with-key feed-guid))])
+        [library report] (reduce applied [library report] reads)]
+    [(update library :feeds #(into {} (map keyed) %))
+     report]))
+
 (defn with-feeds
   "The `library` and its `report`, a pair, with the feed and the retained
   facts of each feeds entry that names a document read from `store`, of
-  the feeds that `wanted?` holds for, in a future or a promise. Each feed
-  has its key, as guid/with-key gives it.
-
-  An entry whose document is missing or doesn't read keeps only its URL,
-  so that the next refresh fetches it again, with
-  :library/unreadable-document in the report. Each document is read with
-  the codec of the library, or EDN's, by its extension."
+  the feeds that `wanted?` holds for, in a future or a promise, as
+  with-read-feeds has them."
   [[library report] store wanted?]
   (let [outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
                        :when (and (unloaded? entry) (wanted? feed-guid))]
                    [feed-guid document])
         own      (codec library {})
-        loaded   (fn [document {:keys [value error]}]
-                   (let [{:keys [feed retained]}
-                         (when-not error
-                           (read-map value (codec-of own document)))]
-                     (cond
-                       (map? feed)  (cond-> {:feed feed}
-                                      (map? retained) (assoc :retained
-                                                             retained))
-                       error        {:reason (async/explain error)}
-                       (nil? value) {:reason "It isn't in the store"}
-                       :else        {:reason "It doesn't read as a feed"})))
         fetch!   (fn [[feed-guid document]]
                    (async/then (async/attempt #((:fetch store) document {}))
-                               #(vector feed-guid document (loaded document %))))
-        applied  (fn [[library report] [feed-guid document read]]
-                   (if (:feed read)
-                     [(update-in library [:feeds feed-guid]
-                                 #(-> (clojure.core/merge % read)
-                                      (dissoc :document)))
-                      report]
-                     [(update-in library [:feeds feed-guid] select-keys [:url])
-                      (conj report (diagnostics/describe
-                                    {:id        :library/unreadable-document
-                                     :name      document
-                                     :feed-guid feed-guid
-                                     :reason    (:reason read)}))]))
-        keyed    (fn [[feed-guid entry]]
-                   [feed-guid (cond-> entry
-                                (:feed entry)
-                                (update :feed guid/with-key feed-guid))])]
+                               #(vector feed-guid document
+                                        (read-feed own document %))))]
     (async/then (async/all fetch! outlined)
-                (fn [loaded]
-                  (let [[library report] (reduce applied [library report]
-                                                 loaded)]
-                    [(update library :feeds #(into {} (map keyed) %))
-                     report])))))
+                #(with-read-feeds [library report] %))))
 
 (defn with-index
   "The `library` and its `report`, a pair, with the search index read from

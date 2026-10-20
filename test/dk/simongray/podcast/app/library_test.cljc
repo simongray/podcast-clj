@@ -925,7 +925,9 @@
        (async/then (library/refresh! lib {:at now :fetch (fn [u _] {:status 503 :url u})})
                    (fn [{{:keys [report]} :refresh :as lib'}]
                      (is (= [[:fetch/status 503 of]] (map (juxt :id :status :feed-guid) report)))
-                     (is (= {} (:feeds lib')) "a feed still not fetched is left out, to fetch next time"))))
+                     (is (= {of {:url other-url :failures 1}}
+                            (update-vals (:feeds lib') #(select-keys % [:url :failures])))
+                         "a feed still not fetched keeps its failure, to fetch at its next check"))))
      (fn []
        (async/then (library/refresh! lib {:at    now
                                           :fetch (fn [u _] {:status 200 :url u :feed other :permanent-url there})})
@@ -1501,6 +1503,194 @@
                         (is (= (:feeds library) (:feeds lib)) "read back from Transit")
                         (is (= (:feed (get-in in-transit [:feeds guid]))
                                (:feed (transit/read-str (:body (get @documents feed-name)))))))))))
+
+(defn- found-ids
+  "The ids of the episodes that a search of `lib` for \"future\" finds."
+  [lib]
+  (mapv :id (library/search lib "future")))
+
+(defn- made
+  "A new library of the phone in Transit, on the test's clock."
+  []
+  (library/make "phone" {:config {:now-fn (constantly now) :codec transit/codec}}))
+
+(def transit-library
+  "The library in Transit, as a web app keeps it."
+  (assoc-in library [:config :codec] transit/codec))
+
+(defn- feed-document
+  "The name of the document in Transit of the feed of the show, as it was
+  `changed-at`."
+  [changed-at]
+  (library.impl/document-name guid changed-at transit/codec))
+
+(deftest a-library-in-documents
+  (let [docs     (library/documents transit-library)
+        own      (get docs "library.transit.json")
+        lib      (library/from-documents (made) docs)]
+    (is (= #{"library.transit.json" (feed-document (get-in library [:feeds guid :changed-at]))}
+           (set (remove #(re-find #"\.ciff$" %) (keys docs))))
+        "its own, one for each feed and the segments of the index")
+    (is (string? (:index (transit/read-str own))) "the manifest of the index in its own document")
+    (is (= (set (keys docs)) (library/document-names transit-library)))
+    (is (= [] (restored-report lib)))
+    (is (= (:profile library) (:profile lib)))
+    (is (= (:feeds library) (:feeds lib)))
+    (is (= (found-ids library) (found-ids lib)) "the index read back")
+    (is (= ["library.transit.json"] (keys (library/documents transit-library {:except (keys docs)})))
+        "and nothing that a store holds already, but the library's own")
+    (let [again (library/from-documents transit-library {"library.transit.json" own})]
+      (is (identical? (get-in library [:feeds guid :feed]) (get-in again [:feeds guid :feed]))
+          "a feed held in memory with the same document stays as it is")
+      (is (identical? (:index library) (:index again)) "and so does the index"))))
+
+(deftest a-library-written-and-read
+  (let [documents (atom {})
+        s         (store/memory documents)
+        read      (atom nil)
+        later     #inst "2026-10-01T12:00:00Z"
+        changed   (-> transit-library
+                      (assoc-in [:feeds guid :changed-at] later)
+                      (update-in [:feeds guid :feed] assoc :rss/title "Renamed"))
+        before    (feed-document (get-in library [:feeds guid :changed-at]))
+        after     (feed-document later)]
+    (run #(async/then (library/read! (made) s)
+                      (fn [{:keys [version] lib :library}]
+                        (is (nil? version) "an empty store")
+                        (is (= (:profile (made)) (:profile lib)))))
+         #(async/then (library/write! transit-library s {:if-version nil})
+                      (fn [{:keys [version put delete]}]
+                        (is (= "1" version))
+                        (is (= "library.transit.json" (peek put)) "the library's own document last")
+                        (is (= [] delete))))
+         #(async/then (library/write! transit-library s {:if-version nil})
+                      (fn [{:keys [conflict?]}]
+                        (is conflict? "not when there was to be none yet")))
+         #(async/then (library/read! (made) s)
+                      (fn [{:keys [version] lib :library :as r}]
+                        (reset! read r)
+                        (is (= "1" version))
+                        (is (= [] (restored-report lib)))
+                        (is (= (:profile library) (:profile lib)))
+                        (is (= (:feeds library) (:feeds lib)))
+                        (is (= (found-ids library) (found-ids lib)))))
+         #(async/then (library/write! changed s {:if-version "1" :before (:library @read)})
+                      (fn [{:keys [version put delete]}]
+                        (is (= "2" version))
+                        (is (= [after "library.transit.json"] put) "the feed that changed, and the library")
+                        (is (= [before] delete) "and the document of the feed before it")))
+         #(async/then (library/write! transit-library s {:if-version "1"})
+                      (fn [{:keys [conflict?]}]
+                        (is conflict? "not over a version that another wrote over")))
+         #(async/then (library/read! (:library @read) s)
+                      (fn [{:keys [version] lib :library}]
+                        (is (= "2" version))
+                        (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title]))
+                            "the feed that changed, read anew")))
+         #(do (swap! documents dissoc after)
+              (async/then (library/read! (made) s)
+                          (fn [{lib :library}]
+                            (is (= [[:library/unreadable-document after]]
+                                   (map (juxt :id :name) (restored-report lib))))
+                            (is (= {:url url} (get-in lib [:feeds guid]))
+                                "a feed whose document is gone, to fetch again")))))))
+
+(deftest a-library-that-save-wrote
+  (let [documents (atom {})
+        s         (store/memory documents)
+        read      (atom nil)]
+    (run #(library/save! transit-library s)
+         #(async/then (library/read! (made) s)
+                      (fn [{lib :library :as r}]
+                        (reset! read r)
+                        (is (= [] (restored-report lib)))
+                        (is (= (:profile library) (:profile lib)))
+                        (is (= (:feeds library) (:feeds lib)) "a library that save! wrote")
+                        (is (= (found-ids library) (found-ids lib)) "with the index of index.edn")))
+         #(async/then (library/write! (:library @read) s {:if-version (:version @read)
+                                                          :before     (:library @read)})
+                      (fn [{:keys [put delete]}]
+                        (is (= ["library.transit.json"] put))
+                        (is (= ["index.edn"] delete)
+                            "and the manifest of the index now in its own document")))
+         #(async/then (library/read! (made) s)
+                      (fn [{lib :library}]
+                        (is (= [] (restored-report lib)))
+                        (is (= (:profile library) (:profile lib)))
+                        (is (= (:feeds library) (:feeds lib)) "read back from Transit")
+                        (is (= (found-ids library) (found-ids lib))))))))
+
+(deftest a-refresh-in-parts
+  (let [s     (store/memory)
+        later (at 86400)
+        fetch (fn [u _] {:status 200 :url u :feed newer :etag "\"v2\""})
+        found (atom nil)]
+    (run #(library/write! transit-library s {:if-version nil})
+         #(async/then (library/fetch-due! (library/due transit-library {:at later}) s
+                                          {:fetch fetch :codec transit/codec})
+                      (fn [f]
+                        (reset! found f)
+                        (is (= [guid] (:changed f)))
+                        (is (= [(feed-document later)] (keys (:documents f)))
+                            "with the document of the feed that changed")
+                        (is (nil? (get-in f [:feeds guid :feed])) "which its entry names")))
+         #(async/then ((:list s))
+                      (fn [listed]
+                        (is (some #{(feed-document later)} (map :name listed))
+                            "and which it put")))
+         #(async/then (library/refresh! transit-library {:at later :fetch fetch})
+                      (fn [whole]
+                        (let [parts (library/refreshed transit-library @found {:at later})
+                              gone  (library/unsubscribe transit-library guid)]
+                          (is (= (:profile whole) (:profile parts)) "as refresh! has it")
+                          (is (= (:feeds whole) (:feeds parts)))
+                          (is (= (:added (:refresh whole)) (:added (:refresh parts))))
+                          (is (= (found-ids whole) (found-ids parts)))
+                          (is (= (:feeds gone) (:feeds (library/refreshed gone @found {:at later})))
+                              "but a feed left meanwhile stays out")))))))
+
+(deftest a-first-fetch-that-failed-in-parts
+  (let [s     (store/memory)
+        lib   (library/subscribe (made) other-url)
+        of    (feed.guid/feed-guid nil other-url)
+        found (atom nil)]
+    (run #(async/then (library/fetch-due! (library/due lib {:at now}) s
+                                          {:fetch (fn [u _] {:status 503 :url u})
+                                           :codec transit/codec})
+                      (fn [f] (reset! found f)))
+         #(let [failed (library/refreshed lib @found {:at now})]
+            (is (= 1 (get-in failed [:feeds of :failures])) "a failure that the entry of its feed keeps")
+            (is (= (at 900) (library/next-refresh failed {:at now})) "and the wait after one")
+            (async/then (library/write! failed s {:if-version nil})
+                        (fn [_]
+                          (async/then (library/read! (made) s)
+                                      (fn [{read :library}]
+                                        (is (= (at 900) (library/next-refresh read {:at now}))
+                                            "which a reload keeps")))))))))
+
+(deftest what-a-replica-wrote-reads-the-same
+  (let [s      (store/memory)
+        id     [guid "https://example.com/ep0003"]
+        tab    (-> (library/make "phone" {:replica "1"
+                                          :config  {:now-fn (constantly now) :codec transit/codec}})
+                   (library/subscribe url fresh)
+                   (library/step [:play id] {:at (at 0)})
+                   (library/step [:progress id 100 3600] {:at (at 10)})
+                   (library/step [:progress id 160 3600] {:at (at 70)})
+                   (dissoc :effects))
+        heard  #(profile/listened (:profile %))]
+    (is (= "phone/1" (crdt/author (:profile tab))) "a tab that wrote as a replica")
+    (run #(library/save! tab s)
+         #(async/then (library/read! (made) s)
+                      (fn [{lib :library}]
+                        (is (= (heard tab) (heard lib)) "whose listening still counts")
+                        (is (= "phone" (crdt/author (:profile lib))) "for the device that writes as itself")
+                        (let [more (-> lib
+                                       (library/step [:progress id 200 3600] {:at (at 100)})
+                                       (library/step [:progress id 230 3600] {:at (at 130)}))]
+                          (is (< (get-in (heard lib) [guid "2026-09"])
+                                 (get-in (heard more) [guid "2026-09"]))
+                              "and adds up with what it hears next")))))))
 
 (deftest replicas-that-share-a-store
   (let [s         (store/memory)
