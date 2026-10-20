@@ -55,15 +55,16 @@
 
 (defn ^:no-doc ended
   "The result of a player event for `profile` when the episode `id` ended
-  at `at`, with the sleep timer `sleep` and the :continue-fn and
-  :fallback-fn of the `opts` of step.
+  at `at`, with the sleep timer `sleep` and the :continue-fn and the
+  deprecated :fallback-fn of the `opts` of step.
 
   The episode counts as played and leaves the queue if it was current,
   with the effect [:play next] when another episode is queued. Else, with
   the listener's :continuous?, the next is what :continue-fn gives for the
-  id, and else what :fallback-fn gives, which becomes current. With a
-  sleep timer, one episode less is left to play, and when none is left,
-  the effect is [:stop id] and the timer stops."
+  id. When nothing plays next, the effect is [:nothing-next id], unless
+  the `opts` have a :fallback-fn, whose episode plays and becomes current.
+  With a sleep timer, one episode less is left to play, and when none is
+  left, the effect is [:stop id] and the timer stops."
   [profile id at sleep {:keys [continue-fn fallback-fn]}]
   (let [profile' (profile/mark-played profile id at)
         current? (= id (profile.queue/current profile'))
@@ -78,7 +79,9 @@
       (let [fallback (when (and (not next) fallback-fn)
                        (fallback-fn id))]
         (stepped (cond-> profile' fallback (made-current fallback at))
-                 (if-let [next (or next fallback)] [[:play next]] [])
+                 (if-let [next (or next fallback)]
+                   [[:play next]]
+                   (if fallback-fn [] [[:nothing-next id]]))
                  (cond-> sleep left (assoc :episodes left)))))))
 
 (defn- moved
@@ -118,7 +121,9 @@
   - [:ended id] marks it played and drops it from the queue when it was
     current, with the effect [:play next] when another episode is queued,
     or else with the listener's :continuous?, the one that :continue-fn
-    gives, or else the one that :fallback-fn gives, which becomes current.
+    gives. When nothing plays next, the effect is [:nothing-next id], to
+    which an app can answer with an episode of its own choosing, e.g. a
+    recommendation, played with [:play id].
   - [:play id] makes it current, at the front of the queue.
   - [:next id] skips it: it leaves the queue without counting as played,
     with the effect [:play next] for the first episode left in the queue.
@@ -147,10 +152,11 @@
   - :continue-fn, a function of the id of an episode that ended, which
     gives the episode to play next when none is queued, e.g. the next of
     its show, or nil
-  - :fallback-fn, a function of the id of an episode that ended, which
-    gives the episode to play next when none is queued and :continue-fn
-    gives none, e.g. a recommendation, or nil. The episode becomes current,
-    at the front of the queue, as with [:play id]."
+  - :fallback-fn, deprecated in favour of the effect [:nothing-next id]: a
+    function of the id of an episode that ended, which gives the episode
+    to play next when none is queued and :continue-fn gives none, or nil.
+    That episode becomes current, as with [:play id], and the effects
+    have no [:nothing-next id]."
   ([profile event at]
    (step profile event at {}))
   ([profile [kind id & args :as event] at

@@ -1166,7 +1166,8 @@
         (is (= 2 (count order)))
         (is (= [[:play (first order)]] (:effects (library/step on [:ended id]))))
         (is (= [[:play (second order)]] (:effects (library/step played [:ended id]))) "but for one played already")
-        (is (= [] (:effects (library/step stepped [:ended id]))) "only when the listener wants it")))
+        (is (= [[:nothing-next id]] (:effects (library/step stepped [:ended id])))
+            "only when the listener wants it")))
     (testing "a rewind after a pause"
       (is (= 100 (:position (library/playback stepped id))))
       (is (= 90 (:position (library/playback stepped id {:at (at 7200)})))))
