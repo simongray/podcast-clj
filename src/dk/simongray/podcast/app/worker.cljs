@@ -1,27 +1,27 @@
 (ns dk.simongray.podcast.app.worker
-  "A web worker that refreshes the library and fetches feeds, so that the
-  parsing of a feed never holds up the page, with the functions of the
-  page that ask it.
+  "A web worker that fetches feeds for the page, so that the parsing of a
+  feed never holds up the page, with the functions of the page that ask
+  it.
 
-  In the worker, serve! answers the page. A refresh restores the library
-  from the store that the page shares, refreshes it and saves it as a
-  replica of the device, which tells the page on the channel of the
-  store. A fetch gives back what podcast/fetch! gives, without the :body.
-  One refresh runs at a time across the tabs and workers of the site,
-  through a Web Lock, and the worker of another answers that it's busy.
+  In the worker, serve! answers the page with what it found, as data. For
+  a refresh, that's what library/fetch-due! gives for what library/due
+  says is due: the entries of the feeds that it fetched, and the documents
+  of those that changed, which it puts in the library's store. It writes
+  nothing else, so the page applies what the worker found to its library
+  with library/refreshed. One refresh runs at a time across the tabs and
+  workers of the site, through a Web Lock, and the worker of another
+  answers that it's busy. A fetch gives back what podcast/fetch! gives,
+  without the :body.
 
-  On the page, client starts the worker, and refresh! and fetch! ask it.
-  refresh! saves the replica of like-minded.replica/open! first, catches
-  it up after, and puts in the :refresh, which the store doesn't keep. The answers
-  that hold a feed travel in the codec of the config, so give both sides
-  the codec of dk.simongray.like-minded.transit, since EDN reads slower
-  than the feed parses.
+  On the page, client starts the worker, and fetch-due! and fetch! ask it.
+  The answers that hold a feed travel in the codec of the config, so give
+  both sides the codec of dk.simongray.like-minded.transit, since EDN
+  reads slower than the feed parses.
 
   Build the worker as a module of its own, e.g. with :web-worker true in
   shadow-cljs, whose init calls serve!. A web worker has no DOMParser, so
   give serve! one, e.g. that of @xmldom/xmldom."
   (:require [cljs.reader :as reader]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.library.impl :as library.impl]))
@@ -47,37 +47,15 @@
   [message]
   (js/postMessage (pr-str message)))
 
-(defonce ^{:doc "The lease of the replica of each device that this worker
-  writes as, a promise of what like-minded.replica/lease! gives, by id."}
-  leases
-  (atom {}))
-
-(defn- lease!
-  "A promise of the lease of the replica of `device` that this worker
-  writes as, taken at the first request for it."
-  [device]
-  (or (get @leases device)
-      (get (swap! leases assoc device (replica/lease! device)) device)))
-
-(defn- refreshed!
-  "A promise of the :refresh of the library of `device` in the :store of
-  `served`, refreshed with `opts` and saved, which tells the page on the
-  channel of the config, posting the progress of request `id` as it goes."
-  [{:keys [store config]} id device opts]
-  (.then (lease! device)
-         (fn [{:keys [name]}]
-           (-> (library/restore! (library/make device {:replica name :config config})
-                                 store)
-               (.then (fn [lib]
-                        (library/refresh!
-                         lib
-                         (assoc opts :on-feed-fn
-                                (fn [{:keys [done total]}]
-                                  (post! {:id id :progress {:done done :total total}}))))))
-               (.then (fn [lib]
-                        (.then (library/save! lib store)
-                               (fn [{:keys [error]}]
-                                 {:id id :refresh (:refresh lib) :error error}))))))))
+(defn- found!
+  "A promise of the answer to request `id`: what is `due` found with `opts`
+  in the :store of `served`, with its :config, as library/fetch-due!
+  gives it, posting the progress of each fetch as it goes."
+  [{:keys [store config]} id due opts]
+  (let [progress (fn [{:keys [done total]}]
+                   (post! {:id id :progress {:done done :total total}}))]
+    (.then (library/fetch-due! due store (merge config opts {:on-feed-fn progress}))
+           (fn [found] {:id id :found found}))))
 
 (defn- fetched!
   "A promise of the answer to request `id`: the feed at `url` fetched
@@ -90,12 +68,12 @@
 
 (defn- answer!
   "Answer the `request` of the page through `served`."
-  [served {:keys [id refresh fetch device url opts]}]
+  [served {:keys [id due fetch url opts]}]
   (-> (cond
-        refresh (when-free refresh-lock
-                           #(refreshed! served id device opts)
-                           #(do {:id id :busy? true}))
-        fetch   (fetched! served id url opts))
+        due   (when-free refresh-lock
+                         #(found! served id due opts)
+                         #(js/Promise.resolve {:id id :busy? true}))
+        fetch (fetched! served id url opts))
       (.then post!)
       (.catch (fn [e] (post! {:id id :failed (str e)})))))
 
@@ -113,21 +91,17 @@
   "Answer the requests of the page in this web worker, with the `served`
   map below.
 
-  - :store, the store of the library that the page shares, e.g. of
+  - :store, the store of the library that the page reads, e.g. of
     like-minded.store.indexeddb
   - :config, the config of the library, e.g. with its :send and :codec
   - :dom-parser, a DOMParser class for a worker without one, e.g. that of
     xmldom, which throws on what a browser reports as a parsererror"
-  [{:keys [store dom-parser] :as served}]
+  [{:keys [dom-parser] :as served}]
   (when (and dom-parser (not (exists? js/DOMParser)))
     (set! (.-DOMParser js/globalThis) (throwing dom-parser)))
-  ;; the library's saves tell the replicas of the pages on a channel of the
-  ;; store, as like-minded.replica's do
-  (let [served (assoc-in served [:config :channel]
-                         (replica/channel (replica/channel-name store)))]
-    (set! (.-onmessage js/self)
-          (fn [^js e]
-            (answer! served (reader/read-string (.-data e)))))))
+  (set! (.-onmessage js/self)
+        (fn [^js e]
+          (answer! served (reader/read-string (.-data e))))))
 
 (defn client
   "A web worker of the script at `url`, which serve! answers, for the
@@ -173,34 +147,20 @@
        (swap! pending assoc id {:resolve resolve :reject reject :on-progress on-progress})
        (.postMessage worker (pr-str (assoc request :id id)))))))
 
-(defn refresh!
-  "A promise of the refresh of the library of the `replica` of
-  like-minded.replica/open! in the worker of `client`, with the `opts` of
-  library/refresh! that are data, e.g. :feed-guids and :head-check?,
-  calling `on-progress` with the :done and :total of each fetch that
-  ends.
+(defn fetch-due!
+  "A promise of what the worker of `client` found of what is `due`, as
+  library/due gives it, fetched with the `opts` of library/fetch-due! that
+  are data, e.g. :head-check?, calling `on-progress` with the :done and
+  :total of each fetch that ends.
 
-  It saves the replica first, so that the worker reads what it has, and
-  catches it up with what the worker saved after, with the :refresh put
-  into its library, since next-refresh reads which feeds failed from it.
-  It gives a map of the :refresh and any :error of the worker's save, or
-  of :busy? when another tab or worker is refreshing, whose save the
-  replica catches up with as it's told. It fails when the worker does."
-  ([client replica opts]
-   (refresh! client replica opts nil))
-  ([client {:keys [state path] :as replica} opts on-progress]
-   (-> (replica/save! replica)
-       (.then #(ask! client
-                     {:refresh true
-                      :device  (:device (replica/state-of replica))
-                      :opts    opts}
-                     on-progress))
-       (.then (fn [{:keys [refresh] :as answer}]
-                (.then (replica/catch-up! replica)
-                       (fn [_]
-                         (when refresh
-                           (swap! state update-in path assoc :refresh refresh))
-                         answer)))))))
+  It gives a map of the :found, for library/refreshed, or of :busy? while
+  another tab or worker is refreshing. It fails when the worker does.
+
+      (.then (worker/fetch-due! client (library/due lib) {} nil)
+             #(when-let [found (:found %)]
+                (swap! app update :library library/refreshed found)))"
+  [client due opts on-progress]
+  (ask! client {:due due :opts opts} on-progress))
 
 (defn fetch!
   "A promise of the feed at `url` fetched in the worker of `client`, with
