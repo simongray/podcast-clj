@@ -35,12 +35,16 @@ through the folder:
 
 ```clojure
 (def lib
-  (atom (library/make device-id {:config {:send (proxy/sender "/proxy")}})))
+  (atom (library/make device-id)))
+
+;; for each call that fetches, e.g. library/refresh!
+(def opts
+  {:send (proxy/sender "/proxy")})
 
 (def backends
   [(library/backend (webdav/store (str js/location.origin "/dav/")))])
 
-(.then (library/sync! @lib backends) #(swap! lib library/merge %))
+(.then (library/sync! @lib backends) #(swap! lib library/merge (:library %)))
 ```
 
 Here `proxy` is `dk.simongray.wary-fetch.proxy` of

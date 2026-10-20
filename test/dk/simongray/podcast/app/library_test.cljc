@@ -39,11 +39,18 @@
   [seconds]
   (time/->inst (+ (inst-ms now) (* 1000 seconds))))
 
+(defn- stepped
+  "The library `lib` after the player `event` with `opts`, as library/step
+  gives it."
+  [lib event opts]
+  (:library (library/step lib event opts)))
+
 (defn- restored-report
-  "The report of the last restore of `lib`, without :library/slow-format,
-  which ClojureScript gives a restore of documents in EDN."
-  [lib]
-  (remove #(= :library/slow-format (:id %)) (:report (:restore lib))))
+  "The report of what a restore gave, `restored`, without
+  :library/slow-format, which ClojureScript gives a restore of documents in
+  EDN."
+  [restored]
+  (remove #(= :library/slow-format (:id %)) (:report restored)))
 
 (def url "https://example.com/feed.xml")
 
@@ -79,64 +86,77 @@
                    "</body></opml>")))
 
 (deftest a-slim-library
-  (let [make    (fn [config]
-                  (-> (library/make "phone" {:name "Phone" :config (assoc config :now-fn (constantly now))})
+  (let [make    (fn [opts]
+                  (-> (library/make "phone" {:name "Phone" :config {:now-fn (constantly now)}})
                       (library/follow-list "https://example.org/picks.opml" picks {:title "Picks"})
-                      (library/subscribe url fresh {:auto-queue? true})))
+                      (library/subscribe url fresh (assoc opts :auto-queue? true))))
         fetch   (fn [u _]
                   (case u
                     "https://example.com/feed.xml"  {:status 200 :url u :feed newer :etag "\"v2\""}
                     "https://example.org/other.xml" {:status 200 :url u :feed other}))
         send    (fn [_] {:status 304 :headers {} :body ""})
         entries (fn [lib] (update-vals (:feeds lib) #(dissoc % :feed)))
-        both    (fn [libs opts] (async/all #(library/refresh! % opts) libs))]
-    (is (= (feeds/slim show) (get-in (make {:keep-fn feeds/slim}) [:feeds guid :feed])) "a subscription keeps the slim feed")
+        both    (fn [libs optss]
+                  (async/all (fn [[lib opts]] (library/refresh! lib opts)) (map vector libs optss)))
+        thin    {:keep-fn feeds/slim}]
+    (is (= (feeds/slim show) (get-in (make thin) [:feeds guid :feed])) "a subscription keeps the slim feed")
+    (is (= (profile/settings (:profile (make {})) guid) (profile/settings (:profile (make thin)) guid))
+        "but not as a setting of the subscription")
     (run
      (fn []
-       (async/then (both [(make {}) (make {:keep-fn feeds/slim})] {:at (at 86400) :fetch fetch :send send})
-                   (fn [[full thin]]
-                     (is (= [[guid "new"]] (:added (:refresh thin))) "the new episode, found from the slim feed")
-                     (is (= (:refresh full) (:refresh thin)))
-                     (is (= (:profile full) (:profile thin)) "the episode queued alike")
-                     (is (= (entries full) (entries thin)) "the same ETags and next checks")
-                     (is (= (update-vals (:feeds full) (comp feeds/slim :feed)) (update-vals (:feeds thin) :feed))
-                         "each feed slim, the new subscription's too")
-                     (async/then (both [full thin] {:at (at (* 30 86400)) :fetch (fn [u _] {:status 304 :url u}) :send send})
-                                 (fn [[full thin]]
-                                   (is (= 2 (count (:feeds thin))))
-                                   (is (= (entries full) (entries thin)) "the same next checks after a 304")))))))))
+       (async/then (both [(make {}) (make thin)]
+                         (let [opts {:at (at 86400) :fetch fetch :send send}]
+                           [opts (merge opts thin)]))
+                   (fn [[full slim]]
+                     (is (= [[guid "new"]] (:added slim)) "the new episode, found from the slim feed")
+                     (is (= (dissoc full :library :seconds) (dissoc slim :library :seconds)))
+                     (let [full (:library full) slim (:library slim)]
+                       (is (= (:profile full) (:profile slim)) "the episode queued alike")
+                       (is (= (entries full) (entries slim)) "the same ETags and next checks")
+                       (is (= (update-vals (:feeds full) (comp feeds/slim :feed)) (update-vals (:feeds slim) :feed))
+                           "each feed slim, the new subscription's too")
+                       (async/then (both [full slim]
+                                         (let [opts {:at (at (* 30 86400)) :fetch (fn [u _] {:status 304 :url u}) :send send}]
+                                           [opts (merge opts thin)]))
+                                   (fn [[full slim]]
+                                     (is (= 2 (count (:feeds (:library slim)))))
+                                     (is (= (entries (:library full)) (entries (:library slim)))
+                                         "the same next checks after a 304"))))))))))
 
 (deftest a-fresh-library
   (let [lib (library/make "phone" {:name "Phone" :platform "ios" :at now})]
-    (is (= "phone" (:device lib)))
+    (is (= "phone" (:device (:profile lib))) "the device of its profile")
+    (is (not (contains? lib :device)) "and only there")
     (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:profile lib)) "phone") :updated-at :device)))
     (is (= now (:clock (:profile lib))))
     (is (some? (:index lib)) "an index unless the config says :search? false")
     (is (= {} (:feeds lib)))
-    (is (= library/default-config (:config lib)))
+    (is (= (assoc library/default-config :extension ".edn") (:config lib)) "the config, which holds data alone")
+    (is (= ".transit.json" (:extension (:config (library/make "phone" {:codec transit/codec}))))
+        "and the extension of the codec of its documents")
     (is (nil? (:index (library/make "phone" {:config {:search? false}}))))
     (is (= now (library/next-sync lib {:at now})) "due at once before the first sync")))
 
 (deftest the-clock
-  (let [id      [guid "https://example.com/ep0003"]
-        clock   #(:clock (:profile %))
-        clocked (assoc-in library [:config :now-fn] #(at 60))]
-    (testing "each change is stamped with the time of the clock in the config"
-      (is (= (at 60) (clock (library/unsubscribe clocked guid))))
-      (is (= (at 60) (clock (library/update-profile clocked profile.queue/enqueue [guid "new"]))))
-      (is (= (at 60) (clock (library/update-profile clocked (fn [p t] (profile.marks/star p id t))))) "a series of changes")
-      (is (= (at 60) (library/next-sync clocked)))
-      (is (= 3 (count (library/episodes clocked {:where {:age [0 nil]}}))) "the criteria that need the time"))
+  (let [id    [guid "https://example.com/ep0003"]
+        clock #(:clock (:profile %))
+        opts  {:now-fn #(at 60)}
+        lib   (update library :config dissoc :now-fn)]
+    (testing "each change is stamped with the time of the clock of the options"
+      (is (= (at 60) (clock (library/unsubscribe lib guid opts))))
+      (is (= (at 60) (library/next-sync lib opts)))
+      (is (= 3 (count (library/episodes lib (assoc opts :where {:age [0 nil]})))) "the criteria that need the time"))
     (testing "or with the :at of the options, an instant"
-      (is (= (at 120) (clock (library/unsubscribe clocked guid {:at (at 120)}))))
-      (is (= (library/step clocked [:play id]) (library/step clocked [:play id] {:at (at 60)}))))
-    (testing "and without a clock in the config, that of the platform"
-      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :config dissoc :now-fn) guid)))))
-      (is (= "tablet" (:device (library/make "tablet")))))
+      (is (= (at 120) (clock (library/unsubscribe lib guid {:at (at 120)}))))
+      (is (= (library/step lib [:play id] opts) (library/step lib [:play id] {:at (at 60)}))))
+    (testing "and without a clock, that of the platform"
+      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe lib guid)))))
+      (is (<= (inst-ms now) (inst-ms (clock (library/update-profile lib profile.queue/enqueue [guid "new"])))))
+      (is (= "tablet" (:device (:profile (library/make "tablet"))))))
     (run
      (fn []
-       (async/then (library/sync! clocked [(library/backend (store/memory (atom {})) {:app "test"})])
-                   (fn [lib] (is (= (at 60) (get-in lib [:sync :at])))))))))
+       (async/then (library/sync! lib [(library/backend (store/memory (atom {})) {:app "test"})] opts)
+                   (fn [{:keys [library]}] (is (= (at 60) (get-in library [:sync :at])))))))))
 
 (deftest subscribing
   (testing "the feed, the subscription and its settings"
@@ -272,7 +292,7 @@
               #(async/then (library/restore! (library/make "phone") s)
                            (fn [restored]
                              (is (= [] (restored-report restored)))
-                             (is (= (ids library) (ids restored)))))
+                             (is (= (ids library) (ids (:library restored))))))
               forget!)))))
 
 (defn- show-of
@@ -513,7 +533,7 @@
     (run
      (fn []
        (async/then (library/refresh! lib {:at later :fetch fetch :send send})
-                   (fn [{{:keys [added moved report counts seconds]} :refresh :as lib'}]
+                   (fn [{:keys [added moved report counts seconds] lib' :library}]
                      (testing "a summary of the feeds: the new subscription's and the due one"
                        (is (= {:checked 2 :unchanged 0 :changed 2 :failed 0 :left 0} counts))
                        (is (= 0.0 seconds) "by the clock of the config, which stands still here"))
@@ -544,7 +564,7 @@
        (async/then (library/refresh! lib {:at    later
                                           :fetch (fn [url _] (throw (ex-info "down" {:url url})))
                                           :send  (fn [_] (throw (ex-info "down" {})))})
-                   (fn [{{:keys [added report counts]} :refresh :as lib'}]
+                   (fn [{:keys [added report counts] lib' :library}]
                      (testing "nothing comes: the library stays, and the report says why"
                        (is (= [] added))
                        (is (= {:checked 2 :unchanged 0 :changed 0 :failed 2 :left 0} counts))
@@ -588,10 +608,11 @@
         (run (fn []
                (async/then (async/all [(refresh picky) (refresh broad) (refresh inbox)])
                            (fn [[picky broad inbox]]
-                             (is (= [[guid "new"]] (get-in picky [:refresh :added])) "though it's new")
-                             (is (= [] (profile.queue/queue (:profile picky))))
-                             (is (= [[guid "new"]] (profile.queue/queue (:profile broad))))
-                             (is (= [[[guid "new"]] []] ((juxt profile.queue/inbox profile.queue/queue) (:profile inbox)))
+                             (is (= [[guid "new"]] (:added picky)) "though it's new")
+                             (is (= [] (profile.queue/queue (:profile (:library picky)))))
+                             (is (= [[guid "new"]] (profile.queue/queue (:profile (:library broad)))))
+                             (is (= [[[guid "new"]] []] ((juxt profile.queue/inbox profile.queue/queue)
+                                                         (:profile (:library inbox))))
                                  "or the inbox, where the config's :new-episodes sends them")))))))))
 
 (deftest hidden-episodes-out-of-the-lists
@@ -635,7 +656,7 @@
     (run
      (fn []
        (async/then (library/refresh! lib {:at later :fetch fetch :send unchanged :list-seconds 60 :cadence cadence})
-                   (fn [lib']
+                   (fn [{lib' :library}]
                      (is (= (at (+ 86400 60)) (get-in lib' [:fetched-lists picks-url :next-check])) "the :list-seconds of the call")
                      (is (= (next-of cadence) (get-in lib' [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :next-check]))
                          "the :cadence of the call for the feed of a new subscription"))))
@@ -645,7 +666,7 @@
                                           :fetch          fetch
                                           :send           busy
                                           :credentials-of #(when (= picks-url %) {:username "simon" :password "x"})})
-                   (fn [{{:keys [report]} :refresh :as lib'}]
+                   (fn [{:keys [report] lib' :library}]
                      (is (contains? (:headers (first @sent)) "Authorization") "the credentials of the list")
                      (is (= [[:fetch/status 503]] (map (juxt :id :status) report)))
                      (is (< (inst-ms (time/now)) (inst-ms (get-in lib' [:fetched-lists picks-url :next-check])))
@@ -659,21 +680,22 @@
         opts  {:at later :fetch (fn [u _] (down u)) :send (fn [{:keys [url]}] (down url))}]
     (run
      #(async/then (library/refresh! lib opts)
-                  (fn [lib']
+                  (fn [{lib' :library :keys [report counts] :as refreshed}]
                     (is (= 3 @sent) "the list, the show and the new one from the list, at two hosts")
-                    (is (= [:refresh/offline] (map :id (:report (:refresh lib')))))
+                    (is (= [:refresh/offline] (map :id report)))
                     (is (= (:feeds lib) (:feeds lib')) "no feed counts it as a failure")
                     (is (= (:fetched-lists lib) (:fetched-lists lib')) "nor the list, which stays due")
-                    (is (= {:checked 0 :unchanged 0 :changed 0 :failed 0 :left 2} (:counts (:refresh lib')))
+                    (is (= {:checked 0 :unchanged 0 :changed 0 :failed 0 :left 2} counts)
                         "the show and the new one from the list stay due")
-                    (is (= (at (+ (* 2 86400) 300)) (library/next-refresh lib' {:at later}))
-                        "the next refresh waits a while rather than at once")
-                    (is (= (at (* 3 86400)) (library/next-refresh lib' {:at (at (* 3 86400))})))))
+                    (is (= (at (+ (* 2 86400) 300)) (library/next-refresh lib' {:at later :after refreshed}))
+                        "the next refresh after it waits a while rather than at once")
+                    (is (= later (library/next-refresh lib' {:at later})) "which only that refresh says")
+                    (is (= (at (* 3 86400)) (library/next-refresh lib' {:at (at (* 3 86400)) :after refreshed})))))
      (fn []
        (reset! sent 0)
        (async/then (library/refresh! lib (assoc opts :online? false))
-                   (fn [lib']
-                     (is (= [0 [:refresh/offline]] [@sent (map :id (:report (:refresh lib')))])
+                   (fn [{:keys [report]}]
+                     (is (= [0 [:refresh/offline]] [@sent (map :id report)])
                          "and nothing is fetched when the device knows it's offline")))))))
 
 (deftest when-to-refresh-again
@@ -692,7 +714,7 @@
         fetch (fn [u _] {:status 404 :url u})]
     (is (= later (library/next-refresh lib {:at later})) "due at once")
     (run #(async/then (library/refresh! lib {:at later :fetch fetch})
-                      (fn [lib']
+                      (fn [{lib' :library}]
                         (is (= (at (+ 86400 900))
                                (library/next-refresh lib' {:at later}))
                             "and after a failure, as a feed that failed once"))))))
@@ -703,19 +725,21 @@
         noisy   (library/update-profile library profile/prefer {:notify? true})
         new-one {:id [guid "new"] :title "New one" :published #inst "2026-09-30T00:00:00Z"}]
     (run #(async/then (library/refresh! noisy opts)
-                      (fn [lib]
-                        (let [[found :as all] (library/notifications lib)]
+                      (fn [refreshed]
+                        (let [[found :as all] (library/notifications refreshed)
+                              changed         (fn [f & args]
+                                                (apply update refreshed :library library/update-profile f args))]
                           (is (= 1 (count all)))
                           (is (= [guid "Podcasting 2.0 Namespace Example" [new-one]]
-                                 ((juxt :feed-guid :title :episodes) found))))
-                        (is (= [] (library/notifications (library/update-profile lib profile/configure guid {:notify? false})))
-                            "the show's own setting over the listener's")
-                        (is (= [] (library/notifications (library/update-profile lib profile/mark-played [guid "new"])))
-                            "nor an episode played already")))
+                                 ((juxt :feed-guid :title :episodes) found)))
+                          (is (= [] (library/notifications (changed profile/configure guid {:notify? false})))
+                              "the show's own setting over the listener's")
+                          (is (= [] (library/notifications (changed profile/mark-played [guid "new"])))
+                              "nor an episode played already"))))
          #(async/then (library/refresh! library opts)
-                      (fn [lib]
-                        (is (= [[guid "new"]] (:added (:refresh lib))))
-                        (is (= [] (library/notifications lib)) "silent unless the listener says"))))))
+                      (fn [refreshed]
+                        (is (= [[guid "new"]] (:added refreshed)))
+                        (is (= [] (library/notifications refreshed)) "silent unless the listener says"))))))
 
 (deftest pushes-from-a-websub-hub
   (let [hubs     {:hubs ["https://hub.example.org/"] :topic url}
@@ -723,14 +747,17 @@
                            (library/subscribe url (assoc fresh :websub hubs) {:auto-queue? true})
                            (library/subscribe other-url {:status 200 :url other-url :feed other})))
         websubs  (atom {})
+        pushes   (atom nil)
         origin   "https://app.example.net"
         callback (fn [_ _] (str origin "/websub/" (websub/token)))
         handler  (websub/handler
                   (assoc (websub/handler-options #(deref websubs))
                          :verified! #(swap! websubs websub/verified % now)
                          :deliver!  (fn [{:keys [request] :as delivery}]
-                                      (let [[feed-guid] (websub/subscription-of @websubs request)]
-                                        (swap! lib library/pushed feed-guid delivery)))))
+                                      (let [[feed-guid] (websub/subscription-of @websubs request)
+                                            result      (library/pushed @lib feed-guid delivery)]
+                                        (reset! lib (:library result))
+                                        (reset! pushes result)))))
         asked    (library/hub-requests @lib @websubs callback)
         _        (swap! websubs websub/asked guid (get asked guid) now)
         {:keys [hub topic secret] :as pending} (get-in @websubs [guid :pending])
@@ -760,11 +787,11 @@
       (is (= [guid] (keys (library/hub-requests @lib @websubs callback {:at (get-in @websubs [guid :renew-at])})))))
     (testing "a pushed feed applied as a refresh is, with its new episode queued"
       (is (= 200 (push! (str/replace-first (fixture "feeds/namespace-example.xml") "<item>" (str new-item "<item>")))))
-      (is (= [[guid "pushed"]] (:added (:refresh @lib))))
+      (is (= [[guid "pushed"]] (:added @pushes)))
       (is (= [[guid "pushed"]] (profile.queue/queue (:profile @lib)))))
     (testing "a body that's no feed makes the feed due at once"
       (is (= 200 (push! "<html></html>")))
-      (is (= [:library/push-not-applied] (map :id (:report (:refresh @lib)))))
+      (is (= [:library/push-not-applied] (map :id (:report @pushes))))
       (is (= now (get-in @lib [:feeds guid :next-check]))))
     (testing "an unsubscription once the listener leaves the show"
       (let [left (library/hub-requests (library/unsubscribe @lib guid) @websubs callback)]
@@ -780,7 +807,7 @@
                 (library/update-profile #(profile.queue/dequeue-all %1 (profile.queue/queue %1) %2))
                 (library/update-profile profile.queue/enqueue ep3)
                 (library/update-profile profile.queue/enqueue ep2)
-                (library/step [:progress ep3 754 3600] {:at (at 10)}))
+                (stepped [:progress ep3 754 3600] {:at (at 10)}))
         {:keys [episodes remaining]} (library/queue lib)]
     (is (= [ep3 ep2] (map :id episodes)) "the current episode first")
     (is (= {:title     "Episode 3 - The Future"
@@ -818,7 +845,7 @@
 (deftest what-a-player-needs
   (let [id    [guid "https://example.com/ep0003"]
         lib   (-> library
-                  (library/step [:progress id 754 3600] {:at (at 10)})
+                  (stepped [:progress id 754 3600] {:at (at 10)})
                   (library/update-profile profile/configure guid {:playback-rate 1.5}))
         view  (library/playback lib id)
         files {:chapters {:source   :file
@@ -871,9 +898,9 @@
         send    (fn [_] (swap! asked inc) {:status 200 :body apple})
         apps    (fn [lib] (set (map :app (:links (library/show lib guid)))))]
     (run #(async/then (library/identify! library {:send send})
-                      (fn [lib]
+                      (fn [{lib :library :keys [report]}]
                         (is (= {:apple "123456"} (get-in lib [:feeds guid :ids])) "kept in the entry of the feed")
-                        (is (= [] (:report (:identify lib))))
+                        (is (= [] report))
                         (is (some #{:castbox} (apps lib)) "so the views link to the show in the apps that know it by its id")
                         (is (not (some #{:castbox} (apps library))))
                         (is (= {:apple "123456"}
@@ -883,16 +910,16 @@
                         (async/then (library/identify! lib {:send send})
                                     (fn [_] (is (= 1 @asked) "a show with its ids isn't asked again")))))
          #(async/then (library/identify! library {:send (constantly {:status 503 :body ""})})
-                      (fn [lib]
+                      (fn [{lib :library :keys [report]}]
                         (is (nil? (get-in lib [:feeds guid :ids])) "a show whose directory failed is asked again next time")
-                        (is (= [:directory/source-failed] (map :id (:report (:identify lib))))))))))
+                        (is (= [:directory/source-failed] (map :id report))))))))
 
 (deftest a-new-subscription-through-the-send
   (let [xml  (fixture "feeds/namespace-example.xml")
         lib  (library/update-profile (library/make "phone") profile/subscribe "g" {:url url})
         send (fn [request] {:status 200 :url (:url request) :body xml})]
     (run #(async/then (library/refresh! lib {:at now :send send})
-                      (fn [{{:keys [report]} :refresh :as lib'}]
+                      (fn [{:keys [report] lib' :library}]
                         (is (= [] report))
                         (is (= [guid] (keys (:feeds lib'))) "fetch! by default, through the :send, without a :fetch"))))))
 
@@ -925,7 +952,7 @@
     (run
      (fn []
        (async/then (library/refresh! lib {:at now :fetch (fn [u _] {:status 503 :url u})})
-                   (fn [{{:keys [report]} :refresh :as lib'}]
+                   (fn [{:keys [report] lib' :library}]
                      (is (= [[:fetch/status 503 of]] (map (juxt :id :status :feed-guid) report)))
                      (is (= {of {:url other-url :failures 1}}
                             (update-vals (:feeds lib') #(select-keys % [:url :failures])))
@@ -933,7 +960,7 @@
      (fn []
        (async/then (library/refresh! lib {:at    now
                                           :fetch (fn [u _] {:status 200 :url u :feed other :permanent-url there})})
-                   (fn [{{:keys [added moved report]} :refresh :as lib'}]
+                   (fn [{:keys [added moved report] lib' :library}]
                      (let [sub (get (library/subscriptions lib') "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")]
                        (is (= [] report))
                        (is (= [] added) "the episodes of a new subscription aren't new ones")
@@ -946,7 +973,7 @@
        (async/then (library/refresh! lib {:at         now
                                           :feed-guids []
                                           :fetch      (fn [u _] {:status 200 :url u :feed other})})
-                   (fn [lib']
+                   (fn [{lib' :library}]
                      (is (= ["0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"] (keys (:feeds lib')))
                          "a new subscription is fetched besides the feeds that are asked for")))))))
 
@@ -1003,7 +1030,7 @@
         (is (= now (library/next-refresh merged {:at now})) "due at once")
         (run (fn []
                (async/then (library/refresh! merged {:at now :fetch fetch :send (fn [_] {:status 304 :headers {} :body ""})})
-                           (fn [lib']
+                           (fn [{lib' :library}]
                              (is (= [[other-url nil]] @asked) "without the validators of the part it held")
                              (is (= #{id o2} (set (map :id (library/search lib' "other")))))
                              (is (= ["Other one" "Other two"]
@@ -1058,12 +1085,12 @@
     (is (not (contains? (:feeds synced) "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f")) "the sync brings the remote item, and no feed")
     (run (fn []
            (async/then (library/refresh! synced {:at now :fetch (fetch others)})
-                       (fn [{{:keys [added report]} :refresh :as lib'}]
+                       (fn [{:keys [added report] lib' :library}]
                          (is (= [] report))
                          (is (= [] added) "the episodes of a show it isn't subscribed to aren't new")
                          (is (= #{id} (listed lib')) "fetched by refresh!, and the one episode indexed")
                          (async/then (library/refresh! lib' {:at (at 86400) :fetch (fetch newer)})
-                                     (fn [{{:keys [added]} :refresh :as lib''}]
+                                     (fn [{:keys [added] lib'' :library}]
                                        (is (= [] added))
                                        (is (= #{id} (listed lib'')) "nor are those that come later")))))))))
 
@@ -1084,7 +1111,7 @@
       (let [lib (library/subscribe library "http://example.com/feed.xml/" show)]
         (is (= ["http://example.com/feed.xml/"] (map :url (vals (library/subscriptions lib)))))))
     (run #(async/then (library/refresh! listed {:at (at 60) :fetch fetch :credentials-of {url {:username "ann"}}})
-                      (fn [{{:keys [report]} :refresh :as lib'}]
+                      (fn [{:keys [report] lib' :library}]
                         (is (= [[:fetch/guid-taken evil-url guid url]] (map (juxt :id :url :feed-guid :other-url) report))
                             "a show from a list or another device that declares it is left out, and the report says why")
                         (is (= url (:url (get (library/subscriptions lib') guid)) (get-in lib' [:feeds guid :url]))
@@ -1098,13 +1125,13 @@
         declared (:podcast/guid other)
         phone    (library/subscribe (library/make "phone" {:config {:now-fn (constantly now)}}) other-url)]
     (run #(async/then (library/refresh! phone {:at (at 60) :fetch (fetching plain)})
-                      (fn [phone']
+                      (fn [{phone' :library}]
                         (is (= {key key} (update-vals (library/subscriptions phone') :guid))
                             "settled on the guid of its URL, as the feed declares none")
                         (let [laptop (update (library/make "laptop" {:config {:now-fn (constantly now)}})
                                              :profile profile/merge (:profile phone'))]
                           (async/then (library/refresh! laptop {:at (at 120) :fetch (fetching other)})
-                                      (fn [{{:keys [report]} :refresh :as laptop'}]
+                                      (fn [{:keys [report] laptop' :library}]
                                         (is (= [key] (keys (library/subscriptions laptop')))
                                             "the feed declares a guid by the time the laptop fetches it, and the key stays")
                                         (is (= [[:fetch/guid-changed key key declared]] (map (juxt :id :feed-guid :old :new) report)))
@@ -1149,31 +1176,31 @@
       (is (= ["Other one"] (mapv (comp :rss/title :item) (library/search lib "other" {:where {:status :unplayed}})))))))
 
 (deftest the-events-of-the-player
-  (let [id      [guid "https://example.com/ep0003"]
-        lib     (update library :profile profile.queue/enqueue id now)
-        stepped (library/step lib [:progress id 100 3600])]
-    (is (= [] (:effects stepped)))
-    (is (= 100 (profile/resume-position (:profile stepped) guid id)))
-    (is (= [[:seek id 130]] (:effects (library/step stepped [:skip id :forward]))))
+  (let [id    [guid "https://example.com/ep0003"]
+        lib   (update library :profile profile.queue/enqueue id now)
+        {heard :library :keys [effects]} (library/step lib [:progress id 100 3600])]
+    (is (= [] effects) "beside the library")
+    (is (= 100 (profile/resume-position (:profile heard) guid id)))
+    (is (= [[:seek id 130]] (:effects (library/step heard [:skip id :forward]))))
     (testing "the sleep timer of the device lives in the library"
-      (let [timed (assoc stepped :sleep {:episodes 2})
+      (let [timed (assoc heard :sleep {:episodes 2})
             spent (library/step (assoc timed :sleep {:episodes 1}) [:ended id])]
-        (is (= {:episodes 1} (:sleep (library/step timed [:ended id]))) "one episode less to go")
+        (is (= {:episodes 1} (:sleep (:library (library/step timed [:ended id])))) "one episode less to go")
         (is (= [[:stop id]] (:effects spent)))
-        (is (not (contains? spent :sleep)) "the last episode ended: the timer is gone")))
+        (is (not (contains? (:library spent) :sleep)) "the last episode ended: the timer is gone")))
     (testing "continuous play goes on with the first unplayed episode of the show, in its listening order"
-      (let [on     (library/update-profile stepped profile/prefer {:continuous? true})
+      (let [on     (library/update-profile heard profile/prefer {:continuous? true})
             order  (remove #{id} (map (fn [[feed item]] (library/episode-id lib feed item))
                                       (library/episodes lib {:feed-guids [guid] :order :listening})))
             played (library/update-profile on profile/mark-played (first order))]
         (is (= 2 (count order)))
         (is (= [[:play (first order)]] (:effects (library/step on [:ended id]))))
         (is (= [[:play (second order)]] (:effects (library/step played [:ended id]))) "but for one played already")
-        (is (= [[:nothing-next id]] (:effects (library/step stepped [:ended id])))
+        (is (= [[:nothing-next id]] (:effects (library/step heard [:ended id])))
             "only when the listener wants it")))
     (testing "a rewind after a pause"
-      (is (= 100 (:position (library/playback stepped id))))
-      (is (= 90 (:position (library/playback stepped id {:at (at 7200)})))))
+      (is (= 100 (:position (library/playback heard id))))
+      (is (= 90 (:position (library/playback heard id {:at (at 7200)})))))
     (testing "every episode of a show played at once"
       (let [caught-up (library/mark-show-played lib guid)]
         (is (= 3 (count (filter #(profile/played? (:profile caught-up) %)
@@ -1188,14 +1215,15 @@
     (run
      (fn []
        (async/then (library/sync! library [backend] {:at (at 10)})
-                   (fn [{{:keys [report]} :sync :as lib}]
+                   (fn [{:keys [report] lib :library}]
                      (is (= [] report) "no backend failed, and nothing else to report")
                      (is (= 1 (count @documents)) "the phone wrote its document")
                      (is (map? (get-in lib [:sync :cursors])))
                      (is (= (at 10) (get-in lib [:sync :at])))
+                     (is (not (contains? (:sync lib) :report)) "which stays beside the library")
                      (is (= (at (+ 10 900)) (library/next-sync lib {:at (at 10)})) "idle: nothing changed since")
                      (async/then (library/sync! laptop [backend] {:at (at 20)})
-                                 (fn [lib]
+                                 (fn [{lib :library}]
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
@@ -1209,29 +1237,29 @@
      (fn []
        (-> (library/sync! library [backend] {:at (at 10)})
            (async/then
-            (fn [phone]
+            (fn [{phone :library}]
               (-> (library/sync! laptop [backend] {:at (at 20)})
-                  (async/then #(library/leave! % [backend] {:at (at 30)}))
+                  (async/then #(library/leave! (:library %) [backend] {:at (at 30)}))
                   (async/then
-                   (fn [left]
+                   (fn [{left :library :keys [report]}]
                      (is (crdt/retired? (:profile left) "laptop"))
-                     (is (= [] (get-in left [:sync :report])))
+                     (is (= [] report))
                      (-> (library/sync! phone [backend] {:at (at 40)})
                          (async/then
-                          (fn [phone]
+                          (fn [{phone :library}]
                             (is (= #{"phone"} (devices phone)) "the phone learns that the laptop left")
                             (is (= 1 (count @documents)) "and deletes its document")
                             (library/sync! left [backend] {:at (at 50)})))
                          (async/then
-                          (fn [again]
-                            (is (= [:sync/retired-device] (map :id (get-in again [:sync :report])))
+                          (fn [{:keys [report]}]
+                            (is (= [:sync/retired-device] (map :id report))
                                 "a device that left can't sync again")
                             (library/sync! (library/with-device left "laptop-2" {:name "Laptop"}) [backend]
                                            {:at (at 60)})))
                          (async/then
-                          (fn [back]
-                            (is (= "laptop-2" (:device back) (get-in back [:profile :device])))
-                            (is (= [] (get-in back [:sync :report])))
+                          (fn [{back :library :keys [report]}]
+                            (is (= "laptop-2" (get-in back [:profile :device])))
+                            (is (= [] report))
                             (is (= #{"phone" "laptop-2"} (devices back)) "but a new device of it can")
                             (is (contains? (library/subscriptions back) guid) "with what the old one held"))))))))))))))
 
@@ -1241,30 +1269,30 @@
         horizon (assoc-in played [:config :archive-after] 60000)
         backend #(library/backend (store/memory (atom {})) {:app "test"})]
     (run #(async/then (library/sync! played [(backend)] {:at (at 100)})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (= [id] (keys (get-in lib [:profile :played]))) "a mark stays for a year")
                         (let [merged (library/merge horizon lib)]
                           (is (empty? (get-in merged [:profile :played])) "but a merge archives by the config")
                           (is (profile/played? (:profile merged) id)))))
          #(async/then (library/sync! horizon [(backend)] {:at (at 100)})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (empty? (get-in lib [:profile :played])) "and so does a sync")
                         (is (profile/played? (:profile lib) id))))
          #(async/then (library/sync! horizon [(backend)] {:at (at 100) :compact false})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (= [id] (keys (get-in lib [:profile :played]))) "unless it doesn't compact"))))))
 
 (deftest syncs-that-fail-in-a-row
   (let [broken {:name "broken" :pull (fn [_ _ _] (throw (ex-info "down" {}))) :push (fn [_ _ _] {:cursor {}})}
         good   (library/backend (store/memory (atom {})) {:app "test"})]
     (run #(async/then (library/sync! library [broken] {:at (at 10)})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (async/then (library/sync! lib [broken] {:at (at 20)})
-                                    (fn [lib]
+                                    (fn [{lib :library}]
                                       (is (= [2 (at 20)] ((juxt :failures :at) (:sync lib))) "counted for the next sync")
                                       (is (= (at (+ 20 60)) (library/next-sync lib {:at (at 21)})) "which waits longer")
                                       (async/then (library/sync! lib [good] {:at (at 30)})
-                                                  (fn [lib]
+                                                  (fn [{lib :library}]
                                                     (is (= 0 (:failures (:sync lib))) "until one works"))))))))))
 
 (deftest a-show-left-on-another-device
@@ -1276,7 +1304,7 @@
                       (fn [_]
                         (async/then (library/sync! laptop [backend] {:at (at 30)})
                                     (fn [result]
-                                      (let [merged (library/merge laptop result)]
+                                      (let [merged (library/merge laptop (:library result))]
                                         (is (= {} (library/subscriptions merged)))
                                         (is (= {} (:feeds merged)) "so refresh! no longer fetches it")
                                         (is (= [] (library/episodes merged {})))))))))))
@@ -1295,19 +1323,17 @@
     (run
      (fn []
        (async/then (library/refresh! indexed {:at (at 86400) :fetch fetch})
-                   (fn [result]
+                   (fn [{result :library}]
                      (testing "what the listener did during a refresh stays, with what the refresh found"
                        (let [meanwhile (-> indexed
-                                           (library/step [:progress id 100 3600] {:at (at 86410)})
+                                           (stepped [:progress id 100 3600] {:at (at 86410)})
                                            (update :profile profile.marks/star id (at 86420)))
                              merged    (library/merge meanwhile result)]
                          (is (= 100 (profile/resume-position (:profile merged) guid id)))
                          (is (= [id] (profile.marks/starred (:profile merged))))
                          (is (= [[guid "new"]] (profile.queue/queue (:profile merged))) "the new episode, queued")
-                         (is (= [[guid "new"]] (:added (:refresh merged))))
                          (is (= "\"v2\"" (get-in merged [:feeds guid :etag])))
-                         (is (= [guid "new"] (:id (first (library/search merged "new one")))) "and indexed")
-                         (is (= (:effects meanwhile) (:effects merged)) "the effects of the last step")))
+                         (is (= [guid "new"] (:id (first (library/search merged "new one")))) "and indexed")))
                      (testing "a show that the listener left during a refresh doesn't come back"
                        (let [gone (library/merge (library/unsubscribe indexed guid {:at (at 86410)}) result)]
                          (is (= {} (library/subscriptions gone)))
@@ -1317,7 +1343,7 @@
                          (is (= #{guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"} (set (keys (:feeds (library/merge joined result)))))))))))
      (fn []
        (async/then (library/sync! library [backend] {:at (at 10)})
-                   (fn [result]
+                   (fn [{result :library}]
                      (testing "what the listener did during a sync stays, with the step of the sync"
                        (let [merged (library/merge (update library :profile profile.marks/star id (at 12)) result)]
                          (is (= [id] (profile.marks/starred (:profile merged))))
@@ -1357,8 +1383,8 @@
                         (is (some #{"index.edn"} put))
                         (is (= [] delete))))
          #(async/then (library/restore! (made) s)
-                      (fn [lib]
-                        (is (= [] (restored-report lib)))
+                      (fn [{lib :library :as restored}]
+                        (is (= [] (restored-report restored)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)))
                         (is (= (ids library) (ids lib)) "the index read back")))
@@ -1368,24 +1394,24 @@
                             "no segment written again")))
          #(do (swap! documents breaking)
               (async/then (library/restore! (made) s)
-                          (fn [lib]
+                          (fn [{lib :library :as restored}]
                             (is (= [:library/index-rebuilt]
-                                   (map :id (restored-report lib))))
+                                   (map :id (restored-report restored))))
                             (is (= (ids library) (ids lib))
                                 "an index built again from the feeds"))))
          #(do (reset! documents {})
               (async/then (library/save! library s)
                           (fn [_] (library/save! (made) s {:keys [:feeds]}))))
          #(async/then (library/restore! (made) s)
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (= {} (:feeds lib)))
                         (is (= [] (ids lib))
                             "an index of feeds that the library doesn't have")))
          #(do (swap! documents assoc "library.edn" {:body "{:feeds" :version "9"})
               (async/then (library/restore! (made) s)
-                          (fn [lib]
+                          (fn [{lib :library :as restored}]
                             (is (= [:library/unreadable-document]
-                                   (map :id (restored-report lib))))
+                                   (map :id (restored-report restored))))
                             (is (= {} (:feeds lib))))))
          #(async/then (library/save! (library/make "phone" {:config {:search? false}})
                                      (store/memory))
@@ -1440,29 +1466,30 @@
                         (is (= (library.impl/document-name guid later) (first put)) "a feed that changed, again")
                         (is (= [doc-name] delete) "and its old document gone")))
          #(async/then (library/restore! (made) s)
-                      (fn [lib]
-                        (is (= [] (restored-report lib)))
+                      (fn [{lib :library :as restored}]
+                        (is (= [] (restored-report restored)))
                         (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title])))))
          #(do (swap! documents dissoc (library.impl/document-name guid later))
               (async/then (library/restore! (made) s)
-                          (fn [lib]
+                          (fn [{lib :library :as restored}]
                             (is (= [[:library/unreadable-document (library.impl/document-name guid later)]]
-                                   (map (juxt :id :name) (restored-report lib))))
+                                   (map (juxt :id :name) (restored-report restored))))
                             (is (= {:url url} (get-in lib [:feeds guid]))
                                 "a feed whose document is gone, to fetch again"))))
          #(do (reset! documents {"library.edn" {:body (saved (select-keys library library/saved-keys)) :version "1"}})
               (async/then (library/restore! (made) s)
-                          (fn [lib]
-                            (is (= [] (restored-report lib)))
+                          (fn [{lib :library :as restored}]
+                            (is (= [] (restored-report restored)))
                             (is (= (:feeds library) (:feeds lib)) "a library of version 1, with the feeds inline")
                             (library/save! lib s))))
          #(is (contains? @documents doc-name) "and written out at the next save")
          #(do (swap! documents assoc "library.edn" {:body (saved too-new) :version "2"})
               (async/then (library/restore! (made) s)
-                          (fn [lib]
+                          (fn [{lib :library :as restored}]
                             (is (= [[:library/newer-format (:version too-new)]]
-                                   (map (juxt :id :version) (restored-report lib))))
+                                   (map (juxt :id :version) (restored-report restored))))
                             (is (= (:profile (made)) (:profile lib)) "nothing of a newer version")
+                            (is (= :library/newer-format (:id (:newer-format lib))) "which the library notes")
                             (async/then (library/save! lib s)
                                         (fn [{:keys [error]}]
                                           (is (= :library/newer-format (:id error))))))))
@@ -1471,41 +1498,52 @@
          #(do (swap! documents assoc "library.edn"
                      {:body (saved {:version 2 :profile (assoc (:profile library) :subscriptions "nope")}) :version "3"})
               (async/then (library/restore! (made) s)
-                          (fn [lib]
-                            (is (= [:library/malformed-profile] (map :id (restored-report lib))))
-                            (is (= (:profile (made)) (:profile lib)) "the profile it had")))))))
+                          (fn [{lib :library :as restored}]
+                            (is (= [:library/malformed-profile] (map :id (restored-report restored))))
+                            (is (= (:profile (made)) (:profile lib)) "the profile it had"))))
+         #(do (reset! documents {"library.edn" {:body    (saved {:version library.impl/version
+                                                                 :profile (:profile library)
+                                                                 :sync    {:at now :failures 0 :report [{:id :sync/x}]}})
+                                                :version "4"}})
+              (async/then (library/restore! (made) s)
+                          (fn [{lib :library :as restored}]
+                            (is (= [] (restored-report restored)))
+                            (is (= {:at now :failures 0} (:sync lib))
+                                "the state of the last sync, without the report that earlier versions kept with it")))))))
 
 (deftest a-library-saved-in-transit
   (let [documents (atom {})
         s         (store/memory documents)
-        config    {:now-fn (constantly now) :codec transit/codec}
-        made      #(library/make "phone" {:config config})
-        in-transit (assoc-in library [:config :codec] transit/codec)
+        opts      {:codec transit/codec}
+        made      #(library/make "phone" {:config {:now-fn (constantly now)} :codec transit/codec})
         feed-name (library.impl/document-name guid (get-in library [:feeds guid :changed-at]) transit/codec)]
     (run #(library/save! library s)
          #(async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
-                      (fn [lib]
+                      (fn [{:keys [report]}]
                         (is (= #?(:clj [] :cljs [:library/slow-format])
-                               (map :id (:report (:restore lib))))
+                               (map :id report))
                             "EDN reads slowly in ClojureScript")))
-         #(async/then (library/restore! (made) s)
-                      (fn [lib]
-                        (is (= [] (restored-report lib)) "a library saved in EDN reads with the codec of Transit")
+         #(async/then (library/restore! (made) s opts)
+                      (fn [{lib :library :as restored}]
+                        (is (= [] (restored-report restored)) "a library saved in EDN reads with the codec of Transit")
                         (is (= (:feeds library) (:feeds lib)))
-                        (async/then (library/save! lib s)
+                        (async/then (library/save! lib s opts)
                                     (fn [{:keys [put delete]}]
                                       (is (= "library.transit.json" (peek put)))
                                       (is (some #{feed-name} put) "each feed written anew in Transit")
                                       (is (= #{"library.edn" (library.impl/document-name guid (get-in library [:feeds guid :changed-at]))}
                                              (set (remove (fn [n] (re-find #"\.ciff$" n)) delete)))
                                           "and the documents in EDN gone")))))
-         #(async/then (library/restore! (made) s)
-                      (fn [lib]
-                        (is (= [] (restored-report lib)))
+         #(async/then (library/restore! (made) s opts)
+                      (fn [{lib :library :as restored}]
+                        (is (= [] (restored-report restored)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)) "read back from Transit")
-                        (is (= (:feed (get-in in-transit [:feeds guid]))
-                               (:feed (transit/read-str (:body (get @documents feed-name)))))))))))
+                        (is (= (:feed (get-in library [:feeds guid]))
+                               (:feed (transit/read-str (:body (get @documents feed-name))))))))
+         #(is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"give the call the :codec"
+                                (library/documents (made)))
+              "and a call without the codec of its documents throws, rather than name others"))))
 
 (defn- found-ids
   "The ids of the episodes that a search of `lib` for \"future\" finds."
@@ -1515,11 +1553,15 @@
 (defn- made
   "A new library of the phone in Transit, on the test's clock."
   []
-  (library/make "phone" {:config {:now-fn (constantly now) :codec transit/codec}}))
+  (library/make "phone" {:config {:now-fn (constantly now)} :codec transit/codec}))
 
 (def transit-library
   "The library in Transit, as a web app keeps it."
-  (assoc-in library [:config :codec] transit/codec))
+  (assoc-in library [:config :extension] (:extension transit/codec)))
+
+(def in-transit
+  "The options of a call to the library in Transit."
+  {:codec transit/codec})
 
 (defn- feed-document
   "The name of the document in Transit of the feed of the show, as it was
@@ -1528,21 +1570,22 @@
   (library.impl/document-name guid changed-at transit/codec))
 
 (deftest a-library-in-documents
-  (let [docs     (library/documents transit-library)
+  (let [docs     (library/documents transit-library in-transit)
         own      (get docs "library.transit.json")
-        lib      (library/from-documents (made) docs)]
+        restored (library/from-documents (made) docs in-transit)
+        lib      (:library restored)]
     (is (= #{"library.transit.json" (feed-document (get-in library [:feeds guid :changed-at]))}
            (set (remove #(re-find #"\.ciff$" %) (keys docs))))
         "its own, one for each feed and the segments of the index")
     (is (string? (:index (transit/read-str own))) "the manifest of the index in its own document")
     (is (= (set (keys docs)) (library/document-names transit-library)))
-    (is (= [] (restored-report lib)))
+    (is (= [] (restored-report restored)))
     (is (= (:profile library) (:profile lib)))
     (is (= (:feeds library) (:feeds lib)))
     (is (= (found-ids library) (found-ids lib)) "the index read back")
-    (is (= ["library.transit.json"] (keys (library/documents transit-library {:except (keys docs)})))
+    (is (= ["library.transit.json"] (keys (library/documents transit-library (assoc in-transit :except (keys docs)))))
         "and nothing that a store holds already, but the library's own")
-    (let [again (library/from-documents transit-library {"library.transit.json" own})]
+    (let [again (:library (library/from-documents transit-library {"library.transit.json" own} in-transit))]
       (is (identical? (get-in library [:feeds guid :feed]) (get-in again [:feeds guid :feed]))
           "a feed held in memory with the same document stays as it is")
       (is (identical? (:index library) (:index again)) "and so does the index"))))
@@ -1557,44 +1600,45 @@
                       (update-in [:feeds guid :feed] assoc :rss/title "Renamed"))
         before    (feed-document (get-in library [:feeds guid :changed-at]))
         after     (feed-document later)]
-    (run #(async/then (library/read! (made) s)
-                      (fn [{:keys [version] lib :library}]
+    (run #(async/then (library/read! (made) s in-transit)
+                      (fn [{:keys [version report] lib :library}]
                         (is (nil? version) "an empty store")
+                        (is (= [] report))
                         (is (= (:profile (made)) (:profile lib)))))
-         #(async/then (library/write! transit-library s {:if-version nil})
+         #(async/then (library/write! transit-library s (assoc in-transit :if-version nil))
                       (fn [{:keys [version put delete]}]
                         (is (= "1" version))
                         (is (= "library.transit.json" (peek put)) "the library's own document last")
                         (is (= [] delete))))
-         #(async/then (library/write! transit-library s {:if-version nil})
+         #(async/then (library/write! transit-library s (assoc in-transit :if-version nil))
                       (fn [{:keys [conflict?]}]
                         (is conflict? "not when there was to be none yet")))
-         #(async/then (library/read! (made) s)
+         #(async/then (library/read! (made) s in-transit)
                       (fn [{:keys [version] lib :library :as r}]
                         (reset! read r)
                         (is (= "1" version))
-                        (is (= [] (restored-report lib)))
+                        (is (= [] (restored-report r)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)))
                         (is (= (found-ids library) (found-ids lib)))))
-         #(async/then (library/write! changed s {:if-version "1" :before (:library @read)})
+         #(async/then (library/write! changed s (assoc in-transit :if-version "1" :before (:library @read)))
                       (fn [{:keys [version put delete]}]
                         (is (= "2" version))
                         (is (= [after "library.transit.json"] put) "the feed that changed, and the library")
                         (is (= [before] delete) "and the document of the feed before it")))
-         #(async/then (library/write! transit-library s {:if-version "1"})
+         #(async/then (library/write! transit-library s (assoc in-transit :if-version "1"))
                       (fn [{:keys [conflict?]}]
                         (is conflict? "not over a version that another wrote over")))
-         #(async/then (library/read! (:library @read) s)
+         #(async/then (library/read! (:library @read) s in-transit)
                       (fn [{:keys [version] lib :library}]
                         (is (= "2" version))
                         (is (= "Renamed" (get-in lib [:feeds guid :feed :rss/title]))
                             "the feed that changed, read anew")))
          #(do (swap! documents dissoc after)
-              (async/then (library/read! (made) s)
-                          (fn [{lib :library}]
+              (async/then (library/read! (made) s in-transit)
+                          (fn [{lib :library :as r}]
                             (is (= [[:library/unreadable-document after]]
-                                   (map (juxt :id :name) (restored-report lib))))
+                                   (map (juxt :id :name) (restored-report r))))
                             (is (= {:url url} (get-in lib [:feeds guid]))
                                 "a feed whose document is gone, to fetch again")))))))
 
@@ -1602,23 +1646,24 @@
   (let [documents (atom {})
         s         (store/memory documents)
         read      (atom nil)]
-    (run #(library/save! transit-library s)
-         #(async/then (library/read! (made) s)
+    (run #(library/save! transit-library s in-transit)
+         #(async/then (library/read! (made) s in-transit)
                       (fn [{lib :library :as r}]
                         (reset! read r)
-                        (is (= [] (restored-report lib)))
+                        (is (= [] (restored-report r)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)) "a library that save! wrote")
                         (is (= (found-ids library) (found-ids lib)) "with the index of index.edn")))
-         #(async/then (library/write! (:library @read) s {:if-version (:version @read)
-                                                          :before     (:library @read)})
+         #(async/then (library/write! (:library @read) s (assoc in-transit
+                                                                :if-version (:version @read)
+                                                                :before     (:library @read)))
                       (fn [{:keys [put delete]}]
                         (is (= ["library.transit.json"] put))
                         (is (= ["index.edn"] delete)
                             "and the manifest of the index now in its own document")))
-         #(async/then (library/read! (made) s)
-                      (fn [{lib :library}]
-                        (is (= [] (restored-report lib)))
+         #(async/then (library/read! (made) s in-transit)
+                      (fn [{lib :library :as r}]
+                        (is (= [] (restored-report r)))
                         (is (= (:profile library) (:profile lib)))
                         (is (= (:feeds library) (:feeds lib)) "read back from Transit")
                         (is (= (found-ids library) (found-ids lib))))))))
@@ -1628,9 +1673,9 @@
         later (at 86400)
         fetch (fn [u _] {:status 200 :url u :feed newer :etag "\"v2\""})
         found (atom nil)]
-    (run #(library/write! transit-library s {:if-version nil})
+    (run #(library/write! transit-library s (assoc in-transit :if-version nil))
          #(async/then (library/fetch-due! (library/due transit-library {:at later}) s
-                                          {:fetch fetch :codec transit/codec})
+                                          (assoc in-transit :fetch fetch))
                       (fn [f]
                         (reset! found f)
                         (is (= [guid] (:changed f)))
@@ -1643,13 +1688,14 @@
                             "and which it put")))
          #(async/then (library/refresh! transit-library {:at later :fetch fetch})
                       (fn [whole]
-                        (let [parts (library/refreshed transit-library @found {:at later})
+                        (let [parts (library/refreshed transit-library @found (assoc in-transit :at later))
                               gone  (library/unsubscribe transit-library guid)]
-                          (is (= (:profile whole) (:profile parts)) "as refresh! has it")
-                          (is (= (:feeds whole) (:feeds parts)))
-                          (is (= (:added (:refresh whole)) (:added (:refresh parts))))
-                          (is (= (found-ids whole) (found-ids parts)))
-                          (is (= (:feeds gone) (:feeds (library/refreshed gone @found {:at later})))
+                          (is (= (:profile (:library whole)) (:profile (:library parts))) "as refresh! has it")
+                          (is (= (:feeds (:library whole)) (:feeds (:library parts))))
+                          (is (= (:added whole) (:added parts)))
+                          (is (= (found-ids (:library whole)) (found-ids (:library parts))))
+                          (is (= (:feeds gone)
+                                 (:feeds (:library (library/refreshed gone @found (assoc in-transit :at later)))))
                               "but a feed left meanwhile stays out")))))))
 
 (deftest a-first-fetch-that-failed-in-parts
@@ -1658,15 +1704,14 @@
         of    (feed.guid/feed-guid nil other-url)
         found (atom nil)]
     (run #(async/then (library/fetch-due! (library/due lib {:at now}) s
-                                          {:fetch (fn [u _] {:status 503 :url u})
-                                           :codec transit/codec})
+                                          (assoc in-transit :fetch (fn [u _] {:status 503 :url u})))
                       (fn [f] (reset! found f)))
-         #(let [failed (library/refreshed lib @found {:at now})]
+         #(let [failed (:library (library/refreshed lib @found (assoc in-transit :at now)))]
             (is (= 1 (get-in failed [:feeds of :failures])) "a failure that the entry of its feed keeps")
             (is (= (at 900) (library/next-refresh failed {:at now})) "and the wait after one")
-            (async/then (library/write! failed s {:if-version nil})
+            (async/then (library/write! failed s (assoc in-transit :if-version nil))
                         (fn [_]
-                          (async/then (library/read! (made) s)
+                          (async/then (library/read! (made) s in-transit)
                                       (fn [{read :library}]
                                         (is (= (at 900) (library/next-refresh read {:at now}))
                                             "which a reload keeps")))))))))
@@ -1676,27 +1721,26 @@
   its device, as the tabs of a browser once wrote."
   [library author f]
   (-> (f (assoc-in library [:profile :device] author))
-      (assoc-in [:profile :device] (:device library))))
+      (assoc-in [:profile :device] (get-in library [:profile :device]))))
 
 (deftest what-a-replica-wrote-reads-the-same
   (let [s     (store/memory)
         id    [guid "https://example.com/ep0003"]
         tab   (-> (made)
                   (library/subscribe url fresh)
-                  (as-replica "phone/1" #(-> (library/step % [:play id] {:at (at 0)})
-                                             (library/step [:progress id 100 3600] {:at (at 10)})
-                                             (library/step [:progress id 160 3600] {:at (at 70)})
-                                             (dissoc :effects))))
+                  (as-replica "phone/1" #(-> (stepped % [:play id] {:at (at 0)})
+                                             (stepped [:progress id 100 3600] {:at (at 10)})
+                                             (stepped [:progress id 160 3600] {:at (at 70)}))))
         heard #(profile/listened (:profile %))
         ids   #(set (keys (get-in % [:profile :listened guid "2026-09"])))]
     (is (= #{"phone/1"} (ids tab)) "a tab that wrote as a replica")
-    (run #(library/save! tab s)
-         #(async/then (library/read! (made) s)
+    (run #(library/save! tab s in-transit)
+         #(async/then (library/read! (made) s in-transit)
                       (fn [{lib :library}]
                         (is (= (heard tab) (heard lib)) "whose listening still counts")
                         (let [more (-> lib
-                                       (library/step [:progress id 200 3600] {:at (at 100)})
-                                       (library/step [:progress id 230 3600] {:at (at 130)}))]
+                                       (stepped [:progress id 200 3600] {:at (at 100)})
+                                       (stepped [:progress id 230 3600] {:at (at 130)}))]
                           (is (< (get-in (heard lib) [guid "2026-09"])
                                  (get-in (heard more) [guid "2026-09"]))
                               "and adds up with what the device hears next")
@@ -1712,7 +1756,7 @@
         fetch     (fn [u _] (swap! fetched conj u) {:status 200 :url u :feed newer})]
     (run #(library/save! two s)
          #(async/then (library/restore! (made) s {:load :none})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (= #{guid other-key} (set (library/unloaded lib))))
                         (is (not (library/loaded? lib guid)))
                         (is (= {:url other-url :unloaded? true :title "Other"}
@@ -1727,16 +1771,16 @@
                                       (is (not-any? (fn [n] (re-find #"^feed-" n)) put))
                                       (is (= [] delete) "the documents of the feeds stay")))))
          #(async/then (library/restore! (made) s {:load [guid]})
-                      (fn [lib]
+                      (fn [{lib :library}]
                         (is (= [true false] (map (partial library/loaded? lib) [guid other-key])))
                         (async/then (library/load! lib s [other-key])
-                                    (fn [loaded]
-                                      (is (= [] (:report (:load loaded))))
+                                    (fn [{loaded :library :keys [report]}]
+                                      (is (= [] report))
                                       (is (= (get-in two [:feeds other-key]) (get-in loaded [:feeds other-key]))
                                           "as it was")))))
          #(async/then (library/unload! two s [guid])
-                      (fn [lib]
-                        (is (= [] (:report (:unload lib))))
+                      (fn [{lib :library :keys [report]}]
+                        (is (= [] report))
                         (is (= [guid] (library/unloaded lib)))
                         (is (contains? @documents (get-in lib [:feeds guid :document])) "written first")
                         (is (= [guid] (library/unloaded (library/merge two lib))) "a merge keeps it unloaded")
@@ -1744,20 +1788,20 @@
          (fn []
            (let [failing (assoc s :put (fn [_ _ _] (throw (ex-info "Disk full" {}))))]
              (async/then (library/unload! two failing [guid])
-                         (fn [lib]
-                           (is (= [:library/save-failed] (map :id (:report (:unload lib)))))
+                         (fn [{lib :library :keys [report]}]
+                           (is (= [:library/save-failed] (map :id report)))
                            (is (library/loaded? lib guid) "a feed that couldn't be written stays")))))
          (fn []
            (async/then (library/restore! (made) s {:load :none})
-                       (fn [lib]
+                       (fn [{lib :library}]
                          (let [opts {:at (at 86400) :feed-guids [guid] :fetch fetch}]
                            (async/then (library/refresh! lib opts)
-                                       (fn [lib]
-                                         (is (= [:library/not-loaded] (map :id (:report (:refresh lib)))))
+                                       (fn [{lib :library :keys [report]}]
+                                         (is (= [:library/not-loaded] (map :id report)))
                                          (is (= [] @fetched) "nothing fetched without the store")
                                          (async/then (library/refresh! lib (assoc opts :store s))
-                                                     (fn [lib]
-                                                       (is (= [[guid "new"]] (:added (:refresh lib)))
+                                                     (fn [{lib :library :keys [added]}]
+                                                       (is (= [[guid "new"]] added)
                                                            "loaded first, so the new episode is new")
                                                        (is (library/loaded? lib guid))
                                                        (is (not (library/loaded? lib other-key)))))))))))
@@ -1770,7 +1814,7 @@
                             (library/update-profile profile/mark-played id))]
              (is (= [id] (map :id (:delete (library/plan played)))))
              (async/then (library/unload! played s [guid])
-                         (fn [lib]
+                         (fn [{lib :library}]
                            (is (= [] (:delete (library/plan lib)))
                                "no file of a feed that the plan can't see"))))))))
 
@@ -1779,10 +1823,11 @@
         id        (fn [item] [guid (feed.guid/item-guid item)])
         guids     (fn [lib] (mapv feed.guid/item-guid (get-in lib [:feeds guid :feed :rss/items])))
         refreshed (fn [lib items t opts]
-                    (library/refresh! lib (merge {:at         t
-                                                  :feed-guids [guid]
-                                                  :fetch      (fn [u _] {:status 200 :url u :feed (assoc show :rss/items items)})}
-                                                 opts)))
+                    (async/then (library/refresh! lib (merge {:at         t
+                                                              :feed-guids [guid]
+                                                              :fetch      (fn [u _] {:status 200 :url u :feed (assoc show :rss/items items)})}
+                                                             opts))
+                                #(assoc (:library %) ::refresh (dissoc % :library))))
         missed    {:missed-at (at 86400)}
         starred   (library/update-profile library profile.marks/star (id ep1))
         s         (store/memory (atom {}))
@@ -1797,7 +1842,7 @@
                       (is (= [nil missed missed] (map (comp :retained second) (library/episodes lib {:order :newest})))))
                     (async/then (refreshed lib (:rss/items show) (at (* 2 86400)) {})
                                 (fn [lib']
-                                  (is (= [] (:added (:refresh lib'))) "nor is it new when it comes back")
+                                  (is (= [] (:added (::refresh lib'))) "nor is it new when it comes back")
                                   (is (nil? (get-in lib' [:feeds guid :retained])))))))
      #(async/then (refreshed starred [ep3] (at 86400) {:max-items 1})
                   (fn [lib]
@@ -1812,12 +1857,12 @@
                     (async/then (library/save! lib s)
                                 (fn [_]
                                   (async/then (library/restore! (library/make "phone") s)
-                                              (fn [lib']
+                                              (fn [{lib' :library}]
                                                 (is (= (get-in lib [:feeds guid]) (get-in lib' [:feeds guid]))
                                                     "saved with the feed, and read back")))))))
      #(async/then (refreshed library [] (at 86400) {})
                   (fn [lib]
-                    (is (= [:fetch/empty-feed] (map :id (:report (:refresh lib)))))
+                    (is (= [:fetch/empty-feed] (map :id (:report (::refresh lib)))))
                     (is (= show (get-in lib [:feeds guid :feed])) "an empty answer leaves the episodes")))
      #(async/then (library/refresh! (library/update-profile (library/make "phone" {:config {:max-pages 3}})
                                                             profile/subscribe "g" {:url url})
@@ -1834,7 +1879,7 @@
     (run #(async/then (library/refresh! lib {:at         (at 86400)
                                              :feed-guids [guid]
                                              :fetch      (fn [u _] {:status 200 :url u :feed rewritten})})
-                      (fn [{{:keys [added backfilled renamed]} :refresh :as lib'}]
+                      (fn [{:keys [added backfilled renamed] lib' :library}]
                         (is (= [[] []] [added backfilled]) "appends nothing to the queue")
                         (is (= (set (map (juxt id (comp id moved)) (:rss/items show))) (set renamed)))
                         (is (= [(id (moved ep1))] (profile.queue/queue (:profile lib'))) "the episode keeps its place")
@@ -1844,7 +1889,7 @@
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
         written             (document/decode body profile/sync-options)]
-    (is (= (str (:device library) ".edn") name) "the name that a backend gives it")
+    (is (= (str (get-in library [:profile :device]) ".edn") name) "the name that a backend gives it")
     (is (= (:profile library) (:state written)))
     (is (= ["test" now] ((juxt :app :written-at) written)) "written now, by the clock of the library")))
 
@@ -1883,7 +1928,7 @@
     (run #(async/then (library/save! filed s)
                       (fn [_]
                         (async/then (library/restore! (library/make "phone" {:config {:now-fn (constantly now)}}) s)
-                                    (fn [lib]
+                                    (fn [{lib :library}]
                                       (is (= (:files filed) (:files lib)) "saved and read back"))))))))
 
 (defn- dune
@@ -1901,7 +1946,7 @@
         id      [g "01.mp3"]
         fetched (atom [])
         fetch   (fn [u _] (swap! fetched conj u) fresh)
-        phone   (-> (library/make "phone" {:config {:now-fn (constantly now) :fetch fetch}})
+        phone   (-> (library/make "phone" {:config {:now-fn (constantly now)}})
                     (library/subscribe-local show)
                     (update :profile profile.queue/enqueue id now)
                     (update :profile profile/prefer {:downloads {:queue 1}} now))]
@@ -1922,6 +1967,6 @@
                        (library/subscribe-local (dune "02.mp3" "01.mp3"))
                        (update :profile profile/merge (:profile (library/update-profile phone profile/progress id 300))))]
         (is (= 300 (:position (library/playback laptop id))) "shares the progress, by the guids that the files give")))
-    (run #(async/then (library/refresh! phone {:feed-guids [g]})
+    (run #(async/then (library/refresh! phone {:feed-guids [g] :fetch fetch})
                       (fn [_]
                         (is (= [] @fetched) "a refresh never fetches it, even when asked to"))))))

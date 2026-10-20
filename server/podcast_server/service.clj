@@ -683,8 +683,7 @@
      (when-not @server
        (let [sync-store (sync-store settings)
              data-store (data-store settings)
-             lib        (atom (device/restore! (device/make {:store data-store})
-                                               data-store))
+             lib        (atom (device/restore! (device/make) data-store))
              hubs       (hubs-of settings)
              running    (conn/start! (connector settings sync-store lib hubs))]
          (reset! server {:connector running

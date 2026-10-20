@@ -18,24 +18,27 @@ kept in one map, the library, which fits in an atom:
                                  :config {:languages ["da" "en"]}})))
 
 (swap! lib library/subscribe url (podcast/fetch! url))
-(swap! lib library/merge (library/refresh! @lib))
-(swap! lib library/merge (library/sync! @lib backends))
+(swap! lib library/merge (:library (library/refresh! @lib opts)))
+(swap! lib library/merge (:library (library/sync! @lib backends)))
 ```
 
-Change it with `swap!`, and put what `refresh!` and `sync!` return into
-it with `library/merge`, which keeps what the listener did while they
-fetched. In ClojureScript they return a promise:
-`(.then (library/refresh! @lib) #(swap! lib library/merge %))`. Make the
-`device-id` once for each installation, e.g. with `(str (random-uuid))`,
-and keep it.
+Change it with `swap!`, and put the library that `refresh!` and `sync!`
+return into it with `library/merge`, which keeps what the listener did
+while they fetched. In ClojureScript they return a promise:
+`(.then (library/refresh! @lib opts) #(swap! lib library/merge (:library %)))`.
+Make the `device-id` once for each installation, e.g. with
+`(str (random-uuid))`, and keep it.
 
-Each function returns the library along with what it did: `:effects`
-after `step`, `:refresh` after `refresh!`, `:sync` after `sync!` and
-`:restore` after `restore!`. The `:config` given to `make` holds the
-options that the other library functions use, and the docstring of
-`app.library` lists them. Keep the library between runs with
-`library/save!` and `library/restore!`, as [Keep the library between
-runs](#keep-the-library-between-runs) shows.
+A function that also tells what it did returns that beside the new
+library, as a map of the `:library` and the rest: the `:effects` of
+`step`, the new episodes and the `:report` of `refresh!`, and the
+`:report` of `sync!` and `restore!`. The `:config` given to `make` holds
+the options that the other library functions use, as data, and the
+docstring of `app.library` lists them. The options that are functions,
+e.g. `:send` or `:codec`, stay out of the config, so keep them in a map
+of your own, here `opts`, and give it to each call. Keep the library
+between runs with `library/save!` and `library/restore!`, as [Keep the
+library between runs](#keep-the-library-between-runs) shows.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile`, and of its parts such as `profile.queue`,
@@ -46,7 +49,7 @@ later change wins. Change it only with these functions, e.g.
 with `assoc` or `dissoc`.
 
 Each change is stamped with its time, which the functions of
-`app.library` read from the clock, the setting `:now-fn`, so a test can fix
+`app.library` read from the clock, the option `:now-fn`, so a test can fix
 it. For an event that you handle later, e.g. in a background task, give
 the time it happened as the option `:at`. Since `update-profile` takes no
 options, call the function of `profile` with that time instead, e.g.
@@ -138,8 +141,8 @@ give its sender as `:send`:
 ;; on the server, as a route of Pedestal or any other Ring router
 ["/proxy" :any (proxy/handler) :route-name ::proxy]
 
-;; in the page, in the config of the library
-(library/make device-id {:config {:send (proxy/sender "/proxy")}})
+;; in the page, in the options of each call of the library
+(def opts {:send (proxy/sender "/proxy")})
 ```
 
 Every function that sends requests then works in the page as it does on
@@ -173,7 +176,8 @@ token for OP3:
                                            {:send (op3/sender token)})})
 
 ;; in the page
-(library/make device-id {:config {:send (proxy/sender "/proxy") :index {}}})
+(library/make device-id {:config {:index {}}})
+(def opts {:send (proxy/sender "/proxy")})
 ```
 
 Anyone who passes your login then spends the quota of your accounts. If
@@ -404,15 +408,16 @@ the chapters of a local episode, give `episode/read-files!` the same
 ## Keep the feeds current
 
 ```clojure
-(swap! lib library/merge (library/refresh! @lib))
+(def refreshed (library/refresh! @lib opts))
+(swap! lib library/merge (:library refreshed))
 
-(:refresh @lib)
+(dissoc refreshed :library)
 ;; => {:at #inst "…" :added [[feed-guid item-guid] …] :backfilled []
 ;;     :renamed [] :moved {} :report []
 ;;     :counts {:checked 12 :unchanged 10 :changed 2 :failed 0 :left 0}
 ;;     :seconds 1.4}
 
-(library/next-refresh @lib)  ; when to refresh again
+(library/next-refresh @lib {:after refreshed})  ; when to refresh again
 ```
 
 This fetches whatever is due: the lists that the listener follows, the
@@ -439,7 +444,8 @@ The `:counts` and `:seconds` say how many feeds were checked and how it
 went, e.g. for a status line or a log. Schedule the next refresh at
 `library/next-refresh`: when the first feed or list is due, or right away
 after a new subscription. After a refresh that found the device offline,
-it waits five minutes, the config's `:offline-seconds`.
+it waits five minutes, the config's `:offline-seconds`, when its `:after`
+is what that refresh returned.
 
 A refresh sends each feed's ETag and Last-Modified, so that most feeds
 cost a 304 with no body. Some servers give neither, or answer 200 anyway,
@@ -469,7 +475,7 @@ with `library/refreshed`. In the worker, a module of its own, e.g. with
 
 ```clojure
 (worker/serve! {:store      data
-                :config     config
+                :opts       opts
                 :dom-parser xmldom/DOMParser})  ; a worker has no DOMParser
 ```
 
@@ -478,11 +484,11 @@ documents of its feeds, and ask the client:
 
 ```clojure
 (def client
-  (worker/client "/js/worker.js" config))
+  (worker/client "/js/worker.js" opts))
 
 (.then (worker/fetch-due! client (library/due @lib) {:head-check? true} nil)
        #(when-let [found (:found %)]
-          (swap! lib library/refreshed found)))
+          (swap! lib (fn [l] (:library (library/refreshed l found opts))))))
 ```
 
 The worker writes nothing but the documents of feeds, so the page's
@@ -491,19 +497,19 @@ where the library still has the one that was due, so a feed that another
 tab changed meanwhile stays as it is. One refresh runs at a time across
 the tabs, and the worker of another answers `:busy?`. `worker/fetch!`
 fetches and parses one feed in the worker, e.g. for the page of a show
-outside the library, and gives it back in the codec of the config. Both
+outside the library, and gives it back in the codec of `opts`. Both
 fail when the worker does. The inspector's player does all of this in
 `web/inspector/`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
-setting of that name for a show, and ask `library/notifications` after
-each refresh. It returns the new episodes that the listener hasn't
-played, by show:
+setting of that name for a show, and give `library/notifications` what
+each refresh returns. It returns the new episodes that the listener
+hasn't played, by show:
 
 ```clojure
 (swap! lib library/update-profile profile/prefer {:notify? true})
 
-(library/notifications @lib)
+(library/notifications (library/refresh! @lib opts))
 ;; => [{:feed-guid "917393e3-…" :title "Podcasting 2.0"
 ;;      :artwork "https://noagendaassets.com/enc/…_pcifeedimage.png"
 ;;      :episodes [{:id ["917393e3-…" "PC20-274"]
@@ -548,15 +554,16 @@ When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `schedule/next-check` reads them,
 but it's never more than twelve hours away, so that an early or an extra
 episode shows up the same day. The setting `:cadence` changes those
-defaults, e.g. `{:max-wait 21600}` for six hours, and `:credentials-of`
-gives the credentials of a private feed by its URL, so no password is
-stored in the library and none goes to another feed.
+defaults, e.g. `{:max-wait 21600}` for six hours, and the option
+`:credentials-of` gives the credentials of a private feed by its URL, so
+no password is stored in the library and none goes to another feed.
 
 The library keeps every feed whole, which takes about twice the size of
 its XML in memory. A device that never shows the feeds, such as a server
 that only syncs and refreshes, can keep a small part of each with the
-setting `:keep-fn feeds/slim`. That part still tells when to check the feed
-and which episodes are new.
+option `:keep-fn feeds/slim`, given to each call that fetches or
+subscribes. That part still tells when to check the feed and which
+episodes are new.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 On the JVM, keep the last block that you read and the writers, and poll
@@ -571,7 +578,8 @@ every few seconds:
         polled (podping/poll! block {:writers writers})
         guids  (feeds/affected (:feeds @lib) (:pings polled))]
     (when (seq guids)
-      (swap! lib library/merge (library/refresh! @lib {:feed-guids guids})))
+      (swap! lib library/merge
+             (:library (library/refresh! @lib (assoc opts :feed-guids guids)))))
     polled))
 
 (def polled (podping/poll!))  ; starts at the head of the chain
@@ -628,12 +636,12 @@ with the hub's signature:
                        (let [[feed-guid] (websub/subscription-of
                                           @hub-subscriptions request)]
                          (future
-                           (swap! lib library/pushed feed-guid delivery)))))))
+                           (swap! lib #(:library (library/pushed % feed-guid delivery)))))))))
 ```
 
 The hub waits for the answer, so `:deliver!` applies the push on another
 thread. A push adds new episodes to the queue as a refresh does, and
-`:refresh` says what changed. Since a hub can push only what changed, a
+`pushed` returns what changed beside the library, as `refresh!` does. Since a hub can push only what changed, a
 push never removes an episode; the next fetch does that. Keep refreshing
 on the normal schedule too, since a hub can fail.
 
@@ -676,19 +684,21 @@ read it back into a new library when the app starts:
 ;;              "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
 ;;     :delete []}
 
-(reset! lib (library/restore! (library/make device-id) data))
+(reset! lib (:library (library/restore! (library/make device-id) data)))
 ```
 
 In ClojureScript, save the documents in Transit rather than EDN, which
 ClojureScript reads about 30 times slower: a parsed feed of 20 MB takes
 1.2 s to read back from EDN in Chrome, longer than parsing its XML again,
 and 40 ms from Transit. Add `com.cognitect/transit-cljs` to your deps, and
-give the config like-minded's codec:
+give `make` like-minded's codec, and each call that reads or writes
+documents too:
 
 ```clojure
 (require '[dk.simongray.like-minded.transit :as transit])
 
-(library/make device-id {:config {:codec transit/codec}})
+(library/make device-id {:codec transit/codec})
+(def opts {:codec transit/codec})
 ```
 
 A library saved in EDN still reads, and the next save writes it in
@@ -699,31 +709,29 @@ This writes the profile, the followed lists and the last sync to
 `library.edn`, and each feed to a document of its own. The search index
 has documents of its own too. Only the documents of the feeds and of the
 index that changed since the last save are written again, so saving
-after each refresh is cheap. The `:config` can hold functions, so it
+after each refresh is cheap. The `:config` belongs to your app, so it
 isn't saved: give it to `make` again. When the index is missing or
 doesn't read, `restore!` builds it again from the feeds, and a feed whose
 document is missing is fetched again at the next refresh. A document
-that didn't read is in the `:report` under `:restore`. In ClojureScript,
-both functions return promises.
+that didn't read is in the `:report` beside the library. In
+ClojureScript, both functions return promises.
 
 A library of hundreds of shows needn't hold every feed in memory. Restore
 it with `{:load :none}`, or with the guids of the shows on the screen,
 and read others back with `library/load!` when the listener opens them:
 
 ```clojure
-(reset! lib (library/restore! (library/make device-id {:config {:store data}})
-                              data
-                              {:load :none}))
+(reset! lib (:library (library/restore! (library/make device-id) data {:load :none})))
 
-(swap! lib library/merge (library/load! @lib data [feed-guid]))
-(swap! lib library/merge (library/unload! @lib data :all))  ; e.g. in the background
+(swap! lib library/merge (:library (library/load! @lib data [feed-guid])))
+(swap! lib library/merge (:library (library/unload! @lib data :all)))  ; e.g. in the background
 ```
 
 A feed that isn't loaded is still in the search index and in `shows`,
 with `:unloaded? true`, and `show` gives its title and artwork, but no
 episode of it is in the views or the download plan, whose files of it
-stay. With the `:store` in the config, a refresh loads the feeds that
-it fetches, since it needs the episodes they had, and they stay loaded.
+stay. With the option `:store`, a refresh loads the feeds that it
+fetches, since it needs the episodes they had, and they stay loaded.
 Without it, they aren't fetched, and the report has
 `:library/not-loaded`. The function `unload!` writes the feeds to their
 documents before it lets them go, so nothing is lost if the app stops
@@ -732,9 +740,9 @@ before its next save.
 The document `library.edn` names the version of its shape. A library
 saved by an older version of podcast-clj is brought up to this one, and
 one saved by a newer version isn't read: `restore!` returns the library as
-`make` made it, with `:library/newer-format` in the report, and `save!`
-won't write over it, so an older app can't destroy what a newer one
-saved.
+`make` made it, which notes it under `:newer-format`, with
+`:library/newer-format` in the report too, and `save!` won't write over
+it, so an older app can't destroy what a newer one saved.
 
 Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:
@@ -765,9 +773,10 @@ what it holds, as `swap!` does:
   first."
   [store {:keys [library version]} f]
   (let [changed (f library)
-        written (library/write! changed store {:if-version version :before library})]
+        written (library/write! changed store
+                                (assoc opts :if-version version :before library))]
     (if (:conflict? written)
-      (recur store (library/read! library store) f)
+      (recur store (library/read! library store opts) f)
       {:library changed :version (:version written)})))
 ```
 
@@ -777,8 +786,8 @@ library's own document last, which holds the profile, the entries of the
 feeds and the manifest of the index. Give `read!` the library as it is,
 since it reads only what changed, and tell the other tabs of the new
 version, e.g. on a BroadcastChannel, so that they read it too. Both read
-and write in the codec of the config alone, and `read!` reads a library
-that `save!` wrote. In ClojureScript, both return promises.
+and write in the codec of `opts` alone, and `read!` reads a library that
+`save!` wrote. In ClojureScript, both return promises.
 
 Give the change the time of the listener's action, e.g. as the `:at` of
 `library/step`, so that it stamps the same time when it's made again.
@@ -1089,15 +1098,22 @@ listener approved. Only the `bunker://` URI is supported, since the
 
 The profile holds the queue and the progress, and you control the media
 element. Send each event of the media element to `library/step`, and do
-the effects it returns:
+the effects that it returns beside the library:
 
 ```clojure
 (swap! lib library/update-profile profile.queue/enqueue id)
 
-(:effects (swap! lib library/step [:progress id 1234 3600]))  ; => []
-(:effects (swap! lib library/step [:skip id :forward]))
+(defn step!
+  "Run the player `event` through the library, and give its effects."
+  [event]
+  (let [{:keys [library effects]} (library/step @lib event)]
+    (reset! lib library)
+    effects))
+
+(step! [:progress id 1234 3600])  ; => []
+(step! [:skip id :forward])
 ;; => [[:seek id 1264]]
-(:effects (swap! lib library/step [:ended id]))
+(step! [:ended id])
 ;; => [[:play next-id]]
 ```
 
@@ -1142,10 +1158,9 @@ and the headphones send their events through `library/step` too:
   "Start the episode `id` of the library in the media element `audio`."
   [audio id]
   (let [{:keys [metadata] :as playback} (library/playback @lib id)
-        step!  #(apply-effects! audio (:effects (swap! lib library/step %)))
         press! (fn [details]
-                 (run! step! (media-session/events
-                              @lib id (.-currentTime audio) details)))]
+                 (run! #(apply-effects! audio (step! %))
+                       (media-session/events @lib id (.-currentTime audio) details)))]
     (media-element/source! audio playback)
     (session/metadata! metadata)
     (session/actions! (zipmap (media-session/actions @lib id)
@@ -1408,7 +1423,7 @@ credentials, and Apple by its title. The ids stay in the library, and
 the views of the show and its episodes link to it in many more apps:
 
 ```clojure
-(swap! lib library/merge (library/identify! @lib))
+(swap! lib library/merge (:library (library/identify! @lib opts)))
 ```
 
 A `:subscribe` link opens the app, so only show it on a device that has
@@ -1703,7 +1718,7 @@ explains why this is safe.
    (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")
                     {:app "my-app"})])
 
-(swap! lib library/merge (library/sync! @lib backends))
+(swap! lib library/merge (:library (library/sync! @lib backends)))
 (library/next-sync @lib)  ; when to sync again
 ```
 
@@ -1750,7 +1765,7 @@ document. A device that left can't sync under its id again, so to turn
 sync back on, give the library a new id with `library/with-device`:
 
 ```clojure
-(swap! lib library/merge (library/leave! @lib backends))
+(swap! lib library/merge (:library (library/leave! @lib backends)))
 
 ;; later, to sync again
 (swap! lib library/with-device (str (random-uuid)) {:name "Phone"})
@@ -1805,7 +1820,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 2 …}"}
 
 (.then (library/sync! @lib [(library/backend (folder/store (.-files input)))])
-       #(swap! lib library/merge %))
+       #(swap! lib library/merge (:library %)))
 ```
 
 The store of the files of an input has no `:put`, so its backend only
@@ -1851,8 +1866,9 @@ In the page:
   between tabs and workers](#share-the-library-between-tabs-and-workers)
   has it. Start each step from the library that the store holds, once
   the tab has read what the others wrote and written its own changes,
-  and make what the step gives one more change, with `library/merge`. Then the other devices get only what the
-  store holds, whose stamps are in the order that compaction needs.
+  and make the library that the step gives one more change, with
+  `library/merge`. Then the other devices get only what the store holds,
+  whose stamps are in the order that compaction needs.
   like-minded runs one step of a device at a time, and a step that
   begins while another runs does nothing, with `:sync/overlapping-step`.
 - Offer to retire the devices that `crdt/lagging` lists, since private
@@ -2391,7 +2407,7 @@ A test of your app can run a library with no network and no clock. The
 sender of `testing/sender` answers each request from a map of URLs to
 responses, with a 304 when the request names the ETag of its response,
 and `testing/feed` writes the XML of a feed with as many episodes as you
-ask for. Give the sender as the `:send` of the config, and a clock that
+ask for. Give each call the sender as its `:send`, and a clock that
 stands still as its `:now-fn`:
 
 ```clojure
@@ -2406,16 +2422,20 @@ stands still as its `:now-fn`:
   [request]
   ((testing/sender @responses) request))
 
+(def opts
+  {:send   send
+   :now-fn (constantly #inst "2026-02-01")})
+
 (def lib
-  (atom (library/make "phone" {:config {:send   send
-                                        :now-fn (constantly #inst "2026-02-01")}})))
+  (atom (library/make "phone")))
 
 (swap! lib library/subscribe url (podcast/fetch! url {:send send})
-       {:auto-queue? true})
+       (assoc opts :auto-queue? true))
 
 ;; a new episode comes out
 (swap! responses assoc url {:body (testing/feed {:episodes 4})})
-(swap! lib library/merge (library/refresh! @lib {:at #inst "2026-02-02"}))
+(swap! lib library/merge
+       (:library (library/refresh! @lib (assoc opts :at #inst "2026-02-02"))))
 
 (profile.queue/queue (:profile @lib))
 ;; => [[feed-guid "https://example.com/4"]]

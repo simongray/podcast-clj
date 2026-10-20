@@ -57,8 +57,8 @@
   "The effects of the action of `details` on the episode that plays in
   `l`, at `position`, with the `opts` of library/playback."
   [l position details opts]
-  (:effects (reduce library/step
-                    l
+  (:effects (reduce (fn [{:keys [library]} event] (library/step library event))
+                    {:library l}
                     (media-session/events l id position details opts))))
 
 (deftest the-actions-of-an-episode

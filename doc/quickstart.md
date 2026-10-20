@@ -97,8 +97,8 @@ For a list of episodes, use `library/episode` alone, which fetches nothing.
 ## The player
 
 The profile holds the queue and the progress, and you control the media
-element. Send each of its events to `step`, which returns the library
-with the effects to apply under `:effects`:
+element. Send each of its events to `step`, which returns the new
+`:library` and the `:effects` to apply:
 
 ```clojure
 (-> (swap! lib library/update-profile profile.queue/enqueue id)
@@ -106,8 +106,15 @@ with the effects to apply under `:effects`:
     profile.queue/queue)
 ;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-274"]]
 
-(:effects (swap! lib library/step [:progress id 754 (:duration page)]))  ; => []
-(:effects (swap! lib library/step [:skip id :forward]))
+(defn step!
+  "Run the player `event` through the library, and give its effects."
+  [event]
+  (let [{:keys [library effects]} (library/step @lib event)]
+    (reset! lib library)
+    effects))
+
+(step! [:progress id 754 (:duration page)])  ; => []
+(step! [:skip id :forward])
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-274"] 784]]
 ```
 
@@ -121,22 +128,25 @@ To check for new episodes, call `refresh!`. It fetches whatever is due:
 the feeds, the lists that the listener follows, and the feeds of new
 subscriptions. The new episodes of a show with `:auto-queue?` go to the
 queue. The listener can change the library while it fetches, so put the
-result into the atom with `library/merge`, which keeps those changes:
+library that it gives into the atom with `library/merge`, which keeps
+those changes:
 
 ```clojure
-(:refresh (swap! lib library/merge (library/refresh! @lib)))
+(def refreshed (library/refresh! @lib))
+(swap! lib library/merge (:library refreshed))
+
+(dissoc refreshed :library)
 ;; => {:at #inst "…" :added [] :backfilled [] :renamed [] :moved {}
 ;;     :counts {:checked 0 :unchanged 0 :changed 0 :failed 0 :left 0}
 ;;     :seconds 0.001 :report []}
 
-(library/next-refresh @lib)
+(library/next-refresh @lib {:after refreshed})
 ;; => #inst "…"  ; twelve hours later
 ```
 
 Nothing is due right after subscribing, so in an app, call `refresh!` from
-a timer, at the time that `library/next-refresh` returns. The result under
-`:refresh` lists the new episodes, the feeds that moved, and the fetches
-that failed. Once the show has a new episode, `:added` holds its id, e.g.
+a timer, at the time that `library/next-refresh` returns. The result lists
+the new episodes, the feeds that moved, and the fetches that failed. Once the show has a new episode, `:added` holds its id, e.g.
 `[["917393e3-…" "PC20-275"]]`, and the episode is in the queue. A feed
 that failed stays as it was, and waits longer before the next try.
 
@@ -157,15 +167,15 @@ document:
   (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")
                    {:app "quickstart"}))
 
-(-> (swap! lib library/merge (library/sync! @lib [dropbox]))
-    :sync
-    (select-keys [:at :report]))
-;; => {:at #inst "…" :report []}
+(def synced (library/sync! @lib [dropbox]))
+(swap! lib library/merge (:library synced))
+
+(:report synced)          ; => []
 (library/next-sync @lib)  ; when to sync again
 ```
 
-The result under `:sync` has the cursors for the next sync and its report,
-which names any backend that failed. The folder now holds one
+The library keeps the cursors for the next sync under `:sync`, and the
+report names any backend that failed. The folder now holds one
 document for this device, and another device that syncs through the same
 folder gets the subscription and the queue. The [providers
 page](https://github.com/simongray/like-minded/blob/master/doc/providers.md)

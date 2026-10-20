@@ -39,9 +39,21 @@
   [library opts]
   (clojure.core/merge default-config (:config library) opts))
 
+(def function-keys
+  "The options of a call that are functions or hold them, which stay out
+  of the config, as app.library says."
+  [:fetch :send :allow-pred :credentials-of :keep-fn :local-file-fn :cache
+   :codec :now-fn])
+
+(defn settings
+  "The settings of a subscription in the `opts` of a call that subscribes:
+  all of them but :at and the options that hold functions."
+  [opts]
+  (apply dissoc opts :at function-keys))
+
 (defn time-of
   "The instant of a call to `library` with `opts`: their :at, or else the
-  time of the clock, the :now-fn of the options or of the config."
+  time of the clock, their :now-fn."
   [library opts]
   (or (:at opts) ((:now-fn (options library opts) time/now))))
 
@@ -559,7 +571,7 @@
      :failed    (count failed)
      :left      (count left)}))
 
-(declare with-feeds)
+(declare codec with-feeds)
 
 (defn loaded-for-refresh
   "The `step` of a refresh at `at`, a map of the :library and the :report,
@@ -576,7 +588,7 @@
       step
 
       store
-      (async/then (with-feeds [library report] store (set asleep))
+      (async/then (with-feeds [library report] store (set asleep) (codec library opts))
                   (fn [[library report]]
                     {:library library :report report}))
 
@@ -873,10 +885,23 @@
    :decode    edn/read-string})
 
 (defn codec
-  "The codec of the documents of `library` with `opts`: the :codec of the
-  options or of the config, or else EDN's."
+  "The codec of the documents of `library` with `opts`: their :codec, or
+  else EDN's. It throws when the codec isn't of the :extension of the
+  config, since the library's documents are named by it."
   [library opts]
-  (:codec (options library opts) edn-codec))
+  (let [{:keys [codec extension]} (options library opts)
+        codec (or codec edn-codec)]
+    (when (and extension (not= extension (:extension codec)))
+      (throw (ex-info (str "The documents of this library end in " extension
+                           ", so give the call the :codec of that extension")
+                      {:extension extension :codec (:extension codec)})))
+    codec))
+
+(defn naming
+  "What names the documents of `library`: a map of the :extension of its
+  config, as a codec has it, which is EDN's by default."
+  [library]
+  {:extension (get-in library [:config :extension] (:extension edn-codec))})
 
 (defn codec-of
   "The codec of the document `name`, by its extension: the `codec` of the
@@ -1057,49 +1082,62 @@
         (recur (assoc ((migrations v) s) :version (inc v)))
         s))))
 
+(defn- parts
+  "The parts of the saved map `saved` that `keys` names, brought up to this
+  version, without the report of the last sync, which earlier versions
+  kept with its state."
+  [saved keys]
+  (let [m (select-keys (migrated saved) keys)]
+    (cond-> m
+      (:sync m) (update :sync dissoc :report))))
+
 (defn with-saved-map
   "The `library` with the parts that `keys` names of `saved`, the map that
   the document `name` of a saved library holds, or nil when it doesn't
   read as one, brought up to this version, and the report of what didn't
-  read, as a pair, as with-saved gives them."
+  read, as a pair, as with-saved gives them.
+
+  A saved library of a newer version leaves the library as it is, with
+  the diagnostic under :newer-format, so that nothing writes it over."
   [library keys name saved]
   (let [unreadable #(diagnostics/describe
                      {:id :library/unreadable-document :name name
                       :reason %})
         v          (:version saved 1)
         problem    (when (some #{:profile} keys)
-                     (some-> (:profile saved) profile/problem))]
+                     (some-> (:profile saved) profile/problem))
+        library    (dissoc library :newer-format)]
     (cond
       (nil? saved)       [library [(unreadable "It doesn't read as a map")]]
       (not (pos-int? v)) [library [(unreadable "Its version is no number")]]
 
       (< version v)
-      [library [(diagnostics/describe
-                 {:id      :library/newer-format
-                  :version v
-                  :reason  (str "It's of version " v ", and this version "
-                                "of podcast-clj reads up to " version)})]]
+      (let [newer (diagnostics/describe
+                   {:id      :library/newer-format
+                    :version v
+                    :reason  (str "It's of version " v ", and this version "
+                                  "of podcast-clj reads up to " version)})]
+        [(assoc library :newer-format newer) [newer]])
 
       problem
-      [(clojure.core/merge library (dissoc (select-keys (migrated saved) keys)
-                                           :profile))
+      [(clojure.core/merge library (dissoc (parts saved keys) :profile))
        [(diagnostics/describe {:id     :library/malformed-profile
                                :reason (str problem)})]]
 
       :else
-      [(clojure.core/merge library (select-keys (migrated saved) keys)) []])))
+      [(clojure.core/merge library (parts saved keys)) []])))
 
 (defn with-saved
   "The `library` with the parts that `keys` names of the saved library, the
   :value of the `attempt` to fetch its document `name`, brought up to this
   version, and the report of what didn't read, as a pair. The document is
-  read with the codec of the library, or EDN's, by its extension.
+  read with `codec`, or EDN's, by its extension.
 
   A saved library of a newer version leaves the library as it is, and a
   saved profile that breaks the rules of profile/problem leaves its
   profile, with :library/newer-format or :library/malformed-profile in the
   report."
-  [library keys name {:keys [value error] :as attempt}]
+  [library keys name {:keys [value error] :as attempt} codec]
   (cond
     error        [library [(diagnostics/describe
                             {:id     :library/unreadable-document
@@ -1107,7 +1145,7 @@
                              :reason (async/explain error)})]]
     (nil? value) [library []]
     :else        (with-saved-map library keys name
-                   (read-map value (codec-of (codec library {}) name)))))
+                   (read-map value (codec-of codec name)))))
 
 (defn segment-names
   "The names of the documents of the segments of the search `index`."
@@ -1192,18 +1230,17 @@
 
 (defn with-feeds
   "The `library` and its `report`, a pair, with the feed and the retained
-  facts of each feeds entry that names a document read from `store`, of
-  the feeds that `wanted?` holds for, in a future or a promise, as
-  with-read-feeds has them."
-  [[library report] store wanted?]
+  facts of each feeds entry that names a document read from `store` with
+  `codec`, of the feeds that `wanted?` holds for, in a future or a
+  promise, as with-read-feeds has them."
+  [[library report] store wanted? codec]
   (let [outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
                        :when (and (unloaded? entry) (wanted? feed-guid))]
                    [feed-guid document])
-        own      (codec library {})
         fetch!   (fn [[feed-guid document]]
                    (async/then (async/attempt #((:fetch store) document {}))
                                #(vector feed-guid document
-                                        (read-feed own document %))))]
+                                        (read-feed codec document %))))]
     (async/then (async/all fetch! outlined)
                 #(with-read-feeds [library report] %))))
 

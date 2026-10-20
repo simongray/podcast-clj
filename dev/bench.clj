@@ -105,9 +105,7 @@
                      (try
                        (library/subscribe lib url feed {:at at})
                        (catch clojure.lang.ExceptionInfo _ lib)))
-         lib (reduce subscribe
-                     (library/make "bench" {:config {:now-fn (constantly at)}})
-                     @sweep)
+         lib (reduce subscribe (library/make "bench") @sweep)
          [show item] (first (library/episodes lib {:order :newest}))]
      {:library lib :id (library/episode-id lib show item)})))
 
@@ -179,9 +177,8 @@
   with a thousand played episodes."
   []
   (let [store (store/memory)
-        a     (assoc (:library @many) :device "a"
-                     :profile (played-profile "a" 1000))
-        b     (library/make "b" {:config {:now-fn (constantly at)}})]
+        a     (assoc (:library @many) :profile (played-profile "a" 1000))
+        b     (library/make "b")]
     {:store store :a a :b b}))
 
 (def workloads
@@ -240,11 +237,13 @@
    [:load-one       (let [none (delay (library/restore! (library/make "bench")
                                                         @saved-many
                                                         {:load :none}))]
-                      #(library/load! @none @saved-many [@largest-feed]))]
+                      #(library/load! (:library @none) @saved-many [@largest-feed]))]
    [:sync-round     #(let [{:keys [store a b]} (synced-pair)
-                           backend (library/backend store)]
-                       (library/sync! (library/merge b (library/sync! a [backend]))
-                                      [backend]))]
+                           backend (library/backend store)
+                           synced  (library/sync! a [backend] {:at at})]
+                       (library/sync! (library/merge b (:library synced))
+                                      [backend]
+                                      {:at at}))]
    [:profile-merge  #(profile/merge (:a @profiles) (:b @profiles))]
    [:profile-compact #(profile/compact (profile/merge (:a @profiles)
                                                       (:b @profiles))

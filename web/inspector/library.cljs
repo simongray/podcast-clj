@@ -4,7 +4,9 @@
 
   The library's document in the store is the one library of the browser,
   which every tab changes as it would an atom. A change is a function of
-  the library, which the tab applies to the library on its page at once.
+  the library that gives the new library, or a map of the :library and
+  what else it tells, as library/step does, which the tab applies to the
+  library on its page at once.
   A save writes the changes that wait with library/write!, on condition
   of the version of the document that the tab knows, and applies them
   again to the stored library when another tab wrote first, as swap!
@@ -32,7 +34,7 @@
 
 (def document-name
   "The name of the library's own document in the store, as podcast-clj
-  names it in the codec of the config of inspector.shared."
+  names it in the codec of the options of inspector.shared."
   (str "library" (:extension transit/codec)))
 
 (defonce ^{:doc "The library as this tab last read it from the store or
@@ -57,14 +59,20 @@
   (delay (when (exists? js/BroadcastChannel)
            (js/BroadcastChannel. shared/store-name))))
 
+(defn library-of
+  "The library that a change gave, `given`: the library itself, or the
+  :library of a map such as library/step gives."
+  [given]
+  (if (contains? given :library) (:library given) given))
+
 (defn applied-all
-  "The `library` with the changes `fs` applied in order, without the
-  effects of a step. A change that throws on this library, e.g. a
-  subscription that another tab made first, is left out."
+  "The `library` with the changes `fs` applied in order. A change that
+  throws on this library, e.g. a subscription that another tab made
+  first, is left out."
   [library fs]
   (reduce (fn [lib f]
             (try
-              (dissoc (f lib) :effects)
+              (library-of (f lib))
               (catch :default e
                 (js/console.warn "A change didn't apply to the stored library" e)
                 lib)))
@@ -72,28 +80,31 @@
           fs))
 
 (defn change!
-  "Apply `f`, a function of the library, to the library of the page
-  `state`, an atom, and keep it to write at the next save!. Give `f` the
-  time of the listener's action, e.g. as the :at of library/step, so that
-  it stamps the same time when it's applied again to what another tab
-  wrote. It gives the page's state after the change."
+  "Apply `f`, a change, to the library of the page `state`, an atom, and
+  keep it to write at the next save!. Give `f` the time of the listener's
+  action, e.g. as the :at of library/step, so that it stamps the same time
+  when it's applied again to what another tab wrote. It gives what `f`
+  gave, e.g. the :effects of a step beside the library."
   [state f]
   (swap! waiting conj f)
-  (swap! state update :library f))
+  (let [given (f (:library @state))]
+    (swap! state assoc :library (library-of given))
+    given))
 
 (defn durable-swap!
   "A promise of `f` of the library that `known` holds, as library/read!
-  gives it, written to `store` on condition of the version that `known`
-  holds, and of `f` of the stored library again while another tab wrote
-  first. It gives the library and the version written, as read! gives
-  them, or the :error of the write."
+  gives it, written to `store` with the options of inspector.shared on
+  condition of the version that `known` holds, and of `f` of the stored
+  library again while another tab wrote first. It gives the library and
+  the version written, as read! gives them, or the :error of the write."
   [store {:keys [library version]} f]
-  (let [changed (f library)]
-    (.then (library/write! changed store {:if-version version :before library})
+  (let [changed (f library)
+        opts    (shared/opts)]
+    (.then (library/write! changed store (assoc opts :if-version version :before library))
            (fn [{:keys [conflict? error] :as written}]
              (cond
                error     written
-               conflict? (.then (library/read! library store) #(durable-swap! store % f))
+               conflict? (.then (library/read! library store opts) #(durable-swap! store % f))
                :else     {:library changed :version (:version written)})))))
 
 (defn in-turn!
@@ -120,7 +131,7 @@
         {:keys [library] :as k} @known]
     (if (or (empty? fs) (nil? k))
       (js/Promise.resolve nil)
-      (let [shown (dissoc (:library @state) :effects)
+      (let [shown (:library @state)
             kept! #(swap! waiting (fn [later] (into fs later)))]
         (reset! waiting [])
         (-> (durable-swap! (the-store) k #(if (identical? % library) shown (applied-all % fs)))
@@ -168,7 +179,7 @@
        (.then (stored-version)
               (fn [stored]
                 (when (not= stored version)
-                  (.then (library/read! library (the-store))
+                  (.then (library/read! library (the-store) (shared/opts))
                          (fn [read]
                            (reset! known read)
                            (swap! state assoc :library
@@ -200,7 +211,7 @@
   version of its document, as library/read! gives them, with no version
   when the store held none."
   [state device]
-  (.then (library/read! (library/make device {:config (shared/config)}) (the-store))
+  (.then (library/read! (library/make device {:codec transit/codec}) (the-store) (shared/opts))
          (fn [{:keys [library] :as read}]
            (reset! known read)
            (swap! state assoc :library (applied-all library @waiting))

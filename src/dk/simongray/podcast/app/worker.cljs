@@ -14,7 +14,7 @@
   without the :body.
 
   On the page, client starts the worker, and fetch-due! and fetch! ask it.
-  The answers that hold a feed travel in the codec of the config, so give
+  The answers that hold a feed travel in the codec of the library, so give
   both sides the codec of dk.simongray.like-minded.transit, since EDN
   reads slower than the feed parses.
 
@@ -49,20 +49,20 @@
 
 (defn- found!
   "A promise of the answer to request `id`: what is `due` found with `opts`
-  in the :store of `served`, with its :config, as library/fetch-due!
-  gives it, posting the progress of each fetch as it goes."
-  [{:keys [store config]} id due opts]
+  in the :store of `served`, with its :opts, as library/fetch-due! gives
+  it, posting the progress of each fetch as it goes."
+  [{:keys [store] :as served} id due opts]
   (let [progress (fn [{:keys [done total]}]
                    (post! {:id id :progress {:done done :total total}}))]
-    (.then (library/fetch-due! due store (merge config opts {:on-feed-fn progress}))
+    (.then (library/fetch-due! due store (merge (:opts served) opts {:on-feed-fn progress}))
            (fn [found] {:id id :found found}))))
 
 (defn- fetched!
   "A promise of the answer to request `id`: the feed at `url` fetched
-  with `opts` through the :send of the config of `served`, in its codec."
-  [{:keys [config]} id url opts]
-  (let [codec (library.impl/codec {:config config} {})]
-    (.then (podcast/fetch! url (merge (select-keys config [:send]) opts))
+  with `opts` through the :send of the :opts of `served`, in its :codec."
+  [served id url opts]
+  (let [codec (library.impl/codec {} (:opts served))]
+    (.then (podcast/fetch! url (merge (select-keys (:opts served) [:send]) opts))
            (fn [result]
              {:id id :fetched ((:encode codec) (dissoc result :body))}))))
 
@@ -93,7 +93,7 @@
 
   - :store, the store of the library that the page reads, e.g. of
     like-minded.store.indexeddb
-  - :config, the config of the library, e.g. with its :send and :codec
+  - :opts, the options of the library's calls, e.g. its :send and :codec
   - :dom-parser, a DOMParser class for a worker without one, e.g. that of
     xmldom, which throws on what a browser reports as a parsererror"
   [{:keys [dom-parser] :as served}]
@@ -105,12 +105,12 @@
 
 (defn client
   "A web worker of the script at `url`, which serve! answers, for the
-  page, with the `config` of the library, of which only the :codec
+  page, with the `opts` of the library's calls, of which only the :codec
   counts here."
-  [url config]
+  [url opts]
   (let [worker  (js/Worker. url)
         pending (atom {})
-        codec   (library.impl/codec {:config config} {})
+        codec   (library.impl/codec {} opts)
         settle! (fn [id f]
                   (when-let [{:keys [resolve reject]} (get @pending id)]
                     (swap! pending dissoc id)
@@ -158,7 +158,8 @@
 
       (.then (worker/fetch-due! client (library/due lib) {} nil)
              #(when-let [found (:found %)]
-                (swap! app update :library library/refreshed found)))"
+                (swap! app update :library
+                       (fn [lib] (:library (library/refreshed lib found opts))))))"
   [client due opts on-progress]
   (ask! client {:due due :opts opts} on-progress))
 
