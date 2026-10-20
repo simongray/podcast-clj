@@ -32,7 +32,7 @@
                       (min moved (* 3 spent)))))]
     (if seconds
       (let [month (subs (time/format-iso8601 at) 0 7)]
-        (crdt/write profile [:listened (first id) month (crdt/author profile)]
+        (crdt/write profile [:listened (first id) month (:device profile)]
                     #(update % :seconds (fnil + 0) seconds)
                     at))
       profile)))

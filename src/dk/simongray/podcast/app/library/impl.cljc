@@ -856,27 +856,6 @@
           (filter (comp keep? key))
           (merge-with later mine theirs))))
 
-(declare entry-document)
-
-(defn rebased-entries
-  "The feeds entries of `mine` and `theirs`, as merged-entries joins them,
-  but the entry of `mine` that holds its feed in memory stays where the
-  other names the same document, saved with `codec`, so that it isn't
-  read again."
-  [mine theirs keep? codec]
-  (let [document (fn [feed-guid e]
-                   (or (:document e) (entry-document feed-guid e codec)))]
-    (into {}
-          (map (fn [[feed-guid e]]
-                 (let [own (get mine feed-guid)]
-                   [feed-guid
-                    (if (and (:feed own)
-                             (not (:feed e))
-                             (= (document feed-guid own) (:document e)))
-                      own
-                      e)])))
-          (merged-entries mine theirs keep?))))
-
 (defn printed
   "The EDN of `x`, whole."
   [x]
@@ -984,9 +963,9 @@
 
 (defn saved-map
   "The parts of `library` that `keys` names, as its saved document with
-  `codec` holds them: with the :version, the profile without the replica
-  of this context, and each feeds entry with the name of the document of
-  its feed in place of the feed and its retained items."
+  `codec` holds them: with the :version, and each feeds entry with the
+  name of the document of its feed in place of the feed and its retained
+  items."
   [library keys codec]
   (let [outlined (fn [[feed-guid entry]]
                    [feed-guid
@@ -995,8 +974,7 @@
                           (assoc :document (entry-document feed-guid entry codec)))
                       entry)])]
     (cond-> (assoc (select-keys library keys) :version version)
-      (some #{:feeds} keys)   (update :feeds #(into {} (map outlined) %))
-      (some #{:profile} keys) (update :profile crdt/with-replica nil))))
+      (some #{:feeds} keys) (update :feeds #(into {} (map outlined) %)))))
 
 (defn feeds-plan
   "The documents of the `feeds` of a library to put with `codec` into a
@@ -1109,11 +1087,7 @@
                                :reason (str problem)})]]
 
       :else
-      [(cond-> (clojure.core/merge library (select-keys (migrated saved) keys))
-         ;; the replica belongs to this context, not to the one that saved
-         (get-in library [:profile :replica])
-         (assoc-in [:profile :replica] (get-in library [:profile :replica])))
-       []])))
+      [(clojure.core/merge library (select-keys (migrated saved) keys)) []])))
 
 (defn with-saved
   "The `library` with the parts that `keys` names of the saved library, the
