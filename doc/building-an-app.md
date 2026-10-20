@@ -1171,9 +1171,12 @@ episode of the queue and go back to the one heard before.
 With the listener's preference `:continuous?`, an episode that ends with
 nothing else queued is followed by the first unplayed episode of its
 show in its listening order: the next of a serial show, and the newest
-of an episodic one. A sleep timer still stops the player. After a pause,
-e.g. a call, `playback` starts a few seconds before where the listener
-left off, by the preference `:rewinds`.
+of an episodic one. When that gives none, the option `:fallback-fn` of
+`library/step` can give the next, which becomes current, e.g. the first
+episode that `library/recommend` finds like the one that ended. A sleep
+timer still stops the player. After a pause, e.g. a call, `playback`
+starts a few seconds before where the listener left off, by the
+preference `:rewinds`.
 
 The file is the downloaded one when the library's record of the files
 has it, as the next section shows, or when the config's
@@ -1565,6 +1568,14 @@ search, give its feed as `:feeds`, and the ids can name its episodes:
 ```clojure
 (library/recommend @lib [(feed.guid/episode-id feed url item)]
                    {:feeds {(feed.guid/feed-guid feed url) {:feed feed :url url}}})
+```
+
+`library/any-meets?` takes `:feeds` too, e.g. to tell whether any of the
+episodes to start from is explicit, or of an explicit show:
+
+```clojure
+(library/any-meets? @lib ids {:not {:explicit? false :show-explicit? false}}
+                    {:feeds feeds})
 ```
 
 The docstring has the rest, e.g. `:weight-fn` and the options of

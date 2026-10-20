@@ -710,7 +710,7 @@
          (filter #(and (profile/episode-entry profile %) (takes? %)))
          (take n))))
 
-(defn- languages-of
+(defn languages-of
   "The primary subtags of the languages of the episodes `seeds`, as seed
   gives them, e.g. #{\"en\" \"da\"}."
   [seeds]
@@ -720,7 +720,7 @@
               (map resolve/language-tag))
         seeds))
 
-(defn- shows-in
+(defn shows-in
   "The feed guids of the shows of `library` whose feeds declare one of the
   `languages`, primary subtags as languages-of gives them."
   [library languages]
@@ -746,17 +746,26 @@
   the episodes of a small library is too few to tell by."
   10)
 
+;; The index holds the episodes of the shows that aren't loaded too, and
+;; only the remote items of a show held for them, so its documents are
+;; what a word's count of episodes is out of. A show that isn't loaded
+;; counts in any language, since its feed isn't there to say which.
 (defn common-cap
-  "The most episodes of `library` that a word of the episodes `seeds`, as
-  seed gives them, may be in, as more-like-this takes its :max-doc-freq:
-  common-share of the episodes of the shows in the seeds' languages, or of
-  all of them when the seeds declare none."
-  [library seeds]
-  (let [languages (languages-of seeds)
-        feeds     (if (seq languages)
-                    (map #(get-in library [:feeds % :feed]) (shows-in library languages))
-                    (map :feed (vals (:feeds library))))
-        episodes  (reduce + 0 (map (comp count :rss/items) feeds))]
+  "The most episodes in the index of `library` that a word may be in, as
+  more-like-this takes its :max-doc-freq: common-share of the episodes of
+  the `shows`, a set of feed guids as shows-in gives them, and of those
+  not loaded, or of all of them when `shows` is nil."
+  [library shows]
+  (let [counted? (if shows
+                   #(or (contains? shows %)
+                        (unloaded? (get-in library [:feeds %])))
+                   (constantly true))
+        episodes (->> (search/ids (:index library))
+                      (filter vector?)
+                      (map first)
+                      frequencies
+                      (keep (fn [[feed-guid n]] (when (counted? feed-guid) n)))
+                      (reduce + 0))]
     (max least-common (long (* common-share episodes)))))
 
 (defn held-terms
@@ -775,16 +784,16 @@
 ;; for a rare language means every feed of the library
 (defn id-pred
   "A predicate of a result of recommend by its id, from the episodes
-  `seeds` of `library`, as seed gives them, and the `opts` of recommend:
-  an episode, of another show unless :same-show?, and of a show in their
-  languages, unless :same-language? is false, the criteria of :where name
-  a :language, or the seeds declare none."
-  [library seeds {:keys [same-show? same-language? where]
-                  :or   {same-language? true}}]
-  (let [shows     (into #{} (map (comp first :id)) seeds)
-        languages (when (and same-language? (not (contains? where :language)))
-                    (languages-of seeds))
-        allowed   (when (seq languages) (shows-in library languages))]
+  `seeds`, as seed gives them, the shows `in-languages` of their
+  languages, as shows-in gives them, and the `opts` of recommend: an
+  episode, of another show unless :same-show?, and of one of those shows,
+  unless :same-language? is false, the criteria of :where name a
+  :language, or `in-languages` is nil."
+  [seeds in-languages {:keys [same-show? same-language? where]
+                       :or   {same-language? true}}]
+  (let [shows   (into #{} (map (comp first :id)) seeds)
+        allowed (when (and same-language? (not (contains? where :language)))
+                  in-languages)]
     (fn [{:keys [id]}]
       (and (vector? id)
            (or same-show? (not (contains? shows (first id))))

@@ -6,6 +6,7 @@
   takes the feed and an item, and the item overrides or inherits what the
   channel declares."
   (:require [clojure.string :as str]
+            [dk.simongray.langtag :as langtag]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve.impl :as impl]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -399,6 +400,19 @@
   \"en\" for \"en-US\"."
   [s]
   (first (str/split (str/lower-case (str s)) #"[-_]")))
+
+;; RSS 2.0 takes the language tags of RFC 1766, which BCP 47 (RFC 5646)
+;; replaced. Feeds write en_US for en-US too, and some name the language in
+;; words, e.g. English.
+;; https://www.rssboard.org/rss-language-codes
+(defn canonical-language
+  "The language `s` as a feed writes it, as a tag of BCP 47 in its
+  canonical case, e.g. \"en-US\" for \"en_us\", or nil when it isn't a tag
+  with a language of two or three letters, as ISO 639 has them."
+  [s]
+  (when-let [{:keys [language] :as m} (some-> s (str/replace "_" "-") langtag/parse)]
+    (when (<= 2 (count language) 3)
+      (langtag/tag m))))
 
 (defn- language-rank
   "How well `language` serves the `languages` wanted, most wanted first, as

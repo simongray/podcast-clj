@@ -404,6 +404,13 @@
             both   [grinders [coffee "1"]]]
         (is (< (get (weight [grinders] {:unlike [[brew "1"]]}) "beans")
                (get (weight [grinders] {}) "beans")))
+        (let [grind "55555555-5555-5555-8555-555555555555"
+              feeds {grind {:feed (show-of grind "Grind Weekly" "en"
+                                           [["Roasting" "Light and dark roasting of coffee beans."]])
+                            :url  "https://example.com/grind.xml"}}]
+          (is (< (get (weight [grinders] {:unlike [[grind "0"]] :feeds feeds}) "beans")
+                 (get (weight [grinders] {:unlike [[grind "0"]]}) "beans"))
+              "an episode of a show that the library doesn't hold"))
         (is (< (get (weight both {}) "espresso")
                (get (weight both {:weight-fn {grinders 4 [coffee "1"] 1}})
                     "espresso")))))
@@ -442,9 +449,40 @@
         lib      (-> (library/make "phone" {:config {:search? true}})
                      (library/subscribe "https://example.com/en.xml" (show-of coffee "Talk" "en" (episodes 250)))
                      (library/subscribe "https://example.com/da.xml" (show-of brew "Snak" "da" (episodes 100))))
-        cap      #(library.impl/common-cap lib [(library.impl/seed lib %)])]
-    (is (= 20 (cap [coffee "0"])) "8% of the episodes in the language of the episode")
-    (is (= 10 (cap [brew "0"])) "but never fewer than 10")))
+        cap      (fn [lib id]
+                   (->> [(library.impl/seed lib id)]
+                        library.impl/languages-of
+                        (library.impl/shows-in lib)
+                        (library.impl/common-cap lib)))]
+    (is (= 20 (cap lib [coffee "0"])) "8% of the episodes in the language of the episode")
+    (is (= 10 (cap lib [brew "0"])) "but never fewer than 10")
+    (is (= 28 (library.impl/common-cap lib nil)) "or of all of them")
+    (testing "the episodes that the index holds"
+      (is (= 28 (cap (update-in lib [:feeds brew] #(-> % (dissoc :feed) (assoc :document "brew")))
+                     [coffee "0"]))
+          "of a show that isn't loaded too, whose language isn't known")
+      (is (= 20 (cap (library/add-episode lib "https://example.com/held.xml"
+                                          (show-of "55555555-5555-5555-8555-555555555555" "Held" "en" (episodes 500))
+                                          "0")
+                     [coffee "0"]))
+          "and of a show held for one episode, that one alone"))))
+
+(deftest whether-any-episode-meets-criteria
+  (let [explicit (assoc-in shelf [:feeds brew :feed :rss/items 1 :itunes/explicit] true)
+        grind    "55555555-5555-5555-8555-555555555555"
+        feeds    {grind {:feed (assoc (show-of grind "Grind Weekly" "en" [["Burrs" "Burr grinders."]])
+                                      :itunes/explicit true)
+                         :url  "https://example.com/grind.xml"}}]
+    (is (library/any-meets? explicit [[coffee "0"] [brew "1"]] {:explicit? true}))
+    (is (not (library/any-meets? explicit [[coffee "0"] [brew "0"]] {:explicit? true})))
+    (is (library/any-meets? shelf [[coffee "0"]] {:status :unplayed}) "with criteria about the listener")
+    (is (not (library/any-meets? shelf [] {})) "of no episodes")
+    (is (not (library/any-meets? shelf [[grind "0"]] {})) "nor of one that the library doesn't hold")
+    (testing "an episode of a show that the library doesn't hold"
+      (is (library/any-meets? shelf [[grind "0"]] {:show-explicit? true} {:feeds feeds}))
+      (is (library/any-meets? shelf [[coffee "0"] [grind "0"]]
+                              {:not {:explicit? false :show-explicit? false}}
+                              {:feeds feeds})))))
 
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]

@@ -1129,6 +1129,29 @@
                                      :at      (impl/time-of library opts))
                         (:index library) (assoc :index (:index library))))))
 
+(defn any-meets?
+  "Whether any of the episodes `ids` of `library` meets the `criteria` of
+  criteria/where, with the `opts` below, e.g. whether one is explicit or
+  of an explicit show:
+
+      (any-meets? library ids {:explicit? true})
+      (any-meets? library ids {:show-explicit? true})
+
+  The criteria read the profile of the library, and the time of its clock
+  unless the `opts` give :at, with their :scale. With :feeds, as recommend
+  takes them, `ids` can name the episodes of shows that the library
+  doesn't hold whole, e.g. a show found in a search."
+  ([library ids criteria]
+   (any-meets? library ids criteria {}))
+  ([library ids criteria {:keys [feeds] :as opts}]
+   {:pre [(map? opts)]}
+   (let [holding (cond-> library
+                   feeds (update :feeds clojure.core/merge feeds))
+         pairs   (keep #(impl/item-of holding %) ids)
+         urls    (into {} (map (fn [[{:keys [feed url]}]] [feed url])) pairs)
+         meets?  (impl/where-pred holding urls criteria opts)]
+     (boolean (some (fn [[{:keys [feed]} item]] (meets? feed item)) pairs)))))
+
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` below, or nil when the library keeps no index.
@@ -1178,8 +1201,8 @@
     from meet, whether `ids` names them or the listener heard them last,
     e.g. {:not {:explicit? true}}
   - :feeds, the shows that the library doesn't hold whole, whose episodes
-    `ids` can name, e.g. a show found in a search, as a map of the feed
-    guid of each to a map of its parsed :feed and its :url
+    `ids` and :unlike can name, e.g. a show found in a search, as a map of
+    the feed guid of each to a map of its parsed :feed and its :url
   - :unlike, ids of episodes whose words count against those of `ids`,
     e.g. the ones that the listener rated low
   - :weight-fn, a function of an id of `ids` or :unlike that gives how
@@ -1231,7 +1254,9 @@
            seeds     (->> ids
                           (keep #(impl/seed holding %))
                           (filter #(from? (:feed %) (:item %))))
-           by-id     (impl/id-pred library seeds opts)
+           languages (impl/languages-of seeds)
+           shows     (when (seq languages) (impl/shows-in library languages))
+           by-id     (impl/id-pred seeds shows opts)
            ;; the last heard weighs as many as there are, and the first 1
            ranks     (zipmap ids (range (count ids) 0 -1))
            weight-of (cond
@@ -1246,7 +1271,7 @@
                          (assoc :where       (criteria/visible
                                               (:where opts {:status :unplayed}))
                                 :unlike      (keep #(:document
-                                                     (impl/seed library %))
+                                                     (impl/seed holding %))
                                                    unlike)
                                 :weight-fn   (comp weight-of :id)
                                 :same-group? (boolean same-show?))
@@ -1255,7 +1280,7 @@
                          (update :min-word-length #(or % 2))
                          (update :min-term-freq #(or % 2))
                          (update :min-match #(or % 2))
-                         (update :max-doc-freq #(or % (impl/common-cap library seeds)))
+                         (update :max-doc-freq #(or % (impl/common-cap library shows)))
                          (update :limit #(or % 10))
                          (update :group-fn #(or % feed.search/feed-guid-of))
                          (update :max-per-group #(or % max-per-show))
@@ -1304,7 +1329,9 @@
   the library. With the listener's :continuous?, an episode that ends
   with no other queued is followed by the first unplayed episode of its
   show in the listening order: the next of a serial show, and the newest
-  of an episodic one."
+  of an episodic one. When that gives none, the :fallback-fn of the `opts`
+  gives the next, which becomes current, e.g. the first of recommend's
+  episodes like it."
   ([library event]
    (step library event {}))
   ([library event opts]

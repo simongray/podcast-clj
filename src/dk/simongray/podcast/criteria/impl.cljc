@@ -33,12 +33,12 @@
   [[lo hi] t]
   (within? [(some-> lo inst-ms) (some-> hi inst-ms)] (some-> t inst-ms)))
 
-;; Feeds write en_US for en-US too
 (defn- language-match?
-  "Whether the language range `r` matches the language tag `tag` by the
-  basic filtering of RFC 4647."
+  "Whether the language range `r` matches the language tag `tag`, as a feed
+  writes it, by the basic filtering of RFC 4647."
   [r tag]
-  (langtag/basic-match? (str r) (str/replace (str tag) "_" "-")))
+  (boolean (some->> (resolve/canonical-language tag)
+                    (langtag/basic-match? (str r)))))
 
 (defn- mentions?
   "Whether the text `s` holds the text `q`, both folded, so that case and

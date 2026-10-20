@@ -91,6 +91,20 @@
             "only with the listener's :continuous?")
         (is (= [[:stop b]] (:effects (profile.player/step (profile.queue/dequeue on a t1) [:ended b] t2
                                                           (assoc opts :sleep {:episodes 1}))))
+            "and the sleep timer wins")))
+    (testing "a fallback, when nothing else is queued and continuous play gives none"
+      (let [alone (profile.queue/dequeue s a t1)
+            on    (profile/prefer alone {:continuous? true} t1)
+            opts  {:fallback-fn {b c}}]
+        (is (= [[:play b]] (:effects (profile.player/step s [:ended a] t1 opts))) "the queue first")
+        (let [{:keys [profile effects]} (profile.player/step alone [:ended b] t2 opts)]
+          (is (= [[:play c]] effects))
+          (is (= [c] (profile.queue/queue profile)) "which becomes current"))
+        (is (= [[:play a]] (:effects (profile.player/step on [:ended b] t2 (assoc opts :continue-fn {b a}))))
+            "continuous play before it")
+        (is (= [[:play c]] (:effects (profile.player/step on [:ended b] t2 (assoc opts :continue-fn {}))))
+            "and it after continuous play that gives none")
+        (is (= [[:stop b]] (:effects (profile.player/step alone [:ended b] t2 (assoc opts :sleep {:episodes 1}))))
             "and the sleep timer wins")))))
 
 (deftest the-next-and-the-previous-episode
@@ -150,6 +164,11 @@
             {:keys [profile effects]} (profile.player/step s [:progress c 3545 3600] t1)]
         (is (= [[:stop c] [:played c]] effects))
         (is (= [a b] (profile.queue/queue profile)))))
+    (testing "the last of the queue, which plays the fallback"
+      (let [alone (profile.queue/dequeue s b t0)]
+        (is (= [[:stop a] [:played a]] (:effects (profile.player/step alone [:progress a 3545 3600] t1))))
+        (is (= [[:stop a] [:played a] [:play c]]
+               (:effects (profile.player/step alone [:progress a 3545 3600] t1 {:fallback-fn {a c}}))))))
     (testing "no outro, or one as long as the episode, ends nothing early"
       (is (= [[:played a]] (:effects (profile.player/step (profile/configure s "feed-a" {:skip-outro 0} t1) [:progress a 3590 3600] t2))))
       (is (= [[:played b]] (:effects (profile.player/step (profile/progress s b 10 50 t1) [:progress b 45 50] t2)))))))

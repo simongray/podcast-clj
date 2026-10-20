@@ -484,6 +484,10 @@
     (is (= [["Technology"] ["News" "Tech News"]] (resolve/categories f)))
     (is (= "en-US" (resolve/language f)))
     (is (nil? (resolve/language {:rss/language " "})))
+    (is (= ["da" "en-US" "en-GB" "de-CH"] (map resolve/canonical-language ["da" "en-us" "EN-gb" "de_CH"]))
+        "the tag in its canonical case, with a hyphen where some feeds write an underscore")
+    (is (every? nil? (map resolve/canonical-language [nil "" "English" "en--US"]))
+        "none for a language named other than by its tag")
     (is (= "Podcast Index LLC 2026" (resolve/copyright f)))
     (testing "the schedule as its text"
       (is (= "Every Monday until Dec 31, 2023"
