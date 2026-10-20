@@ -11,7 +11,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.test-support :refer [failed fixture sync! with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [fixture sync! with-temp-dir]]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.secret :as secret]
@@ -50,8 +50,8 @@
     (fn [dir]
       (let [store (service/sync-store {:data-dir dir})]
         (phone-synced! store)
-        (let [library (device/step! (atom (device/make {:fetch fetch})) (library/backend store))]
-          (is (nil? (failed (:sync library))))
+        (let [library (device/step! (atom (device/make)) (library/backend store) {:fetch fetch})]
+          (is (some? (get-in library [:sync :at])) "synced")
           (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])) "the slim feed of the phone's subscription")
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the phone's progress")
           (is (.isFile (io/file dir "sync" "podcast-server.edn")) "the library's own document"))))))
@@ -65,18 +65,18 @@
             asked   (atom [])
             fetch   (fn [u _] (swap! asked conj u) {:status 200 :url u :feed feed :etag "\"v1\""})]
         (phone-synced! store)
-        (device/save! (device/step! (atom (device/make {:fetch fetch})) backend) data)
+        (device/save! (device/step! (atom (device/make)) backend {:fetch fetch}) data)
         (is (= [url] @asked))
         (reset! asked [])
-        (let [lib     (atom (device/restore! (device/make {:fetch fetch :store data}) data))
-              library (device/step! lib backend)]
+        (let [lib     (atom (device/restore! (device/make) data))
+              library (device/step! lib backend {:fetch fetch :store data})]
           (is (= [] @asked) "no fetch, since the saved feed isn't due yet")
           (is (= "\"v1\"" (get-in library [:feeds (first id) :etag])))
           (is (not (library/loaded? library (first id))) "the feed stays in its document")
           (is (= [{:rss/guid {:content "a1"} :rss/enclosure {:url "https://a.example/1.mp3" :type "audio/mpeg" :length 1}}]
                  (get-in library [::device/known (first id) :feed :rss/items]))
               "and the server keeps its skeleton")
-          (is (= (feeds/slim feed) (get-in (library/load! library data [(first id)]) [:feeds (first id) :feed])))
+          (is (= (feeds/slim feed) (get-in (:library (library/load! library data [(first id)])) [:feeds (first id) :feed])))
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the profile, from the sync documents"))
         (spit (io/file dir library.impl/saved-name) "{:feeds")
         (is (= {} (:feeds (device/restore! (device/make) data))) "a file that can't be read is left out")))))
@@ -90,7 +90,7 @@
         (device/save! library data)
         (let [restored (device/restore! (device/make) data)]
           (is (= (select-keys library device/saved-keys)
-                 (select-keys (library/load! restored data :all) device/saved-keys)))
+                 (select-keys (:library (library/load! restored data :all)) device/saved-keys)))
           (is (= 3 (count (get-in restored [::device/known (first (keys (:feeds library))) :feed :rss/items])))
               "the skeleton of the feed, read once"))))))
 
@@ -99,7 +99,7 @@
     (fn [dir]
       (let [settings    (assoc service/defaults :port 0 :data-dir dir)
             store       (service/sync-store settings)
-            lib         (atom (device/make {:fetch fetch}))
+            lib         (atom (device/make))
             c           (service/connector settings store lib)
             credentials {"authorization" (secret/reveal (http/authorization {:username "simon" :password "x"}))}
             answer      #(:body (response-for c :get "/api/2/episodes/simon.json?since=0" :headers credentials))
@@ -108,7 +108,7 @@
                                (get (json/parse (str (answer))) "actions")))]
         (phone-synced! store)
         (is (= [] (actions)) "no URL for the episode while the server has no feed")
-        (device/step! lib (library/backend store))
+        (device/step! lib (library/backend store) {:fetch fetch})
         (is (= [["https://a.example/1.mp3" 600]] (actions)) "named by the feed that the library fetched")
         (device/unload! lib (folder/store dir))
         (is (not (library/loaded? @lib (first id))))
@@ -119,7 +119,7 @@
     (fn [dir]
       (let [settings    (assoc service/defaults :port 0 :data-dir dir)
             store       (service/sync-store settings)
-            started     #(service/connector settings store (atom (device/make {:fetch fetch})))
+            started     #(service/connector settings store (atom (device/make)))
             credentials {"authorization" (secret/reveal (http/authorization {:username "simon" :password "x"}))}
             devices     #(json/parse (str (:body (response-for % :get "/api/2/devices/simon.json" :headers credentials))))]
         (response-for (started) :post "/api/2/devices/simon/phone.json"

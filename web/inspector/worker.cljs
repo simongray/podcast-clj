@@ -16,5 +16,5 @@
   "Answer the page's requests to fetch the feeds that are due."
   []
   (worker/serve! {:store      (indexeddb/store shared/store-name)
-                  :config     (shared/config)
+                  :opts       (shared/opts)
                   :dom-parser xmldom/DOMParser}))

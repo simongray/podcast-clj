@@ -53,9 +53,7 @@
   (let [options (select-keys opts [:send])
         fetched (podcast/fetch! feed-url options)
         lib     (.then fetched
-                       #(library/subscribe (library/make "probe"
-                                                         {:name   "Probe"
-                                                          :config options})
+                       #(library/subscribe (library/make "probe" {:name "Probe"})
                                            feed-url % {}))
         newest  (.then lib
                        (fn [l]
@@ -79,7 +77,7 @@
                     (or (some-> (:error l) describe) (pr-str guids))])))
       (outcome "library/read-files! reads the chapters, transcript and media"
                (.then (js/Promise.all #js [lib newest])
-                      (fn [[l id]] (library/read-files! l id)))
+                      (fn [[l id]] (library/read-files! l id options)))
                (fn [{:keys [chapters transcript media error]}]
                  [(and (nil? error)
                        (seq (:chapters (:document chapters)))
@@ -108,7 +106,7 @@
                                      (fn [saved]
                                        (.then (library/restore!
                                                (library/make "probe") store)
-                                              #(vector saved %))))))
+                                              #(vector saved (:library %)))))))
                      (fn [[saved back :as v]]
                        (if (:error v)
                          [false (describe (:error v))]

@@ -153,7 +153,7 @@ sync the listener's devices through the stores of
 WebDAV or the gpodder API. Subscribing, playing, refreshing, searching,
 saving, and syncing are each one function call.
 A call that changes the library returns a new version, and playing, refreshing
-and syncing also record what they did in it:
+and syncing also return what they did beside it:
 
 ```clojure
 (require '[dk.simongray.like-minded.store.folder :as folder]
@@ -178,20 +178,27 @@ and syncing also record what they did in it:
 
 ;; tell the library that the player is 754 seconds into the 3600-second
 ;; episode, and get back what to do with the media element: nothing, here
-(:effects (swap! lib library/step [:progress id 754 3600]))
+(let [{:keys [library effects]} (library/step @lib [:progress id 754 3600])]
+  (reset! lib library)
+  effects)
 ;; => []
 
 ;; fetch the feeds that are due for a check, and list the new episodes;
-;; the result is the library from before the fetch plus what it fetched, so
-;; merge it in, or anything done during the fetch, e.g. playing, is undone
-(-> (swap! lib library/merge (library/refresh! @lib)) :refresh :added)
+;; the library it gives is the one from before the fetch plus what it
+;; fetched, so merge it in, or anything done during the fetch, e.g.
+;; playing, is undone
+(let [{:keys [library added]} (library/refresh! @lib)]
+  (swap! lib library/merge library)
+  added)
 ;; => [] right after subscribing, since nothing is due yet.
 ;;    Later, the new episodes: [["917393e3-…" "PC20-274"]]
 
 ;; sync the profile with the listener's other devices through a Dropbox folder,
 ;; and see what failed and what the step reported
 (def dropbox (library/backend (folder/store "/Users/simon/Dropbox/Podcasts")))
-(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
+(let [{:keys [library report]} (library/sync! @lib [dropbox])]
+  (swap! lib library/merge library)
+  report)
 ;; => []
 
 ;; keep the library until the next start, and read it back with restore!

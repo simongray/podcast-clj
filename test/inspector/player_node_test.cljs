@@ -95,7 +95,7 @@
         (.dispatchEvent input (js/Event. "change" #js {:bubbles true}))
         (is (str/includes? (.-textContent bar) "−20s"))))
     (testing "the browser has an id of its own and a name"
-      (is (= (get-in @shell/app [:library :device]) (.getItem js/localStorage shell/device-key)))
+      (is (= (get-in @shell/app [:library :profile :device]) (.getItem js/localStorage shell/device-key)))
       (is (string? (get-in @shell/app [:library :profile :devices (.getItem js/localStorage shell/device-key) :name]))))))
 
 (defn- other-tab!
@@ -105,12 +105,12 @@
   [s]
   (let [bar     (js/document.getElementById "player-bar")
         app     (js/document.getElementById "app")
-        device  (get-in @shell/app [:library :device])
+        device  (get-in @shell/app [:library :profile :device])
         channel (js/BroadcastChannel. shared/store-name)
         titles  {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}]
     (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                    #js {:key shell/storage-key :newValue (pr-str {:titles titles})}))
-    (-> (library/read! (library/make device {:config {:codec transit/codec}}) s)
+    (-> (library/read! (library/make device {:codec transit/codec}) s {:codec transit/codec})
         (.then #(inspector-library/durable-swap! s % (fn [l] (library/update-profile l profile.queue/enqueue ["feed" "b"]))))
         (.then (fn [{:keys [version]}]
                  (.postMessage channel (pr-str {:version version}))
@@ -156,7 +156,8 @@
         (is (= [a] (profile.queue/queue (get-in merged [:library :profile]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
     (testing "a sync step gives the state of the step"
-      (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
+      (let [synced (shell/with-synced mine {:library (assoc (:library other) :sync {:at (t 40)})
+                                            :report  []})]
         (is (= [a] (profile.queue/queue (get-in synced [:library :profile]))) "and its library comes as a change")
         (is (false? (:syncing? synced)))
         (is (= {:at (t 40) :report []} (:synced synced)))))))
@@ -165,20 +166,21 @@
   (async done
     (let [s     (store/memory)
           id    ["feed" "a"]
-          lib   (library/make "browser" {:config {:codec transit/codec}})
+          opts  {:codec transit/codec}
+          lib   (library/make "browser" opts)
           known (atom nil)]
-      (-> (library/write! lib s {:if-version nil})
+      (-> (library/write! lib s (assoc opts :if-version nil))
           (.then #(reset! known {:library lib :version (:version %)}))
           ;; another tab writes first, on the version that both read
           (.then #(library/write! (library/update-profile lib profile.queue/enqueue id)
                                   s
-                                  {:if-version (:version @known) :before lib}))
+                                  (assoc opts :if-version (:version @known) :before lib)))
           (.then #(inspector-library/durable-swap! s @known (fn [l] (library/update-profile l profile.marks/star id))))
           (.then (fn [{written :library}]
                    (testing "a change that another tab's write refused is applied again to what it wrote"
                      (is (= [id] (profile.queue/queue (:profile written))))
                      (is (= [id] (profile.marks/starred (:profile written)))))
-                   (library/read! lib s)))
+                   (library/read! lib s opts)))
           (.then (fn [{read :library}]
                    (is (= [id] (profile.queue/queue (:profile read))))
                    (is (= [id] (profile.marks/starred (:profile read))) "and both are in the store")))

@@ -378,9 +378,8 @@
        [:ul.compact
         (for [{:keys [id message]} (:report synced)]
           [:li {:replicant/key (str id)} [:code (str id)] " " message])])
-     (when-let [{:keys [at error]} (:refreshed state)]
-       (let [{:keys [added report]} (get-in state [:library :refresh])
-             n (count added)]
+     (when-let [{:keys [at error added report]} (:refreshed state)]
+       (let [n (count added)]
          (list
           [:p.muted
            (str "A web worker refreshed the feeds at "

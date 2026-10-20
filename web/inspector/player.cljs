@@ -154,12 +154,13 @@
   (update state :titles merge (:titles other)))
 
 (defn with-synced
-  "The page `state` once a sync gave `library`, with the time and report
-  of the sync under :synced for the queue page."
-  [state library]
+  "The page `state` once a sync gave `synced`, a map of the :library and
+  the :report, with the time and report of the sync under :synced for the
+  queue page."
+  [state {:keys [library report] :as synced}]
   (assoc state
          :syncing? false
-         :synced   (select-keys (:sync library) [:at :report])))
+         :synced   {:at (get-in library [:sync :at]) :report report}))
 
 (defn- save-titles!
   "Keep the titles of the page `state` in localStorage."
@@ -293,7 +294,7 @@
                     (.then #(inspector-library/save! app))
                     (.then #(library/sync! (:library @inspector-library/known) backends))
                     (.then (fn [synced]
-                             (inspector-library/change! app #(library/merge % synced))
+                             (inspector-library/change! app #(library/merge % (:library synced)))
                              (swap! app with-synced synced)))))]
      (-> (swap! last-sync #(.then % step step))
          (.catch (fn [e]
@@ -420,9 +421,8 @@
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
   [event]
-  (let [at    (time/now)
-        state (inspector-library/change! app #(library/step % event {:at at}))]
-    (perform! (get-in state [:library :effects]))))
+  (let [at (time/now)]
+    (perform! (:effects (inspector-library/change! app #(library/step % event {:at at}))))))
 
 (defonce ^{:doc "The function that hands the Media Session back to the
   browser, while it follows the audio element of an episode."}
@@ -992,26 +992,29 @@
 
 (defn- refreshed
   "The page `state` once the worker answered a refresh, with the time of
-  the answer and the `error`, if any, under :refreshed."
-  [state error]
+  the answer, the new episodes and the report of what the refresh gave,
+  `result`, and the `error`, if any, under :refreshed."
+  [state result error]
   (assoc state
          :refreshing? false
-         :refreshed   (cond-> {:at (time/now)}
+         :refreshed   (cond-> (assoc (select-keys result [:added :report]) :at (time/now))
                         error (assoc :error (str error)))))
 
 (defonce ^{:doc "The client of the web worker that refreshes the feeds of
   the library, made on first use, or nil where the browser has none."}
   refresher
   (delay (when (exists? js/Worker)
-           (worker/client "/js/worker.js" (shared/config)))))
+           (worker/client "/js/worker.js" (shared/opts)))))
 
 (defn- refresh-when-due!
-  "Ask the worker to fetch the feeds, once the library has one due, and
-  apply what it found to the library. The changes that wait are written
-  first, so that the worker finds the documents of the feeds."
+  "Ask the worker to fetch the feeds, once the library has one due after
+  the last refresh, and apply what it found to the library. The changes
+  that wait are written first, so that the worker finds the documents of
+  the feeds."
   []
   (when-let [client (when (and (not (:refreshing? @app))
-                               (some-> (library/next-refresh (:library @app))
+                               (some-> (library/next-refresh (:library @app)
+                                                             {:after (:refreshed @app)})
                                        inst-ms
                                        (<= (js/Date.now))))
                       @refresher)]
@@ -1019,10 +1022,12 @@
     (-> (save-library!)
         (.then #(worker/fetch-due! client (library/due (:library @app)) {} nil))
         (.then (fn [{:keys [found]}]
-                 (when found
-                   (inspector-library/change! app #(library/refreshed % found)))
-                 (swap! app refreshed nil)))
-        (.catch #(swap! app refreshed %)))))
+                 (swap! app refreshed
+                        (when found
+                          (inspector-library/change!
+                           app #(library/refreshed % found (shared/opts))))
+                        nil)))
+        (.catch #(swap! app refreshed nil %)))))
 
 (defn- refresh-on-its-own!
   "Refresh the feeds in the worker now, and whenever one is due."

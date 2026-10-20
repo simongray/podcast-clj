@@ -3,31 +3,32 @@
 
   The parts of a library are:
 
-      {:device        \"…\"              ; the id of this device
-       :profile       {…}              ; the profile, a CRDT that syncs
+      {:profile       {…}              ; the profile, a CRDT that syncs
        :feeds         {feed-guid {…}}  ; the feeds, as app.feeds keeps them
        :fetched-lists {url {…}}        ; the followed OPML lists, as fetched
        :index         {…}              ; the search index, with :search?
-       :sync          {:cursors {…} …} ; the last sync's cursors and report
-       :refresh       {:added […] …}   ; the new episodes, moves and report
-       :effects       [[:seek id 784]] ; the effects of the last event, to apply
+       :sync          {:cursors {…} …} ; what the next sync starts from
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
        :files         {id {…}}         ; the downloaded files of this device
        :config        {…}}             ; the options below
 
-  The profile is a CRDT, so never change it with assoc or dissoc. A feed
-  keeps the episodes that a fetch no longer brings back, as app.feeds
-  says, and the views and listings mark each with its :retained fact.
-  With :max-items, the oldest of them go once a feed has more items, but
-  never one that the profile holds anything for, e.g. progress, a played
-  mark that isn't archived, a star or a place in the queue. The config
-  holds the options that the functions take, given once:
+  The profile is a CRDT, so never change it with assoc or dissoc. Its
+  :device is the id of this device. A feed keeps the episodes that a fetch
+  no longer brings back, as app.feeds says, and the views and listings
+  mark each with its :retained fact. With :max-items, the oldest of them
+  go once a feed has more items, but never one that the profile holds
+  anything for, e.g. progress, a played mark that isn't archived, a star
+  or a place in the queue.
 
-      {:fetch          f              ; in place of podcast/fetch!
-       :send           f              ; in place of client/send!
-       :allow-pred     url/public?    ; which URLs a request may go to
-       :credentials-of f              ; credentials of a private feed by URL
-       :index          {…}            ; the credentials of the Podcast Index
+  A function that changes the library returns the new library. One that
+  also tells what it did returns a map of the :library and what it tells,
+  e.g. the :effects of step, or the new episodes and the :report of
+  refresh!.
+
+  The config holds the options that the functions take, given once, and
+  only data, so that a library is a value that prints and compares:
+
+      {:index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
        :search?        true           ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
@@ -37,16 +38,26 @@
        :archive-after  31536000000    ; when played episodes are archived, in ms
        :only-newer?    false          ; older episodes that appear are new too
        :new-episodes   :inbox         ; where every show's new episodes go
-       :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
-       :local-file-fn  f              ; the downloaded file of an episode id
-       :cache          store          ; for companion files, see read-files!
-       :codec          transit/codec  ; of the saved documents, EDN by default
-       :now-fn         f              ; the clock, util.time/now by default
+       :extension      \".transit\"     ; of the documents, as make takes it
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
   Each function also takes the same keys as options, for one call, and
   :at, an instant to stamp each change with in place of the time of the
-  clock."
+  clock. These options are functions or hold them, so they stay out of
+  the config, and you give them to each call, e.g. from a map of your own:
+
+      {:fetch          f              ; in place of podcast/fetch!
+       :send           f              ; in place of client/send!
+       :allow-pred     url/public?    ; which URLs a request may go to
+       :credentials-of f              ; credentials of a private feed by URL
+       :keep-fn        app.feeds/slim ; what to keep of a feed, all by default
+       :local-file-fn  f              ; the downloaded file of an episode id
+       :cache          store          ; for companion files, see read-files!
+       :codec          transit/codec  ; of the documents, EDN by default
+       :now-fn         f}             ; the clock, util.time/now by default
+
+  The codec has to be of the :extension that make took, since the
+  documents are named by it, and a call with another throws."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
@@ -93,18 +104,21 @@
 
   The `device` is a stable id that tells the listener's devices apart,
   made once per installation. The `opts` describe the device for the other
-  devices, such as its :name and :platform, and give the :config."
+  devices, such as its :name and :platform, and give the :config and the
+  :codec of the documents, whose :extension the config keeps, EDN's by
+  default."
   ([device]
    (make device {}))
-  ([device {:keys [config] :as opts}]
+  ([device {:keys [config codec] :as opts}]
    {:pre [(map? opts)]}
-   (let [description (dissoc opts :config :at)
-         config      (clojure.core/merge default-config config)
+   (let [description (dissoc opts :config :codec :at)
+         config      (clojure.core/merge default-config
+                                         config
+                                         {:extension (:extension (or codec impl/edn-codec))})
          described   (fn [p]
                        (let [at (impl/time-of {:config config} opts)]
                          (crdt/identify p description at)))]
-     {:device        device
-      :profile       (cond-> (profile/make device)
+     {:profile       (cond-> (profile/make device)
                        (seq description) described)
       :feeds         {}
       :fetched-lists {}
@@ -158,7 +172,8 @@
   and the settings in `opts`.
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
-  feed, and the `opts` are as profile/configure takes them, besides :at.
+  feed, and the `opts` are as profile/configure takes them, besides :at
+  and the options that hold functions, e.g. :keep-fn.
   Without `fetched`, or with nil, the feed is fetched at the next refresh,
   and the subscription has the guid of the URL until then. The start of a
   feed that discovery/fetch-head! gave counts as no feed, but for the
@@ -178,7 +193,7 @@
   ([library url fetched opts]
    {:pre [(map? opts)]}
    (let [at        (impl/time-of library opts)
-         settings  (dissoc opts :at :now-fn)
+         settings  (impl/settings opts)
          result    (some-> fetched impl/fetch-result)
          feed      (when result
                      (impl/feed-of url result "subscribe to"))
@@ -190,10 +205,10 @@
          details   (cond-> {:url url :title (resolve/title feed)}
                      settled? (assoc :guid feed-guid)
                      image    (assoc :image image))
-         cadence   (:cadence (:config library) {})
+         cadence   (:cadence (impl/options library opts) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
-                        (impl/settled feed-guid (:config library)))]
+                        (impl/settled feed-guid (impl/options library opts)))]
      (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -205,7 +220,8 @@
 
 (defn subscribe-local
   "The `library` subscribed to the show of local files `feed`, which
-  feed.local/feed built, with the settings in `opts`, besides :at.
+  feed.local/feed built, with the settings in `opts`, besides :at and the
+  options that hold functions.
 
   The feed stays on this device, as its files do, and no refresh fetches
   it, so subscribe again with the files as they are when they change. The
@@ -218,7 +234,7 @@
   ([library feed opts]
    {:pre [(map? opts)]}
    (let [at        (impl/time-of library opts)
-         settings  (dissoc opts :at :now-fn)
+         settings  (impl/settings opts)
          feed-guid (:podcast/guid feed)
          image     (resolve/artwork feed)
          details   (cond-> {:url   nil
@@ -243,7 +259,7 @@
            (seq settings) (update :profile profile/configure feed-guid
                                   settings at))
          (assoc-in [:feeds feed-guid] entry)
-         (impl/settled feed-guid (:config library))))))
+         (impl/settled feed-guid (impl/options library opts))))))
 
 (defn unsubscribe
   "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The
@@ -260,8 +276,8 @@
 
 (defn add-episode
   "The `library` with the episode `item-guid` of the feed at `url`, with
-  what was `fetched` and the :at of `opts`, though it isn't subscribed to
-  the feed.
+  what was `fetched` and the `opts`, though it isn't subscribed to the
+  feed.
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
   feed. The profile notes the episode as a remote item, so that every
@@ -276,7 +292,7 @@
          result    (impl/fetch-result fetched)
          feed      (impl/feed-of url result "take the episode from")
          feed-guid (key-of library (guid/feed-guid feed url))
-         cadence   (:cadence (:config library) {})
+         cadence   (:cadence (impl/options library opts) {})
          ;; a feed held for remote items alone lacks the other episodes
          fresh?    (or (not (contains? (:feeds library) feed-guid))
                        (impl/alone? library feed-guid))]
@@ -288,7 +304,7 @@
                  {:feed-url url} at)
          (cond-> fresh? (update :feeds feeds/add url result at cadence))
          (impl/reindexed feed-guid)
-         (cond-> fresh? (impl/kept feed-guid (:config library)))))))
+         (cond-> fresh? (impl/kept feed-guid (impl/options library opts)))))))
 
 (defn remove-episode
   "The `library` without the remote item `id`, with the :at of `opts`. The
@@ -430,10 +446,11 @@
   It fetches the followed lists, the feeds of new subscriptions and remote
   items, and the feeds of subscriptions whose next check has come. A feed
   held for remote items alone isn't fetched again, unless :feed-guids
-  names it. It returns the library with the result under :refresh, in
+  names it. It returns the new library and what the refresh found, in
   ClojureScript as a promise:
 
-      {:at         #inst \"…\"
+      {:library    {…}
+       :at         #inst \"…\"
        :added      [[feed-guid item-guid] …]  ; the new episodes
        :backfilled [[feed-guid item-guid] …]  ; older ones that appeared
        :renamed    [[old-id new-id] …]        ; episodes under a new guid,
@@ -526,13 +543,11 @@
                                        (into (:report step))
                                        (into (:report done)))
                    took            (- (inst-ms (clock)) (inst-ms started))]
-               (assoc library :refresh (-> {:at at}
-                                           (into (select-keys
-                                                  done [:added :backfilled
-                                                        :renamed :moved]))
-                                           (assoc :counts  (impl/counted step)
-                                                  :seconds (/ took 1000.0)
-                                                  :report  reports))))))))))))
+               (-> {:library library :at at}
+                   (into (select-keys done [:added :backfilled :renamed :moved]))
+                   (assoc :counts  (impl/counted step)
+                          :seconds (/ took 1000.0)
+                          :report  reports)))))))))))
 
 (defn next-refresh
   "When `library` should refresh again, with `opts`: when the first of its
@@ -544,14 +559,15 @@
   of the :after-failure of the cadence after one failure, as a feed that
   was fetched does. A feed that's gone, of local files or held for remote
   items alone is never due. After a refresh that found the device
-  offline, the next waits the :offline-seconds of the config."
+  offline, the next waits the :offline-seconds of the config, when the
+  :after of `opts` is what that refresh gave."
   ([library]
    (next-refresh library {}))
   ([library opts]
    {:pre [(map? opts)]}
    (let [at       (impl/time-of library opts)
          {:keys [offline-seconds]} (impl/options library opts)
-         {:keys [report] last-at :at} (:refresh library)
+         {:keys [report] last-at :at} (:after opts)
          check    #(or (:next-check %) at)
          checked? (fn [[feed-guid entry]]
                     (not (or (:gone? entry)
@@ -585,7 +601,7 @@
    {:pre [(map? opts)]}
    (let [at        (impl/time-of library opts)
          opts      (impl/options library opts)
-         codec     (impl/codec library opts)
+         naming    (impl/naming library)
          unfetched (impl/pending library)
          asked     (:feed-guids opts)
          held      (into (set (unloaded library))
@@ -605,7 +621,7 @@
                        (cond-> entry
                          (:feed entry)
                          (-> (dissoc :feed :retained)
-                             (assoc :document (impl/entry-document feed-guid entry codec))))))]
+                             (assoc :document (impl/entry-document feed-guid entry naming))))))]
      {:at         at
       :feed-guids wanted
       :feeds      (into {} (map (juxt identity outlined)) wanted)
@@ -656,7 +672,7 @@
                         (-> (dissoc :feed :retained)
                             (assoc :document (impl/entry-document feed-guid entry codec)))))]
      (async/then
-      (impl/with-feeds [{:feeds feeds :config {:codec codec}} []] store (set feed-guids))
+      (impl/with-feeds [{:feeds feeds} []] store (set feed-guids) codec)
       (fn [[{loaded :feeds} report]]
         (async/then
          (async/all [(impl/fetch-lists! lists opts)
@@ -688,15 +704,15 @@
 
 (defn refreshed
   "The `library` with what a refresh `found`, as fetch-due! gives it,
-  applied at its time with `opts`, and the result under :refresh, as
-  refresh! gives it.
+  applied at its time with `opts`, and what the refresh found, as refresh!
+  gives them.
 
   An entry that `found` holds replaces the library's own only while the
   library still has the entry that the refresh was due with, so that a
   feed that changed meanwhile, e.g. by a subscription in another tab,
   stays as it is, and so does a list that the listener no longer follows.
   The feeds that changed are read from the documents that `found` holds,
-  with the codec of the library."
+  with the :codec of `opts`."
   ([library found]
    (refreshed library found {}))
   ([library {:keys [at from feeds documents changed moved lists counts seconds report]
@@ -710,7 +726,8 @@
                     (let [entry (get-in library [:feeds feed-guid])]
                       (cond-> (select-keys entry [:document :fetched-at])
                         (:feed entry)
-                        (assoc :document (impl/entry-document feed-guid entry codec)))))
+                        (assoc :document (impl/entry-document feed-guid entry
+                                                              (impl/naming library))))))
          read     (fn [feed-guid {:keys [document] :as entry}]
                     (let [own (get-in library [:feeds feed-guid])]
                       (cond
@@ -747,15 +764,14 @@
                         :moved   (select-keys moved (keys taken))}
                        at
                        opts)]
-     (assoc lib :refresh (-> {:at at}
-                             (into (select-keys done [:added :backfilled
-                                                      :renamed :moved]))
-                             (assoc :counts  counts
-                                    :seconds seconds
-                                    :report  (-> []
-                                                 (into lists-report)
-                                                 (into report)
-                                                 (into (:report done)))))))))
+     (-> {:library lib :at at}
+         (into (select-keys done [:added :backfilled :renamed :moved]))
+         (assoc :counts  counts
+                :seconds seconds
+                :report  (-> []
+                             (into lists-report)
+                             (into report)
+                             (into (:report done))))))))
 
 ;; WebSub 5.1: a subscriber can subscribe at any of the hubs of a topic
 (defn hub-requests
@@ -821,14 +837,14 @@
 (defn pushed
   "The `library` after a WebSub hub pushed the feed `feed-guid` in
   `delivery`, the map that :deliver! of websub/handler receives, with
-  `opts`.
+  `opts`, and what the push brought, as refresh! gives them.
 
   The body is parsed as fetch! parses a feed. The new episodes join the
-  queue or the inbox as after a refresh, and :refresh holds the result.
-  Since a hub can push only what changed, a push removes no episode (see
-  app.feeds/pushed). When a push can't be applied, the feed is due at once,
-  so the next refresh fetches it, and the report says why. A push of a
-  feed that the library doesn't have changes nothing."
+  queue or the inbox as after a refresh. Since a hub can push only what
+  changed, a push removes no episode (see app.feeds/pushed). When a push
+  can't be applied, the feed is due at once, so the next refresh fetches
+  it, and the report says why. A push of a feed that the library doesn't
+  have changes nothing."
   ([library feed-guid delivery]
    (pushed library feed-guid delivery {}))
   ([library feed-guid {:keys [body content-type] :as delivery} opts]
@@ -851,7 +867,7 @@
                      error
                      (or (:reason error) (:message error)))
          refreshed (fn [done step]
-                     (-> {:at at}
+                     (-> {:library (:library done) :at at}
                          (into (select-keys done [:added :backfilled :renamed
                                                   :moved]))
                          (assoc :counts (impl/counted step)
@@ -859,33 +875,30 @@
                                               (:report done)))))]
      (cond
        (or (nil? entry) (:local? entry))
-       library
+       {:library library :at at :report []}
 
        reason
-       (-> library
-           (assoc-in [:feeds feed-guid :next-check] at)
-           (assoc :refresh
-                  {:at     at
-                   :report [(diagnostics/describe
-                             {:id        :library/push-not-applied
-                              :feed-guid feed-guid
-                              :url       (:url entry)
-                              :reason    reason})]}))
+       {:library (assoc-in library [:feeds feed-guid :next-check] at)
+        :at      at
+        :report  [(diagnostics/describe
+                   {:id        :library/push-not-applied
+                    :feed-guid feed-guid
+                    :url       (:url entry)
+                    :reason    reason})]}
 
        :else
        (let [step (-> (feeds/pushed (:feeds library) feed-guid (:feed parsed)
                                     at (:cadence opts {}))
-                      (assoc :checked [feed-guid]))
-             done (impl/applied library step at opts)]
-         (assoc (:library done) :refresh (refreshed done step)))))))
+                      (assoc :checked [feed-guid]))]
+         (refreshed (impl/applied library step at opts) step))))))
 
 (defn identify!
   "Ask the directories for the ids of the shows of `library` that have
   none yet, with `opts`, as directory/identify! does, and keep them in
   the entries of their feeds. The views of a show and its episodes then
-  link to it in the apps that know it by those ids. It gives the library
-  with the :report of the directories that failed under :identify, in
-  ClojureScript as a promise.
+  link to it in the apps that know it by those ids. It gives a map of the
+  new :library, the :at of the call and the :report of the directories
+  that failed, in ClojureScript as a promise.
 
   The Podcast Index is asked with the credentials of the :index of the
   config. The shows are asked about two at a time, since Apple limits how
@@ -915,10 +928,9 @@
                     (empty? report) (assoc-in [:feeds feed-guid :ids] ids)))]
      (async/then (async/in-groups ask! 2 guids)
                  (fn [answers]
-                   (assoc (reduce known library answers)
-                          :identify {:at     (impl/time-of library opts)
-                                     :report (vec (mapcat (comp :report second)
-                                                          answers))}))))))
+                   {:library (reduce known library answers)
+                    :at      (impl/time-of library opts)
+                    :report  (vec (mapcat (comp :report second) answers))})))))
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
@@ -964,8 +976,10 @@
           vec))))
 
 (defn notifications
-  "The new episodes that the last refresh of `library` found in the shows
-  that announce theirs, by show, the show with the newest episode first:
+  "The new episodes that a refresh found in the shows that announce theirs,
+  by show, the show with the newest episode first, of what the refresh
+  gave, `refreshed`, a map of the :library and the :added, as refresh!
+  gives it:
 
       [{:feed-guid \"…\" :title \"The Daily\" :artwork \"https://…\"
         :episodes  [{:id [feed-guid item-guid] :title \"…\"
@@ -974,7 +988,7 @@
   A show announces its new episodes when its :notify? setting says so,
   or else the listener's preference, as profile/notifies? says. An
   episode that the listener played already is left out."
-  [library]
+  [{:keys [library added] :as refreshed}]
   (let [profile (:profile library)
         wanted? (fn [[feed-guid :as id]]
                   (and (profile/subscribed? profile feed-guid)
@@ -997,7 +1011,7 @@
                       (cond-> {:feed-guid feed-guid :episodes (vec episodes)}
                         title   (assoc :title title)
                         artwork (assoc :artwork artwork)))))]
-    (->> (get-in library [:refresh :added])
+    (->> added
          (filter wanted?)
          (group-by first)
          (keep of-show)
@@ -1502,16 +1516,17 @@
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as
-  profile.player/step takes them.
+  profile.player/step takes them, and the effects to apply, as a map of
+  the :library and the :effects.
 
-  It has the new profile, the :effects to apply, and what's left of
-  the :sleep timer of this device. The `opts` go over the :sleep of
-  the library. With the listener's :continuous?, an episode that ends
-  with no other queued is followed by the first unplayed episode of its
-  show in the listening order: the next of a serial show, and the newest
-  of an episodic one. When that gives none, the effects have
-  [:nothing-next id], e.g. for an app to play the first of recommend's
-  episodes like it, with the event [:play id]."
+  The library has the new profile, and what's left of the :sleep timer of
+  this device. The `opts` go over the :sleep of the library. With the
+  listener's :continuous?, an episode that ends with no other queued is
+  followed by the first unplayed episode of its show in the listening
+  order: the next of a serial show, and the newest of an episodic one.
+  When that gives none, the effects have [:nothing-next id], e.g. for an
+  app to play the first of recommend's episodes like it, with the event
+  [:play id]."
   ([library event]
    (step library event {}))
   ([library event opts]
@@ -1522,8 +1537,9 @@
                                   opts)
          {:keys [profile effects sleep]}
          (profile.player/step (:profile library) event at opts)]
-     (cond-> (assoc (dissoc library :sleep) :profile profile :effects effects)
-       sleep (assoc :sleep sleep)))))
+     {:library (cond-> (assoc (dissoc library :sleep) :profile profile)
+                 sleep (assoc :sleep sleep))
+      :effects effects})))
 
 (defn mark-show-played
   "The `library` with every episode of the show `feed-guid` marked as
@@ -1585,15 +1601,18 @@
   "Sync `library` with the listener's other devices through `backends`,
   with the `opts` of like-minded/sync! except :cursors and :failures.
 
-  It keeps the cursors for the next sync, and compacts the profile as
-  profile/compact does, with the :archive-after of the config. It returns
-  the library with the result under :sync, in ClojureScript as a promise:
+  It compacts the profile as profile/compact does, with the :archive-after
+  of the config, and keeps what the next sync starts from under the :sync
+  of the library:
 
       {:cursors  {…}         ; those of the stores, for the next sync
        :at       #inst \"…\"
        :clock    #inst \"…\"   ; the clock of the profile after the sync
-       :failures 0           ; the syncs in a row in which a backend failed
-       :report   [...]}      ; with :sync/backend-failed for each that did"
+       :failures 0}          ; the syncs in a row in which a backend failed
+
+  It returns a map of the new :library and the :report, with
+  :sync/backend-failed for each backend that failed, in ClojureScript as a
+  promise."
   ([library backends]
    (sync! library backends {}))
   ([library backends opts]
@@ -1611,10 +1630,11 @@
                                   before step
                                   (clojure.core/merge profile/sync-options
                                                       opts))]
-                     (assoc library
-                            :profile profile
-                            :sync    (-> (dissoc step :state)
-                                         (assoc :clock (:clock profile))))))))))
+                     {:library (assoc library
+                                      :profile profile
+                                      :sync    (-> (dissoc step :state :report)
+                                                   (assoc :clock (:clock profile))))
+                      :report  (:report step)}))))))
 
 (defn leave!
   "Retire this device of `library` from the listener's sync through
@@ -1623,10 +1643,9 @@
 
   It writes the retirement through each backend once more, so that the
   other devices stop waiting for this one before they compact. It returns
-  the library with the retired profile and the result under :sync, as
-  sync! does, in ClojureScript as a promise. A retired device can't sync
-  again, so to sync later, give the library a new device with
-  with-device."
+  the library with the retired profile and the :report, as sync! does, in
+  ClojureScript as a promise. A retired device can't sync again, so to
+  sync later, give the library a new device with with-device."
   ([library backends]
    (leave! library backends {}))
   ([library backends opts]
@@ -1638,10 +1657,11 @@
                     (select-keys (:sync library) [:cursors :failures]))]
      (async/then (like-minded/leave! (:profile library) backends sync-opts)
                  (fn [{:keys [state] :as step}]
-                   (assoc library
-                          :profile state
-                          :sync    (-> (dissoc step :state)
-                                       (assoc :clock (:clock state)))))))))
+                   {:library (assoc library
+                                    :profile state
+                                    :sync    (-> (dissoc step :state :report)
+                                                 (assoc :clock (:clock state))))
+                    :report  (:report step)})))))
 
 (defn with-device
   "The `library` as that of the new `device`, described for the other
@@ -1656,24 +1676,24 @@
    (let [description (dissoc opts :config :at)
          at          (impl/time-of library opts)]
      (cond-> (-> library
-                 (assoc :device device :sync {})
+                 (assoc :sync {})
                  (assoc-in [:profile :device] device))
        (seq description) (update :profile crdt/identify description at)))))
 
 (defn merge
   "The `library` with `result` merged in, a library that came from an
-  earlier value of `library`, e.g. by a refresh or a sync.
+  earlier value of `library`, e.g. the :library of what a refresh or a
+  sync gave.
 
   The profiles merge, so nothing that the listener did meanwhile is lost.
   A feed or a list stays only while the merged profile subscribes to it,
   has a remote item of it, or follows it, so one that the listener left
   on another device goes. Of two entries of one feed or list, the later
-  fetch wins. The later :refresh and :sync are kept too, and the rest is
+  fetch wins. The :sync of the later sync is kept too, and the rest is
   that of `library`."
   [library result]
   (let [profile (profile/merge (:profile library) (:profile result))
         synced  (impl/newer :at (:sync library) (:sync result))
-        refresh (impl/newer :at (:refresh library) (:refresh result))
         needed  (into (set (keys (profile/subscriptions profile)))
                       (map ffirst)
                       (profile/remote-items profile))
@@ -1697,8 +1717,7 @@
                                                              compact))
                            :feeds         feeds
                            :fetched-lists lists)
-              synced  (assoc :sync synced)
-              refresh (assoc :refresh refresh))
+              synced (assoc :sync synced))
             changed)))
 
 (defn unsynced?
@@ -1737,27 +1756,20 @@
                                     (clojure.core/merge profile/sync-options
                                                         opts))))
 
-;; the config can hold functions, so it isn't saved, and the search index
-;; has documents of its own
+;; the config belongs to the app that makes the library, so it isn't
+;; saved, and the search index has documents of its own
 (def saved-keys
   "The parts of a library that are saved by default: the profile, the
-  feeds, the followed lists, the last sync, whose cursors fit the profile,
-  and the downloaded files."
+  feeds, the followed lists, what the next sync starts from, whose cursors
+  fit the profile, and the downloaded files."
   [:profile :feeds :fetched-lists :sync :files])
-
-(defn- newer-format
-  "The :library/newer-format diagnostic of the last restore of `library`,
-  if any."
-  [library]
-  (some #(when (= :library/newer-format (:id %)) %)
-        (get-in library [:restore :report])))
 
 (defn- saved-attempt
   "The attempt to fetch the document of the library saved in `store` with
-  the codec of `library`, or in EDN by an earlier version, as a map of its
-  :name, and its :value or :error, in ClojureScript as a promise."
-  [library store]
-  (let [own   (impl/library-name (impl/codec library {}))
+  `codec`, or in EDN by an earlier version, as a map of its :name, and its
+  :value or :error, in ClojureScript as a promise."
+  [store codec]
+  (let [own   (impl/library-name codec)
         tried (fn [name]
                 (async/then (async/attempt #((:fetch store) name {}))
                             #(assoc % :name name)))]
@@ -1819,8 +1831,8 @@
   the documents it put and deleted, as a map of :put and :delete, or a
   map of :error, in ClojureScript as a promise.
 
-  It writes the library's own document, library.edn in the codec of its
-  config, EDN by default, with the parts of `library` that :keys in `opts`
+  It writes the library's own document, library.edn in the :codec of
+  `opts`, EDN by default, with the parts of `library` that :keys in `opts`
   names, saved-keys by default, and the version of their shape. Each feed
   goes to a document of its own, which is put when the feed changed since
   the last save, and the documents of the feeds that changed or went are
@@ -1842,7 +1854,7 @@
    (save! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
    {:pre [(map? opts)]}
-   (let [refused (newer-format library)]
+   (let [refused (:newer-format library)]
      (async/then
       (async/attempt #(when-not refused (written! library store keys opts)))
       (fn [{:keys [value error]}]
@@ -1855,28 +1867,27 @@
 
 (defn restore!
   "The `library` with what was saved to `store`, read with the `opts`
-  below, and with the result under :restore, in ClojureScript as a
-  promise.
+  below, and the report of what didn't read, as a map of the :library and
+  the :report, in ClojureScript as a promise.
 
   The parts of the library's document that :keys in `opts` names,
   saved-keys by default, replace those of `library`, so give it a new
   library, and each feed is read from its document. The documents are read
-  with the codec of the config of `library`, or in EDN, by their
-  extensions, so that a library saved in EDN reads, and the next save
-  writes it anew. A library saved by an older version is brought up to
-  this one. When the library keeps a search index, it's read back, or
-  built again from the feeds when its documents are missing or don't
-  read. The result is a map of the :report of what didn't read:
-
-      {:report [...]}  ; :library/unreadable-document, :library/index-rebuilt,
-                       ; :library/malformed-profile, :library/newer-format,
-                       ; :library/slow-format
+  with the :codec of `opts`, or in EDN, by their extensions, so that a
+  library saved in EDN reads, and the next save writes it anew. A library
+  saved by an older version is brought up to this one. When the library
+  keeps a search index, it's read back, or built again from the feeds
+  when its documents are missing or don't read. The report can have
+  :library/unreadable-document, :library/index-rebuilt,
+  :library/malformed-profile, :library/newer-format and
+  :library/slow-format.
 
   A store without the documents gives the library as it is, and so does a
-  library saved by a newer version, which save! then won't write over. A
-  library read in ClojureScript with the codec of EDN has
-  :library/slow-format, since that reads about 30 times slower than the
-  codec of dk.simongray.like-minded.transit.
+  library saved by a newer version, which then has the diagnostic under
+  :newer-format, so that save! and write! won't write over it. A library
+  read in ClojureScript with the codec of EDN has :library/slow-format,
+  since that reads about 30 times slower than the codec of
+  dk.simongray.like-minded.transit.
 
   The :load of `opts` says which feeds to read: :all by default, :none, or
   the guids of some. The others stay in their documents until load!
@@ -1898,36 +1909,39 @@
                         (async/then (async/attempt fetched)
                                     (partial impl/with-index step))
                         step))
+         codec      (impl/codec library opts)
          slow       (impl/slow-format library opts)
          done       (fn [{:keys [value]} [library report]]
-                      (assoc library :restore
-                             {:report (cond-> report
-                                        (and value slow) (conj slow))}))
-         newer?     (fn [[_ report]]
-                      (some (comp #{:library/newer-format} :id) report))]
-     (async/then (saved-attempt library store)
+                      {:library library
+                       :report  (cond-> report
+                                  (and value slow) (conj slow))})]
+     (async/then (saved-attempt store codec)
                  (fn [{:keys [name] :as attempt}]
-                   (let [step (impl/with-saved library keys name attempt)]
-                     (if (newer? step)
+                   (let [step (impl/with-saved library keys name attempt codec)]
+                     (if (:newer-format (first step))
                        (done attempt step)
-                       (-> (impl/with-feeds step store wanted?)
+                       (-> (impl/with-feeds step store wanted? codec)
                            (async/then indexed)
                            (async/then (partial done attempt))))))))))
 
 (defn load!
   "The `library` with the feeds `feed-guids` read back from their
-  documents in `store`, those that it doesn't hold in memory, in
-  ClojureScript as a promise. With :all for `feed-guids`, it's every feed.
+  documents in `store` with the :codec of `opts`, those that it doesn't
+  hold in memory, and the report of what didn't read, as a map of the
+  :library and the :report, in ClojureScript as a promise. With :all for
+  `feed-guids`, it's every feed.
 
-  The result has the :report of what didn't read under :load. A feed
-  whose document is missing or doesn't read keeps only its URL, so that
-  the next refresh fetches it again, with :library/unreadable-document in
-  the report."
-  [library store feed-guids]
-  (let [wanted? (if (= :all feed-guids) (constantly true) (set feed-guids))]
-    (async/then (impl/with-feeds [library []] store wanted?)
-                (fn [[library report]]
-                  (assoc library :load {:report report})))))
+  A feed whose document is missing or doesn't read keeps only its URL, so
+  that the next refresh fetches it again, with
+  :library/unreadable-document in the report."
+  ([library store feed-guids]
+   (load! library store feed-guids {}))
+  ([library store feed-guids opts]
+   {:pre [(map? opts)]}
+   (let [wanted? (if (= :all feed-guids) (constantly true) (set feed-guids))]
+     (async/then (impl/with-feeds [library []] store wanted? (impl/codec library opts))
+                 (fn [[library report]]
+                   {:library library :report report})))))
 
 (defn unload!
   "The `library` without the feeds `feed-guids` in memory, each written to
@@ -1939,32 +1953,38 @@
   loaded meanwhile, e.g. on a server, which needs no feed between its
   refreshes, or on a phone, which needs only those on the screen.
 
-  The result has the :report under :unload. When the store fails, the
-  feeds stay in memory, and the report has :library/save-failed."
-  [library store feed-guids]
-  (let [wanted?  (if (= :all feed-guids) (constantly true) (set feed-guids))
-        codec    (impl/codec library {})
-        chosen   (for [[feed-guid entry] (:feeds library)
-                       :when (and (:feed entry) (wanted? feed-guid))]
-                   [feed-guid entry (impl/entry-document feed-guid entry codec)])
-        outlined (fn [library [feed-guid _ name]]
-                   (update-in library [:feeds feed-guid]
-                              #(-> (dissoc % :feed :retained)
-                                   (assoc :document name))))]
-    (async/then
-     (async/attempt
-      #(store/put-all! store (for [[_ entry name] chosen]
-                               {:name name :body (impl/feed-body entry codec)})))
-     (fn [{:keys [error]}]
-       (if error
-         (assoc library :unload {:report [(diagnostics/describe
-                                           {:id     :library/save-failed
-                                            :reason (async/explain error)})]})
-         (assoc (reduce outlined library chosen) :unload {:report []}))))))
+  It gives a map of the new :library and the :report, in ClojureScript as
+  a promise. The documents are written with the :codec of `opts`. When
+  the store fails, the feeds stay in memory, and the report has
+  :library/save-failed."
+  ([library store feed-guids]
+   (unload! library store feed-guids {}))
+  ([library store feed-guids opts]
+   {:pre [(map? opts)]}
+   (let [wanted?  (if (= :all feed-guids) (constantly true) (set feed-guids))
+         codec    (impl/codec library opts)
+         chosen   (for [[feed-guid entry] (:feeds library)
+                        :when (and (:feed entry) (wanted? feed-guid))]
+                    [feed-guid entry (impl/entry-document feed-guid entry codec)])
+         outlined (fn [library [feed-guid _ name]]
+                    (update-in library [:feeds feed-guid]
+                               #(-> (dissoc % :feed :retained)
+                                    (assoc :document name))))]
+     (async/then
+      (async/attempt
+       #(store/put-all! store (for [[_ entry name] chosen]
+                                {:name name :body (impl/feed-body entry codec)})))
+      (fn [{:keys [error]}]
+        (if error
+          {:library library
+           :report  [(diagnostics/describe
+                      {:id     :library/save-failed
+                       :reason (async/explain error)})]}
+          {:library (reduce outlined library chosen) :report []}))))))
 
 (defn documents
   "The documents of `library` as a map of their names to their bodies, in
-  the codec of its config, but for those that the :except of `opts` names,
+  the :codec of `opts`, but for those that the :except of `opts` names,
   e.g. those that a store holds already.
 
   They're the library's own document, which holds the parts that
@@ -1995,11 +2015,11 @@
   "The names of the documents of `library`, as documents gives them, and of
   those of the feeds that it holds in their documents alone."
   [library]
-  (let [codec (impl/codec library {})]
-    (-> #{(impl/library-name codec)}
+  (let [naming (impl/naming library)]
+    (-> #{(impl/library-name naming)}
         (into (keep (fn [[feed-guid entry]]
                       (if (:feed entry)
-                        (impl/entry-document feed-guid entry codec)
+                        (impl/entry-document feed-guid entry naming)
                         (:document entry))))
               (:feeds library))
         (into (some-> (:index library) impl/segment-names)))))
@@ -2011,11 +2031,11 @@
   they are, and those of the search index, unless its manifest is the one
   of the index of `library`."
   [library saved docs]
-  (let [codec  (impl/codec library {})
+  (let [naming (impl/naming library)
         same?  (fn [feed-guid document]
                  (let [own (get-in library [:feeds feed-guid])]
                    (and (:feed own)
-                        (= document (impl/entry-document feed-guid own codec)))))
+                        (= document (impl/entry-document feed-guid own naming)))))
         feeds  (for [[feed-guid {:keys [document]}] (:feeds saved)
                      :when (and document (not (same? feed-guid document)))]
                  document)
@@ -2030,12 +2050,12 @@
     (vec (remove #(contains? docs %) (concat feeds index)))))
 
 (defn- from-saved
-  "The `library` with what the documents `docs` hold, as from-documents
-  reads them, where `saved` is the map that the library's own document
-  `name` among them holds, or nil when it doesn't read."
-  [library docs name saved]
-  (let [codec (impl/codec library {})
-        kept  (fn [[feed-guid {:keys [document] :as entry}]]
+  "The `library` with what the documents `docs` hold, read with `codec`,
+  and the report of what didn't read, as from-documents gives them, where
+  `saved` is the map that the library's own document `name` among them
+  holds, or nil when it doesn't read."
+  [library docs name saved codec]
+  (let [kept  (fn [[feed-guid {:keys [document] :as entry}]]
                 (let [own (get-in library [:feeds feed-guid])]
                   [feed-guid
                    (if (and document
@@ -2071,89 +2091,96 @@
                                      :when (impl/index-document? n)]
                                  {:name n :body body}))}))))
         [lib report] (impl/with-saved-map library saved-keys name saved)]
-    (if (some (comp #{:library/newer-format} :id) report)
-      (assoc lib :restore {:report report})
+    (if (:newer-format lib)
+      {:library lib :report report}
       (let [lib          (update lib :feeds #(into {} (map kept) %))
             [lib report] (-> [lib report]
                              (impl/with-read-feeds (keep read (:feeds lib)))
                              index)]
-        (assoc lib :restore {:report report})))))
+        {:library lib :report report}))))
 
 (defn from-documents
   "The `library` with what the documents `docs` hold, a map of their names
-  to their bodies, e.g. those that read! fetches: the parts of its own
-  document that saved-keys names, each feed from its document, and the
-  search index.
+  to their bodies, e.g. those that read! fetches, and the report of what
+  didn't read, as a map of the :library and the :report. The library has
+  the parts of its own document that saved-keys names, each feed from its
+  document, and the search index.
 
-  It reads the documents in the codec of the config of `library`, e.g.
-  that of dk.simongray.like-minded.transit, of any version that restore!
-  reads, among them those that save! wrote. A feed that `library` holds in
-  memory with the same document stays as it is, and so does the index
-  when its manifest is the same, so give it the library as it is to read
-  only what changed. The result has the :report of what didn't read under
-  :restore, as restore! has it, and a document that `docs` lack doesn't
-  read. Without the library's own document, it's `library` as it is."
-  [library docs]
-  (let [codec (impl/codec library {})
-        name  (impl/library-name codec)]
-    (if (contains? docs name)
-      (from-saved library docs name (impl/read-map {:body (get docs name)} codec))
-      (assoc library :restore {:report []}))))
+  It reads the documents in the :codec of `opts`, e.g. that of
+  dk.simongray.like-minded.transit, of any version that restore! reads,
+  among them those that save! wrote. A feed that `library` holds in memory
+  with the same document stays as it is, and so does the index when its
+  manifest is the same, so give it the library as it is to read only what
+  changed. The report is as restore! has it, and a document that `docs`
+  lack doesn't read. Without the library's own document, it's `library`
+  as it is."
+  ([library docs]
+   (from-documents library docs {}))
+  ([library docs opts]
+   {:pre [(map? opts)]}
+   (let [codec (impl/codec library opts)
+         name  (impl/library-name codec)]
+     (if (contains? docs name)
+       (from-saved library docs name (impl/read-map {:body (get docs name)} codec) codec)
+       {:library library :report []}))))
 
 (defn read!
-  "The library in `store`, read onto `library` with from-documents, and the
-  version of its own document, as a map of the :library and the :version,
-  in ClojureScript as a promise.
+  "The library in `store`, read onto `library` with from-documents and the
+  `opts`, the version of its own document and the report of what didn't
+  read, as a map of the :library, the :version and the :report, in
+  ClojureScript as a promise.
 
-  It fetches the library's own document, in the codec of the config of
-  `library`, and then the documents that it names and `library` doesn't
-  hold, so give it the library as it is to read only what changed. It
-  takes no lock, so it starts over when a document is missing because
-  another context wrote the store meanwhile. A store without the library's
-  document gives `library` as it is, with no version. When the store fails
-  to give the library's own document, it fails too, so that nothing writes
-  over what it holds."
-  [library store]
-  (let [codec    (impl/codec library {})
-        own      (impl/library-name codec)
-        fetch!   (fn [name]
-                   (let [opts (if (impl/index-document? name) {:as :bytes} {})]
-                     (async/then (async/attempt #((:fetch store) name opts))
-                                 (fn [{:keys [value]}] [name value]))))
-        own!     (fn []
-                   (async/then ((:fetch store) own {})
-                               #(when % [own %])))
-        rounds   (fn rounds [saved docs tried]
-                   (let [wanted (remove tried (needs library saved docs))]
-                     (if (empty? wanted)
-                       docs
-                       (async/then (async/all fetch! wanted)
-                                   (fn [fetched]
-                                     (rounds saved
-                                             (into docs (for [[name doc] fetched
-                                                              :when doc]
-                                                          [name (:body doc)]))
-                                             (into tried wanted)))))))]
-    (letfn [(attempt [tries]
-              (async/then
-               (own!)
-               (fn [[name {:keys [body version]} :as found]]
-                 (if-not found
-                   {:library (assoc library :restore {:report []}) :version nil}
-                   (let [saved (impl/read-map {:body body} codec)
-                         docs  {name body}]
-                     (async/then
-                      (rounds saved docs #{name})
-                      (fn [docs]
-                        (let [done #(hash-map :library (from-saved library docs name saved)
-                                              :version version)]
-                          (if (and (seq (needs library saved docs)) (pos? tries))
-                            (async/then ((:fetch store) name {})
-                                        #(if (= version (:version %))
-                                           (done)
-                                           (attempt (dec tries))))
-                            (done))))))))))]
-      (attempt 3))))
+  It fetches the library's own document, in the :codec of `opts`, and then
+  the documents that it names and `library` doesn't hold, so give it the
+  library as it is to read only what changed. It takes no lock, so it
+  starts over when a document is missing because another context wrote the
+  store meanwhile. A store without the library's document gives `library`
+  as it is, with no version. When the store fails to give the library's
+  own document, it fails too, so that nothing writes over what it holds."
+  ([library store]
+   (read! library store {}))
+  ([library store opts]
+   {:pre [(map? opts)]}
+   (let [codec    (impl/codec library opts)
+         own      (impl/library-name codec)
+         fetch!   (fn [name]
+                    (let [opts (if (impl/index-document? name) {:as :bytes} {})]
+                      (async/then (async/attempt #((:fetch store) name opts))
+                                  (fn [{:keys [value]}] [name value]))))
+         own!     (fn []
+                    (async/then ((:fetch store) own {})
+                                #(when % [own %])))
+         rounds   (fn rounds [saved docs tried]
+                    (let [wanted (remove tried (needs library saved docs))]
+                      (if (empty? wanted)
+                        docs
+                        (async/then (async/all fetch! wanted)
+                                    (fn [fetched]
+                                      (rounds saved
+                                              (into docs (for [[name doc] fetched
+                                                               :when doc]
+                                                           [name (:body doc)]))
+                                              (into tried wanted)))))))]
+     (letfn [(attempt [tries]
+               (async/then
+                (own!)
+                (fn [[name {:keys [body version]} :as found]]
+                  (if-not found
+                    {:library library :version nil :report []}
+                    (let [saved (impl/read-map {:body body} codec)
+                          docs  {name body}]
+                      (async/then
+                       (rounds saved docs #{name})
+                       (fn [docs]
+                         (let [done #(assoc (from-saved library docs name saved codec)
+                                            :version version)]
+                           (if (and (seq (needs library saved docs)) (pos? tries))
+                             (async/then ((:fetch store) name {})
+                                         #(if (= version (:version %))
+                                            (done)
+                                            (attempt (dec tries))))
+                             (done))))))))))]
+       (attempt 3)))))
 
 (defn write!
   "Write `library` to `store` with the `opts` below, and give the :version
@@ -2163,6 +2190,7 @@
   document isn't of the :if-version, and a map of :error otherwise, as
   save! does.
 
+  - :codec, that of the documents
   - :if-version, the version of the library's own document in the store
     to write over, as read! gives it, or nil when there's to be none yet.
     Without it, the document is written whatever its version.
@@ -2183,7 +2211,7 @@
    (write! library store {}))
   ([library store {:keys [before] :as opts}]
    {:pre [(map? opts)]}
-   (let [refused (newer-format library)
+   (let [refused (:newer-format library)
          codec   (impl/codec library opts)
          own     (impl/library-name codec)
          delete! (fn [name]
@@ -2324,7 +2352,7 @@
                   [:title :author])
 
      ;; the new episodes since the last fetch, and the moves
-     (:refresh (refresh! library))
+     (dissoc (refresh! library) :library)
 
      ;; the newest episode, played a minute in
      (def id

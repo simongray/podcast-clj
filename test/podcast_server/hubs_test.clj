@@ -29,10 +29,9 @@
 (def public-url "https://podcasts.example")
 
 (defn- library-with-a-hub
-  "A library of the server, with the `config`, subscribed to a show whose
-  feed names a hub."
-  [config]
-  (library/subscribe (device/make config)
+  "A library of the server, subscribed to a show whose feed names a hub."
+  []
+  (library/subscribe (device/make)
                      feed-url
                      {:status 200 :url feed-url :feed show
                       :websub {:hubs ["https://hub.example.org/"] :topic feed-url}}))
@@ -60,7 +59,7 @@
     (fn [dir]
       (let [given (settings dir {:password (secret/hide "correct horse battery staple")})
             hubs  (service/hubs-of given)
-            lib   (atom (library-with-a-hub {}))
+            lib   (atom (library-with-a-hub))
             c     (service/connector given (service/sync-store given) lib hubs)
             sent  (atom [])
             ask!  #(hubs/ask! @lib hubs {:send (fn [request]
@@ -113,8 +112,8 @@
       (let [given   (settings dir {})
             fetched (atom [])
             fetch   (fn [u _] (swap! fetched conj u) {:status 304 :url u})
-            lib     (atom (library-with-a-hub {:fetch fetch}))]
-        (device/step! lib (library/backend (service/sync-store given)))
+            lib     (atom (library-with-a-hub))]
+        (device/step! lib (library/backend (service/sync-store given)) {:fetch fetch})
         (is (= [] @fetched) "a feed that isn't due")
-        (device/step! lib (library/backend (service/sync-store given)) {:feed-guids [guid]})
+        (device/step! lib (library/backend (service/sync-store given)) {:fetch fetch :feed-guids [guid]})
         (is (= [feed-url] @fetched) "is fetched once a hub pushed it")))))

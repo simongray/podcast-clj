@@ -55,9 +55,11 @@ profile of its device as its `:state`.
 ## A sync of a library
 
 A sync of a library keeps the step under `:sync`, without its `:state`,
-which went into the profile, and with the `:at`, `:clock` and `:failures`
-that `library/next-sync` reads. Merge the result into the library as it
-is by then with `library/merge`. It merges the profiles with
+which went into the profile, and without its `:report`, which it returns
+beside the library. It keeps the `:cursors` for the next sync, and the
+`:at`, `:clock` and `:failures` that `library/next-sync` reads. Merge the
+library it returns into the library as it is by then with
+`library/merge`. It merges the profiles with
 `profile/merge` and then compacts with `profile/compact`, since the merge
 brings back the tombstones that the step dropped. The `:compact` option of
 a sync is false to keep every tombstone, or else the options of

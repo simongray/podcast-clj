@@ -37,18 +37,19 @@
 
 (defn make
   "The server's library, a device of the listener, with `config` over the
-  defaults, e.g. the :store of its data folder, from which a step loads
-  the feeds that are due. Its feeds are fetched only from the public
-  internet, only the slim part of each is kept, and since it doesn't
-  search, it keeps no search index."
+  defaults. Since it doesn't search, it keeps no search index."
   ([]
    (make {}))
   ([config]
-   (let [config (merge {:allow-pred url/public?
-                        :keep-fn    feeds/slim
-                        :search?    false}
-                       config)]
-     (library/make "podcast-server" {:name "Podcast server" :config config}))))
+   (library/make "podcast-server" {:name   "Podcast server"
+                                   :config (merge {:search? false} config)})))
+
+(def defaults
+  "The options of the calls to the server's library: its feeds are
+  fetched only from the public internet, and only the slim part of each
+  is kept."
+  {:allow-pred url/public?
+   :keep-fn    feeds/slim})
 
 ;; The profile comes back from the sync documents, so it isn't saved, and
 ;; nor are the cursors of the last sync, which only fit the profile they
@@ -95,51 +96,59 @@
   logged. Its feeds stay in their documents, and each is read once for its
   skeleton."
   [library data-store]
-  (let [restored (library/restore! library data-store {:keys saved-keys
-                                                       :load :none})
-        known    (fn [lib feed-guid]
-                   (let [read  (library/load! lib data-store [feed-guid])
-                         entry (get-in read [:feeds feed-guid])]
-                     (cond-> lib
-                       (:feed entry)
-                       (assoc-in [::known feed-guid] (skeleton entry)))))]
-    (doseq [problem (get-in restored [:restore :report])]
+  (let [{restored :library :keys [report]}
+        (library/restore! library data-store {:keys saved-keys :load :none})
+
+        known (fn [lib feed-guid]
+                (let [read  (:library (library/load! lib data-store [feed-guid]))
+                      entry (get-in read [:feeds feed-guid])]
+                  (cond-> lib
+                    (:feed entry)
+                    (assoc-in [::known feed-guid] (skeleton entry)))))]
+    (doseq [problem report]
       (log/warn :msg (str "The saved library couldn't be read, so its "
                           "feeds are fetched again")
                 :problem problem))
     (reduce known (assoc restored ::known {}) (library/unloaded restored))))
 
+(defn- synced!
+  "Sync `lib`, an atom of the server's library, through `backend`, and log
+  the backends that failed."
+  [lib backend]
+  (let [{:keys [library report]} (library/sync! @lib [backend])]
+    (swap! lib library/merge library)
+    (doseq [problem report
+            :when   (= :sync/backend-failed (:id problem))]
+      (log/warn :msg "The library couldn't sync" :problem problem))))
+
 (defn step!
   "Sync `lib`, an atom of the server's library, through `backend`, fetch
   the feeds that are due, or those that the :feed-guids of `opts` name,
-  and sync again when that changed the profile. Returns the library, which
-  holds the feeds that it fetched, and the skeletons of all of them."
+  and sync again when that changed the profile. The `opts` go over the
+  defaults, e.g. with the :store of its data folder, from which the feeds
+  that are due are loaded. It logs the feeds that it couldn't fetch, and
+  returns the library, which holds the feeds that it fetched, and the
+  skeletons of all of them."
   ([lib backend]
    (step! lib backend {}))
   ([lib backend opts]
-   (swap! lib library/merge (library/sync! @lib [backend]))
-   (swap! lib library/merge (library/refresh! @lib opts))
+   (synced! lib backend)
+   (let [{:keys [library report]} (library/refresh! @lib (merge defaults opts))]
+     (swap! lib library/merge library)
+     (doseq [problem report]
+       (log/warn :msg "The library couldn't fetch a feed" :problem problem)))
    (when (library/unsynced? @lib)
-     (swap! lib library/merge (library/sync! @lib [backend])))
+     (synced! lib backend))
    (swap! lib remembered)))
 
 (defn unload!
   "Let the feeds of `lib`, an atom of the server's library, go from memory,
   each written to its document in `data-store` first, and log a failure."
   [lib data-store]
-  (let [unloaded (library/unload! @lib data-store :all)]
-    (doseq [problem (get-in unloaded [:unload :report])]
+  (let [{:keys [library report]} (library/unload! @lib data-store :all)]
+    (doseq [problem report]
       (log/warn :msg "The feeds couldn't be let go" :problem problem))
-    (swap! lib library/merge unloaded)))
-
-(defn- log-problems!
-  "Log the failures of the last sync and fetch of `library`."
-  [library]
-  (doseq [problem (get-in library [:sync :report])
-          :when   (= :sync/backend-failed (:id problem))]
-    (log/warn :msg "The library couldn't sync" :problem problem))
-  (doseq [problem (get-in library [:refresh :report])]
-    (log/warn :msg "The library couldn't fetch a feed" :problem problem)))
+    (swap! lib library/merge library)))
 
 (defn start!
   "Run a step of `lib`, an atom of the server's library, through the sync
@@ -151,7 +160,7 @@
    (start! lib sync-store data-store nil))
   ([lib sync-store data-store hubs]
    (let [backend (library/backend sync-store)
-         run     #(log-problems! (step! lib backend %))
+         run     #(step! lib backend (assoc % :store data-store))
          step    (fn []
                    (try
                      (let [before (select-keys @lib saved-keys)
