@@ -76,7 +76,7 @@
     (testing "ending an episode that is not current leaves the queue alone"
       (let [{:keys [profile effects]} (profile.player/step s [:ended c] t1)]
         (is (= [a b] (profile.queue/queue profile)))
-        (is (= [] effects))))
+        (is (= [[:nothing-next c]] effects))))
     (is (= [c a b] (profile.queue/queue (:profile (profile.player/step s [:play c] t1)))))
     (is (= {:profile s :effects []} (profile.player/step s [:volume 3] t1)) "unknown events change nothing")
     (testing "continuous play, when nothing else is queued"
@@ -87,15 +87,26 @@
         (is (= [[:play b]] (:effects (profile.player/step on [:ended c] t1 opts))) "an episode outside the queue")
         (is (= [[:play c]] (:effects (profile.player/step (profile.queue/dequeue on a t1) [:ended b] t2 opts)))
             "the next of the show when the queue runs out")
-        (is (= [] (:effects (profile.player/step (profile.queue/dequeue s a t1) [:ended b] t2 opts)))
+        (is (= [[:nothing-next b]] (:effects (profile.player/step (profile.queue/dequeue s a t1) [:ended b] t2 opts)))
             "only with the listener's :continuous?")
         (is (= [[:stop b]] (:effects (profile.player/step (profile.queue/dequeue on a t1) [:ended b] t2
                                                           (assoc opts :sleep {:episodes 1}))))
             "and the sleep timer wins")))
-    (testing "a fallback, when nothing else is queued and continuous play gives none"
+    (testing "nothing next, when nothing else is queued and continuous play gives none"
+      (let [alone (profile.queue/dequeue s a t1)
+            on    (profile/prefer alone {:continuous? true} t1)]
+        (let [{:keys [profile effects]} (profile.player/step alone [:ended b] t2)]
+          (is (= [[:nothing-next b]] effects) "for the app to answer")
+          (is (= [] (profile.queue/queue profile)) "with nothing made current"))
+        (is (= [[:nothing-next b]] (:effects (profile.player/step on [:ended b] t2 {:continue-fn {}}))))
+        (is (= [[:stop b]] (:effects (profile.player/step alone [:ended b] t2 {:sleep {:episodes 1}})))
+            "but the sleep timer stops the player")))
+    (testing "the deprecated fallback, in place of nothing next"
       (let [alone (profile.queue/dequeue s a t1)
             on    (profile/prefer alone {:continuous? true} t1)
             opts  {:fallback-fn {b c}}]
+        (is (= [] (:effects (profile.player/step alone [:ended b] t2 {:fallback-fn {}})))
+            "which gives no nothing-next, even when it gives no episode")
         (is (= [[:play b]] (:effects (profile.player/step s [:ended a] t1 opts))) "the queue first")
         (let [{:keys [profile effects]} (profile.player/step alone [:ended b] t2 opts)]
           (is (= [[:play c]] effects))
@@ -157,16 +168,16 @@
         (is (= [[:stop a] [:play b]] (:effects (profile.player/step profile [:progress a 3585 3600] t2)))))
       (let [again (-> s (profile/mark-played a t1) (profile/progress a 20 t2))]
         (is (= [[:stop a] [:play b]] (:effects (profile.player/step again [:progress a 3541 3600] t3))))))
-    (testing "an episode that is not current only stops"
+    (testing "an episode that is not current stops, with nothing next"
       (let [s (-> s
                   (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
                   (profile/configure "feed-b" {:skip-outro 60} t0))
             {:keys [profile effects]} (profile.player/step s [:progress c 3545 3600] t1)]
-        (is (= [[:stop c] [:played c]] effects))
+        (is (= [[:stop c] [:played c] [:nothing-next c]] effects))
         (is (= [a b] (profile.queue/queue profile)))))
-    (testing "the last of the queue, which plays the fallback"
+    (testing "the last of the queue, with nothing next, or the deprecated fallback"
       (let [alone (profile.queue/dequeue s b t0)]
-        (is (= [[:stop a] [:played a]] (:effects (profile.player/step alone [:progress a 3545 3600] t1))))
+        (is (= [[:stop a] [:played a] [:nothing-next a]] (:effects (profile.player/step alone [:progress a 3545 3600] t1))))
         (is (= [[:stop a] [:played a] [:play c]]
                (:effects (profile.player/step alone [:progress a 3545 3600] t1 {:fallback-fn {a c}}))))))
     (testing "no outro, or one as long as the episode, ends nothing early"

@@ -1508,9 +1508,9 @@
   the library. With the listener's :continuous?, an episode that ends
   with no other queued is followed by the first unplayed episode of its
   show in the listening order: the next of a serial show, and the newest
-  of an episodic one. When that gives none, the :fallback-fn of the `opts`
-  gives the next, which becomes current, e.g. the first of recommend's
-  episodes like it."
+  of an episodic one. When that gives none, the effects have
+  [:nothing-next id], e.g. for an app to play the first of recommend's
+  episodes like it, with the event [:play id]."
   ([library event]
    (step library event {}))
   ([library event opts]

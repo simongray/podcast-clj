@@ -1099,8 +1099,9 @@ the effects it returns:
 ;; => [[:play next-id]]
 ```
 
-The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
-`[:played id]`. In ClojureScript, a handler can look like this:
+The effects are `[:seek id position]`, `[:play id]`, `[:stop id]`,
+`[:played id]` and `[:nothing-next id]`. In ClojureScript, a handler can
+look like this:
 
 ```clojure
 (defn apply-effects!
@@ -1108,10 +1109,11 @@ The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
   [audio effects]
   (doseq [[kind id position] effects]
     (case kind
-      :seek   (set! (.-currentTime audio) position)
-      :stop   (.pause audio)
-      :play   (play-episode! audio id)
-      :played nil)))
+      :seek         (set! (.-currentTime audio) position)
+      :stop         (.pause audio)
+      :play         (play-episode! audio id)
+      :played       nil
+      :nothing-next nil)))
 ```
 
 To start an episode, `library/playback` gives what the player needs: the
@@ -1170,10 +1172,11 @@ episode of the queue and go back to the one heard before.
 With the listener's preference `:continuous?`, an episode that ends with
 nothing else queued is followed by the first unplayed episode of its
 show in its listening order: the next of a serial show, and the newest
-of an episodic one. When that gives none, the option `:fallback-fn` of
-`library/step` can give the next, which becomes current, e.g. the first
-episode that `library/recommend` finds like the one that ended. A sleep
-timer still stops the player. After a pause, e.g. a call, `playback`
+of an episodic one. When nothing plays next, the effects of
+`library/step` have `[:nothing-next id]`, so you can play an episode of
+your own choosing with `[:play id]`, e.g. the first that
+`library/recommend` finds like the one that ended. A sleep timer still
+stops the player. After a pause, e.g. a call, `playback`
 starts a few seconds before where the listener left off, by the
 preference `:rewinds`.
 
