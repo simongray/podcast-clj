@@ -92,6 +92,14 @@ and the other devices delete its document. The registry has no last-synced
 time on purpose: it would change every document at every step, and the
 devices would never stop writing.
 
+A device writes its state in one place at a time, since a count and the
+registry each need one writer per id. The tabs of a browser are one
+device, so they change the library in its store as they would an atom,
+as [Saving a library](architecture.md#saving-a-library) explains, and a
+sync writes only what the store holds. The tabs once wrote as replicas
+of their device, with ids such as `8f1c9e2a-…/1`, and the registry still
+counts what those wrote as their device's.
+
 ### The clock
 
 Last-writer-wins trusts the clocks of the devices. The state keeps
