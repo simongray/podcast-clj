@@ -603,10 +603,21 @@ library's query language, without an index.
 A library is saved into a store, as the sync documents are, and the
 contract allows bodies of bytes as well as text for the index. So a
 folder, IndexedDB and the origin private file system can all hold a
-library, and an app needs no second kind of store. The index only says
-which of its documents to put and delete, and `library/save!` writes
-them. Saving is a call that you make, e.g. after each refresh, rather
-than something that runs in the background.
+library, and an app needs no second kind of store. The library's own
+document names the documents of its feeds and of its index, which are
+named by what they hold, so a write puts only those that the store
+lacks. `library/documents` and `library/from-documents` turn a library
+into its documents and back, as pure functions, and `library/write!` and
+`library/read!` move them in and out of a store.
+
+Saving is a call that you make, rather than something that runs in the
+background. Where several tabs or workers share one store, `write!` puts
+the library's own document on condition of the version that the tab
+last read. A tab whose write is refused reads the stored library,
+applies its change to it again and writes once more, as `swap!` does
+with an atom. So every tab writes as the one device, and nothing has to
+be merged. `library/save!` writes over what the store holds, for an app
+with one writer, e.g. the podcast server.
 
 
 ## Download rules

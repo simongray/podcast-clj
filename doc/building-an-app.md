@@ -458,11 +458,12 @@ ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
 
 In a web page, parsing the feeds that changed can hold up the page for a
-moment, so refresh in a web worker with `dk.simongray.podcast.app.worker`.
-The worker is a replica of the device of its own, sharing the library's
-store with the page, as [Share the library between tabs and
-workers](#share-the-library-between-tabs-and-workers) has it. In the
-worker, a module of its own, e.g. with `:web-worker true` in shadow-cljs:
+moment, so fetch them in a web worker with
+`dk.simongray.podcast.app.worker`. The worker fetches what `library/due`
+says is due, puts the documents of the feeds that changed into the
+library's store, and answers with what it found, which the page applies
+with `library/refreshed`. In the worker, a module of its own, e.g. with
+`:web-worker true` in shadow-cljs:
 
 ```clojure
 (worker/serve! {:store      data
@@ -470,24 +471,27 @@ worker, a module of its own, e.g. with `:web-worker true` in shadow-cljs:
                 :dom-parser xmldom/DOMParser})  ; a worker has no DOMParser
 ```
 
-On the page, give the client the replica:
+On the page, write the library first, so that the worker finds the
+documents of its feeds, and ask the client:
 
 ```clojure
 (def client
   (worker/client "/js/worker.js" config))
 
-(worker/refresh! client @the-replica {:head-check? true})
+(.then (worker/fetch-due! client (library/due @lib) {:head-check? true} nil)
+       #(when-let [found (:found %)]
+          (swap! lib library/refreshed found)))
 ```
 
-It saves the replica first, so that the worker reads what the page has,
-catches it up with what the worker saved after, and puts the `:refresh`
-into the library, since the store doesn't keep it and `next-refresh`
-reads from it whether the device was offline. One refresh runs at a time
-across the tabs, and the worker of another answers `:busy?`, whose page
-catches up when the first saves. `worker/fetch!` fetches and parses one
-feed in the worker, e.g. for the page of a show outside the library, and
-gives it back in the codec of the config. Both fail when the worker does.
-The inspector's player does all of this in `web/inspector/`.
+The worker writes nothing but the documents of feeds, so the page's
+write of the library is the only one. `refreshed` takes an entry only
+where the library still has the one that was due, so a feed that another
+tab changed meanwhile stays as it is. One refresh runs at a time across
+the tabs, and the worker of another answers `:busy?`. `worker/fetch!`
+fetches and parses one feed in the worker, e.g. for the page of a show
+outside the library, and gives it back in the codec of the config. Both
+fail when the worker does. The inspector's player does all of this in
+`web/inspector/`.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and ask `library/notifications` after
@@ -666,10 +670,9 @@ read it back into a new library when the app starts:
 (def data (folder/store "data"))
 
 (library/save! @lib data)
-;; => {:put     ["feed-917393e3-1b1e-5cef-ace4-edaa54e1f810-1759233600000.edn"
-;;               "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
-;;     :delete  []
-;;     :library {…}}
+;; => {:put    ["feed-917393e3-1b1e-5cef-ace4-edaa54e1f810-1759233600000.edn"
+;;              "segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
+;;     :delete []}
 
 (reset! lib (library/restore! (library/make device-id) data))
 ```
@@ -745,46 +748,13 @@ deletes the documents of any other index there:
 ### Share the library between tabs and workers
 
 The tabs and workers of a web app share the browser's storage, and each
-writes the library. Without care, one tab's save writes over another's,
-and with one device id between them, one would lose the listening counts
-of the other. So make each of them a replica of the device with
-like-minded's `replica/open!`, and give it the library's kind:
-
-```clojure
-(require '[dk.simongray.like-minded.replica :as replica])
-
-(.then (replica/open! {:state  app
-                       :path   [:library]
-                       :store  data
-                       :device device-id
-                       :kind   (library/replica-kind {:codec transit/codec})})
-       #(reset! the-replica %))
-
-(replica/save! @the-replica)  ; after each change
-```
-
-`open!` restores the library into the atom, and gives the replica to save
-it with. A save first catches up with what another tab or worker saved
-since this one last read the store or wrote it, then tells the others,
-and each catches up as it hears that, and when its page is visible again,
-since a hidden page can miss it. The saves and restores of one store take
-turns across the tabs, through a Web Lock, and a save asked for while
-another waits its turn is that one, so save as often as the library
-changes.
-
-The kind is made of `restore!`, `save!`, `read-saved!` and `rebase`, with
-the library as a replica of `library/with-replica`. Use them on their own
-to catch up elsewhere, with `rebase` rather than `merge`, since a whole
-merge can bring back what another replica compacted.
-
-### Change the library in the store, as an atom
-
-Rather than keep a replica in each tab, you can treat the library's
-document in the store as the one place that every tab changes, as you
-would an atom. `library/read!` gives the library and the version of its
-document, and `library/write!` writes a change on condition of that
-version. When another tab wrote first, it gives `:conflict?`, so read the
-store again and make the same change to what it holds, as `swap!` does:
+writes the library, so treat the library's document in the store as the
+one place that every tab changes, as you would an atom. Then they write
+as one device, and none writes over another. `library/read!` gives the
+library and the version of its document, and `library/write!` writes a
+change on condition of that version. When another tab wrote first, it
+gives `:conflict?`, so read the store again and make the same change to
+what it holds, as `swap!` does:
 
 ```clojure
 (defn swap-library!
@@ -808,14 +778,12 @@ version, e.g. on a BroadcastChannel, so that they read it too. Both read
 and write in the codec of the config alone, and `read!` reads a library
 that `save!` wrote. In ClojureScript, both return promises.
 
+Give the change the time of the listener's action, e.g. as the `:at` of
+`library/step`, so that it stamps the same time when it's made again.
 `library/documents` and `library/from-documents` are the pure halves of
-the two, for a store of your own. To refresh in a web worker this way,
-give the worker what `library/due` says is due. There,
-`library/fetch-due!` reads those feeds from their documents, fetches
-them and puts the documents of the feeds that changed, and returns what
-it found, which the page applies with `library/refreshed`. That takes an
-entry only where the library still has the one that was due, so a feed
-that another tab changed meanwhile stays as it is.
+`write!` and `read!`, for a store of your own. A web worker that
+refreshes writes only feed documents, as [Keep the feeds
+current](#keep-the-feeds-current) has it.
 
 
 ## Build the show and episode pages
@@ -1181,23 +1149,14 @@ and the headphones send their events through `library/step` too:
     (.play audio)))
 ```
 
-A save of the library to IndexedDB takes a few steps, which a page that
-reloads or closes never finishes, so the page can lose the last position
-or the episode it just started. The `app.unsaved` namespace keeps them
-in localStorage at once, under a prefix of your app's: call
-`(unsaved/keep-position! "my-app" id position duration)` at each report
-of the position, `(unsaved/keep-played! "my-app" id)` as an episode
-starts, and `(unsaved/saved! "my-app" started)` once a save that began
-at `started` is done. As the page starts, give the library what was
-kept:
-
-```clojure
-(swap! lib unsaved/restored (unsaved/kept-played "my-app")
-                            (unsaved/kept-position "my-app"))
-```
-
-The library takes them with the time they were kept at, so the profile
-still decides between them and the moves of other devices.
+The media element says where the episode is now, and the profile where
+the listener left it, so report the position at the moments that
+matter, and write the library each time: as the episode pauses, seeks,
+moves to a chapter or ends, as it reaches an outro that the listener
+skips, as the page is hidden, and at least every 30 seconds while it
+plays, since `profile/listened` counts a longer gap as a pause. A write
+of the library takes a moment, so a page that writes each move as it
+happens keeps it over a reload, and needs no copy of it elsewhere.
 
 The lock screen follows the media element by itself, so it shows how far
 the episode has come. The next and previous buttons go to the chapters
@@ -1883,10 +1842,12 @@ In the page:
 - Save the library to IndexedDB, since a large feed takes more than
   localStorage holds, and keep a database for each account, e.g.
   `(indexeddb/store (str "my-app-" account-id))`.
-- Make each tab a replica of the device, as [Share the library between
-  tabs and workers](#share-the-library-between-tabs-and-workers) has it,
-  and catch it up with `(replica/catch-up! @the-replica)` before each
-  step.
+- Let the tabs change the library in the store, as [Share the library
+  between tabs and workers](#share-the-library-between-tabs-and-workers)
+  has it. Start each step from the library that the store holds, once
+  the tab has read what the others wrote and written its own changes,
+  and make what the step gives one more change, with `library/merge`. Then the other devices get only what the
+  store holds, whose stamps are in the order that compaction needs.
   like-minded runs one step of a device at a time, and a step that
   begins while another runs does nothing, with `:sync/overlapping-step`.
 - Offer to retire the devices that `crdt/lagging` lists, since private
@@ -2477,7 +2438,6 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.html-pieces :as html]
             [dk.simongray.httpsig :as httpsig]
             [dk.simongray.httpsig.cavage :as cavage]
-            [dk.simongray.like-minded.replica :as replica]
             [dk.simongray.like-minded.store :as store]
             [dk.simongray.like-minded.store.encrypted :as encrypted]
             [dk.simongray.like-minded.store.folder :as folder]
@@ -2498,7 +2458,6 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.app.show :as show]
-            [dk.simongray.podcast.app.unsaved :as unsaved]
             [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
