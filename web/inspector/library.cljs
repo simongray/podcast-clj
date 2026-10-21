@@ -7,13 +7,13 @@
   the library that gives the new library, or a map of the :library and
   what else it tells, as library/step does, which the tab applies to the
   library on its page at once.
-  A save writes the changes that wait with library/write!, on condition
-  of the version of the document that the tab knows, and applies them
-  again to the stored library when another tab wrote first, as swap!
-  does. Then it tells the other tabs the new version on a
-  BroadcastChannel, so that they read it, as a page does when it's shown
-  again. The worker writes only the documents of the feeds that it
-  fetched, as dk.simongray.podcast.app.worker has it."
+  A save writes the changes that wait with library/durable-swap!, on
+  condition of the version of the document that the tab knows, and
+  applies them again to the stored library when another tab wrote first.
+  Then it tells the other tabs the new version on a BroadcastChannel, so
+  that they read it, as a page does when it's shown again. The worker
+  writes only the documents of the feeds that it fetched, as
+  inspector.fetching has it."
   (:require [dk.simongray.like-minded.store.indexeddb :as indexeddb]
             [dk.simongray.like-minded.transit :as transit]
             [dk.simongray.podcast.app.library :as library]
@@ -91,22 +91,6 @@
     (swap! state assoc :library (library-of given))
     given))
 
-(defn durable-swap!
-  "A promise of `f` of the library that `known` holds, as library/read!
-  gives it, written to `store` with the options of inspector.shared on
-  condition of the version that `known` holds, and of `f` of the stored
-  library again while another tab wrote first. It gives the library and
-  the version written, as read! gives them, or the :error of the write."
-  [store {:keys [library version]} f]
-  (let [changed (f library)
-        opts    (shared/opts)]
-    (.then (library/write! changed store (assoc opts :if-version version :before library))
-           (fn [{:keys [conflict? error] :as written}]
-             (cond
-               error     written
-               conflict? (.then (library/read! library store opts) #(durable-swap! store % f))
-               :else     {:library changed :version (:version written)})))))
-
 (defn in-turn!
   "A promise of what `f` gives, called once the writes and reads of this
   tab before it are done."
@@ -122,10 +106,10 @@
 
 (defn written!
   "A promise of the write of the changes that wait for the page `state`,
-  an atom, with durable-swap!, or of nil when none wait. Where another tab
-  wrote first, the page shows the stored library with the changes applied
-  again, and those that came meanwhile on top. A write that fails keeps
-  the changes waiting for the next."
+  an atom, with library/durable-swap!, or of nil when none wait. Where
+  another tab wrote first, the page shows the stored library with the
+  changes applied again, and those that came meanwhile on top. A write
+  that fails keeps the changes waiting for the next."
   [state]
   (let [fs @waiting
         {:keys [library] :as k} @known]
@@ -134,7 +118,9 @@
       (let [shown (:library @state)
             kept! #(swap! waiting (fn [later] (into fs later)))]
         (reset! waiting [])
-        (-> (durable-swap! (the-store) k #(if (identical? % library) shown (applied-all % fs)))
+        (-> (library/durable-swap! (the-store) k
+                                   #(if (identical? % library) shown (applied-all % fs))
+                                   (shared/opts))
             (.then (fn [{:keys [error] :as written}]
                      (if error
                        (kept!)

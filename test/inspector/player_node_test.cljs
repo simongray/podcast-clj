@@ -111,7 +111,8 @@
     (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                    #js {:key shell/storage-key :newValue (pr-str {:titles titles})}))
     (-> (library/read! (library/make device {:codec transit/codec}) s {:codec transit/codec})
-        (.then #(inspector-library/durable-swap! s % (fn [l] (library/update-profile l profile.queue/enqueue ["feed" "b"]))))
+        (.then #(library/durable-swap! s % (fn [l] (library/update-profile l profile.queue/enqueue ["feed" "b"]))
+                                       {:codec transit/codec}))
         (.then (fn [{:keys [version]}]
                  (.postMessage channel (pr-str {:version version}))
                  (later 100)))
@@ -175,7 +176,7 @@
           (.then #(library/write! (library/update-profile lib profile.queue/enqueue id)
                                   s
                                   (assoc opts :if-version (:version @known) :before lib)))
-          (.then #(inspector-library/durable-swap! s @known (fn [l] (library/update-profile l profile.marks/star id))))
+          (.then #(library/durable-swap! s @known (fn [l] (library/update-profile l profile.marks/star id)) opts))
           (.then (fn [{written :library}]
                    (testing "a change that another tab's write refused is applied again to what it wrote"
                      (is (= [id] (profile.queue/queue (:profile written))))
