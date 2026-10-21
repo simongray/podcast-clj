@@ -1,7 +1,7 @@
 (ns inspector.worker
   "The refresh of the player's feeds in a web worker, so that the page
   stays responsive while the feeds are fetched and parsed, as
-  dk.simongray.podcast.app.worker serves it.
+  inspector.fetching serves it.
 
   The worker puts the documents of the feeds that changed into the store
   that inspector.shared names, and answers with what it found, which the
@@ -9,7 +9,7 @@
   worker parses with that of @xmldom/xmldom."
   (:require ["@xmldom/xmldom" :as xmldom]
             [dk.simongray.like-minded.store.indexeddb :as indexeddb]
-            [dk.simongray.podcast.app.worker :as worker]
+            [inspector.fetching :as fetching]
             [inspector.shared :as shared]))
 
 (defn throwing
@@ -27,5 +27,5 @@
   []
   (when-not (exists? js/DOMParser)
     (set! (.-DOMParser js/globalThis) (throwing xmldom/DOMParser)))
-  (worker/serve! {:store (indexeddb/store shared/store-name)
-                  :opts  (shared/opts)}))
+  (fetching/serve! {:store (indexeddb/store shared/store-name)
+                    :opts  (shared/opts)}))

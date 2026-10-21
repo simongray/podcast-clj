@@ -466,14 +466,30 @@ ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
 
 In a web page, parsing the feeds that changed can hold up the page for a
-moment, so fetch them in a web worker with
-`dk.simongray.podcast.app.worker`. The worker fetches what `library/due`
-says is due, puts the documents of the feeds that changed into the
-library's store, and answers with what it found, which the page applies
-with `library/refreshed`. In the worker, a module of its own, e.g. with
-`:web-worker true` in shadow-cljs, install a `DOMParser` first, since a
-worker has none. xmldom's only logs the errors of a malformed feed, so
-make it throw them:
+moment, so fetch them in a web worker. The refresh comes in parts for
+that: `library/due` says on the page what's due, `library/fetch-due!`
+fetches it in the worker, puts the documents of the feeds that changed
+into the library's store and returns what it found as data, and
+`library/refreshed` applies that to the library on the page. Write the
+library first, so that the worker finds the documents of its feeds:
+
+```clojure
+;; on the page, which sends due to the worker
+(def due
+  (library/due @lib))
+
+;; in the worker, which sends found back
+(library/fetch-due! due store opts)
+
+;; on the page
+(swap! lib #(:library (library/refreshed % found opts)))
+```
+
+How the page and the worker talk is up to you. The inspector's player
+posts EDN to its worker and takes a Web Lock so that one refresh runs at
+a time across the tabs, in `web/inspector/fetching.cljs`. A worker has
+no `DOMParser`, so install one first. xmldom's only logs the errors of a
+malformed feed, so make it throw them:
 
 ```clojure
 (defn throwing-parser
@@ -484,31 +500,12 @@ make it throw them:
                                        (throw (js/Error. message))))}))
 
 (set! (.-DOMParser js/globalThis) throwing-parser)
-
-(worker/serve! {:store data :opts opts})
-```
-
-On the page, write the library first, so that the worker finds the
-documents of its feeds, and ask the client:
-
-```clojure
-(def client
-  (worker/client "/js/worker.js" opts))
-
-(.then (worker/fetch-due! client (library/due @lib) {:head-check? true} nil)
-       #(when-let [found (:found %)]
-          (swap! lib (fn [l] (:library (library/refreshed l found opts))))))
 ```
 
 The worker writes nothing but the documents of feeds, so the page's
 write of the library is the only one. `refreshed` takes an entry only
 where the library still has the one that was due, so a feed that another
-tab changed meanwhile stays as it is. One refresh runs at a time across
-the tabs, and the worker of another answers `:busy?`. `worker/fetch!`
-fetches and parses one feed in the worker, e.g. for the page of a show
-outside the library, and gives it back in the codec of `opts`. Both
-fail when the worker does. The inspector's player does all of this in
-`web/inspector/`.
+tab changed meanwhile stays as it is.
 
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and give `library/notifications` what
@@ -779,11 +776,11 @@ holds, as `swap!` does:
 ;; known holds what read! gave, and then what each write gave
 (.then (library/durable-swap! store @known f opts)
        #(when-not (:error %)
-For a loop of your own, `library/write!` takes the version as
-`:if-version` and gives `:conflict?` when another tab wrote first.
-
           (reset! known %)))
 ```
+
+For a loop of your own, `library/write!` takes the version as
+`:if-version` and gives `:conflict?` when another tab wrote first.
 
 Each feed and each segment of the search index is a document named by
 what it holds, so `write!` puts only those that the store lacks, and the
@@ -2488,7 +2485,6 @@ which [Play episodes](#play-episodes) adds, and those of httpsig-clj, which
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
             [dk.simongray.podcast.app.show :as show]
-            [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]

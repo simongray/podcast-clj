@@ -9,7 +9,6 @@ This page explains how each part of podcast-clj is built.
 
 ```
   5  high level   app.library  app.show  app.episode  app.feeds  app.media-session
-                  app.worker
   4  root         dk.simongray.podcast
   3  companions   feed.resolve  feed.schedule  feed.check  feed.check.*
                   feed.discovery  feed.publish  feed.search  feed.integrity

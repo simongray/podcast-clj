@@ -54,7 +54,7 @@
    "analytics" 3 "analytics.logs" 3 "analytics.op3" 3
    "" 4
    "app.episode" 5 "app.show" 5 "app.feeds" 5 "app.library" 5
-   "app.media-session" 5 "app.worker" 5
+   "app.media-session" 5
    "app.feeds.impl" 5 "app.episode.impl" 5 "app.library.impl" 5})
 
 (defn- short-name
