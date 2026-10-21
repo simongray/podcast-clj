@@ -6,8 +6,9 @@ These principles guide the design of podcast-clj, its API and its code.
 
 ## General
 
-- **A library, not a framework.** Pure functions over plain Clojure data.
-  How to store data, play media and draw the UI is up to you.
+- **A library, not a framework.** Pure functions over plain Clojure data,
+  with no global state. How to store data, play media and draw the UI is
+  up to you.
 - **Everything a podcast app needs.** A feature is left out only when it
   makes no sense in a library, like audio processing, or when it would be
   an immense amount of work.

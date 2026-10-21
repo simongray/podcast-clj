@@ -471,12 +471,21 @@ moment, so fetch them in a web worker with
 says is due, puts the documents of the feeds that changed into the
 library's store, and answers with what it found, which the page applies
 with `library/refreshed`. In the worker, a module of its own, e.g. with
-`:web-worker true` in shadow-cljs:
+`:web-worker true` in shadow-cljs, install a `DOMParser` first, since a
+worker has none. xmldom's only logs the errors of a malformed feed, so
+make it throw them:
 
 ```clojure
-(worker/serve! {:store      data
-                :opts       opts
-                :dom-parser xmldom/DOMParser})  ; a worker has no DOMParser
+(defn throwing-parser
+  "An xmldom parser that throws on errors instead of logging them."
+  []
+  (xmldom/DOMParser. #js {:onError (fn [level message _context]
+                                     (when-not (= level "warning")
+                                       (throw (js/Error. message))))}))
+
+(set! (.-DOMParser js/globalThis) throwing-parser)
+
+(worker/serve! {:store data :opts opts})
 ```
 
 On the page, write the library first, so that the worker finds the
