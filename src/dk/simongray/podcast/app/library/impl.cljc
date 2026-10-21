@@ -43,7 +43,7 @@
   "The options of a call that are functions or hold them, which stay out
   of the config, as app.library says."
   [:fetch :send :allow-pred :credentials-of :keep-fn :local-file-fn :cache
-   :codec :now-fn])
+   :codec :lenient-parser :now-fn])
 
 (defn settings
   "The settings of a subscription in the `opts` of a call that subscribes:

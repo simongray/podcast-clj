@@ -517,6 +517,19 @@
       (is (= {} (:fetched-lists gone)))
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
+(deftest a-lenient-parser-of-the-app
+  (let [broken  "<rss><channel><title>A</title><item><title>One</item></channel></rss>"
+        lenient (fn [_] ["rss" {} ["channel" {} ["title" {} "Lenient"]
+                                   ["item" {} ["title" {} "One"] ["guid" {} "one"]]]])
+        send    (fn [{:keys [url]}] {:status 200 :url url :headers {} :body broken})]
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #":lenient-parser"
+                          (library/make "phone" {:config {:lenient-parser lenient}}))
+        "an option of each call, not of the config")
+    (run #(async/then (library/refresh! library {:at (at 86400) :send send :lenient-parser lenient})
+                      (fn [{lib :library}]
+                        (is (= "Lenient" (get-in lib [:feeds guid :feed :rss/title]))
+                            "which reads a feed that the repairs can't fix"))))))
+
 (deftest the-step-that-fetches-what-is-due
   (let [lib     (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :at now})
         later   (at 86400)

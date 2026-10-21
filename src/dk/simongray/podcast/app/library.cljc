@@ -55,6 +55,7 @@
        :local-file-fn  f              ; the downloaded file of an episode id
        :cache          store          ; for companion files, see read-files!
        :codec          transit/codec  ; of the documents, EDN by default
+       :lenient-parser f              ; for feeds the repairs can't fix
        :now-fn         f}             ; the clock, util.time/now by default
 
   The codec has to be of the :extension that make took, since the
@@ -507,7 +508,7 @@
                                       :timeout-seconds :max-bytes
                                       :user-agent :allow-pred :online?
                                       :max-feeds :max-seconds :on-feed-fn
-                                      :now-fn :signal])
+                                      :now-fn :signal :lenient-parser])
                         (assoc :at at))]
      (async/then
       (async/then (impl/refresh-lists! library at opts)
@@ -669,7 +670,7 @@
                                       :timeout-seconds :max-bytes
                                       :user-agent :allow-pred :online?
                                       :max-feeds :max-seconds :on-feed-fn
-                                      :now-fn :signal])
+                                      :now-fn :signal :lenient-parser])
                         (assoc :at at :feed-guids feed-guids))
          from       (update-vals feeds #(select-keys % [:document :fetched-at]))
          outlined   (fn [feed-guid entry]
@@ -861,7 +862,8 @@
          parsed    (when (:feed entry)
                      (rss/try-parse (encoding/decode body {"content-type"
                                                            content-type})
-                                    {:url (:url entry)}))
+                                    (-> (select-keys opts [:lenient-parser])
+                                        (assoc :url (:url entry)))))
          error     (:error parsed)
          reason    (cond
                      (impl/unloaded? entry)

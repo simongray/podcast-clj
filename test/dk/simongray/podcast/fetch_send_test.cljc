@@ -25,6 +25,7 @@
    "https://b.example/page3.xml"       {:status 200 :body (page-xml nil [1])}
    "https://a.example/half.xml"        {:status 200 :body (page-xml "/page.html" [4])}
    "https://a.example/page.html"       {:status 200 :body "<html><body><p>Not a feed</p></body></html>"}
+   "https://a.example/broken.xml"      {:status 200 :body "<rss><channel><title>A</title><item><title>One</item></channel></rss>"}
    "https://a.example/list.opml"       {:status 200 :headers {"etag" ["\"l1\""]}
                                         :body (str "<opml version=\"2.0\"><head><title>Picks</title></head><body>"
                                                    "<outline type=\"rss\" text=\"Paged\" xmlUrl=\"https://a.example/feed.xml\"/>"
@@ -62,6 +63,14 @@
                       (fn [result]
                         (is (= [:url :error] (keys result)) "a send that fails gives the error, and throws nothing")
                         (is (= :fetch/unreachable (:id (:error result)))))))))
+
+(deftest fetching-with-a-lenient-parser
+  (let [lenient (fn [_] ["rss" {} ["channel" {} ["title" {} "Lenient"]]])]
+    (run #(async/then (podcast/fetch! "https://a.example/broken.xml"
+                                      {:send (answering (atom [])) :lenient-parser lenient})
+                      (fn [{:keys [feed]}]
+                        (is (= "Lenient" (:rss/title feed))
+                            "the parser of the options reads what the repairs can't fix"))))))
 
 (deftest fetching-a-list-through-a-send
   (let [sent (atom [])

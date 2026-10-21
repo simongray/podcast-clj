@@ -20,8 +20,9 @@
   The `xml` is a string or, on the JVM, an InputStream or a Reader. When
   :quirks? is false in `opts`, the document is parsed strictly, without
   repairs or normalisation. The option :registry is the tag registry that
-  the quirks read, and :except a set of repair and quirk ids to leave
-  out."
+  the quirks read, :except a set of repair and quirk ids to leave out, and
+  :lenient-parser the parser of a document that the repairs can't fix, as
+  repair/parse-raw takes it."
   ([xml]
    (parse-tree xml {}))
   ([xml {:keys [quirks?] :or {quirks? true} :as opts}]
@@ -29,7 +30,7 @@
    (if-not quirks?
      (let [tree (xml/parse xml spec/uri->alias)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
-     (let [raw-opts             (select-keys opts [:except])
+     (let [raw-opts             (select-keys opts [:except :lenient-parser])
            normalize-opts       (select-keys opts [:registry :except])
            {:keys [raw report]} (repair/parse-raw xml raw-opts)
            stripped             (quirks/strip-default-namespace raw raw-opts)
@@ -78,7 +79,8 @@
   ([xml {:keys [url] :as opts}]
    {:pre [(map? opts)]}
    (try
-     {:feed (parse xml (select-keys opts [:quirks? :registry :except]))}
+     {:feed (parse xml (select-keys opts [:quirks? :registry :except
+                                          :lenient-parser]))}
      (catch #?(:clj Exception :cljs :default) e
        (when (= ::xml/no-parser (:type (ex-data e)))
          (throw e))

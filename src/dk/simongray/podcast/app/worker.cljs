@@ -59,10 +59,13 @@
 
 (defn- fetched!
   "A promise of the answer to request `id`: the feed at `url` fetched
-  with `opts` through the :send of the :opts of `served`, in its :codec."
+  with `opts` through the :send and :lenient-parser of the :opts of
+  `served`, in its :codec."
   [served id url opts]
   (let [codec (library.impl/codec {} (:opts served))]
-    (.then (podcast/fetch! url (merge (select-keys (:opts served) [:send]) opts))
+    (.then (podcast/fetch! url (merge (select-keys (:opts served)
+                                                   [:send :lenient-parser])
+                                      opts))
            (fn [result]
              {:id id :fetched ((:encode codec) (dissoc result :body))}))))
 

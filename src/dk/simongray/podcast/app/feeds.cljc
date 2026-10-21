@@ -343,7 +343,7 @@
     http/send! takes it: an AbortSignal in ClojureScript, and on the JVM
     an atom that turns true
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow-pred, as
-    fetch! takes them
+    fetch! takes them, and :lenient-parser, as rss/parse takes it
 
   The feeds that :max-feeds or :max-seconds leave out stay due, for the
   next refresh. So do those that the :signal stopped, or kept from
@@ -383,7 +383,8 @@
                                (- (inst-ms (now-fn)) (inst-ms start))))))
          done   (atom 0)
          common (select-keys opts [:send :timeout-seconds :max-bytes
-                                   :user-agent :allow-pred :signal])
+                                   :user-agent :allow-pred :signal
+                                   :lenient-parser])
          private (fn [url]
                    (let [credentials (when credentials-of (credentials-of url))]
                      (cond-> common
