@@ -3,6 +3,7 @@
   dk.simongray.drop-in-search."
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.analysis :as analysis]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -28,6 +29,156 @@
                     (seq v)))]
     (into {} (filter filled?) m)))
 
+;; Text that the notes of several episodes of a show share, e.g. a sponsor
+;; read, the credits or the links to a newsletter, belongs to the show
+;; rather than to any one episode. Runs of words are Broder's shingles, and
+;; leaving out what the pages of a site share is how Bar-Yossef and
+;; Rajagopalan find its templates: A. Z. Broder, On the resemblance and
+;; containment of documents, 1997, and Z. Bar-Yossef and S. Rajagopalan,
+;; Template detection via data mining and its applications, 2002. Eight
+;; words seldom repeat by chance, and three episodes tell a show's own text
+;; from a phrase that two happen to share
+(def run-length
+  "The number of words in each run that repeated-runs compares."
+  8)
+
+(def repeats
+  "The fewest episodes of a show whose notes must share a run for
+  repeated-runs to count it as the show's own text."
+  3)
+
+;; Clojure's hash of a string is the same on the JVM and in JavaScript, and
+;; so is this arithmetic, so a saved library's hashes agree on each device
+(defn- mixed
+  "The 32-bit hash `h` with the 32-bit hash `x` added after it, as
+  String.hashCode adds a character."
+  ^long [^long h ^long x]
+  #?(:clj  (unchecked-int (+ (* 31 h) x))
+     :cljs (bit-or (+ (imul 31 h) x) 0)))
+
+;; A run in a script without spaces between words has two terms at its last
+;; position, as analysis/tokens gives them, and the first stands for both
+(defn- runs-of
+  "The runs of words of `text`: the :hashes of its runs of run-length
+  words in order, and where each word :starts and :ends, as arrays."
+  [text]
+  (let [words         (into [] (comp (partition-by :position) (map first))
+                            (analysis/spans text))
+        ^ints terms   (int-array (map #(hash (:term %)) words))
+        n             (max 0 (- (alength terms) (dec run-length)))
+        ^longs hashes (long-array n)]
+    (dotimes [i n]
+      (aset hashes i (mix-collection-hash (loop [j i h 0]
+                                            (if (< j (+ i run-length))
+                                              (recur (inc j) (mixed h (aget terms j)))
+                                              h))
+                                          run-length)))
+    {:hashes hashes
+     :starts (int-array (map :start words))
+     :ends   (int-array (map :end words))}))
+
+;; Each run is an id of its hash times 2^20 plus the number of its text, as
+;; a show has far fewer than 2^20 episodes. Sorted, the ids put the texts of
+;; a run next to each other, in far less time and memory than a map of each
+;; run to its texts
+(defn- shared
+  "The hashes that repeats or more of the arrays `hashes`, those of the
+  runs of each text, hold."
+  [hashes]
+  (let [n          (reduce + 0 (map alength hashes))
+        texts      1048576
+        ^longs ids #?(:clj (long-array n) :cljs (js/Float64Array. n))
+        run        (fn [id]
+                     #?(:clj  (Math/floorDiv (long id) (long texts))
+                        :cljs (Math/floor (/ id texts))))]
+    (reduce (fn [k [t ^longs hs]]
+              (dotimes [i (alength hs)]
+                (aset ids (+ k i) (long (+ (* (aget hs i) texts) t))))
+              (+ k (alength hs)))
+            0
+            (map-indexed vector hashes))
+    #?(:clj (java.util.Arrays/sort ids) :cljs (.sort ids))
+    (loop [i 0 prev nil seen 0 acc (transient #{})]
+      (if (< i n)
+        (let [id (aget ids i)]
+          (cond
+            (= id prev)
+            (recur (inc i) prev seen acc)
+
+            (and prev (== (run id) (run prev)))
+            (recur (inc i) id (inc seen)
+                   (cond-> acc (= repeats (inc seen)) (conj! (run id))))
+
+            :else
+            (recur (inc i) id 1 acc)))
+        (persistent! acc)))))
+
+(defn repeated-runs
+  "The runs of words that the notes of the show `feed` repeat, e.g. its
+  sponsor reads and credits, as the set of their hashes that item-document
+  takes as its :repeated. A run is run-length words long, and at least
+  repeats episodes share it."
+  [feed]
+  (->> (resolve/distinct-items (:rss/items feed))
+       (keep notes)
+       (map (comp :hashes runs-of))
+       shared))
+
+;; Each stretch of runs is cut from the start of its first word to the end
+;; of its last, so that the rest of the text reads as it did, and a space
+;; takes its place, so that the words on each side stay apart
+(defn- without-runs
+  "The `text` without the runs whose hashes `repeated` holds, by the `runs`
+  of the text that runs-of gives."
+  [text {:keys [^longs hashes ^ints starts ^ints ends]} repeated]
+  (let [stretches (reduce (fn [acc i]
+                            (if (contains? repeated (aget hashes i))
+                              (let [[a b] (peek acc)
+                                    end   (+ i (dec run-length))]
+                                (if (and b (<= i (inc b)))
+                                  (conj (pop acc) [a end])
+                                  (conj acc [i end])))
+                              acc))
+                          []
+                          (range (alength hashes)))]
+    (if (empty? stretches)
+      text
+      (->> (concat [0]
+                   (mapcat (fn [[a b]] [(aget starts a) (aget ends b)]) stretches)
+                   [(count text)])
+           (partition 2)
+           (map (fn [[from to]] (subs text from to)))
+           (str/join " ")))))
+
+(defn- episode-document
+  "The search document of `item` in `feed`, whose notes are
+  `description`, with the `opts` of item-document."
+  [feed item description {:keys [url chapters transcript]}]
+  (let [chapters (or chapters (resolve/embedded-chapters item))
+        titles   (keep :title (:chapters chapters))
+        title    (resolve/title item)
+        show     (resolve/title feed)
+        id       (guid/episode-id feed url item)]
+    (when (nil? (first id))
+      (throw (ex-info (str "A feed without a podcast:guid needs :url, or its "
+                           "episodes share ids with those of other shows")
+                      {:title show})))
+    {:id     id
+     :fields (present {:title       title
+                       :show        show
+                       :description description
+                       :people      (names feed item)
+                       :keywords    (:itunes/keywords item)
+                       :chapters    (str/join " " titles)
+                       :transcript  (some-> transcript transcript/text)})
+     ;; what a list of results shows, as an index holds it for each of
+     ;; thousands of episodes
+     :stored (into {} (filter (comp some? val))
+                   {:title     title
+                    :show      show
+                    :published (resolve/published item)
+                    :duration  (resolve/duration item)})}))
+
 (defn item-document
   "The search document of `item` in `feed`, with the `opts` below.
 
@@ -40,35 +191,18 @@
   - :url, where the feed was fetched, which a feed without a podcast:guid
     needs, or it throws
   - :chapters, the parsed chapters file, instead of the embedded ones
-  - :transcript, the parsed transcript"
+  - :transcript, the parsed transcript
+  - :repeated, the runs of words to leave out of the notes, those that
+    repeated-runs gives for the show"
   ([feed item]
    (item-document feed item {}))
-  ([feed item {:keys [url chapters transcript] :as opts}]
+  ([feed item {:keys [repeated] :as opts}]
    {:pre [(map? opts)]}
-   (let [chapters (or chapters (resolve/embedded-chapters item))
-         titles   (keep :title (:chapters chapters))
-         title    (resolve/title item)
-         show     (resolve/title feed)
-         id       (guid/episode-id feed url item)]
-     (when (nil? (first id))
-       (throw (ex-info (str "A feed without a podcast:guid needs :url, or its "
-                            "episodes share ids with those of other shows")
-                       {:title show})))
-     {:id     id
-      :fields (present {:title       title
-                        :show        show
-                        :description (notes item)
-                        :people      (names feed item)
-                        :keywords    (:itunes/keywords item)
-                        :chapters    (str/join " " titles)
-                        :transcript  (some-> transcript transcript/text)})
-      ;; what a list of results shows, as an index holds it for each of
-      ;; thousands of episodes
-      :stored (into {} (filter (comp some? val))
-                    {:title     title
-                     :show      show
-                     :published (resolve/published item)
-                     :duration  (resolve/duration item)})})))
+   (let [text (notes item)]
+     (episode-document feed item
+                       (cond-> text
+                         (and text (seq repeated)) (without-runs (runs-of text) repeated))
+                       opts))))
 
 (defn feed-document
   "The search document of the show `feed` itself, by its guid, with the
@@ -123,11 +257,22 @@
 
 (defn feed-documents
   "The search documents of the show `feed`, fetched from `url`, and of each
-  of its episodes, once each."
+  of its episodes, once each, whose notes leave out the runs of words that
+  the show repeats. The metadata of the documents holds those runs as
+  :repeated, as repeated-runs gives them."
   [feed url]
-  (into [(feed-document feed {:url url})]
-        (map #(item-document feed % {:url url}))
-        (resolve/distinct-items (:rss/items feed))))
+  (let [items    (resolve/distinct-items (:rss/items feed))
+        texts    (mapv notes items)
+        runs     (mapv #(some-> % runs-of) texts)
+        repeated (shared (keep :hashes runs))]
+    (with-meta
+      (into [(feed-document feed {:url url})]
+            (map (fn [item text r]
+                   (episode-document feed item
+                                     (cond-> text r (without-runs r repeated))
+                                     {:url url}))
+                 items texts runs))
+      {:repeated repeated})))
 
 (defn feed-guid-of
   "The guid of the show of the document `id`: the id of a show's document,
@@ -192,18 +337,19 @@
   gives them. The window is a map of the :field that the text is from, the
   first of snippet-fields that matches, and its :parts, each a map of
   :text, with :match? on the words that match. The `opts` are those of
-  dk.simongray.drop-in-search/snippet, e.g. :width."
+  dk.simongray.drop-in-search/snippet, e.g. :width, and :repeated, the
+  runs of words that the show repeats, as item-document takes them."
   ([index result q]
    (snippet index result q {}))
-  ([index {:keys [id feed item] :as result} q opts]
+  ([index {:keys [id feed item] :as result} q {:keys [repeated] :as opts}]
    (let [show     (search/document index (feed-guid-of id))
-         doc-opts {:url (:url (:stored show))}
+         doc-opts {:url (:url (:stored show)) :repeated repeated}
          fields   (:fields (if item
                              (item-document feed item doc-opts)
                              (feed-document feed doc-opts)))]
      (some (fn [field]
              (let [text   (get fields field)
-                   within (assoc opts :field field)]
+                   within (-> (dissoc opts :repeated) (assoc :field field))]
                (when (and text (search/matches? index text q within))
                  {:field field
                   :parts (search/snippet index text q within)})))

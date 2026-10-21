@@ -116,31 +116,42 @@
 (defn- documents
   "The search documents of the feed `feed-guid` of `library`: of the show
   and its episodes for a subscription, and else of its remote items
-  alone."
+  alone, with the runs of words that the show repeats as the :repeated of
+  their metadata."
   [library feed-guid]
   (when-let [feed (shown library feed-guid)]
-    (let [url (get-in library [:feeds feed-guid :url])]
-      (cond->> (feed.search/feed-documents feed url)
+    (let [url  (get-in library [:feeds feed-guid :url])
+          docs (feed.search/feed-documents feed url)]
+      (cond->> docs
         (not (profile/subscribed? (:profile library) feed-guid))
-        (filter (comp vector? :id))))))
+        (into (with-meta [] (meta docs)) (filter (comp vector? :id)))))))
 
-(defn index
-  "A search index of the feeds of `library`, e.g. for a library read back
-  without its :index."
+(defn indexed
+  "The `library` with a search index of its feeds, e.g. for a library read
+  back without its :index, and the runs of words that each show repeats
+  in the entry of its feed."
   [library]
-  (->> (keys (:feeds library))
-       (mapcat #(documents library %))
-       (feed.search/index)))
+  (let [docs (into {} (keep #(some->> (documents library %) (vector %)))
+                   (keys (:feeds library)))]
+    (-> (reduce-kv (fn [library feed-guid ds]
+                     (assoc-in library [:feeds feed-guid :repeated]
+                               (:repeated (meta ds))))
+                   library
+                   docs)
+        (assoc :index (feed.search/index (mapcat val docs))))))
 
 (defn reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
-  index. A feed that isn't loaded keeps what the index has of it."
+  index, and the runs of words that its show repeats in the entry of its
+  feed. A feed that isn't loaded keeps what the index has of it."
   [library feed-guid]
   (let [index (:index library)]
     (if (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
-      (assoc library :index (apply search/add
-                                   (feed.search/without-feed index feed-guid)
-                                   (documents library feed-guid)))
+      (let [docs (documents library feed-guid)]
+        (cond-> (assoc library :index (apply search/add
+                                             (feed.search/without-feed index feed-guid)
+                                             docs))
+          docs (assoc-in [:feeds feed-guid :repeated] (:repeated (meta docs)))))
       library)))
 
 (defn alone?
@@ -657,11 +668,12 @@
   "The episode `id` of `library` as a map of its :id, :feed, :item and
   search :document, or nil when the library doesn't hold it."
   [library id]
-  (when-let [[{:keys [feed url]} item] (item-of library id)]
+  (when-let [[{:keys [feed url repeated]} item] (item-of library id)]
     {:id       id
      :feed     feed
      :item     item
-     :document (feed.search/item-document feed item {:url url})}))
+     :document (feed.search/item-document feed item {:url      url
+                                                     :repeated repeated})}))
 
 (def topic-fields
   "The fields of the search document of an episode that say what it's
@@ -980,22 +992,33 @@
                  (or (:changed-at entry) (:fetched-at entry) (time/->inst 0))
                  codec))
 
+(def feed-keys
+  "The keys of a feeds entry that the document of its feed holds, rather
+  than the library's own: the feed, the facts of the items that it
+  retains, and the runs of words that its show repeats, which its search
+  documents leave out."
+  [:feed :retained :repeated])
+
+(defn without-feed-keys
+  "The feeds `entry` without its feed-keys, as the library's own document
+  holds it."
+  [entry]
+  (apply dissoc entry feed-keys))
+
 (defn feed-body
-  "The document of the feeds `entry` with `codec`: its feed and the facts
-  of the items that it retains."
+  "The document of the feeds `entry` with `codec`, of its feed-keys."
   [entry codec]
-  ((:encode codec) (select-keys entry [:feed :retained])))
+  ((:encode codec) (select-keys entry feed-keys)))
 
 (defn saved-map
   "The parts of `library` that `keys` names, as its saved document with
   `codec` holds them: with the :version, and each feeds entry with the
-  name of the document of its feed in place of the feed and its retained
-  items."
+  name of the document of its feed in place of its feed-keys."
   [library keys codec]
   (let [outlined (fn [[feed-guid entry]]
                    [feed-guid
                     (if (:feed entry)
-                      (-> (dissoc entry :feed :retained)
+                      (-> (without-feed-keys entry)
                           (assoc :document (entry-document feed-guid entry codec)))
                       entry)])]
     (cond-> (assoc (select-keys library keys) :version version)
@@ -1185,14 +1208,16 @@
 
 (defn read-feed
   "What the `attempt` to fetch the `document` of a feed read, with the
-  `codec` of a library or EDN's, by its extension: a map of the :feed and
-  its :retained facts, or of the :reason that it doesn't read."
+  `codec` of a library or EDN's, by its extension: a map of the :feed, its
+  :retained facts and the runs of words that its show :repeated, or of
+  the :reason that it doesn't read."
   [codec document {:keys [value error]}]
-  (let [{:keys [feed retained]} (when-not error
-                                  (read-map value (codec-of codec document)))]
+  (let [{:keys [feed retained repeated]} (when-not error
+                                           (read-map value (codec-of codec document)))]
     (cond
       (map? feed)  (cond-> {:feed feed}
-                     (map? retained) (assoc :retained retained))
+                     (map? retained) (assoc :retained retained)
+                     (set? repeated) (assoc :repeated repeated))
       error        {:reason (async/explain error)}
       (nil? value) {:reason "It isn't in the store"}
       :else        {:reason "It doesn't read as a feed"})))
@@ -1262,10 +1287,10 @@
 
       ;; nothing saved yet
       (nil? (:error read))
-      [(assoc library :index (index library)) report]
+      [(indexed library) report]
 
       :else
-      [(assoc library :index (index library))
+      [(indexed library)
        (conj report (diagnostics/describe
                      {:id     :library/index-rebuilt
                       :reason (async/explain (:error read))}))])))
