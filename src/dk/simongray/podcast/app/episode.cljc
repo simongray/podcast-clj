@@ -234,6 +234,7 @@
   - :timeout-seconds and :max-bytes, over default-limits
   - :index, the credentials of the Podcast Index, and :now-fn, a function of
     the current time to sign the requests with
+  - :lenient-parser, as rss/parse takes it
   - :fetch, in place of dk.simongray.podcast/fetch!. Each remote feed is
     fetched once, though several songs of an album name it."
   ([view]

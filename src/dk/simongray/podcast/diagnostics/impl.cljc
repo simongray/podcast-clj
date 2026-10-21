@@ -103,7 +103,7 @@
      :doc "Bare ampersands were escaped."}
     {:id :repair/lenient-parser :level :warning
      :doc "The document was still malformed after the repairs, so it was parsed
-           leniently, with the parser that the app installed or with jsoup."}
+           leniently, with the parser of the options or with jsoup."}
 
     ;; the parse and namespace resolution
     {:id :xml/skipped-entity :level :warning

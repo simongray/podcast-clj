@@ -100,7 +100,7 @@
   an :error when it couldn't, in a future or a promise."
   [url opts]
   (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
-                                      :max-bytes :user-agent])]
+                                      :max-bytes :user-agent :lenient-parser])]
     (async/then (podcast/fetch! url fetch-opts)
                 (fn [{:keys [feed error]}]
                   (if feed
@@ -161,6 +161,7 @@
   - :timeout-seconds and :max-bytes, over default-limits
   - :index, the credentials of the Podcast Index, and :now-fn, a function of
     the current time to sign the requests with
+  - :lenient-parser, as rss/parse takes it
   - :except, a set of the parts to leave out"
   ([view]
    (fetch-linked-shows! view {}))

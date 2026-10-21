@@ -124,10 +124,10 @@ workers and React Native only the `DOMParser` above.
 A few feeds aren't well-formed XML even after the repairs that
 podcast-clj makes, e.g. with a tag that's never closed. On the JVM, jsoup
 reads them when it's on the classpath. In JavaScript, they're refused as
-malformed, unless you install a lenient parser of your own with
-`repair/use-lenient-parser!`, e.g. over htmlparser2. It takes a function
-of the XML text that gives the raw Hiccup that `qname-hiccup/parse-raw`
-gives.
+malformed, unless you give a lenient parser of your own as
+`:lenient-parser`, beside `:send` in the options of each call that
+fetches feeds. It's a function of the XML text that returns the raw
+Hiccup that `qname-hiccup/parse-raw` returns, e.g. over htmlparser2.
 
 
 ## Send requests from a web page

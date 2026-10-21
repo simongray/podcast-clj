@@ -245,41 +245,16 @@
 
 (def ^:no-doc lenient-parser
   "The parser to fall back on when a document is still malformed after the
-  repairs, or nil.
+  repairs and the options give no :lenient-parser, or nil.
 
   On the JVM, it's that of jsoup when org.jsoup/jsoup is on the
   classpath, so adding jsoup to the dependencies is all it takes.
-  ClojureScript has none, unless an app installs one."
+  ClojureScript has none."
   (delay
    #?(:clj  (try
               (requiring-resolve 'dk.simongray.qname-hiccup.jsoup/parse-raw)
               (catch Exception _ nil))
       :cljs nil)))
-
-(defonce ^{:no-doc true
-           :doc    "The lenient parser that use-lenient-parser! installed, if
-                   any."}
-  installed-parser
-  (atom nil))
-
-(defn use-lenient-parser!
-  "Read the documents that are still malformed after the repairs with `f`,
-  or with no parser of your own again when `f` is nil.
-
-  The `f` is a function of the XML text that gives its raw Hiccup, as
-  qname-hiccup's parse-raw gives it: elements as vectors of the name as
-  written, a map of the attributes, and the children, with the namespace
-  declarations as attributes, e.g.
-
-      [\"rss\" {\"xmlns:itunes\" \"http://www.itunes.com/dtds/podcast-1.0.dtd\"}
-       [\"channel\" {} [\"itunes:author\" {} \"Ann\"]]]
-
-  It's for ClojureScript, which has no lenient parser of its own, e.g. over
-  htmlparser2 or fast-xml-parser. On the JVM, it goes before jsoup. It
-  holds for the whole program, as the DOMParser of Node does."
-  [f]
-  (reset! installed-parser f)
-  nil)
 
 (defn- held
   "The `xml` in a form that can be read twice, first strictly and then for
@@ -328,7 +303,7 @@
         report          (:report repaired)
         parsed          (strict (:xml repaired))
         parse-leniently (when-not (contains? except :repair/lenient-parser)
-                          (or @installed-parser @lenient-parser))]
+                          (or (:lenient-parser opts) @lenient-parser))]
     (cond
       (:raw parsed)
       {:raw (:raw parsed) :report report}
@@ -347,9 +322,19 @@
 
   The `xml` is a string or, on the JVM, an InputStream or a Reader. The
   strict parse comes first, so a well-formed document has an empty
-  report. When the repairs aren't enough, the lenient parser reads the
+  report. When the repairs aren't enough, a lenient parser reads the
   document if there is one, and else the error of the strict parse is
-  thrown."
+  thrown.
+
+  The lenient parser is the :lenient-parser of `opts`, or else jsoup on
+  the JVM when it's on the classpath. ClojureScript has none of its own,
+  so give it one there, e.g. over htmlparser2. It's a function of the
+  XML text that returns its raw Hiccup, as qname-hiccup's parse-raw does:
+  elements as vectors of the name as written, a map of the attributes,
+  and the children, with the namespace declarations as attributes, e.g.
+
+      [\"rss\" {\"xmlns:itunes\" \"http://www.itunes.com/dtds/podcast-1.0.dtd\"}
+       [\"channel\" {} [\"itunes:author\" {} \"Ann\"]]]"
   ([xml]
    (parse-raw xml {}))
   ([xml opts]

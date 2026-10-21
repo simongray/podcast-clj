@@ -83,18 +83,15 @@
         lenient    (fn [s]
                      (is (= mismatched s) "the text after the repairs")
                      ["rss" {} ["channel" {} ["title" {} "A"] ["item" {} ["title" {} "One"]]]])]
-    (try
-      (repair/use-lenient-parser! lenient)
-      (let [f (rss/parse mismatched)]
-        (is (= ["A" "One"] [(:rss/title f) (:rss/title (first (:rss/items f)))]))
-        (is (some #{:repair/lenient-parser} (map :id (rss/report f)))))
-      (is (= ::xml/malformed
-             (try (repair/parse-raw mismatched {:except #{:repair/lenient-parser}})
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                    (:type (ex-data e)))))
-          "unless :except leaves it out")
-      (finally
-        (repair/use-lenient-parser! nil)))))
+    (let [f (rss/parse mismatched {:lenient-parser lenient})]
+      (is (= ["A" "One"] [(:rss/title f) (:rss/title (first (:rss/items f)))]))
+      (is (some #{:repair/lenient-parser} (map :id (rss/report f)))))
+    (is (= ::xml/malformed
+           (try (repair/parse-raw mismatched {:lenient-parser lenient
+                                              :except         #{:repair/lenient-parser}})
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                  (:type (ex-data e)))))
+        "unless :except leaves it out")))
 
 (deftest numeric-references-a-string-cannot-hold
   (is (= "&#1114112; &#x110000; &#99999999999999999999; A"

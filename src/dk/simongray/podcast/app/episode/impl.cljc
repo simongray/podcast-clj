@@ -305,7 +305,7 @@
   the item, or else of the feed, or of an :error."
   [remote {:keys [fetch] :as opts}]
   (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
-                                      :max-bytes :user-agent])]
+                                      :max-bytes :user-agent :lenient-parser])]
     (async/then (async/attempt #(fetch (:feed-url remote) fetch-opts))
                 (partial feed-answer remote))))
 

@@ -221,7 +221,8 @@
   :error when it isn't a feed. A platform without an XML parser throws."
   [s url opts]
   (if (feed-document? s)
-    (rss/try-parse s (-> (select-keys opts [:quirks? :registry :except])
+    (rss/try-parse s (-> (select-keys opts [:quirks? :registry :except
+                                            :lenient-parser])
                          (assoc :url url)))
     (diagnostics/failed {:id     :fetch/malformed
                          :url    url
