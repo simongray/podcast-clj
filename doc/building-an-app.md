@@ -770,23 +770,19 @@ The tabs and workers of a web app share the browser's storage, and each
 writes the library, so treat the library's document in the store as the
 one place that every tab changes, as you would an atom. Then they write
 as one device, and none writes over another. `library/read!` gives the
-library and the version of its document, and `library/write!` writes a
-change on condition of that version. When another tab wrote first, it
-gives `:conflict?`, so read the store again and make the same change to
-what it holds, as `swap!` does:
+library and the version of its document, and `library/durable-swap!`
+writes a change on condition of that version. When another tab wrote
+first, it reads the store again and makes the same change to what it
+holds, as `swap!` does:
 
 ```clojure
-(defn swap-library!
-  "Write `f` of the library that `known` holds, as read! gives it, to
-  `store`, and again onto the stored library while another tab writes
-  first."
-  [store {:keys [library version]} f]
-  (let [changed (f library)
-        written (library/write! changed store
-                                (assoc opts :if-version version :before library))]
-    (if (:conflict? written)
-      (recur store (library/read! library store opts) f)
-      {:library changed :version (:version written)})))
+;; known holds what read! gave, and then what each write gave
+(.then (library/durable-swap! store @known f opts)
+       #(when-not (:error %)
+For a loop of your own, `library/write!` takes the version as
+`:if-version` and gives `:conflict?` when another tab wrote first.
+
+          (reset! known %)))
 ```
 
 Each feed and each segment of the search index is a document named by

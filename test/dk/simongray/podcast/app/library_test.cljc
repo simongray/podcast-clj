@@ -1685,6 +1685,42 @@
                         (is (= (:feeds library) (:feeds lib)) "read back from Transit")
                         (is (= (found-ids library) (found-ids lib))))))))
 
+(deftest a-durable-swap
+  (let [s      (store/memory)
+        id     [guid "https://example.com/ep0003"]
+        calls  (atom 0)
+        known  (atom nil)
+        queued (fn [lib]
+                 (swap! calls inc)
+                 (library/update-profile lib profile.queue/enqueue id))
+        other  (library/update-profile transit-library profile/configure guid {:order :oldest})
+        broken (assoc s :fetch (fn [& _] (throw (ex-info "offline" {}))))]
+    (run #(async/then (library/write! transit-library s (assoc in-transit :if-version nil))
+                      (fn [{:keys [version]}]
+                        (reset! known {:library transit-library :version version})))
+         ;; another tab writes first
+         #(library/write! other s (assoc in-transit :if-version (:version @known) :before transit-library))
+         #(async/then (library/durable-swap! s @known queued in-transit)
+                      (fn [{:keys [version] lib :library :as swapped}]
+                        (is (= "3" version))
+                        (is (= 2 @calls) "applied again to what the other tab wrote")
+                        (is (= [id] (profile.queue/queue (:profile lib))))
+                        (is (= :oldest (:order (profile/settings (:profile lib) guid)))
+                            "which keeps that tab's change")
+                        (reset! known swapped)))
+         #(async/then (library/read! transit-library s in-transit)
+                      (fn [{:keys [version] lib :library}]
+                        (is (= "3" version))
+                        (is (= [id] (profile.queue/queue (:profile lib))) "as the store holds it")))
+         #(async/then (library/durable-swap! s @known queued in-transit)
+                      (fn [{:keys [version]}]
+                        (is (= "4" version))
+                        (is (= 3 @calls) "and once when no one wrote in between")))
+         #(async/then (library/durable-swap! broken {:library transit-library :version "1"} queued in-transit)
+                      (fn [{:keys [error]}]
+                        (is (= :library/save-failed (:id error))
+                            "and a read that fails, after another wrote first, as data"))))))
+
 (deftest a-refresh-in-parts
   (let [s     (store/memory)
         later (at 86400)

@@ -615,9 +615,10 @@ background. Where several tabs or workers share one store, `write!` puts
 the library's own document on condition of the version that the tab
 last read. A tab whose write is refused reads the stored library,
 applies its change to it again and writes once more, as `swap!` does
-with an atom. So every tab writes as the one device, and nothing has to
-be merged. `library/save!` writes over what the store holds, for an app
-with one writer, e.g. the podcast server.
+with an atom, which `library/durable-swap!` does. So every tab writes as
+the one device, and nothing has to be merged. `library/save!` writes
+over what the store holds, for an app with one writer, e.g. the podcast
+server.
 
 
 ## Download rules

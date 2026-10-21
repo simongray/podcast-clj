@@ -2214,7 +2214,7 @@
 
   It takes no lock and reads nothing but the names in the store, so on a
   conflict, read! the store again and change what it gives, as swap! does
-  with an atom."
+  with an atom, which durable-swap! does."
   ([library store]
    (write! library store {}))
   ([library store {:keys [before] :as opts}]
@@ -2263,6 +2263,36 @@
           error   (diagnostics/failed {:id     :library/save-failed
                                        :reason (async/explain error)})
           :else   value))))))
+
+(defn durable-swap!
+  "Write `f` of the library that `known` holds to `store` with the `opts`
+  of write!, on condition of the version that `known` holds, and `f` of
+  the stored library again whenever another context wrote first, as swap!
+  does with an atom. It gives the library and the version written, as a
+  map of the :library and the :version, or a map of the :error of a write
+  or a read that failed, in ClojureScript as a promise.
+
+  The `known` is a map of the :library and its :version, as read! gives
+  it and this gives it back. Since `f` can run more than once, give it
+  the time of its change, e.g. as the :at of step, so that it stamps the
+  same time each time."
+  ([store known f]
+   (durable-swap! store known f {}))
+  ([store {:keys [library version] :as known} f opts]
+   {:pre [(map? opts)]}
+   (let [changed (f library)]
+     (async/then
+      (write! changed store (assoc opts :if-version version :before library))
+      (fn [{:keys [conflict? error] :as written}]
+        (cond
+          error     written
+          conflict? (async/then (async/attempt #(read! library store opts))
+                                (fn [{:keys [value error]}]
+                                  (if error
+                                    (diagnostics/failed {:id     :library/save-failed
+                                                         :reason (async/explain error)})
+                                    (durable-swap! store value f opts))))
+          :else     {:library changed :version (:version written)}))))))
 
 (defn plan
   "The episodes to download and the files to delete on this device with
