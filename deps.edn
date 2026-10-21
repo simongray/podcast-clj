@@ -21,7 +21,7 @@
  ;; documents with, which the tests use.
  :deps  {org.clojure/clojure      {:mvn/version "1.11.4"}
          org.clojure/data.json    {:mvn/version "2.5.2"}
-         dk.simongray/wary-fetch     {:mvn/version "0.15.2"}
+         dk.simongray/wary-fetch     {:mvn/version "0.16.0"}
          dk.simongray/qname-hiccup   {:mvn/version "0.6.1"}
          dk.simongray/html-pieces    {:mvn/version "0.8.0"}
          dk.simongray/drop-in-search {:mvn/version "0.4.1"}
@@ -76,7 +76,7 @@
                           metosin/malli                {:mvn/version "0.20.3"}
                           org.clojure/test.check       {:mvn/version "1.1.3"}
                           criterium/criterium          {:mvn/version "0.4.6"}
-                          com.clojure-goes-fast/clj-async-profiler  {:mvn/version "1.8.0"}
+                          com.clojure-goes-fast/clj-async-profiler  {:mvn/version "1.9.0"}
                           com.clojure-goes-fast/clj-java-decompiler {:mvn/version "0.3.7"}}}
 
   ;; clojure -X:test; dev/ is on the path for the test that keeps the
@@ -116,7 +116,7 @@
           :override-deps {org.clojure/clojure {:mvn/version "1.12.6"}}
           :extra-deps    {thheller/shadow-cljs       {:mvn/version "3.5.7"}
                           no.cjohansen/replicant     {:mvn/version "2026.07.1"}
-                          dk.simongray/play-nice     {:mvn/version "0.3.0"}
+                          dk.simongray/play-nice     {:mvn/version "0.6.0"}
                           com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
           :main-opts     ["-m" "shadow.cljs.devtools.cli"]}
 
