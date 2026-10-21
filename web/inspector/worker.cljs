@@ -12,9 +12,20 @@
             [dk.simongray.podcast.app.worker :as worker]
             [inspector.shared :as shared]))
 
+(defn throwing
+  "A function that makes a parser of the class `DOMParser`, e.g. that of
+  xmldom, which throws on the errors that a browser's parser reports as a
+  parsererror element."
+  [DOMParser]
+  (fn []
+    (DOMParser. #js {:onError (fn [level message _context]
+                                (when-not (= level "warning")
+                                  (throw (js/Error. message))))})))
+
 (defn ^:export init
   "Answer the page's requests to fetch the feeds that are due."
   []
-  (worker/serve! {:store      (indexeddb/store shared/store-name)
-                  :opts       (shared/opts)
-                  :dom-parser xmldom/DOMParser}))
+  (when-not (exists? js/DOMParser)
+    (set! (.-DOMParser js/globalThis) (throwing xmldom/DOMParser)))
+  (worker/serve! {:store (indexeddb/store shared/store-name)
+                  :opts  (shared/opts)}))

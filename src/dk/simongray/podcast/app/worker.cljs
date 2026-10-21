@@ -20,7 +20,8 @@
 
   Build the worker as a module of its own, e.g. with :web-worker true in
   shadow-cljs, whose init calls serve!. A web worker has no DOMParser, so
-  give serve! one, e.g. that of @xmldom/xmldom."
+  install one as globalThis.DOMParser before, e.g. that of @xmldom/xmldom,
+  made to throw on the errors that it would otherwise log."
   (:require [cljs.reader :as reader]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
@@ -80,28 +81,14 @@
       (.then post!)
       (.catch (fn [e] (post! {:id id :failed (str e)})))))
 
-(defn- throwing
-  "A function that makes a parser of the class `DOMParser`, e.g. that of
-  xmldom, which throws on the errors that a browser's parser reports as a
-  parsererror element."
-  [DOMParser]
-  (fn []
-    (DOMParser. #js {:onError (fn [level message _context]
-                                (when-not (= level "warning")
-                                  (throw (js/Error. message))))})))
-
 (defn serve!
   "Answer the requests of the page in this web worker, with the `served`
   map below.
 
   - :store, the store of the library that the page reads, e.g. of
     like-minded.store.indexeddb
-  - :opts, the options of the library's calls, e.g. its :send and :codec
-  - :dom-parser, a DOMParser class for a worker without one, e.g. that of
-    xmldom, which throws on what a browser reports as a parsererror"
-  [{:keys [dom-parser] :as served}]
-  (when (and dom-parser (not (exists? js/DOMParser)))
-    (set! (.-DOMParser js/globalThis) (throwing dom-parser)))
+  - :opts, the options of the library's calls, e.g. its :send and :codec"
+  [served]
   (set! (.-onmessage js/self)
         (fn [^js e]
           (answer! served (reader/read-string (.-data e))))))
