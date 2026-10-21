@@ -1,7 +1,8 @@
-(ns dk.simongray.podcast.app.worker
-  "A web worker that fetches feeds for the page, so that the parsing of a
-  feed never holds up the page, with the functions of the page that ask
-  it.
+(ns inspector.fetching
+  "The player's web worker, which fetches feeds for the page so that the
+  parsing of a feed never holds up the page, and the functions of the
+  page that ask it. It's one way to run library/fetch-due! off the page,
+  which an app can do as it likes.
 
   In the worker, serve! answers the page with what it found, as data. For
   a refresh, that's what library/fetch-due! gives for what library/due
@@ -14,19 +15,14 @@
   without the :body.
 
   On the page, client starts the worker, and fetch-due! and fetch! ask it.
-  The answers that hold a feed travel in the codec of the library, so give
-  both sides the codec of dk.simongray.like-minded.transit, since EDN
-  reads slower than the feed parses.
-
-  Build the worker as a module of its own, e.g. with :web-worker true in
-  shadow-cljs, whose init calls serve!. A web worker has no DOMParser, so
-  install one as globalThis.DOMParser before, e.g. that of @xmldom/xmldom,
-  made to throw on the errors that it would otherwise log."
+  The answers that hold a feed travel in the :codec of the options, here
+  that of dk.simongray.like-minded.transit, since EDN reads slower than
+  the feed parses."
   (:require [cljs.reader :as reader]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.library.impl :as library.impl]))
+            [dk.simongray.podcast.app.library :as library]))
 
+;; The name that podcast-clj's app.worker gave it, before it moved here
 (def refresh-lock
   "The Web Lock that the refresh of a worker holds, so that one runs at a
   time across the tabs and workers of the site."
@@ -63,7 +59,7 @@
   with `opts` through the :send and :lenient-parser of the :opts of
   `served`, in its :codec."
   [served id url opts]
-  (let [codec (library.impl/codec {} (:opts served))]
+  (let [codec (:codec (:opts served))]
     (.then (podcast/fetch! url (merge (select-keys (:opts served)
                                                    [:send :lenient-parser])
                                       opts))
@@ -100,7 +96,7 @@
   [url opts]
   (let [worker  (js/Worker. url)
         pending (atom {})
-        codec   (library.impl/codec {} opts)
+        codec   (:codec opts)
         settle! (fn [id f]
                   (when-let [{:keys [resolve reject]} (get @pending id)]
                     (swap! pending dissoc id)
@@ -146,7 +142,7 @@
   It gives a map of the :found, for library/refreshed, or of :busy? while
   another tab or worker is refreshing. It fails when the worker does.
 
-      (.then (worker/fetch-due! client (library/due lib) {} nil)
+      (.then (fetching/fetch-due! client (library/due lib) {} nil)
              #(when-let [found (:found %)]
                 (swap! app update :library
                        (fn [lib] (:library (library/refreshed lib found opts))))))"

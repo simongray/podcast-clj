@@ -53,10 +53,10 @@
             [dk.simongray.play-nice.session :as session]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.media-session :as media-session]
-            [dk.simongray.podcast.app.worker :as worker]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.queue :as profile.queue]
             [dk.simongray.podcast.util.time :as time]
+            [inspector.fetching :as fetching]
             [inspector.library :as inspector-library]
             [inspector.player.view :as view]
             [inspector.shared :as shared]
@@ -1004,7 +1004,7 @@
   the library, made on first use, or nil where the browser has none."}
   refresher
   (delay (when (exists? js/Worker)
-           (worker/client "/js/worker.js" (shared/opts)))))
+           (fetching/client "/js/worker.js" (shared/opts)))))
 
 (defn- refresh-when-due!
   "Ask the worker to fetch the feeds, once the library has one due after
@@ -1020,7 +1020,7 @@
                       @refresher)]
     (swap! app assoc :refreshing? true)
     (-> (save-library!)
-        (.then #(worker/fetch-due! client (library/due (:library @app)) {} nil))
+        (.then #(fetching/fetch-due! client (library/due (:library @app)) {} nil))
         (.then (fn [{:keys [found]}]
                  (swap! app refreshed
                         (when found
