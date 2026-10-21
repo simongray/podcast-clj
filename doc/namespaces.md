@@ -116,16 +116,6 @@ key-value store, memory, and an encrypted form of any of them.
 | `gpodder.api` | The gpodder API as data: `request` for the request map of a call, `response` for what its answer says, and `apis` for the paths of each server. |
 | `gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder, with `stepper` to sync that profile through other backends. |
 
-## Servers
-
-The [podcast server](../server/README.md) serves this Ring handler beside
-the proxy of wary-fetch, the WebDAV server of like-minded and
-`gpodder.server`. A server of your own can mount it too.
-
-| Namespace | Contents |
-|---|---|
-| `artwork` | Thumbnails of artwork for a server's pages: a Ring handler that fetches the artwork, scales it with `format.image/thumbnails` and keeps the thumbnails in a folder, and `sizes`, the srcset of an img that takes them. |
-
 ## Feeds
 
 | Namespace | Contents |
