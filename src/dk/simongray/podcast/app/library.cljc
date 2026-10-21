@@ -627,7 +627,7 @@
                      (let [entry (get feeds feed-guid)]
                        (cond-> entry
                          (:feed entry)
-                         (-> (dissoc :feed :retained)
+                         (-> (impl/without-feed-keys)
                              (assoc :document (impl/entry-document feed-guid entry naming))))))]
      {:at         at
       :feed-guids wanted
@@ -676,7 +676,7 @@
          outlined   (fn [feed-guid entry]
                       (cond-> entry
                         (:feed entry)
-                        (-> (dissoc :feed :retained)
+                        (-> (impl/without-feed-keys)
                             (assoc :document (impl/entry-document feed-guid entry codec)))))]
      (async/then
       (impl/with-feeds [{:feeds feeds} []] store (set feed-guids) codec)
@@ -748,7 +748,7 @@
 
                         (and document (:feed own))
                         (-> (dissoc entry :document)
-                            (clojure.core/merge (select-keys own [:feed :retained])))
+                            (clojure.core/merge (select-keys own impl/feed-keys)))
 
                         :else
                         entry)))
@@ -1427,8 +1427,10 @@
   Left out too are the words that link the episodes of `ids` to others by
   chance: their numbers, e.g. the 561 of \"#561: TonIO\" or a date, and the
   names of their shows' hosts and authors, e.g. the \"Adam & Dave\" of
-  every episode's notes. The criteria read the profile of the library, and
-  the time of its clock unless the `opts` give :at.
+  every episode's notes. So is the text that a show repeats in its notes,
+  e.g. its sponsor reads and credits, as feed.search/repeated-runs finds
+  it. The criteria read the profile of the library, and the time of its
+  clock unless the `opts` give :at.
 
       (recommend library [id] {:limit 5})
       (recommend library nil {:where {:status   :unplayed
@@ -1452,7 +1454,10 @@
            ;; in place of the library's own entry of a show, which may hold
            ;; only the episode that the listener played of it
            holding   (cond-> library
-                       feeds (update :feeds clojure.core/merge feeds))
+                       feeds (update :feeds clojure.core/merge
+                                     (update-vals feeds #(assoc % :repeated
+                                                                (feed.search/repeated-runs
+                                                                 (:feed %))))))
            seeds     (->> ids
                           (keep #(impl/seed holding %))
                           (filter #(from? (:feed %) (:item %))))
@@ -1510,7 +1515,10 @@
   ([library result q opts]
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
-     (feed.search/snippet index result q opts))))
+     (let [feed-guid (feed.search/feed-guid-of (:id result))]
+       (feed.search/snippet index result q
+                            (assoc opts :repeated (get-in library [:feeds feed-guid
+                                                                   :repeated])))))))
 
 (defn- next-of-show
   "The first episode of the show of the episode `id` in `library` that
@@ -1976,7 +1984,7 @@
                     [feed-guid entry (impl/entry-document feed-guid entry codec)])
          outlined (fn [library [feed-guid _ name]]
                     (update-in library [:feeds feed-guid]
-                               #(-> (dissoc % :feed :retained)
+                               #(-> (impl/without-feed-keys %)
                                     (assoc :document name))))]
      (async/then
       (async/attempt
@@ -2070,7 +2078,7 @@
                             (:feed own)
                             (= document (impl/entry-document feed-guid own codec)))
                      (-> (dissoc entry :document)
-                         (clojure.core/merge (select-keys own [:feed :retained])))
+                         (clojure.core/merge (select-keys own impl/feed-keys)))
                      entry)]))
         read  (fn [[feed-guid {:keys [document] :as entry}]]
                 (when (impl/unloaded? entry)

@@ -237,7 +237,7 @@
                 (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= (search/query (:index lib) "future")
-           (search/query (library.impl/index lib) "future"))
+           (search/query (:index (library.impl/indexed lib)) "future"))
         "an index built again from the feeds")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
@@ -462,6 +462,43 @@
                               ["44444444-4444-5444-8444-444444444444" "Bikes"
                                [["Gears" "The gears of a bicycle."]]]])]
         (is (= ["Async"] (titles (library/recommend numbered [[coffee "0"]]))))))))
+
+(deftest the-text-that-a-show-repeats
+  (let [read   "This episode is brought to you by Acme, the maker of fine anvils."
+        codec  {:codec transit/codec}
+        lib    (reduce (fn [lib [guid title episodes]]
+                         (library/subscribe lib
+                                            (str "https://example.com/" guid ".xml")
+                                            (show-of guid title "en" episodes)))
+                       (library/make "phone" (assoc codec :config {:search? true}))
+                       [[coffee "Coffee Talk"
+                         [["Espresso grinders" (str "Burr grinders for espresso. " read)]
+                          ["Roasting at home" (str "Roasting beans at home. " read)]
+                          ["Tea" (str "A week of green tea. " read)]]]
+                        [brew "Brew Lab"
+                         [["Grinders compared" (str "Conical and flat burr grinders. " read)]
+                          ["Kettles" (str "Kettles and water. " read)]
+                          ["Cups" (str "Cups and saucers. " read)]]]])
+        titles #(mapv (comp :rss/title :item) %)
+        loose  {:min-term-freq 1 :min-match 1}
+        found  (library/recommend lib [[coffee "0"]] loose)]
+    (testing "a sponsor read that both shows repeat links none of their episodes"
+      (is (= ["Grinders compared"] (titles found)))
+      (is (= [#{"grinders" "burr"}] (map (comp set :terms) found)))
+      (is (empty? (filter (set (map first (:terms (meta found))))
+                          ["acme" "anvils" "brought" "maker"]))))
+    (testing "and a search finds none of them by it"
+      (is (empty? (library/search lib "anvils"))))
+    (testing "the runs of the read are kept with the feed, and read back with it"
+      (let [docs (library/documents lib codec)
+            back (:library (library/from-documents (library/make "phone" codec) docs codec))]
+        (is (= 6 (count (get-in lib [:feeds coffee :repeated]))))
+        (is (not (contains? (get-in (transit/read-str (get docs "library.transit.json"))
+                                    [:feeds coffee])
+                            :repeated))
+            "in the document of the feed, not the library's own")
+        (is (= (get-in lib [:feeds coffee :repeated]) (get-in back [:feeds coffee :repeated])))
+        (is (= ["Grinders compared"] (titles (library/recommend back [[coffee "0"]] loose))))))))
 
 (deftest the-cap-of-a-common-word
   (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) "Notes."]))
@@ -1012,7 +1049,7 @@
       (is (contains? (ids lib) id))
       (is (= [id] (mapv :id (library/search lib "other"))) "nor the show or the other episode in the index")
       (is (= (search/query (:index lib) "other")
-             (search/query (library.impl/index lib) "other"))
+             (search/query (:index (library.impl/indexed lib)) "other"))
           "an index built again from the feeds finds the same")
       (is (= ["Other one"] (map :rss/title (get-in lib [:feeds "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f" :feed :rss/items])))
           "the feed kept with that episode alone")

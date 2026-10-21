@@ -2,6 +2,7 @@
   "The search documents of episodes and shows, and an index of them."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.podcast.criteria-test :refer [show]]
@@ -43,6 +44,68 @@
       (is (= example-guid (:id doc)))
       (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :title])))
       (is (= {:title "Podcasting 2.0 Namespace Example" :author "John Doe"} (:stored doc))))))
+
+(defn show-of
+  "A show whose episodes have the `notes`, one each."
+  [notes]
+  (rss/parse
+   (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+        "<channel><title>Show</title><podcast:guid>" example-guid "</podcast:guid>"
+        (apply str (map-indexed (fn [i text]
+                                  (str "<item><title>Episode " i "</title><guid>" i
+                                       "</guid><description>" text "</description></item>"))
+                                notes))
+        "</channel></rss>")))
+
+(defn cut-notes
+  "The notes of the episodes of `feed` without the text that it repeats."
+  [feed]
+  (let [repeated (feed.search/repeated-runs feed)]
+    (mapv #(get-in (feed.search/item-document feed % {:repeated repeated})
+                   [:fields :description])
+          (:rss/items feed))))
+
+(def sponsor
+  "A sponsor read of thirteen words."
+  "This episode is brought to you by Acme, the maker of fine anvils.")
+
+(deftest a-show-s-repeated-text
+  (let [feed (show-of [(str "Roasting coffee at home. " sponsor)
+                       (str "Grinders compared. " sponsor
+                            " Thanks to everyone who wrote in about grinders.")
+                       (str sponsor " Brewing tea. Thanks to everyone who wrote in about grinders.")
+                       (str "Espresso. " sponsor " Find us wherever you get your podcasts.")
+                       "Nothing else. Find us wherever you get your podcasts."
+                       "Decaf. Find us wherever you get your podcasts."])]
+    (testing "the runs of eight words that three episodes or more share leave their notes"
+      (is (= ["Roasting coffee at home.  ."
+              "Grinders compared.  . Thanks to everyone who wrote in about grinders."
+              " . Brewing tea. Thanks to everyone who wrote in about grinders."
+              "Espresso.  . Find us wherever you get your podcasts."
+              "Nothing else. Find us wherever you get your podcasts."
+              "Decaf. Find us wherever you get your podcasts."]
+             (cut-notes feed))
+          "but not eight words that two share, nor seven that four share"))
+    (testing "the same hashes on the JVM and in JavaScript, since a library saves them"
+      (is (= #{-1962026436 -1913001699 -1450304407 -294801470 -113900375 555266410}
+             (feed.search/repeated-runs feed))
+          "the six runs of the sponsor read"))
+    (testing "the documents of a show leave the same text out, and name it"
+      (let [docs (feed.search/feed-documents feed "https://example.com/feed.xml")]
+        (is (= (cut-notes feed) (map #(get-in % [:fields :description]) (rest docs))))
+        (is (= (feed.search/repeated-runs feed) (:repeated (meta docs))))))
+    (testing "a show's notes as they are without the runs"
+      (is (= (str "Roasting coffee at home. " sponsor)
+             (get-in (feed.search/item-document feed (first (:rss/items feed)))
+                     [:fields :description])))))
+  (testing "in any language, also one written without spaces between words"
+    (is (= ["Kaffe.  ." "Te.  ." " . Vand."]
+           (cut-notes (show-of (for [text ["Kaffe. %s" "Te. %s" "%s Vand."]]
+                                 (str/replace text "%s" "Denne episode er støttet af Kaffe og Kage, Danmarks bedste bageri."))))))
+    (is (= ["咖啡的历史。 " "茶的历史。 " " 。水的历史"]
+           (cut-notes (show-of ["咖啡的历史。本期节目由咖啡公司赞助播出"
+                                "茶的历史。本期节目由咖啡公司赞助播出"
+                                "本期节目由咖啡公司赞助播出。水的历史"]))))))
 
 (deftest the-podcast-index
   (let [idx (feed.search/index [{:id 1 :fields {:description "Clojure" :title "Other"}}

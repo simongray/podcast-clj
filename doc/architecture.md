@@ -596,6 +596,15 @@ of episodes and shows, and gives the title more weight than the notes. A
 transcript or a filter matches a query against one text with the
 library's query language, without an index.
 
+The notes of an episode are indexed without the text that three or more
+episodes of its show share, such as sponsor reads, credits and the links
+to a newsletter. That text says nothing about one episode, and it would
+make every episode with the same sponsor look alike. Runs of eight words
+are compared, as in Broder's shingling and in template detection on the
+web. The library keeps the hashes of the runs with the feed, so that a
+document made later, e.g. of an episode that `recommend` starts from,
+leaves out the same text as the index.
+
 
 ## Saving a library
 
