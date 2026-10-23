@@ -94,7 +94,7 @@ to the `:deps` in your `deps.edn`
 (requires Clojure 1.11+ & Java 11+):
 
 ```clojure
-dk.simongray/podcast-clj {:mvn/version "0.3.0"}
+dk.simongray/podcast-clj {:mvn/version "0.4.0"}
 ```
 
 For changes that aren't released yet, use a Git dependency
