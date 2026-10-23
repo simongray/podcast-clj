@@ -193,6 +193,51 @@
                    (seq items) (assoc :rss/items items))
                  assoc :podcast/report report))))
 
+(defn supplemented
+  "The feed `primary` with the items of the feed `supplement` that it lacks,
+  by the `opts` below, e.g. those of another feed of the same show that
+  keeps more of its back catalogue or has its episodes sooner.
+
+  An item of the supplement is one episode with an item of `primary` when
+  they have the same guid, or else the same title and the item of `primary`
+  is dated at most a day before it and at most :max-delay-days after, the
+  nearest first, one item to one. The feed keeps its channel and its own
+  items, each dated as the supplement dates its episode, so that diff
+  pairs an item of the supplement with the one that `primary` later has
+  for its episode, as a rename. The items are newest first, and those
+  without a date last. Each item that the feed takes from the supplement
+  names it, as supplement tells. Without a supplement, `primary` stays as
+  it is.
+
+  The report has the diagnostics of `primary`, and those of the items that
+  the feed takes from the supplement, with paths of where the feed has
+  them. The `opts` are:
+
+  - :max-delay-days, how much later than the supplement `primary` may date
+    an episode, 60 by default"
+  ([primary supplement]
+   (supplemented primary supplement {}))
+  ([primary supplement {:keys [max-delay-days] :or {max-delay-days 60} :as opts}]
+   {:pre [(map? opts)]}
+   (if (nil? supplement)
+     primary
+     (let [self (some #(when (= "self" (:rel %)) (:href %)) (:atom/links supplement))
+           {:keys [items report]}
+           (impl/supplemented primary supplement
+                              [(report primary) (report supplement)]
+                              (* max-delay-days 86400000)
+                              (or self true))]
+       (vary-meta (cond-> primary
+                    (seq items) (assoc :rss/items items))
+                  assoc :podcast/report report)))))
+
+(defn supplement
+  "Where the `item` of a feed came from when supplemented took it from a
+  supplement: the URL that the supplement names as its own, or true when
+  it names none, or else nil."
+  [item]
+  (::supplement item))
+
 (comment
   (-> "<rss version=\"2.0\"
         xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
