@@ -188,6 +188,9 @@
   title, the artwork and the guid that it declares. The key of a
   subscription is the guid that its feed gives itself when it's first
   fetched, on any device, and stays when the feed gives itself another.
+  A feed that moved for good, by a permanent redirect or the new URL that
+  it declares, is subscribed to at the URL it moved to, which its feed
+  has too.
 
   It throws when `fetched` has no feed, e.g. after a fetch that failed,
   and when the feed declares the guid of another subscription, at another
@@ -205,19 +208,21 @@
          result    (some-> fetched impl/fetch-result)
          feed      (when result
                      (impl/feed-of url result "subscribe to"))
+         ;; the URL that feeds/add keeps the feed under
+         moved-to  (or (:permanent-url result) (:new-feed-url result) url)
          head?     (discovery/head? feed)
          feed-guid (guid/feed-guid feed url)
          image     (resolve/artwork feed)
          settled?  (and feed
                         (or (not head?) (guid/guid? (:podcast/guid feed))))
-         details   (cond-> {:url url :title (resolve/title feed)}
+         details   (cond-> {:url moved-to :title (resolve/title feed)}
                      settled? (assoc :guid feed-guid)
                      image    (assoc :image image))
          cadence   (:cadence (impl/options library opts) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
                         (impl/settled feed-guid (impl/options library opts)))]
-     (when-let [taken (profile/takeover (:profile library) feed-guid url)]
+     (when-let [taken (profile/takeover (:profile library) feed-guid moved-to)]
        (throw (ex-info (:message taken) taken)))
      (-> library
          (update :profile profile/subscribe feed-guid details at)

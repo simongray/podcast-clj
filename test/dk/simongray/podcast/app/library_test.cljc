@@ -174,6 +174,12 @@
       (is (= show (get-in lib [:feeds guid :feed])))
       (is (nil? (get-in lib [:feeds guid :etag])) "no validators")
       (is (= [guid] (keys (library/subscriptions lib))))))
+  (testing "a feed that moved for good, at the URL it moved to, as its feed is"
+    (let [moved "https://example.com/moved.xml"
+          lib   (library/subscribe (library/make "phone") url {:status 200 :url url :feed show :permanent-url moved})]
+      (is (= [moved moved] [(:url ((library/subscriptions lib) guid)) (get-in lib [:feeds guid :url])]))
+      (is (= moved (:url ((library/subscriptions (library/subscribe lib url {:status 200 :url url :feed show :new-feed-url moved})) guid)))
+          "and the old URL again, or a move that the feed declares, takes nothing over")))
   (testing "a fetch that gave no feed throws its diagnostic"
     (let [thrown (fn [fetched]
                    (try (library/subscribe library url fetched)
