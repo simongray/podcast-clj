@@ -327,6 +327,37 @@
         (is (= [["d4" "o4"]] (mapv (fn [{:keys [before after]}] (guids {:rss/items [before after]})) (:renamed d)))
             "diff pairs the two as a rename")))))
 
+(deftest supplementing-previews
+  (let [item    (fn [id title day seconds]
+                  {:rss/guid        {:content id}
+                   :rss/title       title
+                   :rss/pub-date    (time/->inst (* day 86400000))
+                   :itunes/duration seconds})
+        guids   (fn [feed] (mapv (comp :content :rss/guid) (:rss/items feed)))
+        primary {:rss/title "Official"
+                 :rss/items [(item "p1" "17.10 - Klar i DR Lyd" 50 600)
+                             (item "p2" "Bonus" 40 1500)
+                             (item "p3" "Twice" 30 300)
+                             (item "p4" "Twice again" 30 300)]}
+        extra   {:rss/title "Republished"
+                 :rss/items [(item "f1" "The whole episode" 50 6000)
+                             (item "f2" "Another" 40 1800)
+                             (item "f3" "Thirty" 30 6000)]}
+        merged  (feed/supplemented primary extra)]
+    (is (= ["f1" "p2" "f2" "p3" "p4" "f3"] (guids merged))
+        "the whole episode in place of a preview of it, dated the same instant")
+    (is (some? (feed/supplement (first (:rss/items merged)))) "which comes from the supplement")
+    (is (not-any? #{"p1"} (guids merged)))
+    (is (= ["p2" "f2"] (filter #{"p2" "f2"} (guids merged)))
+        "but not one that's more than half as long")
+    (is (= ["p3" "p4" "f3"] (filter #{"p3" "p4" "f3"} (guids merged)))
+        "nor two that share an instant in their feed")
+    (is (= ["p1" "p5"]
+           (filter #{"p1" "p5" "f1"}
+                   (guids (feed/supplemented (update primary :rss/items conj (item "p5" "The whole episode" 49 6000))
+                                             extra))))
+        "and a guid or a title pairs first")))
+
 (deftest the-elements-of-rfc-5005
   (let [xml  (str "<rss version=\"2.0\" xmlns:fh=\"http://purl.org/syndication/history/1.0\"><channel><title>T</title>"
                   "<fh:complete/><fh:archive a=\"1\">text</fh:archive></channel></rss>")

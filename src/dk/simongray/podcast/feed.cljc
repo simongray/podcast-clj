@@ -204,10 +204,16 @@
   nearest first, one item to one. The feed keeps its channel and its own
   items, each dated as the supplement dates its episode, so that diff
   pairs an item of the supplement with the one that `primary` later has
-  for its episode, as a rename. The items are newest first, and those
-  without a date last. Each item that the feed takes from the supplement
-  names it, as supplement tells. Without a supplement, `primary` stays as
-  it is.
+  for its episode, as a rename.
+
+  An item of `primary` that no guid or title pairs is a preview of an item
+  of the supplement dated the same instant, when each is the only one so
+  dated in its feed and it's at most half as long. The whole episode takes
+  its place.
+
+  The items are newest first, and those without a date last. Each item
+  that the feed takes from the supplement names it, as supplement tells.
+  Without a supplement, `primary` stays as it is.
 
   The report has the diagnostics of `primary`, and those of the items that
   the feed takes from the supplement, with paths of where the feed has
