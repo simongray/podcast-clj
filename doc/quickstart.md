@@ -10,7 +10,7 @@ Add the latest release of podcast-clj from
 [Clojars](https://clojars.org/dk.simongray/podcast-clj) to your `deps.edn`:
 
 ```clojure
-dk.simongray/podcast-clj {:mvn/version "0.4.0"}
+dk.simongray/podcast-clj {:mvn/version "0.4.1"}
 ```
 
 ## The library
