@@ -261,12 +261,12 @@
     (is (nil? (feed/join-pages [])) "no pages, no feed")
     (testing "the report names each item where the feed has it"
       (let [feed (feed/join-pages [(page "First" ["5" "4"] [{:id :a :path [:rss/items 1 :rss/pub-date]}
-                                                          {:id :b :path [:rss/title]}])
+                                                            {:id :b :path [:rss/title]}])
                                    (page "Second" ["4" "3" "2"] [{:id :c :path [:rss/items 0 :rss/pub-date]}
-                                                                {:id :d :path [:rss/items 2 :rss/enclosure :length]}
-                                                                {:id :e :path [:rss/title]}
-                                                                {:id :h :path []}
-                                                                {:id :f}])
+                                                                 {:id :d :path [:rss/items 2 :rss/enclosure :length]}
+                                                                 {:id :e :path [:rss/title]}
+                                                                 {:id :h :path []}
+                                                                 {:id :f}])
                                    (page "Third" ["1"] [{:id :g :path [:rss/items 0]}])])]
         (is (= [{:id :a :path [:rss/items 1 :rss/pub-date]}
                 {:id :b :path [:rss/title]}
@@ -276,6 +276,56 @@
                (feed/report feed))
             "and it leaves out what is about an item or a channel that the feed does not hold")
         (is (= ["4" "2" "1"] (map #(:rss/title (get-in feed (take 2 (:path %)))) (filter (comp #{:a :d :g} :id) (feed/report feed)))))))))
+
+(deftest supplementing-feeds
+  (let [item     (fn [id title day]
+                   {:rss/guid {:content id} :rss/title title :rss/pub-date (time/->inst (* day 86400000))})
+        guids    (fn [feed] (mapv (comp :content :rss/guid) (:rss/items feed)))
+        days     (fn [feed] (mapv #(/ (inst-ms (:rss/pub-date %)) 86400000) (:rss/items feed)))
+        feed     (fn [title items report]
+                   (with-meta {:rss/title title :rss/items items} {:podcast/report report}))
+        primary  (feed "Official"
+                       [(item "o3" "Three" 6)
+                        (item "teaser" "Teaser" 4)
+                        (item "o2" " Two " 5)
+                        (item "same" "One" 1)
+                        (item "o5" "Five" 100)]
+                       [{:id :a :path [:rss/items 1 :rss/title]} {:id :b :path [:rss/title]}])
+        extra    (feed "Republished"
+                       [(item "d4" "Four" 7)
+                        (item "d3" "Three" 3)
+                        (item "d2" "Two" 2)
+                        (item "same" "Uno" 1)
+                        (item "d0" "Zero" 0)
+                        (item "d5" "Five" 30)
+                        (item "d2-old" "Two" -100)]
+                       [{:id :c :path [:rss/items 0 :rss/title]}
+                        {:id :d :path [:rss/items 1 :rss/title]}
+                        {:id :e :path [:rss/title]}
+                        {:id :f}])
+        merged   (feed/supplemented primary extra)]
+    (is (= "Official" (:rss/title merged)) "the channel of the primary feed")
+    (is (= ["o5" "d5" "d4" "teaser" "o3" "o2" "same" "d0" "d2-old"] (guids merged))
+        "its own items and the others of the supplement, newest first")
+    (is (= [100 30 7 4 3 2 1 0 -100] (days merged))
+        "an episode in both is dated as the supplement dates it, by its guid or its title")
+    (is (= [nil true true nil nil nil nil true true] (map feed/supplement (:rss/items merged)))
+        "and an item from the supplement names it")
+    (is (= "https://e.com/republished.xml"
+           (feed/supplement (second (:rss/items (feed/supplemented primary (assoc extra :atom/links [{:rel "self" :href "https://e.com/republished.xml"}]))))))
+        "by the URL that it names as its own")
+    (is (= [{:id :a :path [:rss/items 3 :rss/title]} {:id :b :path [:rss/title]}
+            {:id :c :path [:rss/items 2 :rss/title]} {:id :f}]
+           (feed/report merged))
+        "the report names each item where the feed has it")
+    (is (identical? primary (feed/supplemented primary nil)) "no supplement, no change")
+    (is (= ["o5" "d4"] (take 2 (guids (feed/supplemented primary extra {:max-delay-days 100}))))
+        "a longer delay pairs more")
+    (testing "once the primary feed has an episode that it took from the supplement"
+      (let [later (feed/supplemented (update primary :rss/items #(into [(item "o4" "Four" 10)] %)) extra)
+            d     (feed/diff merged later)]
+        (is (= [["d4" "o4"]] (mapv (fn [{:keys [before after]}] (guids {:rss/items [before after]})) (:renamed d)))
+            "diff pairs the two as a rename")))))
 
 (deftest the-elements-of-rfc-5005
   (let [xml  (str "<rss version=\"2.0\" xmlns:fh=\"http://purl.org/syndication/history/1.0\"><channel><title>T</title>"

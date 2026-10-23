@@ -870,6 +870,13 @@
            (select-keys (first episodes) [:title :show :position :duration :remaining])))
     (is (= 0 (:position (second episodes))) "one that hasn't started")
     (is (= 2846 remaining) "the time left of those whose duration is known")
+    (let [tag    (fn [item]
+                   (cond-> item
+                     (= (second ep3) (feed.guid/item-guid item))
+                     (assoc :dk.simongray.podcast.feed/supplement "https://e.com/r.xml")))
+          tagged (update-in lib [:feeds guid :feed :rss/items] #(mapv tag %))]
+      (is (= ["https://e.com/r.xml" nil] (map :supplement (:episodes (library/queue tagged))))
+          "and the supplement of one that feed/supplemented took from it"))
     (is (= {:episodes [] :remaining 0}
            (library/queue (library/update-profile lib #(profile.queue/dequeue-all %1 [ep3 ep2] %2)))))))
 

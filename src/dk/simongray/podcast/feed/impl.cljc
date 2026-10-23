@@ -1,7 +1,7 @@
 (ns ^:no-doc dk.simongray.podcast.feed.impl
   "The internals of feed: the walks that parse Hiccup into the model,
   normalize a producer's map and emit Hiccup, all by the tag registry, and
-  the matching of items that diff does."
+  the matching of items that diff and supplemented do."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as-alias feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
@@ -567,3 +567,87 @@
      :seen   (into seen (keep (comp guid/item-guid second)) fresh)
      :report (into report (page-report diagnostics places first?))
      :first? false}))
+
+(defn- indices-by
+  "The indices of the `items` by what `f` gives each, leaving out nil."
+  [f items]
+  (reduce-kv (fn [m i item]
+               (if-some [k (f item)]
+                 (update m k (fnil conj []) i)
+                 m))
+             {}
+             items))
+
+(defn- partner
+  "The index of the item of `theirs` that is one episode with `item`, or
+  nil, among those that aren't `taken`, by the `index` of `theirs` and
+  `max-delay-ms`: the one with the same guid, or else the nearest with the
+  same title, which `item` is dated at most a day before and at most
+  `max-delay-ms` after."
+  [item theirs index taken max-delay-ms]
+  (let [free (fn [k f] (remove taken (get-in index [k (f item)])))
+        gap  (fn [j]
+               (let [x (date-ms item)
+                     y (date-ms (nth theirs j))]
+                 (when (and x y (<= -86400000 (- x y) max-delay-ms))
+                   [(abs (- x y)) j])))]
+    (or (first (free :by-guid guid/item-guid))
+        (some->> (seq (keep gap (free :by-title title-of)))
+                 (apply min-key first)
+                 second))))
+
+(defn- partners
+  "The index of the item of `theirs` that each item of `ours` is one
+  episode with, by the index of the item of `ours`, one item to one, by
+  `max-delay-ms`."
+  [ours theirs max-delay-ms]
+  (let [index {:by-guid  (indices-by guid/item-guid theirs)
+               :by-title (indices-by title-of theirs)}]
+    (:found (reduce-kv (fn [{:keys [taken] :as acc} i item]
+                         (if-some [j (partner item theirs index taken max-delay-ms)]
+                           (-> (assoc-in acc [:found i] j)
+                               (update :taken conj j))
+                           acc))
+                       {:found {} :taken #{}}
+                       ours))))
+
+(defn- newest-first
+  "The `entries`, each a map of an :item, newest first, and those without
+  a date last, each kept in its order."
+  [entries]
+  (sort-by (comp date-ms :item) #(compare %2 %1) entries))
+
+(defn supplemented
+  "The items and the report of the feed `primary` with the items of the
+  feed `supplement` that it lacks, by `max-delay-ms`, as feed/supplemented
+  has them, in a map of the :items and the :report, with the diagnostics
+  of each, `our-report` and `their-report`. Each item of the supplement is
+  marked with its `source`."
+  [primary supplement [our-report their-report] max-delay-ms source]
+  (let [ours    (vec (:rss/items primary))
+        theirs  (vec (:rss/items supplement))
+        found   (partners ours theirs max-delay-ms)
+        taken   (set (vals found))
+        dated   (fn [i item]
+                  (if-some [date (some->> (get found i) (nth theirs) :rss/pub-date)]
+                    (assoc item :rss/pub-date date)
+                    item))
+        entries (newest-first
+                 (concat (map-indexed (fn [i item]
+                                        {:from :primary :i i :item (dated i item)})
+                                      ours)
+                         (keep-indexed (fn [j item]
+                                         (when-not (taken j)
+                                           {:from :supplement
+                                            :i    j
+                                            :item (assoc item ::feed/supplement source)}))
+                                       theirs)))
+        places  (fn [from]
+                  (into {}
+                        (keep-indexed (fn [n entry]
+                                        (when (= from (:from entry))
+                                          [(:i entry) n])))
+                        entries))]
+    {:items  (mapv :item entries)
+     :report (into (vec (page-report our-report (places :primary) true))
+                   (page-report their-report (places :supplement) false))}))

@@ -77,6 +77,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.downloads :as downloads]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -1219,17 +1220,19 @@
   ([library [feed-guid :as id] opts]
    (when-let [view (episode library id (assoc opts :except #{:notes :text :links :chapters}))]
      (let [entry    (profile/episode-entry (:profile library) id)
+           item     (second (impl/item-of library id))
            position (or (:position entry) 0)
            duration (or (:duration entry) (:duration view))]
        (into {:id id :position position}
              (remove (comp nil? val))
-             {:title     (:title view)
-              :show      (resolve/title (get-in library [:feeds feed-guid :feed]))
-              :artwork   (:artwork view)
-              :published (resolve/published (second (impl/item-of library id)))
-              :duration  duration
-              :remaining (when (number? duration)
-                           (max 0 (- duration position)))})))))
+             {:title      (:title view)
+              :show       (resolve/title (get-in library [:feeds feed-guid :feed]))
+              :artwork    (:artwork view)
+              :published  (resolve/published item)
+              :duration   duration
+              :remaining  (when (number? duration)
+                            (max 0 (- duration position)))
+              :supplement (feed/supplement item)})))))
 
 (defn queue
   "The queue of `library`, the current episode first, for a page of it, with
@@ -1241,7 +1244,8 @@
                     :published #inst \"…\"  ; when it gave a date
                     :duration  3600       ; when it's known
                     :position  754        ; where the listener left it
-                    :remaining 2846}      ; when the duration is known
+                    :remaining 2846       ; when the duration is known
+                    :supplement \"https://…\"} ; when feed/supplemented took it
                    …]
        :remaining 10800}
 
