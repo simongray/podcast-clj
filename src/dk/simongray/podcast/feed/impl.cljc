@@ -596,20 +596,56 @@
                  (apply min-key first)
                  second))))
 
+(defn- seconds
+  "The duration of `item` in seconds, or nil."
+  [item]
+  (let [d (:itunes/duration item)]
+    (when (number? d)
+      d)))
+
+;; A publisher that keeps the whole episode elsewhere may put a preview of
+;; it in the feed at the same instant, under another title, e.g. DR's "Klar
+;; i DR Lyd" of the episode that only drpodcast.nu republishes whole
+(defn- preview-of
+  "The index of the item of `theirs` that `item` is a preview of, or nil,
+  among those that aren't `taken`, by the `index` of `theirs` and how many
+  items of its own feed each instant `dates`: the one dated the same
+  instant, when each is the only one so dated in its feed, and `item` is at
+  most half as long."
+  [item theirs index dates taken]
+  (let [d         (date-ms item)
+        [j other] (get-in index [:by-date d])
+        x         (seconds item)
+        y         (some->> j (nth theirs) seconds)]
+    (when (and j (nil? other) (= 1 (dates d)) (not (taken j))
+               x y (<= (* 2 x) y))
+      j)))
+
 (defn- partners
-  "The index of the item of `theirs` that each item of `ours` is one
-  episode with, by the index of the item of `ours`, one item to one, by
-  `max-delay-ms`."
+  "The pairs of the items of `ours` and `theirs` that are one episode, one
+  item to one, by `max-delay-ms`, as a map of the index of the item of
+  `theirs` for each of `ours` that has one, as :found, those indices
+  :taken, and the indices of the items of `ours` that are :previews of
+  theirs. A preview pairs only with what no guid or title pairs."
   [ours theirs max-delay-ms]
-  (let [index {:by-guid  (indices-by guid/item-guid theirs)
-               :by-title (indices-by title-of theirs)}]
-    (:found (reduce-kv (fn [{:keys [taken] :as acc} i item]
-                         (if-some [j (partner item theirs index taken max-delay-ms)]
-                           (-> (assoc-in acc [:found i] j)
-                               (update :taken conj j))
-                           acc))
-                       {:found {} :taken #{}}
-                       ours))))
+  (let [index  {:by-guid  (indices-by guid/item-guid theirs)
+                :by-title (indices-by title-of theirs)
+                :by-date  (indices-by date-ms theirs)}
+        dates  (frequencies (keep date-ms ours))
+        paired (fn [acc i j] (-> (assoc-in acc [:found i] j) (update :taken conj j)))
+        found  (reduce-kv (fn [{:keys [taken] :as acc} i item]
+                            (if-some [j (partner item theirs index taken max-delay-ms)]
+                              (paired acc i j)
+                              acc))
+                          {:found {} :taken #{} :previews #{}}
+                          ours)]
+    (reduce-kv (fn [{:keys [found taken] :as acc} i item]
+                 (if-some [j (when-not (contains? found i)
+                               (preview-of item theirs index dates taken))]
+                   (update (paired acc i j) :previews conj i)
+                   acc))
+               found
+               ours)))
 
 (defn- newest-first
   "The `entries`, each a map of an :item, newest first, and those without
@@ -624,30 +660,32 @@
   of each, `our-report` and `their-report`. Each item of the supplement is
   marked with its `source`."
   [primary supplement [our-report their-report] max-delay-ms source]
-  (let [ours    (vec (:rss/items primary))
-        theirs  (vec (:rss/items supplement))
-        found   (partners ours theirs max-delay-ms)
-        taken   (set (vals found))
-        dated   (fn [i item]
-                  (if-some [date (some->> (get found i) (nth theirs) :rss/pub-date)]
-                    (assoc item :rss/pub-date date)
-                    item))
-        entries (newest-first
-                 (concat (map-indexed (fn [i item]
-                                        {:from :primary :i i :item (dated i item)})
-                                      ours)
-                         (keep-indexed (fn [j item]
-                                         (when-not (taken j)
-                                           {:from :supplement
-                                            :i    j
-                                            :item (assoc item ::feed/supplement source)}))
-                                       theirs)))
-        places  (fn [from]
-                  (into {}
-                        (keep-indexed (fn [n entry]
-                                        (when (= from (:from entry))
-                                          [(:i entry) n])))
-                        entries))]
+  (let [ours      (vec (:rss/items primary))
+        theirs    (vec (:rss/items supplement))
+        {:keys [found taken previews]}
+        (partners ours theirs max-delay-ms)
+        theirs-at (fn [j]
+                    {:from :supplement
+                     :i    j
+                     :item (assoc (nth theirs j) ::feed/supplement source)})
+        dated     (fn [i item]
+                    (if-some [date (some->> (get found i) (nth theirs) :rss/pub-date)]
+                      (assoc item :rss/pub-date date)
+                      item))
+        entries   (newest-first
+                   (concat (map-indexed (fn [i item]
+                                          (if (contains? previews i)
+                                            (theirs-at (get found i))
+                                            {:from :primary :i i :item (dated i item)}))
+                                        ours)
+                           (keep #(when-not (taken %) (theirs-at %))
+                                 (range (count theirs)))))
+        places    (fn [from]
+                    (into {}
+                          (keep-indexed (fn [n entry]
+                                          (when (= from (:from entry))
+                                            [(:i entry) n])))
+                          entries))]
     {:items  (mapv :item entries)
      :report (into (vec (page-report our-report (places :primary) true))
                    (page-report their-report (places :supplement) false))}))
