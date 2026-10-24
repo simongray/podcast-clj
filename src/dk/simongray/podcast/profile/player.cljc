@@ -54,10 +54,10 @@
     (profile.queue/place profile id rank at)))
 
 (defn- playable
-  "The first of the episode `ids` that the :playable-fn of the `opts` of
+  "The first of the episode `ids` that the :can-play-pred of the `opts` of
   step says the app can play, or the first of them without one."
-  [ids {:keys [playable-fn]}]
-  (first (cond->> ids playable-fn (filter playable-fn))))
+  [ids {:keys [can-play-pred]}]
+  (first (cond->> ids can-play-pred (filter can-play-pred))))
 
 (defn ^:no-doc ended
   "The result of a player event for `profile` when the episode `id` ended
@@ -153,10 +153,9 @@
   - :continue-fn, a function of the id of an episode that ended, which
     gives the episode to play next when none is queued, e.g. the next of
     its show, or nil
-  - :playable-fn, a function of an episode id that says whether the app
-    can play it, e.g. whether it holds the episode's feed. The episodes
-    that it can't play are passed over for [:play next] and [:play
-    earlier]."
+  - :can-play-pred, a predicate of an episode id, true when the app can
+    play it, e.g. when it holds the episode's feed. The episodes that it
+    can't play are passed over for [:play next] and [:play earlier]."
   ([profile event at]
    (step profile event at {}))
   ([profile [kind id & args :as event] at

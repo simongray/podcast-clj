@@ -663,9 +663,9 @@
 
   The entries name their documents rather than hold their feeds, as those
   of due do, and a feed that failed keeps its failures. The documents hold
-  each feed as it was fetched, before the cuts of the library's
-  :keep-fn, :max-items and remote items, which refreshed makes, and the
-  runs of words that its show repeats now."
+  each feed as it was fetched, with the runs of words that its show
+  repeats now, before the cuts of the library's :keep-fn, :max-items and
+  remote items, which refreshed makes."
   ([due store]
    (fetch-due! due store {}))
   ([{:keys [at feed-guids feeds lists] :as due} store opts]
@@ -1557,21 +1557,20 @@
 
   The library has the new profile, and what's left of the :sleep timer of
   this device. The `opts` go over the :sleep of the library. The next or
-  earlier episode is never one that playback has nothing for, e.g. one
-  whose feed the library doesn't hold in memory. With the listener's
-  :continuous?, an episode that ends with
-  no other queued is followed by the first unplayed episode of its show
-  in the listening order: the next of a serial show, and the newest of an
-  episodic one. When that gives none, the effects have [:nothing-next
-  id], e.g. for an app to play the first of recommend's episodes like it,
-  with the event [:play id]."
+  earlier episode is always one that the app can play, i.e. one whose
+  feed the library holds in memory. With the listener's :continuous?, an
+  episode that ends with no other queued is followed by the first
+  unplayed episode of its show in the listening order: the next of a
+  serial show, and the newest of an episodic one. When that gives none,
+  the effects have [:nothing-next id], e.g. for an app to play the first
+  of recommend's episodes like it, with the event [:play id]."
   ([library event]
    (step library event {}))
   ([library event opts]
    {:pre [(map? opts)]}
    (let [at   (impl/time-of library opts)
          opts (clojure.core/merge {:continue-fn #(next-of-show library %)
-                                   :playable-fn #(some? (impl/item-of library %))}
+                                   :can-play-pred #(some? (impl/item-of library %))}
                                   (select-keys library [:sleep])
                                   opts)
          {:keys [profile effects sleep]}

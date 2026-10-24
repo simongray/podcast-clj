@@ -128,10 +128,10 @@
         (is (= {:profile fresh :effects []} (profile.player/step fresh [:previous a] t1)))))
     (testing "an episode that the app can't play is passed over"
       (let [three (profile.queue/enqueue s c t1)
-            opts  {:playable-fn #{a c}}]
+            opts  {:can-play-pred #{a c}}]
         (is (= [[:play c]] (:effects (profile.player/step three [:next a] t2 opts))))
         (is (= [[:play c]] (:effects (profile.player/step three [:ended a] t2 opts))))
-        (is (= [[:play c]] (:effects (profile.player/step three [:previous b] t2 {:playable-fn #{c}}))))
+        (is (= [[:play c]] (:effects (profile.player/step three [:previous b] t2 {:can-play-pred #{c}}))))
         (is (= [] (:effects (profile.player/step s [:next a] t2 opts))) "and one alone changes nothing")))))
 
 (deftest skipping-the-outro
