@@ -366,9 +366,10 @@
     (string? x) (parse-duration x)
     :else       nil))
 
-(defn ^:no-doc countable?
+(defn countable?
   "Whether `x` is a number of seconds that a clock or a timestamp can
-  show, one that both platforms count exactly."
+  show, one that both platforms count exactly, e.g. before an app formats
+  it as a duration."
   [x]
   (and (number? x)
        (< (abs x) max-whole)))
