@@ -232,7 +232,11 @@
     (let [none (feeds/add {} url (assoc fresh :feed (assoc show :rss/items [])) now)
           r    (refresh none [] (at 3600))]
       (is (nil? (:report r)) "but a show that has none yet can stay so")
-      (is (nil? (:changed r)) "and then it changed nothing"))))
+      (is (nil? (:changed r)) "and then it changed nothing"))
+    (testing "the test of a feed that lost its items"
+      (is (feeds/emptied? {:rss/items [ep1]} {:rss/items []}))
+      (is (not (feeds/emptied? {:rss/items []} {:rss/items []})) "rather than one yet to publish")
+      (is (not (feeds/emptied? {:rss/items [ep1]} {:rss/items [ep2]}))))))
 
 (deftest a-pushed-feed
   (let [[ep3 ep2 ep1] (:rss/items show)

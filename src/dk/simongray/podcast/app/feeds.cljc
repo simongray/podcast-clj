@@ -179,6 +179,13 @@
             {}
             pings)))
 
+(defn emptied?
+  "Whether the parsed feed `fresh` has no items where the feed `old` had
+  some, e.g. from a host during an outage, so that it shouldn't replace
+  `old`."
+  [old fresh]
+  (boolean (and (seq (:rss/items old)) (empty? (:rss/items fresh)))))
+
 (defn refresh
   "The `feeds` with `result`, the result of fetching the feed `feed-guid`,
   applied at `at` with `cadence`, and what it changed:
@@ -229,9 +236,7 @@
        (= 304 (:status result))
        {:feeds (assoc feeds feed-guid (impl/unchanged old result at cadence))}
 
-       (and (:feed result)
-            (empty? (:rss/items (:feed result)))
-            (seq (get-in old [:feed :rss/items])))
+       (and (:feed result) (emptied? (:feed old) (:feed result)))
        (failure (diagnostics/describe {:id :fetch/empty-feed :url url}))
 
        (:feed result)
