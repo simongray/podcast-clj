@@ -1899,9 +1899,7 @@
       (fn [{:keys [value error]}]
         (cond
           refused {:error refused}
-          error   (diagnostics/failed
-                   {:id     :library/save-failed
-                    :reason (async/explain error)})
+          error   (diagnostics/failed (impl/save-failure error))
           :else   value))))))
 
 (defn restore!
@@ -2016,9 +2014,7 @@
       (fn [{:keys [error]}]
         (if error
           {:library library
-           :report  [(diagnostics/describe
-                      {:id     :library/save-failed
-                       :reason (async/explain error)})]}
+           :report  [(diagnostics/describe (impl/save-failure error))]}
           {:library (reduce outlined library chosen) :report []}))))))
 
 (defn documents
@@ -2291,8 +2287,7 @@
       (fn [{:keys [value error]}]
         (cond
           refused {:error refused}
-          error   (diagnostics/failed {:id     :library/save-failed
-                                       :reason (async/explain error)})
+          error   (diagnostics/failed (impl/save-failure error))
           :else   value))))))
 
 (defn durable-swap!
@@ -2320,8 +2315,7 @@
           conflict? (async/then (async/attempt #(read! library store opts))
                                 (fn [{:keys [value error]}]
                                   (if error
-                                    (diagnostics/failed {:id     :library/save-failed
-                                                         :reason (async/explain error)})
+                                    (diagnostics/failed (impl/save-failure error))
                                     (durable-swap! store value f opts))))
           :else     {:library changed :version (:version written)}))))))
 

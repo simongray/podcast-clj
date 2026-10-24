@@ -210,7 +210,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:gpodder/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
 | `:gpodder/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
 | `:gpodder/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
-| `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why. |
+| `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why, and the :cause is the store's own type of the failure, if it gives one, e.g. that of an IndexedDB store with no room left. |
 | `:library/unreadable-document` | warning | A document of the saved library didn't read: library.edn, so none of its parts were restored, or the document of a feed, which is fetched again. The :name says which, and the :reason why. |
 | `:library/not-loaded` | warning | The feeds that :feed-guids names are due, but the library holds them in their documents alone, and no :store was given to load them from, so they weren't fetched. |
 | `:library/newer-format` | error | The saved library is of a newer version than this one reads, so none of it was restored, and a save won't write over it. The :version says which. |

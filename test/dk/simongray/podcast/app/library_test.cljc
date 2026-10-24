@@ -1515,7 +1515,13 @@
          #(async/then (library/save! library (dissoc (store/memory) :put))
                       (fn [{:keys [error]}]
                         (is (= :library/save-failed (:id error)))
-                        (is (= "The store is read only" (:reason error)))))
+                        (is (= "The store is read only" (:reason error)))
+                        (is (not (contains? error :cause)))))
+         #(async/then (library/write! library (assoc (store/memory)
+                                                     :put (fn [& _] (throw (ex-info "No room" {:type ::full})))))
+                      (fn [{:keys [error]}]
+                        (is (= [:library/save-failed ::full "No room"] ((juxt :id :cause :reason) error))
+                            "with the store's own type of the failure as its cause")))
          #(async/then (async/then (library/save! library undeletable)
                                   (fn [_] (library/save! (made) undeletable)))
                       (fn [{:keys [delete error]}]

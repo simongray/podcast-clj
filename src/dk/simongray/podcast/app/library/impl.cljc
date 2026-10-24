@@ -57,6 +57,18 @@
   [library opts]
   (or (:at opts) ((:now-fn (options library opts) time/now))))
 
+(defn save-failure
+  "The diagnostic of a write to a store that failed with `error`, with the
+  :type that the store gave the failure, if any, as its :cause, e.g. one
+  for a browser that has no room left."
+  [error]
+  (let [cause (->> error
+                   (iterate #?(:clj ex-cause :cljs #(some-> % .-cause)))
+                   (take-while some?)
+                   (some (comp :type ex-data)))]
+    (cond-> {:id :library/save-failed :reason (async/explain error)}
+      cause (assoc :cause cause))))
+
 (defn remote-guids
   "The item guids of the remote items of `profile` in the feed
   `feed-guid`."

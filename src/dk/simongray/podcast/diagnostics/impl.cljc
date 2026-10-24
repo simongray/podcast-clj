@@ -588,7 +588,9 @@
     ;; library: a library saved to a store and read back
     {:id :library/save-failed :level :warning
      :doc "The library or its search index couldn't be written to the store
-           in full. The :reason says why."}
+           in full. The :reason says why, and the :cause is the store's own
+           type of the failure, if it gives one, e.g. that of an IndexedDB
+           store with no room left."}
     {:id :library/unreadable-document :level :warning
      :doc "A document of the saved library didn't read: library.edn, so none
            of its parts were restored, or the document of a feed, which is
