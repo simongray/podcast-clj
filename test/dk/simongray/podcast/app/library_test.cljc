@@ -236,7 +236,25 @@
     (let [lib (library/unsubscribe library guid)]
       (is (= {} (library/subscriptions lib)))
       (is (= {} (:feeds lib)))
-      (is (false? (profile/subscribed? (:profile lib) guid))))))
+      (is (false? (profile/subscribed? (:profile lib) guid)))))
+  (testing "unsubscribing takes the show's episodes out of the queue and the inbox"
+    (let [[ep1 ep2 ep3] (map #(vector guid (str "https://example.com/ep000" %)) [1 2 3])
+          other-guid    "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"
+          o1            [other-guid "o1"]
+          fetched       {:status 200 :url other-url :feed other}
+          lib           (-> library
+                            (library/subscribe other-url fetched)
+                            (library/update-profile #(profile.queue/dequeue-all %1 (profile.queue/queue %1) %2))
+                            (library/update-profile profile.queue/enqueue-all [ep1 o1 ep2])
+                            (library/update-profile #(crdt/write %1 [:inbox ep3] (constantly {:removed? false}) %2)))
+          left          (library/unsubscribe lib guid)]
+      (is (= [ep1 o1 ep2] (profile.queue/queue (:profile lib))))
+      (is (= [o1] (profile.queue/queue (:profile left))))
+      (is (= [] (profile.queue/inbox (:profile left))))
+      (is (= [o1] (profile.queue/queue (:profile (-> left
+                                                     (library/add-episode other-url fetched "o1")
+                                                     (library/unsubscribe other-guid)))))
+          "but for the episodes of its remote items"))))
 
 (deftest the-search-index
   (let [lib (-> (library/make "phone" {:config {:search? true}})
@@ -693,7 +711,12 @@
            (update-vals (profile/episode-entries (:profile lib)) #(select-keys % [:played? :position])))
         "by the media of the feeds that the library has, whatever its query and its scheme")
     (is (= [["https://example.com/file-02.mp3" 754] ["https://example.com/file-03.mp3" nil]]
-           (map (juxt :enclosure-url :progress) (:episodes (first (:subscriptions (library/to-opml lib)))))))))
+           (map (juxt :enclosure-url :progress) (:episodes (first (:subscriptions (library/to-opml lib)))))))
+    (is (= #{[guid "https://example.com/ep0003"] [guid "https://example.com/ep0002"]}
+           (set (keys (profile/episode-entries
+                       (:profile (library/episodes-from-opml library (assoc-in list [:subscriptions 0 :xml-url]
+                                                                               "https://example.com/before.xml")))))))
+        "and in any feed, when the list's URL is one that the feed moved from")))
 
 (deftest the-options-of-one-refresh
   (let [picks-url "https://example.org/picks.opml"
@@ -1253,6 +1276,11 @@
         (is (= {:episodes 1} (:sleep (:library (library/step timed [:ended id])))) "one episode less to go")
         (is (= [[:stop id]] (:effects spent)))
         (is (not (contains? (:library spent) :sleep)) "the last episode ended: the timer is gone")))
+    (testing "the next episode is one that the library can play"
+      (let [ep2    [guid "https://example.com/ep0002"]
+            queued (library/update-profile heard profile.queue/enqueue-all [["gone" "g1"] ep2])]
+        (is (= [[:play ep2]] (:effects (library/step queued [:ended id]))))
+        (is (= [[:play ep2]] (:effects (library/step queued [:next id]))))))
     (testing "continuous play goes on with the first unplayed episode of the show, in its listening order"
       (let [on     (library/update-profile heard profile/prefer {:continuous? true})
             order  (remove #{id} (map (fn [[feed item]] (library/episode-id lib feed item))
@@ -1800,6 +1828,28 @@
                           (is (= (:feeds gone)
                                  (:feeds (:library (library/refreshed gone @found (assoc in-transit :at later)))))
                               "but a feed left meanwhile stays out")))))))
+
+(deftest the-runs-of-a-refresh-in-parts
+  (let [read      "This episode is brought to you by Acme, the maker of fine anvils."
+        episodes  [["Espresso" "Burr grinders."] ["Roasting" "Beans at home."] ["Tea" "Green tea."]]
+        plain     (show-of coffee "Coffee Talk" "en" episodes)
+        sponsored (show-of coffee "Coffee Talk" "en" (map (fn [[title notes]] [title (str notes " " read)]) episodes))
+        lib       (-> (library/make "phone" {:at now})
+                      (assoc-in [:config :extension] (:extension transit/codec))
+                      (library/subscribe (str "https://example.com/" coffee ".xml") plain {:at now}))
+        s         (store/memory)
+        later     (at 86400)
+        fetch     (fn [u _] {:status 200 :url u :feed sponsored})]
+    (run #(library/write! lib s (assoc in-transit :if-version nil))
+         #(async/then (library/fetch-due! (library/due lib {:at later}) s (assoc in-transit :fetch fetch))
+                      (fn [found]
+                        (let [[body] (vals (:documents found))
+                              runs   (get-in (library/refreshed lib found (assoc in-transit :at later))
+                                             [:library :feeds coffee :repeated])]
+                          (is (empty? (get-in lib [:feeds coffee :repeated])))
+                          (is (seq runs))
+                          (is (= runs (:repeated (transit/read-str body)))
+                              "the document of the feed holds the runs of the feed it holds")))))))
 
 (deftest a-first-fetch-that-failed-in-parts
   (let [s     (store/memory)

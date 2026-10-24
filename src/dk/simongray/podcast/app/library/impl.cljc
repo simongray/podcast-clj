@@ -67,6 +67,17 @@
                   item-guid)))
         (profile/remote-items profile)))
 
+(defn without-episodes-of
+  "The `profile` with the episodes of the feed `feed-guid` out of its queue
+  and its inbox at `at`, but for its remote items."
+  [profile feed-guid at]
+  (let [remote (remote-guids profile feed-guid)
+        of?    (fn [[g item-guid]]
+                 (and (= feed-guid g) (not (contains? remote item-guid))))]
+    (-> profile
+        (profile.queue/dequeue-all (filter of? (profile.queue/queue profile)) at)
+        (profile.queue/dismiss-all (filter of? (profile.queue/inbox profile)) at))))
+
 (defn- with-fact
   "The `item` of the feeds `entry` with the fact that the entry keeps of
   it under :retained, when the feed no longer brings it back."

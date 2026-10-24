@@ -125,7 +125,14 @@
         (is (= [c a b] (profile.queue/queue profile)))))
     (testing "with nothing heard before, nothing changes"
       (let [fresh (profile.queue/enqueue (profile/make "phone") a t0)]
-        (is (= {:profile fresh :effects []} (profile.player/step fresh [:previous a] t1)))))))
+        (is (= {:profile fresh :effects []} (profile.player/step fresh [:previous a] t1)))))
+    (testing "an episode that the app can't play is passed over"
+      (let [three (profile.queue/enqueue s c t1)
+            opts  {:playable-fn #{a c}}]
+        (is (= [[:play c]] (:effects (profile.player/step three [:next a] t2 opts))))
+        (is (= [[:play c]] (:effects (profile.player/step three [:ended a] t2 opts))))
+        (is (= [[:play c]] (:effects (profile.player/step three [:previous b] t2 {:playable-fn #{c}}))))
+        (is (= [] (:effects (profile.player/step s [:next a] t2 opts))) "and one alone changes nothing")))))
 
 (deftest skipping-the-outro
   (let [s (-> (profile/make "phone")

@@ -276,16 +276,18 @@
 
 (defn unsubscribe
   "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The
-  feed and its search documents go, but for the episodes of its remote
-  items, and the profile keeps a record of the subscription."
+  feed, its search documents and its episodes in the queue and the inbox
+  go, but for the episodes of its remote items, and the profile keeps a
+  record of the subscription."
   ([library feed-guid]
    (unsubscribe library feed-guid {}))
   ([library feed-guid opts]
    {:pre [(map? opts)]}
-   (-> library
-       (update :profile profile/unsubscribe feed-guid
-               (impl/time-of library opts))
-       (impl/tidied feed-guid))))
+   (let [at (impl/time-of library opts)]
+     (-> library
+         (update :profile profile/unsubscribe feed-guid at)
+         (update :profile impl/without-episodes-of feed-guid at)
+         (impl/tidied feed-guid)))))
 
 (defn add-episode
   "The `library` with the episode `item-guid` of the feed at `url`, with
@@ -376,19 +378,23 @@
 
   An episode is found by the URL of its media among the feeds that the
   library has, so subscribe to the list and refresh first. Its feed is
-  found by the URL in the list."
+  found by the URL in the list, or else it's any feed of the library, e.g.
+  for a feed that moved at its first fetch."
   ([library list]
    (episodes-from-opml library list {}))
   ([library list opts]
    {:pre [(map? opts)]}
-   (let [by-url (profile/by-url (:profile library))
-         ids    (impl/media-ids library)
-         bare   #(first (str/split % #"[?#]" 2))
-         id-fn  (fn [xml-url media-url]
-                  (when-let [feed-guid (by-url (guid/normal-url xml-url))]
-                    (let [found (ids feed-guid)]
+   (let [by-url   (profile/by-url (:profile library))
+         ids      (impl/media-ids library)
+         anywhere (delay (into {} (mapcat ids) (keys (:feeds library))))
+         bare     #(first (str/split % #"[?#]" 2))
+         id-fn    (fn [xml-url media-url]
+                    (let [found (or (some-> (by-url (guid/normal-url xml-url))
+                                            ids
+                                            not-empty)
+                                    @anywhere)]
                       (or (found (guid/normal-url media-url))
-                          (found (guid/normal-url (bare media-url)))))))]
+                          (found (guid/normal-url (bare media-url))))))]
      (update library :profile profile.opml/episodes-from-opml list id-fn
              (impl/time-of library opts)))))
 
@@ -658,7 +664,8 @@
   The entries name their documents rather than hold their feeds, as those
   of due do, and a feed that failed keeps its failures. The documents hold
   each feed as it was fetched, before the cuts of the library's
-  :keep-fn, :max-items and remote items, which refreshed makes."
+  :keep-fn, :max-items and remote items, which refreshed makes, and the
+  runs of words that its show repeats now."
   ([due store]
    (fetch-due! due store {}))
   ([{:keys [at feed-guids feeds lists] :as due} store opts]
@@ -698,8 +705,12 @@
                                  (for [[feed-guid entry] fetched
                                        :when (:feed entry)
                                        :let  [name (impl/entry-document feed-guid entry codec)]
-                                       :when (not= name (get-in from [feed-guid :document]))]
-                                   [name (impl/feed-body entry codec)]))]
+                                       :when (not= name (get-in from [feed-guid :document]))
+                                       ;; those of the document it was due with are
+                                       ;; of the feed before, and the store keeps
+                                       ;; this document as it's put
+                                       :let  [runs (feed.search/repeated-runs (:feed entry))]]
+                                   [name (impl/feed-body (assoc entry :repeated runs) codec)]))]
              (async/then
               (store/put-all! store (for [[name body] documents]
                                       {:name name :body body}))
@@ -1545,19 +1556,22 @@
   the :library and the :effects.
 
   The library has the new profile, and what's left of the :sleep timer of
-  this device. The `opts` go over the :sleep of the library. With the
-  listener's :continuous?, an episode that ends with no other queued is
-  followed by the first unplayed episode of its show in the listening
-  order: the next of a serial show, and the newest of an episodic one.
-  When that gives none, the effects have [:nothing-next id], e.g. for an
-  app to play the first of recommend's episodes like it, with the event
-  [:play id]."
+  this device. The `opts` go over the :sleep of the library. The next or
+  earlier episode is never one that playback has nothing for, e.g. one
+  whose feed the library doesn't hold in memory. With the listener's
+  :continuous?, an episode that ends with
+  no other queued is followed by the first unplayed episode of its show
+  in the listening order: the next of a serial show, and the newest of an
+  episodic one. When that gives none, the effects have [:nothing-next
+  id], e.g. for an app to play the first of recommend's episodes like it,
+  with the event [:play id]."
   ([library event]
    (step library event {}))
   ([library event opts]
    {:pre [(map? opts)]}
    (let [at   (impl/time-of library opts)
-         opts (clojure.core/merge {:continue-fn #(next-of-show library %)}
+         opts (clojure.core/merge {:continue-fn #(next-of-show library %)
+                                   :playable-fn #(some? (impl/item-of library %))}
                                   (select-keys library [:sleep])
                                   opts)
          {:keys [profile effects sleep]}

@@ -53,22 +53,28 @@
         rank    (crdt.list/rank-between entries nil (first others))]
     (profile.queue/place profile id rank at)))
 
+(defn- playable
+  "The first of the episode `ids` that the :playable-fn of the `opts` of
+  step says the app can play, or the first of them without one."
+  [ids {:keys [playable-fn]}]
+  (first (cond->> ids playable-fn (filter playable-fn))))
+
 (defn ^:no-doc ended
   "The result of a player event for `profile` when the episode `id` ended
-  at `at`, with the sleep timer `sleep` and the :continue-fn of the `opts`
-  of step.
+  at `at`, with the sleep timer `sleep` and the `opts` of step.
 
   The episode counts as played and leaves the queue if it was current,
-  with the effect [:play next] when another episode is queued. Else, with
-  the listener's :continuous?, the next is what :continue-fn gives for the
-  id. When nothing plays next, the effect is [:nothing-next id]. With a
-  sleep timer, one episode less is left to play, and when none is left,
-  the effect is [:stop id] and the timer stops."
-  [profile id at sleep {:keys [continue-fn]}]
+  with the effect [:play next] when another episode that the app can play
+  is queued. Else, with the listener's :continuous?, the next is what
+  :continue-fn gives for the id. When nothing plays next, the effect is
+  [:nothing-next id]. With a sleep timer, one episode less is left to
+  play, and when none is left, the effect is [:stop id] and the timer
+  stops."
+  [profile id at sleep {:keys [continue-fn] :as opts}]
   (let [profile' (profile/mark-played profile id at)
         current? (= id (profile.queue/current profile'))
         profile' (if current? (profile.queue/advance profile' at) profile')
-        next     (or (when current? (profile.queue/current profile'))
+        next     (or (when current? (playable (profile.queue/queue profile') opts))
                      (when (and continue-fn
                                 (:continuous? (profile/preferences profile)))
                        (continue-fn id)))
@@ -146,7 +152,11 @@
     position in one stretch of listening
   - :continue-fn, a function of the id of an episode that ended, which
     gives the episode to play next when none is queued, e.g. the next of
-    its show, or nil"
+    its show, or nil
+  - :playable-fn, a function of an episode id that says whether the app
+    can play it, e.g. whether it holds the episode's feed. The episodes
+    that it can't play are passed over for [:play next] and [:play
+    earlier]."
   ([profile event at]
    (step profile event at {}))
   ([profile [kind id & args :as event] at
@@ -190,12 +200,12 @@
      (stepped (made-current profile id at) [] sleep)
 
      :next
-     (if-let [later (first (remove #{id} (profile.queue/queue profile)))]
+     (if-let [later (playable (remove #{id} (profile.queue/queue profile)) opts)]
        (stepped (profile.queue/dequeue profile id at) [[:play later]] sleep)
        (stepped profile [] sleep))
 
      :previous
-     (if-let [earlier (first (remove #{id} (profile/history profile)))]
+     (if-let [earlier (playable (remove #{id} (profile/history profile)) opts)]
        (update (step profile [:play earlier] at opts) :effects conj
                [:play earlier])
        (stepped profile [] sleep))
