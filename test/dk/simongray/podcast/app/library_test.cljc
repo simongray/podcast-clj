@@ -524,6 +524,30 @@
         (is (= (get-in lib [:feeds coffee :repeated]) (get-in back [:feeds coffee :repeated])))
         (is (= ["Grinders compared"] (titles (library/recommend back [[coffee "0"]] loose))))))))
 
+(deftest search-documents-built-beforehand
+  (let [make   #(library/make "phone" {:at now :config {:search? true}})
+        ;; notes of the first episode that the feed doesn't have
+        marked #(assoc-in % [:search-documents :documents 1 :fields :description]
+                          "Zebras on the savanna.")
+        found? #(boolean (seq (library/search % "zebras")))
+        built  (library/with-search-documents fresh url)]
+    (testing "a subscription indexes them as it would have built them"
+      (let [lib   (library/subscribe (make) url built {:at now})
+            plain (library/subscribe (make) url fresh {:at now})]
+        (is (= (library/search plain "future") (library/search lib "future")))
+        (is (= (get-in plain [:feeds guid]) (get-in lib [:feeds guid]))
+            "with the runs that its show repeats, and keeps none of them")))
+    (testing "rather than building them again"
+      (is (found? (library/subscribe (make) url (marked built))))
+      (is (found? (library/subscribe (make) url (marked (library/with-search-documents
+                                                         (assoc fresh :permanent-url "https://example.com/moved.xml")
+                                                         url))))
+          "at the URL a feed moved to"))
+    (testing "but builds them for a feed whose documents they aren't"
+      (is (not (found? (library/subscribe (make) url (assoc-in (marked built) [:search-documents :url] other-url)))))
+      (is (not (found? (library/subscribe (make) url (assoc (marked built) :feed newer))))
+          "e.g. one with another episode"))))
+
 (deftest the-cap-of-a-common-word
   (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) "Notes."]))
         lib      (-> (library/make "phone" {:config {:search? true}})

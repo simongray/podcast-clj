@@ -190,7 +190,9 @@
   fetched, on any device, and stays when the feed gives itself another.
   A feed that moved for good, by a permanent redirect or the new URL that
   it declares, is subscribed to at the URL it moved to, which its feed
-  has too.
+  has too. The search documents of a `fetched` that with-search-documents
+  gave are indexed rather than built again, when they're those of the
+  feed that the library keeps.
 
   It throws when `fetched` has no feed, e.g. after a fetch that failed,
   and when the feed declares the guid of another subscription, at another
@@ -221,7 +223,8 @@
          cadence   (:cadence (impl/options library opts) {})
          with-feed #(-> %
                         (update :feeds feeds/add url result at cadence)
-                        (impl/settled feed-guid (impl/options library opts)))]
+                        (impl/settled feed-guid (impl/options library opts)
+                                      (:search-documents result)))]
      (when-let [taken (profile/takeover (:profile library) feed-guid moved-to)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -230,6 +233,24 @@
            (seq settings)        (update :profile profile/configure feed-guid
                                          settings at)
            (and feed (not head?)) with-feed)))))
+
+;; Building the search documents of a long feed takes a while, mostly to
+;; read the HTML of its notes, so an app can build them where it fetched
+;; the feed, e.g. in a web worker, rather than hold up a page
+(defn with-search-documents
+  "The `fetched` feed at `url` with the search documents of its show and
+  its episodes, which subscribe indexes rather than building them. The
+  `fetched` is as subscribe takes it, and the result is a fetch's result
+  that holds them as :search-documents."
+  [fetched url]
+  (let [result (impl/fetch-result fetched)
+        feed   (impl/feed-of url result "build the search documents of")
+        at     (or (:permanent-url result) (:new-feed-url result) url)
+        docs   (feed.search/feed-documents (guid/with-key feed (guid/feed-key feed url))
+                                           at)]
+    (assoc result :search-documents {:url       at
+                                     :documents (vec docs)
+                                     :repeated  (:repeated (meta docs))})))
 
 (defn subscribe-local
   "The `library` subscribed to the show of local files `feed`, which

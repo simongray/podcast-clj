@@ -507,6 +507,20 @@ write of the library is the only one. `refreshed` takes an entry only
 where the library still has the one that was due, so a feed that another
 tab changed meanwhile stays as it is.
 
+Subscribing indexes the episodes for search, which also holds up a page
+for a long feed, mostly to read the HTML of their notes. Build the search
+documents in the worker with `library/with-search-documents`, and give
+`subscribe` the fetch that it returns. Where they aren't the documents of
+the feed that the library keeps, `subscribe` builds its own:
+
+```clojure
+;; in the worker, which sends the documents back
+(:search-documents (library/with-search-documents fetched url))
+
+;; on the page
+(swap! lib library/subscribe url (assoc fetched :search-documents documents))
+```
+
 To announce new episodes, turn on the preference `:notify?`, or the
 setting of that name for a show, and give `library/notifications` what
 each refresh returns. It returns the new episodes that the listener

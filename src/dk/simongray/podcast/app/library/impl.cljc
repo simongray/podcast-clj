@@ -163,19 +163,44 @@
                    docs)
         (assoc :index (feed.search/index (mapcat val docs))))))
 
+;; The documents of a subscription are built from its feed alone, so ids in
+;; the same order show that they're of the feed that the library keeps,
+;; rather than of one with other episodes, e.g. those it retains
+(defn- built-for
+  "The search documents in `built`, as library/with-search-documents gives
+  them, when they're those of the subscription `feed-guid` of `library` at
+  its URL, with the runs of words that its show repeats as the :repeated
+  of their metadata, as documents gives them, or else nil."
+  [library feed-guid {:keys [url documents repeated]}]
+  (let [feed (shown library feed-guid)
+        at   (get-in library [:feeds feed-guid :url])]
+    (when (and feed
+               (= url at)
+               (profile/subscribed? (:profile library) feed-guid)
+               (= (map :id documents)
+                  (cons (guid/feed-key feed at)
+                        (map #(guid/episode-id feed at %)
+                             (resolve/distinct-items (:rss/items feed))))))
+      (with-meta documents {:repeated repeated}))))
+
 (defn reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index, and the runs of words that its show repeats in the entry of its
-  feed. A feed that isn't loaded keeps what the index has of it."
-  [library feed-guid]
-  (let [index (:index library)]
-    (if (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
-      (let [docs (documents library feed-guid)]
-        (cond-> (assoc library :index (apply search/add
-                                             (feed.search/without-feed index feed-guid)
-                                             docs))
-          docs (assoc-in [:feeds feed-guid :repeated] (:repeated (meta docs)))))
-      library)))
+  feed. The documents are those in `built`, as library/with-search-documents
+  gives them, when they're the feed's own, or else built now. A feed that
+  isn't loaded keeps what the index has of it."
+  ([library feed-guid]
+   (reindexed library feed-guid nil))
+  ([library feed-guid built]
+   (let [index (:index library)]
+     (if (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
+       (let [docs (or (some->> built (built-for library feed-guid))
+                      (documents library feed-guid))]
+         (cond-> (assoc library :index (apply search/add
+                                              (feed.search/without-feed index feed-guid)
+                                              docs))
+           docs (assoc-in [:feeds feed-guid :repeated] (:repeated (meta docs)))))
+       library))))
 
 (defn alone?
   "Whether `library` holds the feed `feed-guid` for its remote items
@@ -278,12 +303,15 @@
       (update-in [:feeds feed-guid :feed] keep-fn))))
 
 (defn settled
-  "The `library` with the feed `feed-guid` indexed again and cut down as
-  the `opts` say, as after a fetch."
-  [library feed-guid opts]
-  (-> library
-      (reindexed feed-guid)
-      (kept feed-guid opts)))
+  "The `library` with the feed `feed-guid` indexed again, from the search
+  documents `built` if they're its own, and cut down as the `opts` say, as
+  after a fetch."
+  ([library feed-guid opts]
+   (settled library feed-guid opts nil))
+  ([library feed-guid opts built]
+   (-> library
+       (reindexed feed-guid built)
+       (kept feed-guid opts))))
 
 (defn fetch-result
   "The result of a fetch that `x` stands for: `x` itself, or a map with `x`
