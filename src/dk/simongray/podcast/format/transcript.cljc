@@ -24,7 +24,10 @@
   - the cite elements of HTML
   - the fields of JSON
   - the \"Name:\" or \"[Name]:\" prefixes of caption files, which mark a
-    change of speaker, so the name carries over the cues that follow
+    change of speaker, so the name carries over the cues that follow. A
+    name has at most four words and starts with a letter that isn't lower
+    case. A file whose cues start with other words before a colon as often
+    names no speaker by prefix, since its colons are in its sentences.
 
   Reading is lenient and never throws on content. The report says what it
   had to forgive, e.g. times written as strings, an SRT wrapped in HTML or
@@ -65,9 +68,10 @@
                                 (impl/cue stats
                                           (or (first more) "")
                                           (rest more)))))
+                      (impl/settle-prefixes stats)
                       impl/carry-speakers)]
     (impl/with-report {:format :srt :segments segments}
-      (concat (impl/prefix-diagnostics (:prefixes @stats 0))
+      (concat (impl/prefix-diagnostics @stats)
               (when-let [n (:tags @stats)]
                 [(impl/diagnostic :transcript/srt-tags :info
                                   (str n " cues hold formatting tags, which"
@@ -98,7 +102,9 @@
   those."
   [s]
   (let [stats    (volatile! {})
-        cues     (mapv #(impl/vtt-cue stats %) (:cues (webvtt/parse s)))
+        cues     (->> (:cues (webvtt/parse s))
+                      (map #(impl/vtt-cue stats %))
+                      (impl/settle-prefixes stats))
         dropped  (->> (webvtt/conformance-errors s :metadata)
                       (filter (comp #{:timings} :type))
                       count)
@@ -112,7 +118,7 @@
         segments (mapv #(dissoc % ::voice?) carried)]
     (impl/with-report {:format :vtt :segments segments}
       (concat (impl/dropped-diagnostics dropped)
-              (impl/prefix-diagnostics (:prefixes @stats 0))
+              (impl/prefix-diagnostics @stats)
               (impl/voices-diagnostics (or voiced 0))))))
 
 (defn emit-vtt
@@ -227,16 +233,18 @@
   [s]
   (let [stats    (volatile! {})
         segment  (fn [paragraph]
-                   (let [[speaker body] (impl/speaker-prefix stats paragraph)]
+                   (let [[speaker body prefix] (impl/speaker-prefix
+                                                stats paragraph)]
                      (cond-> {:body body}
-                       speaker (assoc :speaker speaker))))
+                       speaker (assoc :speaker speaker ::prefix prefix))))
         segments (->> (impl/paragraphs s)
                       (map str/trim)
                       (remove str/blank?)
                       (map segment)
+                      (impl/settle-prefixes stats)
                       impl/carry-speakers)]
     (impl/with-report {:format :text :segments segments}
-      (impl/prefix-diagnostics (:prefixes @stats 0)))))
+      (impl/prefix-diagnostics @stats))))
 
 (defn sniff
   "The likely format of the transcript text `s`. Cue timings come before

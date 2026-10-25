@@ -193,6 +193,12 @@
     {:id :transcript/speaker-prefixes :level :info
      :doc "Speakers were taken from Name: prefixes in the cues, and carried over
            to the cues that follow."}
+    {:id :transcript/prose-colons :level :info
+     :doc "Cues started with words before a colon that can't be a name, e.g.
+           the end of a sentence that a caption file wrapped, at least as
+           often as with a name, so the colons were read as part of the text,
+           and no Name: prefix gave a speaker. The :count is the number of
+           such cues."}
     {:id :transcript/voices-carried :level :info
      :doc "A WebVTT file gives a voice span only where the speaker changes,
            so the cues without one took the speaker before them. The :count

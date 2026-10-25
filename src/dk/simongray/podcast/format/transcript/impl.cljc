@@ -30,14 +30,31 @@
   [transcript diagnostic]
   (vary-meta transcript update :podcast/report (fnil conj []) diagnostic))
 
+(defn prose?
+  "Whether the `stats` of a file count at least as many colons after words
+  that can't be a name as after names, so that its colons belong to its
+  sentences."
+  [{:keys [prefixes prose] :or {prefixes 0 prose 0}}]
+  (and (pos? prose) (>= prose prefixes)))
+
 (defn prefix-diagnostics
-  "The diagnostic for `n` cues that named their speaker with a prefix."
-  [n]
-  (when (pos? n)
+  "The diagnostic for the cues that the `stats` of a file count as naming
+  their speaker with a prefix, or for its colons in sentences."
+  [{:keys [prefixes prose] :or {prefixes 0} :as stats}]
+  (cond
+    (prose? stats)
+    [(diagnostic :transcript/prose-colons :info
+                 (str prose " cues start with words before a colon that "
+                      "can't be a name, so the file's colons are read as "
+                      "part of its sentences, and no \"Name:\" prefix "
+                      "names a speaker")
+                 :count prose)]
+
+    (pos? prefixes)
     [(diagnostic :transcript/speaker-prefixes :info
-                 (str n " cues name their speaker with a \"Name:\" prefix; "
-                      "the name is carried over the cues that follow")
-                 :count n)]))
+                 (str prefixes " cues name their speaker with a \"Name:\" "
+                      "prefix; the name is carried over the cues that follow")
+                 :count prefixes)]))
 
 (defn paragraphs
   "The blank-line separated stretches of `s`."
@@ -52,18 +69,57 @@
        (remove #(str/blank? (first %)))
        (map vec)))
 
+;; A caption file can wrap a sentence just before a colon, so that a cue
+;; starts with its last words, e.g. "so: Wenn du", and a title has one too
+(defn speaker-name?
+  "Whether the words `s` before a colon can name a speaker: they start
+  with a letter that isn't lower case, as a name does in a script with
+  case, and are at most four."
+  [s]
+  ;; JavaScript needs the u flag for \p{Ll}
+  (and (not (re-find #"(?u)^\p{Ll}" s))
+       (<= (count (str/split (str/trim s) #"\s+")) 4)))
+
 (defn speaker-prefix
-  "The speaker of a leading \"Name: \" or \"[Name]: \" in `body`, and the
-  rest of `body`, as a pair. A name starts with a letter of any script, so
-  a timestamp never counts as one. The speaker is nil when there's none,
-  and a hit counts in `stats`."
+  "The speaker of a leading \"Name: \" or \"[Name]: \" in `body`, the rest
+  of `body`, and the prefix, or the pair of nil and `body` when there's
+  none. A name starts with a letter of any script, so a timestamp never
+  counts as one, and words that speaker-name? refuses aren't a name. The
+  `stats` count each name as one of the :prefixes, and the other words as
+  :prose."
   [stats body]
   ;; JavaScript needs the u flag for \p{L}
-  (let [prefixed #"(?su)^\[?(\p{L}[^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$"]
-    (if-let [[_ speaker rest] (re-find prefixed body)]
+  (let [prefixed #"(?su)^(\[?(\p{L}[^:\n<>\[\]]{0,40}?)\]?:\s+)(.*)$"
+        [_ prefix speaker rest] (re-find prefixed body)]
+    (cond
+      (nil? prefix)
+      [nil body]
+
+      (speaker-name? speaker)
       (do (vswap! stats update :prefixes (fnil inc 0))
-          [speaker rest])
-      [nil body])))
+          [speaker rest prefix])
+
+      :else
+      (do (vswap! stats update :prose (fnil inc 0))
+          [nil body]))))
+
+(defn- as-written
+  "The `segment` with the prefix that named its speaker put back in its
+  body and its first run, and without the speaker."
+  [{::transcript/keys [prefix] :keys [runs] :as segment}]
+  (cond-> segment
+    prefix            (-> (dissoc :speaker)
+                          (update :body #(str prefix %)))
+    (and prefix runs) (update-in [:runs 0 :text] #(str prefix %))))
+
+(defn settle-prefixes
+  "The `segments` with the speakers of their prefixes, or without them when
+  the `stats` of the file say that its colons belong to its sentences."
+  [stats segments]
+  (let [segments (vec segments)
+        prose    (prose? @stats)]
+    (mapv #(dissoc (cond-> % prose as-written) ::transcript/prefix)
+          segments)))
 
 (defn carry-speakers
   "The `segments`, each that names no speaker with the last one named
@@ -108,17 +164,17 @@
   as a WebVTT cue is."
   [stats timing lines]
   (when-let [[_ from to] (re-find timing-pattern timing)]
-    (let [text           (str/join "\n" lines)
-          tagged?        (re-find srt-tag-pattern text)
-          plain          (-> (str/replace text srt-tag-pattern "")
-                             entities/decode-entities)
-          [speaker body] (speaker-prefix stats plain)]
+    (let [text                  (str/join "\n" lines)
+          tagged?               (re-find srt-tag-pattern text)
+          plain                 (-> (str/replace text srt-tag-pattern "")
+                                    entities/decode-entities)
+          [speaker body prefix] (speaker-prefix stats plain)]
       (when tagged?
         (vswap! stats update :tags (fnil inc 0)))
       (cond-> {:start-time (time/parse-clock from)
                :end-time   (time/parse-clock to)
                :body       body}
-        speaker (assoc :speaker speaker)))))
+        speaker (assoc :speaker speaker ::transcript/prefix prefix)))))
 
 (defn timed-segments
   "The segments of `transcript` that have a start time, which are what the
@@ -146,16 +202,20 @@
   span, or else from a \"Name:\" prefix, which counts in `stats`. A cue
   with inline timestamps gives the timed runs of its text too."
   [stats cue]
-  (let [voice           (first-voice (webvtt/hiccup cue))
-        plain           (str/trim (webvtt/text cue))
-        [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
-        speaker         (or voice prefixed)
-        unprefixed      #(second (speaker-prefix (volatile! {}) (str/triml %)))
-        runs            (webvtt/runs cue)]
+  (let [voice                  (first-voice (webvtt/hiccup cue))
+        plain                  (str/trim (webvtt/text cue))
+        [prefixed body prefix] (if voice
+                                 [nil plain]
+                                 (speaker-prefix stats plain))
+        speaker                (or voice prefixed)
+        unprefixed             #(second (speaker-prefix (volatile! {})
+                                                        (str/triml %)))
+        runs                   (webvtt/runs cue)]
     (cond-> {:start-time (:start-time cue)
              :end-time   (:end-time cue)
              :body       body}
       speaker     (assoc :speaker speaker)
+      prefixed    (assoc ::transcript/prefix prefix)
       voice       (assoc ::transcript/voice? true)
       (next runs) (assoc :runs (cond-> (vec runs)
                                  prefixed (update-in [0 :text] unprefixed))))))

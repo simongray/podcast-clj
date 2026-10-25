@@ -358,6 +358,28 @@
              (map (comp (juxt :speaker :body) first-segment)
                   ["Åse: Hej." "[Ольга]: Привет." "Σωκράτης: Γεια σου."
                    "10:30: Coffee." "https://example.com is the site."])))))
+  (testing "a name starts with a letter that isn't lower case, and has at most four words"
+    (let [first-segment #(first (:segments (transcript/parse % "text/plain")))]
+      (is (= [[nil "so: When you have good moments,"]
+              [nil "The quiet beach at dusk: Waves and the horizon"]
+              ["Speaker 0" "Hello."] ["SPEAKER_01" "Hi."] ["Dr. Ann Lee" "Welcome."]]
+             (map (comp (juxt :speaker :body) first-segment)
+                  ["so: When you have good moments," "The quiet beach at dusk: Waves and the horizon"
+                   "Speaker 0: Hello." "SPEAKER_01: Hi." "Dr. Ann Lee: Welcome."])))))
+  (testing "a caption file whose colons are mostly in its sentences names no speaker by prefix"
+    (let [cue   (fn [i text] (str "00:00:0" i ".000 --> 00:00:0" (inc i) ".000\n" text))
+          vtt   #(transcript/parse (str "WEBVTT\n\n" (str/join "\n\n" (map-indexed cue %&))))
+          prose (vtt "In short: do you want to know?" "I asked the room, and they" "said: \"No.\" Then a man"
+                     "asked: \"Why not?\"")
+          names (vtt "JACK: I just came back," "and he said: it was wonderful." "ANNA: Was it?")]
+      (is (= [[nil "In short: do you want to know?"] [nil "I asked the room, and they"]
+              [nil "said: \"No.\" Then a man"] [nil "asked: \"Why not?\""]]
+             (map (juxt :speaker :body) (:segments prose))))
+      (is (= [[:transcript/prose-colons 2]] (map (juxt :id :count) (transcript/report prose))))
+      (is (= [["JACK" "I just came back,"] ["JACK" "and he said: it was wonderful."] ["ANNA" "Was it?"]]
+             (map (juxt :speaker :body) (:segments names)))
+          "a colon in a sentence among names leaves the names")
+      (is (= [[:transcript/speaker-prefixes 2]] (map (juxt :id :count) (transcript/report names))))))
   (testing "a sound cue is a body in brackets and nothing else"
     (is (= [true true true false false false]
            (map #(transcript/sound-cue? {:body %})

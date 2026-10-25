@@ -99,6 +99,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:feed/unexpected-text` | info | Text inside an element that the spec leaves empty was dropped. |
 | `:feed/dropped-attributes` | info | Attributes that the model has no place for were dropped: those of an element read as a single value, those of rss other than its version, and those of channel. |
 | `:transcript/speaker-prefixes` | info | Speakers were taken from Name: prefixes in the cues, and carried over to the cues that follow. |
+| `:transcript/prose-colons` | info | Cues started with words before a colon that can't be a name, e.g. the end of a sentence that a caption file wrapped, at least as often as with a name, so the colons were read as part of the text, and no Name: prefix gave a speaker. The :count is the number of such cues. |
 | `:transcript/voices-carried` | info | A WebVTT file gives a voice span only where the speaker changes, so the cues without one took the speaker before them. The :count is the number of such cues. |
 | `:transcript/cues-dropped` | warning | Cues of a WebVTT file have timings that don't parse, e.g. 1000 milliseconds, so they were left out, as a browser leaves them out. The :count is the number of such cues. |
 | `:transcript/srt-tags` | info | SRT cues held the formatting tags of HTML, e.g. for italics or a font, which SRT doesn't define, and the text was read without them. The :count is the number of such cues. |
