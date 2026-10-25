@@ -54,10 +54,12 @@
 
 (defn speaker-prefix
   "The speaker of a leading \"Name: \" or \"[Name]: \" in `body`, and the
-  rest of `body`, as a pair. The speaker is nil when there's none, and a
-  hit counts in `stats`."
+  rest of `body`, as a pair. A name starts with a letter of any script, so
+  a timestamp never counts as one. The speaker is nil when there's none,
+  and a hit counts in `stats`."
   [stats body]
-  (let [prefixed #"(?s)^\[?([A-Za-z][^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$"]
+  ;; JavaScript needs the u flag for \p{L}
+  (let [prefixed #"(?su)^\[?(\p{L}[^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$"]
     (if-let [[_ speaker rest] (re-find prefixed body)]
       (do (vswap! stats update :prefixes (fnil inc 0))
           [speaker rest])

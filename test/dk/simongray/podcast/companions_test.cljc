@@ -351,6 +351,19 @@
               {:speaker "Justin" :body "What is going on here?"}
               {:speaker "Michael" :body "Oh gosh. It's my door."}]
              (:segments t)))))
+  (testing "a \"Name:\" prefix in any script, but not a time or a link"
+    (let [first-segment #(first (:segments (transcript/parse % "text/plain")))]
+      (is (= [["Åse" "Hej."] ["Ольга" "Привет."] ["Σωκράτης" "Γεια σου."]
+              [nil "10:30: Coffee."] [nil "https://example.com is the site."]]
+             (map (comp (juxt :speaker :body) first-segment)
+                  ["Åse: Hej." "[Ольга]: Привет." "Σωκράτης: Γεια σου."
+                   "10:30: Coffee." "https://example.com is the site."])))))
+  (testing "a sound cue is a body in brackets and nothing else"
+    (is (= [true true true false false false]
+           (map #(transcript/sound-cue? {:body %})
+                ["[laughter]" "(music)" " [Musik] " "[laughs] Right." "(1) First." nil])))
+    (is (transcript/sound-cue? {:speaker "Ann" :body "[laughter]"})
+        "with the speaker a caption file carries over"))
   (testing "word-level segments merge into turns"
     (let [t (transcript/turns {:format :json
                                :segments [{:start-time 0.08 :end-time 0.16 :speaker "Jordan" :body "All"}

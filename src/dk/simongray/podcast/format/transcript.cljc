@@ -332,6 +332,17 @@
                     (comp (partition-by :speaker) (mapcat merged))
                     segments)))))
 
+(defn sound-cue?
+  "Whether `segment` is a sound cue: its whole body in square or round
+  brackets, e.g. [laughter] or (music).
+
+  A sound cue may have a speaker, since a caption file's speaker carries
+  over the cues that follow."
+  [segment]
+  (boolean (some->> (:body segment)
+                    str/trim
+                    (re-matches #"\[[^\[\]]+\]|\([^()]+\)"))))
+
 ;; WAI, Transcripts: put the text in paragraphs and name who speaks
 ;; https://www.w3.org/WAI/media/av/transcripts/
 (defn paragraphs
