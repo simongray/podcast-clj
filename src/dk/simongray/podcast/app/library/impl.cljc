@@ -183,6 +183,17 @@
                              (resolve/distinct-items (:rss/items feed))))))
       (with-meta documents {:repeated repeated}))))
 
+;; HTML, section 8.1.7.3: a timeout's callback is a task of its own, after
+;; those queued meanwhile, e.g. a message to a web worker, while promise
+;; callbacks run before them
+;; https://html.spec.whatwg.org/multipage/webappapis.html#event-loop-processing-model
+(defn yielded
+  "A promise in ClojureScript that resolves in a task after those queued
+  now, or nil on the JVM, where no task waits for another."
+  []
+  #?(:clj  nil
+     :cljs (js/Promise. (fn [resolve] (js/setTimeout resolve 0)))))
+
 (defn built-documents
   "The search documents of the feed of the feeds `entry` under the key
   `feed-guid`, as library/with-search-documents gives them, e.g. for a

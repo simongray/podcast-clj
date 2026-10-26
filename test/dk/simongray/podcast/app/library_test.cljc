@@ -1929,6 +1929,33 @@
                           (is (= 2 (count (library/found-parts f 100)))
                               "or one part of the feeds that changed, when they're few episodes")))))))
 
+#?(:cljs
+   (deftest a-message-between-the-feeds-of-a-refresh
+     (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) (str "The future, part " i ".")]))
+           url      #(str "https://example.com/" % ".xml")
+           lib      (-> (made)
+                        (library/subscribe (url coffee) (show-of coffee "Coffee Talk" "en" (episodes 2)) {:at now})
+                        (library/subscribe (url brew) (show-of brew "Brew" "en" (episodes 3)) {:at now}))
+           s        (store/memory)
+           newer    {(url coffee) (show-of coffee "Coffee Talk" "en" (episodes 4))
+                     (url brew)   (show-of brew "Brew" "en" (episodes 5))}
+           fetch    (fn [u _] {:status 200 :url u :feed (get newer u)})
+           steps    (atom [])
+           build    library.impl/built-documents]
+       (run #(library/write! lib s (assoc in-transit :if-version nil))
+            #(set! library.impl/built-documents
+                   (fn [& args]
+                     ;; a message that arrives as the first feed's documents are built
+                     (when (empty? @steps)
+                       (js/setTimeout (fn [] (swap! steps conj :message)) 0))
+                     (swap! steps conj :built)
+                     (apply build args)))
+            #(-> (library/fetch-due! (library/due lib {:at (at 86400)}) s (assoc in-transit :fetch fetch))
+                 (.then (fn [_]
+                          (is (= [:built :message :built] @steps)
+                              "is handled before the next feed's documents are built")))
+                 (.finally (fn [] (set! library.impl/built-documents build))))))))
+
 (defn- zebras
   "What a refresh `found`, with notes of the first episode of the feed
   `feed-guid` in its search documents that the feed doesn't have."

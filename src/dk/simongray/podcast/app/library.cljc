@@ -703,7 +703,9 @@
   rather than building them where the library is, e.g. in a page while
   the refresh ran in a web worker. They're under the key that refreshed
   gives the feed: its own for a feed that the library had, and else the
-  guid that the feed gives itself."
+  guid that the feed gives itself. In ClojureScript, each feed's are
+  built in a task of its own, so that a message to a web worker waits
+  for one feed at most."
   ([due store]
    (fetch-due! due store {}))
   ([{:keys [at feed-guids feeds lists] :as due} store opts]
@@ -749,33 +751,43 @@
                                        :when (not= name (get-in from [feed-guid :document]))]
                                    [feed-guid name]))
                  ;; a first fetch moves a feed to the guid it gives itself
-                 built     (into {}
-                                 (for [feed-guid (keys named)
-                                       :let [entry (get fetched feed-guid)
-                                             k     (if (get-in loaded [feed-guid :feed])
-                                                     feed-guid
-                                                     (or (:guid entry) feed-guid))]]
-                                   [feed-guid (impl/built-documents entry k)]))
-                 documents (into {}
-                                 (for [[feed-guid name] named]
-                                   [name (impl/feed-body (assoc (get fetched feed-guid) :repeated
-                                                                (get-in built [feed-guid :repeated]))
-                                                         codec)]))]
+                 key-of    (fn [feed-guid]
+                             (if (get-in loaded [feed-guid :feed])
+                               feed-guid
+                               (or (:guid (get fetched feed-guid)) feed-guid)))
+                 ;; each feed in a task of its own, since a long feed's
+                 ;; documents take a while, so that a message to a web
+                 ;; worker, e.g. a listener's, waits for one feed at most
+                 prepared  (fn [[feed-guid name]]
+                             (async/then
+                              (impl/yielded)
+                              (fn [_]
+                                (let [entry (get fetched feed-guid)
+                                      built (impl/built-documents entry (key-of feed-guid))]
+                                  {:feed-guid feed-guid
+                                   :built     built
+                                   :name      name
+                                   :body      (impl/feed-body (assoc entry :repeated (:repeated built))
+                                                              codec)}))))]
              (async/then
-              (store/put-all! store (for [[name body] documents]
-                                      {:name name :body body}))
-              (fn [_]
-                {:at        at
-                 :from      from
-                 :feeds     (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
-                 :documents documents
-                 :search-documents built
-                 :changed   (:changed step)
-                 :moved     (:moved step)
-                 :lists     lists
-                 :counts    (impl/counted step)
-                 :seconds   (/ (- (inst-ms (clock)) (inst-ms started)) 1000.0)
-                 :report    (into report (:report step))}))))))))))
+              (async/in-groups prepared 1 named)
+              (fn [made]
+                (let [documents (into {} (map (juxt :name :body)) made)]
+                  (async/then
+                   (store/put-all! store (for [[name body] documents]
+                                           {:name name :body body}))
+                   (fn [_]
+                     {:at        at
+                      :from      from
+                      :feeds     (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
+                      :documents documents
+                      :search-documents (into {} (map (juxt :feed-guid :built)) made)
+                      :changed   (:changed step)
+                      :moved     (:moved step)
+                      :lists     lists
+                      :counts    (impl/counted step)
+                      :seconds   (/ (- (inst-ms (clock)) (inst-ms started)) 1000.0)
+                      :report    (into report (:report step))})))))))))))))
 
 (defn refreshed
   "The `library` with what a refresh `found`, as fetch-due! gives it,
