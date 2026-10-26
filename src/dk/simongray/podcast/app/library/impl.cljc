@@ -1350,13 +1350,15 @@
 (defn with-index
   "The `library` and its `report`, a pair, with the search index read from
   the :value of the `attempt` to fetch the documents of its store, or built
-  from its feeds, with :library/index-rebuilt when they don't read."
+  from its feeds, with :library/index-rebuilt when they don't read. The
+  segments that the index of `library` holds already, which the documents
+  can leave out, are taken from it."
   [[library report] {:keys [value error] :as attempt}]
   (let [read (cond
                error         {:error error}
                (empty? value) {:error nil}
                :else         (try
-                               {:index (ciff/read-files value)}
+                               {:index (ciff/read-files value {:held (:index library)})}
                                (catch #?(:clj Exception :cljs :default) e
                                  {:error e})))]
     (cond

@@ -1731,6 +1731,29 @@
           "a feed held in memory with the same document stays as it is")
       (is (identical? (:index library) (:index again)) "and so does the index"))))
 
+(deftest a-catch-up-with-another-tab
+  (let [s       (store/memory)
+        fetched (atom [])
+        reading (update s :fetch (fn [f] (fn [name opts] (swap! fetched conj name) (f name opts))))
+        held    (atom nil)
+        brewed  (show-of brew "Brew" "en" [["Pour-over" "The future of the cone."]])]
+    (run #(library/save! transit-library s in-transit)
+         #(async/then (library/read! (made) s in-transit) (fn [{lib :library}] (reset! held lib)))
+         ;; another tab subscribes to a show
+         #(async/then (library/read! (made) s in-transit)
+                      (fn [{lib :library version :version}]
+                        (library/write! (library/subscribe lib (str "https://example.com/" brew ".xml") brewed {:at now})
+                                        s (assoc in-transit :if-version version :before lib))))
+         #(async/then (library/read! @held reading in-transit)
+                      (fn [{lib :library}]
+                        (is (= 1 (count (filter (fn [name] (str/starts-with? name "segment-")) @fetched)))
+                            "reads the segment of the new show, and holds the others")
+                        (async/then (library/read! (made) s in-transit)
+                                    (fn [{whole :library}]
+                                      (is (= 2 (count (found-ids lib))))
+                                      (is (= (found-ids whole) (found-ids lib))
+                                          "and finds what a read of the whole index finds"))))))))
+
 (deftest a-library-written-and-read
   (let [documents (atom {})
         s         (store/memory documents)

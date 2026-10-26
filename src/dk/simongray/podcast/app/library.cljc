@@ -2180,8 +2180,8 @@
   "The names of the documents that from-saved reads for `library` from the
   `saved` map of its own document, and that `docs`, a map of names to
   bodies, lack: those of the feeds that `library` doesn't hold in memory as
-  they are, and those of the search index, unless its manifest is the one
-  of the index of `library`."
+  they are, and those of the segments of the search index that the index
+  of `library` doesn't hold, unless its manifest is the one of that index."
   [library saved docs]
   (let [naming (impl/naming library)
         same?  (fn [feed-guid document]
@@ -2197,8 +2197,11 @@
                      (nil? manifest)
                      [ciff/manifest-name]
 
+                     ;; e.g. after another tab's subscription, whose
+                     ;; segments are new, while the others are held
                      (not= manifest (impl/manifest index))
-                     (impl/manifest-segments manifest))))]
+                     (remove (set (ciff/reusable manifest index))
+                             (impl/manifest-segments manifest)))))]
     (vec (remove #(contains? docs %) (concat feeds index)))))
 
 (defn- from-saved
