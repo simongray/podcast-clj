@@ -37,7 +37,8 @@
   notes of the channel and of each item, e.g. to keep it in less memory.
   A feed with no other notes is given back as it is, the same value."
   [feed]
-  (let [extra? (fn [x] (< 1 (count (filter #(get x %) description-keys))))
+  (let [extra? (fn [x]
+                 (< 1 (reduce (fn [n k] (cond-> n (get x k) inc)) 0 description-keys)))
         only   (fn [x]
                  (if-let [k (some #(when (get x %) %) description-keys)]
                    (apply dissoc x (remove #{k} description-keys))

@@ -1194,10 +1194,15 @@
              (assoc :episodes (criteria/episodes feed {:profile profile
                                                        :url     url})))))))))
 
-;; A feed that a refresh brings anew is lean when its fetch leaned it, but
-;; one whose server answers 304 keeps its document as it was. Its new
-;; :changed-at names a new document, which the next write puts, deleting
-;; the one before.
+;; A library whose :fetch leans each feed still holds the feeds from before
+;; as they were, and a feed whose server answers 304 too, since only a feed
+;; that changes is written again. A feed's document is named by its
+;; :changed-at, so a feed leaned in memory alone would never be written:
+;; the store holds a document of that name already. A new :changed-at
+;; names a new document, which the next write puts, deleting the one that
+;; its :before names. The episodes stay as they were, since lean drops only
+;; the notes that description doesn't read, so :changed-at here says when
+;; the kept copy changed, not the host's feed.
 (defn leaned
   "The `library` with the feed of each entry that it holds in memory as
   resolve/lean gives it, changed at the instant `at` where that drops
