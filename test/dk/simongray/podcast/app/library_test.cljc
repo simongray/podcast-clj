@@ -20,6 +20,7 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.local :as local]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.opml :as opml]
@@ -686,6 +687,57 @@
                        (is (= 3 (count report)) "the list, the new subscription and the due feed")
                        (is (= show (get-in lib' [:feeds guid :feed])))
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
+
+(defn shows-by-items
+  "The shows of `library` as shows made them before it kept each feed's
+  part: with the status of every episode from its entry."
+  [library]
+  (let [profile (:profile library)
+        inbox   (frequencies (map first (profile.queue/inbox profile)))
+        queued  (frequencies (map first (profile.queue/queue profile)))
+        status  #(profile/status (profile/episode-entry profile [%1 (feed.guid/item-guid %2)]))]
+    (vec (for [feed-guid (profile/shows profile)
+               :let [entry    (get-in library [:feeds feed-guid])
+                     feed     (some-> entry library.impl/marked)
+                     items    (some-> feed :rss/items resolve/distinct-items)
+                     statuses (frequencies (map #(status feed-guid %) items))
+                     dates    (seq (keep resolve/published items))
+                     title    (profile/title profile feed-guid)
+                     artwork  (or (some-> feed resolve/artwork)
+                                  (get-in profile [:subscriptions feed-guid :image]))]]
+           (cond-> {:feed-guid feed-guid
+                    :counts    (cond-> {:inbox  (get inbox feed-guid 0)
+                                        :queued (get queued feed-guid 0)}
+                                 feed (assoc :episodes    (count items)
+                                             :unplayed    (get statuses :unplayed 0)
+                                             :in-progress (get statuses :in-progress 0)
+                                             :played      (get statuses :played 0)))}
+             title                          (assoc :title title)
+             artwork                        (assoc :artwork artwork)
+             dates                          (assoc :newest (apply max-key inst-ms dates))
+             (library.impl/unloaded? entry) (assoc :unloaded? true))))))
+
+(deftest a-screen-of-shows-counted-as-each-episode-would-be
+  (let [ep    #(vector guid (str "https://example.com/ep000" %))
+        lib   (-> (library/subscribe library other-url {:status 200 :url other-url :feed other})
+                  (library/update-profile profile/mark-played (ep 1))
+                  (library/update-profile profile/progress (ep 2) 60 3600)
+                  (update :profile assoc-in [:archive guid "phone"]
+                          {:items #{"https://example.com/ep0003"} :n 1}))
+        same? #(= (shows-by-items %) (library/shows %))]
+    (is (= {:episodes 3 :unplayed 0 :in-progress 1 :played 2 :inbox 0 :queued 0}
+           (:counts (first (filter #(= guid (:feed-guid %)) (library/shows lib)))))
+        "a played episode, a started one and one that the archive holds")
+    (is (same? lib))
+    (is (same? (library/update-profile lib profile/forget (ep 3)))
+        "and a forgotten one, which its archive no longer makes played")
+    (is (same? (library/update-profile lib profile/progress (ep 2) 120 3600))
+        "after a change of the profile alone, with each feed's part as it was")
+    (is (same? (update-in lib [:feeds guid :feed :rss/items] (comp vec rest)))
+        "and after a change of a feed, whose part is made again")
+    (is (same? (update-in lib [:feeds guid :feed :rss/items] into
+                          [{:rss/title "No guid"} {:rss/title "Nor this"}]))
+        "with items that have no guid, which all stay")))
 
 (deftest a-screen-of-shows-and-the-choices-of-a-show
   (let [other-guid "0e7e9f35-8c4e-5b1a-9d2f-3c4b5a6d7e8f"

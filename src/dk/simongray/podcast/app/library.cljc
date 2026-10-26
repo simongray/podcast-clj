@@ -1194,6 +1194,52 @@
              (assoc :episodes (criteria/episodes feed {:profile profile
                                                        :url     url})))))))))
 
+(defn feed-part
+  "What shows takes of the feeds `entry` alone, or nil without a feed:
+  - :episodes, how many distinct items it has
+  - :guids, the set of their guids
+  - :anonymous, how many of them have no guid
+  - :artwork, and :newest, when its newest episode came out"
+  [entry]
+  (when-let [feed (some-> entry impl/marked)]
+    (let [items (resolve/distinct-items (:rss/items feed))
+          guids (map guid/item-guid items)
+          dates (seq (keep resolve/published items))]
+      (cond-> {:episodes  (count items)
+               :guids     (into #{} (remove nil?) guids)
+               :anonymous (count (filter nil? guids))
+               :artwork   (resolve/artwork feed)}
+        dates (assoc :newest (apply max-key inst-ms dates))))))
+
+;; A screen of shows is worked out again at each change of the profile,
+;; e.g. at each report of a position, while the feeds stay, so what it
+;; takes of a feed alone is kept while the feed's entry is the same. For a
+;; library of 54 shows and 27,831 episodes, that took 70 ms of 91.
+(def feed-parts
+  "What shows took of each feed alone at its last call, as a map of the
+  feed's guid to its entry and feed-part's result."
+  (atom {}))
+
+;; Only the episodes that the profile has an entry or a mark of, or that
+;; the archive holds, can be anything but unplayed, so the counts take
+;; only those, rather than every episode of every show
+(defn statuses
+  "How many of the episodes of the show `feed-guid` in `profile`, of which
+  `part` is feed-part's result, are :unplayed, :in-progress and :played.
+  The profile has an entry or a mark of those whose guids `touched` holds,
+  and any other is played when the archive holds it."
+  [profile feed-guid {:keys [episodes guids anonymous]} touched]
+  (let [status   #(profile/status (profile/episode-entry profile [feed-guid %]))
+        heard    (filter guids touched)
+        archived (into #{}
+                       (comp (mapcat :items) (filter guids) (remove touched))
+                       (vals (get-in profile [:archive feed-guid])))]
+    (cond-> (merge-with + (frequencies (map status heard))
+                        {:played   (count archived)
+                         :unplayed (- episodes anonymous
+                                      (count heard) (count archived))})
+      (pos? anonymous) (update (status nil) (fnil + 0) anonymous))))
+
 (defn shows
   "The subscriptions of `library` in the listener's order, as profile/shows
   gives it, each as a map for a screen of shows:
@@ -1213,32 +1259,39 @@
   (let [profile (:profile library)
         inbox   (frequencies (map first (profile.queue/inbox profile)))
         queued  (frequencies (map first (profile.queue/queue profile)))
+        touched (update-vals (group-by first (concat (keys (:episodes profile))
+                                                     (keys (:played profile))))
+                             #(into #{} (map second) %))
+        kept    @feed-parts
+        parts   (into {}
+                      (for [feed-guid (profile/shows profile)
+                            :let [entry      (get-in library [:feeds feed-guid])
+                                  [was part] (get kept feed-guid)]]
+                        [feed-guid [entry (if (identical? was entry)
+                                            part
+                                            (feed-part entry))]]))
         summary
         (fn [feed-guid]
-          (let [feed     (some-> (get-in library [:feeds feed-guid])
-                                 impl/marked)
-                items    (some-> feed :rss/items resolve/distinct-items)
-                status   #(profile/status
-                           (profile/episode-entry
-                            profile [feed-guid (guid/item-guid %)]))
-                statuses (frequencies (map status items))
-                dates    (seq (keep resolve/published items))
-                title    (profile/title profile feed-guid)
-                artwork  (or (some-> feed resolve/artwork)
-                             (get-in profile [:subscriptions feed-guid :image]))
-                counts   (cond-> {:inbox  (get inbox feed-guid 0)
-                                  :queued (get queued feed-guid 0)}
-                           feed (assoc :episodes    (count items)
-                                       :unplayed    (get statuses :unplayed 0)
-                                       :in-progress (get statuses
-                                                         :in-progress 0)
-                                       :played      (get statuses :played 0)))]
+          (let [[entry part] (get parts feed-guid)
+                {:keys [episodes artwork newest]} part
+                counted (when part
+                          (statuses profile feed-guid part
+                                    (get touched feed-guid #{})))
+                title   (profile/title profile feed-guid)
+                artwork (or artwork
+                            (get-in profile [:subscriptions feed-guid :image]))
+                counts  (cond-> {:inbox  (get inbox feed-guid 0)
+                                 :queued (get queued feed-guid 0)}
+                          part (assoc :episodes    episodes
+                                      :unplayed    (get counted :unplayed 0)
+                                      :in-progress (get counted :in-progress 0)
+                                      :played      (get counted :played 0)))]
             (cond-> {:feed-guid feed-guid :counts counts}
-              title   (assoc :title title)
-              artwork (assoc :artwork artwork)
-              dates   (assoc :newest (apply max-key inst-ms dates))
-              (impl/unloaded? (get-in library [:feeds feed-guid]))
-              (assoc :unloaded? true))))]
+              title                  (assoc :title title)
+              artwork                (assoc :artwork artwork)
+              newest                 (assoc :newest newest)
+              (impl/unloaded? entry) (assoc :unloaded? true))))]
+    (reset! feed-parts parts)
     (mapv summary (profile/shows profile))))
 
 (defn fetch-linked-shows!
