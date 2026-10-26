@@ -227,17 +227,38 @@
     "clean"                false
     nil))
 
+;; Apple's image CDN serves an artwork at any size that its path names, and
+;; as WebP: for one artwork, 4 kB at 64 px and 23 kB at 512 against 83 kB
+;; for the JPEG at 600 (measured 2026-10-26). It's how the CDN behaves
+;; rather than a documented API.
+;; https://feeding.cloud.geek.nz/posts/extracting-album-covers-from-the-itunes-store/
+;; https://bendodson.com/weblog/2013/02/19/itunes-artwork-finder
+(defn- apple-sizes
+  "The sizes of Apple's artwork as hrefs by width: the 100 and 600 pixels
+  that the result gives as `artworkUrl100` and `artworkUrl600`, and WebP
+  sizes beside them when the URL of 600 names its size in its path."
+  [artworkUrl100 artworkUrl600]
+  (let [suffix "/600x600bb.jpg"
+        base   (when (some-> artworkUrl600 (str/ends-with? suffix))
+                 (subs artworkUrl600 0 (- (count artworkUrl600) (dec (count suffix)))))]
+    (into (sorted-map)
+          (concat (keep (fn [[href width]] (when href [width href]))
+                        [[artworkUrl100 100] [artworkUrl600 600]])
+                  (when base
+                    (for [width [64 128 256 512]]
+                      [width (str base width "x" width "bb.webp")]))))))
+
 (defn- apple-show
   "The show of the result `r` of a search or lookup at Apple. Apple gives
-  the artwork at 100 and at 600 pixels, which become podcast:images with
-  their widths, so that an app can load the size that fits."
+  the artwork at 100 and at 600 pixels, and its CDN serves other sizes,
+  which become podcast:images with their widths, so that an app can load
+  the size that fits."
   [{:strs [collectionId collectionName artistName feedUrl artworkUrl600
            artworkUrl100 collectionViewUrl genres releaseDate trackCount
            contentAdvisoryRating]
     :as   r}]
   (let [artwork    (or artworkUrl600 artworkUrl100)
-        sizes      (for [[href width] [[artworkUrl100 100] [artworkUrl600 600]]
-                         :when href]
+        sizes      (for [[width href] (apple-sizes artworkUrl100 artworkUrl600)]
                      {:href href :width width :height width :purpose "artwork"})
         explicit   (apple-explicit contentAdvisoryRating)
         categories (for [g genres :when (not= "Podcasts" g)] {:text g})

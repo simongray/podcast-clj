@@ -271,8 +271,21 @@
       (is (false? (:itunes/explicit show)))
       (is (inst? (:rss/pub-date show)))
       (is (str/starts-with? (:href (:itunes/image show)) "https://is1-ssl.mzstatic.com/"))
-      (is (= [100 600] (map :width (resolve/artwork-sizes show))) "the sizes of the artwork that Apple gives")
+      (is (= [64 100 128 256 512 600] (map :width (resolve/artwork-sizes show)))
+          "the sizes of the artwork that Apple gives, and those that its CDN serves")
+      (is (= (str "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/82/4b/e0/824be0d0-5c5a-6eb9-e0a3-cdb6ba2d16dc/"
+                  "mza_1841916608920311766.jpg/64x64bb.webp")
+             (:href (first (resolve/artwork-sizes show))))
+          "as WebP")
       (is (= (:href (:itunes/image show)) (resolve/artwork show)) "and the largest is the artwork")
+      (is (= [600] (->> (str "{\"resultCount\":1,\"results\":[{\"kind\":\"podcast\",\"collectionId\":1,\"collectionName\":\"A\","
+                             "\"feedUrl\":\"https://example.com/feed.xml\","
+                             "\"artworkUrl600\":\"https://example.com/artwork.jpg\"}]}")
+                        (directory/response :apple :search)
+                        first
+                        :podcast/images
+                        (map :width)))
+          "but only Apple's own for an artwork whose URL doesn't name its size")
       (is (= {:directory/source :apple :directory/id "1875035030" :directory/episode-count 10}
              (select-keys show [:directory/source :directory/id :directory/episode-count])))
       (is (str/starts-with? (:directory/url show) "https://podcasts.apple.com/"))
