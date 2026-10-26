@@ -678,6 +678,7 @@
        :from      {feed-guid {:document \"…\" :fetched-at #inst \"…\"}}
        :feeds     {feed-guid {…}}       ; the entries of the feeds fetched
        :documents {\"feed-….edn\" \"…\"}  ; of the feeds that changed
+       :search-documents {feed-guid {:url \"…\" :documents […] :repeated #{…}}}
        :changed   [feed-guid …] :moved {feed-guid \"https://…\"}
        :lists     [[url fetched] …]
        :counts    {…} :seconds 4.2 :report [...]}
@@ -686,7 +687,14 @@
   of due do, and a feed that failed keeps its failures. The documents hold
   each feed as it was fetched, with the runs of words that its show
   repeats now, before the cuts of the library's :keep-fn, :max-items and
-  remote items, which refreshed makes."
+  remote items, which refreshed makes.
+
+  The search documents of each feed that changed are built here, as
+  with-search-documents builds them, so that refreshed indexes them
+  rather than building them where the library is, e.g. in a page while
+  the refresh ran in a web worker. They're under the key that refreshed
+  gives the feed: its own for a feed that the library had, and else the
+  guid that the feed gives itself."
   ([due store]
    (fetch-due! due store {}))
   ([{:keys [at feed-guids feeds lists] :as due} store opts]
@@ -722,16 +730,28 @@
            (let [fetched   (into {}
                                  (for [feed-guid (:checked step)]
                                    [feed-guid (get-in step [:feeds feed-guid])]))
-                 documents (into {}
+                 named     (into {}
                                  (for [[feed-guid entry] fetched
                                        :when (:feed entry)
                                        :let  [name (impl/entry-document feed-guid entry codec)]
-                                       :when (not= name (get-in from [feed-guid :document]))
                                        ;; those of the document it was due with are
                                        ;; of the feed before, and the store keeps
                                        ;; this document as it's put
-                                       :let  [runs (feed.search/repeated-runs (:feed entry))]]
-                                   [name (impl/feed-body (assoc entry :repeated runs) codec)]))]
+                                       :when (not= name (get-in from [feed-guid :document]))]
+                                   [feed-guid name]))
+                 ;; a first fetch moves a feed to the guid it gives itself
+                 built     (into {}
+                                 (for [feed-guid (keys named)
+                                       :let [entry (get fetched feed-guid)
+                                             k     (if (get-in loaded [feed-guid :feed])
+                                                     feed-guid
+                                                     (or (:guid entry) feed-guid))]]
+                                   [feed-guid (impl/built-documents entry k)]))
+                 documents (into {}
+                                 (for [[feed-guid name] named]
+                                   [name (impl/feed-body (assoc (get fetched feed-guid) :repeated
+                                                                (get-in built [feed-guid :repeated]))
+                                                         codec)]))]
              (async/then
               (store/put-all! store (for [[name body] documents]
                                       {:name name :body body}))
@@ -740,6 +760,7 @@
                  :from      from
                  :feeds     (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
                  :documents documents
+                 :search-documents built
                  :changed   (:changed step)
                  :moved     (:moved step)
                  :lists     lists
@@ -757,10 +778,12 @@
   feed that changed meanwhile, e.g. by a subscription in another tab,
   stays as it is, and so does a list that the listener no longer follows.
   The feeds that changed are read from the documents that `found` holds,
-  with the :codec of `opts`."
+  with the :codec of `opts`, and indexed from its search documents where
+  they're those of the feed that the library keeps."
   ([library found]
    (refreshed library found {}))
-  ([library {:keys [at from feeds documents changed moved lists counts seconds report]
+  ([library {:keys [at from feeds documents search-documents changed moved lists counts
+                    seconds report]
              :as   found}
     opts]
    {:pre [(map? opts)]}
@@ -804,9 +827,10 @@
                                  [(:library listed) (:report listed)])
          {lib :library :as done}
          (impl/applied listed
-                       {:feeds   (clojure.core/merge (:feeds listed) taken)
-                        :changed (filterv taken changed)
-                        :moved   (select-keys moved (keys taken))}
+                       {:feeds            (clojure.core/merge (:feeds listed) taken)
+                        :changed          (filterv taken changed)
+                        :moved            (select-keys moved (keys taken))
+                        :search-documents search-documents}
                        at
                        opts)]
      (-> {:library lib :at at}

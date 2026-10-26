@@ -1881,6 +1881,53 @@
                           (is (= runs (:repeated (transit/read-str body)))
                               "the document of the feed holds the runs of the feed it holds")))))))
 
+(defn- zebras
+  "What a refresh `found`, with notes of the first episode of the feed
+  `feed-guid` in its search documents that the feed doesn't have."
+  [found feed-guid]
+  (assoc-in found [:search-documents feed-guid :documents 1 :fields :description]
+            "Zebras on the savanna."))
+
+(defn- zebras?
+  "Whether a search of `lib` finds the notes that zebras puts in."
+  [lib]
+  (boolean (seq (library/search lib "zebras"))))
+
+(deftest the-search-documents-of-a-refresh-in-parts
+  (let [s     (store/memory)
+        later (at 86400)
+        opts  (assoc in-transit :at later)
+        fetch (fn [u _] {:status 200 :url u :feed newer :etag "\"v2\""})]
+    (run #(library/write! transit-library s (assoc in-transit :if-version nil))
+         #(async/then (library/fetch-due! (library/due transit-library {:at later}) s
+                                          (assoc in-transit :fetch fetch))
+                      (fn [found]
+                        (let [built (library/refreshed transit-library found opts)
+                              plain (library/refreshed transit-library (dissoc found :search-documents) opts)]
+                          (is (= [guid] (keys (:search-documents found))) "of the feed that changed")
+                          (is (= (:library plain) (:library built)) "which index as if built where the library is")
+                          (is (zebras? (:library (library/refreshed transit-library (zebras found guid) opts)))
+                              "and aren't built again")
+                          (is (not (zebras? (:library (library/refreshed (library/unsubscribe transit-library guid)
+                                                                         (zebras found guid) opts))))
+                              "but for a feed that's no longer a subscription")))))))
+
+(deftest the-search-documents-of-a-first-fetch-in-parts
+  (let [s     (store/memory)
+        lib   (library/subscribe (made) other-url)
+        of    (feed.guid/feed-guid nil other-url)
+        opts  (assoc in-transit :at now)
+        fetch (fn [u _] {:status 200 :url u :feed other})]
+    (run #(async/then (library/fetch-due! (library/due lib {:at now}) s (assoc in-transit :fetch fetch))
+                      (fn [found]
+                        (let [built (library/refreshed lib found opts)
+                              plain (library/refreshed lib (dissoc found :search-documents) opts)]
+                          (is (contains? (get-in built [:library :feeds]) (:podcast/guid other))
+                              "a feed that moves to the guid it gives itself")
+                          (is (= (:library plain) (:library built)))
+                          (is (zebras? (:library (library/refreshed lib (zebras found of) opts)))
+                              "under which they're built")))))))
+
 (deftest a-first-fetch-that-failed-in-parts
   (let [s     (store/memory)
         lib   (library/subscribe (made) other-url)

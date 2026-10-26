@@ -465,13 +465,15 @@ To let the listener cancel it, give it a `:signal`: an AbortSignal in
 ClojureScript, or an atom that you set to true on the JVM. The feeds that
 it stops or keeps from starting stay due, with no failure counted.
 
-In a web page, parsing the feeds that changed can hold up the page for a
-moment, so fetch them in a web worker. The refresh comes in parts for
-that: `library/due` says on the page what's due, `library/fetch-due!`
-fetches it in the worker, puts the documents of the feeds that changed
-into the library's store and returns what it found as data, and
-`library/refreshed` applies that to the library on the page. Write the
-library first, so that the worker finds the documents of its feeds:
+In a web page, parsing the feeds that changed and reading the HTML of
+their notes for search can hold up the page for a moment, so fetch them
+in a web worker. The refresh comes in parts for that: `library/due` says
+on the page what's due, `library/fetch-due!` fetches it in the worker,
+puts the documents of the feeds that changed into the library's store,
+builds their search documents and returns what it found as data, and
+`library/refreshed` applies that to the library on the page and indexes
+those search documents. Write the library first, so that the worker
+finds the documents of its feeds:
 
 ```clojure
 ;; on the page, which sends due to the worker

@@ -183,6 +183,15 @@
                              (resolve/distinct-items (:rss/items feed))))))
       (with-meta documents {:repeated repeated}))))
 
+(defn built-documents
+  "The search documents of the feed of the feeds `entry` under the key
+  `feed-guid`, as library/with-search-documents gives them, e.g. for a
+  refresh to build where it fetched the feed."
+  [entry feed-guid]
+  (let [url  (:url entry)
+        docs (feed.search/feed-documents (guid/with-key (marked entry) feed-guid) url)]
+    {:url url :documents (vec docs) :repeated (:repeated (meta docs))}))
+
 (defn reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index, and the runs of words that its show repeats in the entry of its
@@ -507,7 +516,8 @@
 
 (defn- first-fetched
   "The accumulator `acc` of a refresh with the feed of the new subscription
-  `feed-guid`, fetched at `at` and cut down as the `opts` say.
+  `feed-guid`, fetched at `at`, indexed from the search documents `built`
+  if they're its own and cut down as the `opts` say.
 
   A subscription that no device settled yet, one without a :guid, moves to
   the guid that its feed gives itself, with its settings and tags, and one
@@ -515,7 +525,7 @@
   subscription notes the guid of its feed, and gets the title of the feed
   when it has none. A feed that would take another subscription over is
   left out with a report, and fetched next time."
-  [acc feed-guid at opts]
+  [acc feed-guid at opts built]
   (let [library (:library acc)
         sub     (get (profile/subscriptions (:profile library)) feed-guid)
         entry   (get-in library [:feeds feed-guid])
@@ -538,7 +548,7 @@
           (cond-> (or (not (:title sub))
                       (and (:image details) (not (:image sub))))
             (update-in [:library :profile] profile/relocate target details))
-          (update :library settled target opts)
+          (update :library settled target opts built)
           (assoc-in [:guids feed-guid] target)))))
 
 (defn- join-pred
@@ -566,14 +576,19 @@
   episodes aren't new ones, and neither are those of a feed of remote
   items. A feed that's still not fetched is left out, and fetched next
   time, but for one whose fetch failed, which keeps its failures and when
-  it's due again. A feed that isn't loaded stays in its document."
-  [library {:keys [feeds changed moved] :as result} at opts]
+  it's due again. A feed that isn't loaded stays in its document.
+
+  The `result` may hold the :search-documents of the feeds that changed,
+  by feed guid, as built-documents gives them, which are indexed rather
+  than built again where they're the feed's own."
+  [library {:keys [feeds changed moved search-documents] :as result} at opts]
   (let [before   (:feeds library)
         kept?    #(or (:feed %) (unloaded? %) (:failures %))
         library  (assoc library :feeds (into {} (filter (comp kept? val))
                                              feeds))
         noted    (fn [acc feed-guid]
-                   (update acc :library settled feed-guid opts))
+                   (update acc :library settled feed-guid opts
+                           (get search-documents feed-guid)))
         fresh    (fn [acc feed-guid]
                    (let [{:keys [feed url]} (get feeds feed-guid)
                          old-feed (get-in before [feed-guid :feed])
@@ -599,7 +614,8 @@
                              (update :renamed into renamed)))
 
                        :else
-                       (first-fetched acc feed-guid at opts))))
+                       (first-fetched acc feed-guid at opts
+                                      (get search-documents feed-guid)))))
         relocate (fn [acc [feed-guid new-url]]
                    (let [now-guid (get-in acc [:guids feed-guid] feed-guid)
                          parsed   (get-in feeds [feed-guid :feed])
