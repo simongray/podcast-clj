@@ -19,14 +19,29 @@
   (or (:rss/title x)
       (:itunes/title x)))
 
+(def description-keys
+  "The keys of the fields that description reads, the first that a channel
+  or an item has winning."
+  [:content/encoded :rss/description :itunes/summary :googleplay/description])
+
 (defn description
   "The fullest description of `x`, HTML allowed: content:encoded, then the
   RSS description, then the summary of iTunes or Google Play."
   [x]
-  (or (:content/encoded x)
-      (:rss/description x)
-      (:itunes/summary x)
-      (:googleplay/description x)))
+  (some #(get x %) description-keys))
+
+;; Hosts often fill all of these with the same notes, e.g. a third of the
+;; text of a library's feeds is in fields that description never reads
+(defn lean
+  "The parsed `feed` with only the field that description reads of the
+  notes of the channel and of each item, e.g. to keep it in less memory."
+  [feed]
+  (let [only (fn [x]
+               (if-let [k (some #(when (get x %) %) description-keys)]
+                 (apply dissoc x (remove #{k} description-keys))
+                 x))]
+    (cond-> (only feed)
+      (:rss/items feed) (update :rss/items #(mapv only %)))))
 
 (defn author
   "Who made `x`, with the name picked out of an \"address (Name)\" field.

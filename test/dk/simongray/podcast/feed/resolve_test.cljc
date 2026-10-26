@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
@@ -13,6 +14,27 @@
   (is (= "B" (resolve/title {:itunes/title "B"})))
   (is (= "<p>full</p>" (resolve/description {:content/encoded "<p>full</p>" :rss/description "short"})))
   (is (= "short" (resolve/description {:rss/description "short" :itunes/summary "s"})))
+  (is (nil? (resolve/description nil)))
+  (testing "a feed with only the notes that description reads"
+    (let [feed {:rss/description "show"
+                :itunes/summary  "show"
+                :rss/items       [{:content/encoded "<p>full</p>" :rss/description "short" :itunes/summary "s"}
+                                  {:content/encoded "" :rss/description "short"}
+                                  {:googleplay/description "g"}
+                                  {:rss/title "none"}]}
+          lean (resolve/lean feed)]
+      (is (= {:rss/description "show"} (dissoc lean :rss/items)))
+      (is (= [{:content/encoded "<p>full</p>"} {:content/encoded ""} {:googleplay/description "g"} {:rss/title "none"}]
+             (:rss/items lean))
+          "an empty content:encoded too, which description gives")
+      (is (= (map resolve/description (:rss/items feed)) (map resolve/description (:rss/items lean))))
+      (is (= (map resolve/description (:rss/items @example))
+             (map resolve/description (:rss/items (resolve/lean @example))))
+          "of a real feed")
+      (is (= (resolve/lean @example) (resolve/lean (resolve/lean @example))))
+      (is (= (feed.search/feed-documents @example "https://example.com/feed.xml")
+             (feed.search/feed-documents (resolve/lean @example) "https://example.com/feed.xml"))
+          "and the same search documents")))
   (testing "authors, with names picked out of email fields"
     (is (= "John Doe" (resolve/author @example)))
     (is (= "Jane" (resolve/author {:dc/creator "Jane" :rss/author "a@b.c (Al)"})))
