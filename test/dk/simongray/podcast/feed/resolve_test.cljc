@@ -32,6 +32,8 @@
              (map resolve/description (:rss/items (resolve/lean @example))))
           "of a real feed")
       (is (= (resolve/lean @example) (resolve/lean (resolve/lean @example))))
+      (is (identical? lean (resolve/lean lean))
+          "and a lean feed is given back as it is, so that a check of it is cheap")
       (is (= (feed.search/feed-documents @example "https://example.com/feed.xml")
              (feed.search/feed-documents (resolve/lean @example) "https://example.com/feed.xml"))
           "and the same search documents")))

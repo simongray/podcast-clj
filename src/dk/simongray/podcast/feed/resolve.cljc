@@ -34,14 +34,18 @@
 ;; text of a library's feeds is in fields that description never reads
 (defn lean
   "The parsed `feed` with only the field that description reads of the
-  notes of the channel and of each item, e.g. to keep it in less memory."
+  notes of the channel and of each item, e.g. to keep it in less memory.
+  A feed with no other notes is given back as it is, the same value."
   [feed]
-  (let [only (fn [x]
-               (if-let [k (some #(when (get x %) %) description-keys)]
-                 (apply dissoc x (remove #{k} description-keys))
-                 x))]
-    (cond-> (only feed)
-      (:rss/items feed) (update :rss/items #(mapv only %)))))
+  (let [extra? (fn [x] (< 1 (count (filter #(get x %) description-keys))))
+        only   (fn [x]
+                 (if-let [k (some #(when (get x %) %) description-keys)]
+                   (apply dissoc x (remove #{k} description-keys))
+                   x))]
+    (if (or (extra? feed) (some extra? (:rss/items feed)))
+      (cond-> (only feed)
+        (:rss/items feed) (update :rss/items #(mapv only %)))
+      feed)))
 
 (defn author
   "Who made `x`, with the name picked out of an \"address (Name)\" field.

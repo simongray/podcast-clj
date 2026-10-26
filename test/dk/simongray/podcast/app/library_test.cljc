@@ -1824,6 +1824,29 @@
                                       (is (= (found-ids whole) (found-ids lib))
                                           "and finds what a read of the whole index finds"))))))))
 
+(deftest feeds-leaned-and-written-anew
+  (let [s       (store/memory)
+        later   #inst "2026-10-26T12:00:00Z"
+        notes   #(select-keys % resolve/description-keys)
+        doubled (update-in transit-library [:feeds guid :feed :rss/items]
+                           (fn [items]
+                             (mapv #(assoc % :content/encoded "<p>Notes</p>" :rss/description "Notes")
+                                   items)))
+        lean    (library/leaned doubled later)
+        before  (feed-document (get-in doubled [:feeds guid :changed-at]))]
+    (is (= #{{:content/encoded "<p>Notes</p>"}}
+           (set (map notes (get-in lean [:feeds guid :feed :rss/items]))))
+        "only the notes that description reads")
+    (is (= later (get-in lean [:feeds guid :changed-at])) "changed now, under a new name")
+    (is (identical? lean (library/leaned lean later)) "and a lean library is the same one again")
+    (run #(async/then (library/write! doubled s (assoc in-transit :if-version nil))
+                      (fn [{:keys [version]}] (is (= "1" version))))
+         #(async/then (library/write! lean s (assoc in-transit :if-version "1" :before doubled))
+                      (fn [{:keys [put delete]}]
+                        (is (= [(feed-document later) "library.transit.json"] put)
+                            "the leaned feed's document, written once")
+                        (is (= [before] delete) "in place of the one before"))))))
+
 (deftest a-library-written-and-read
   (let [documents (atom {})
         s         (store/memory documents)

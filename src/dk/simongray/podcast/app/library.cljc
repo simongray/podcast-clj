@@ -1194,6 +1194,29 @@
              (assoc :episodes (criteria/episodes feed {:profile profile
                                                        :url     url})))))))))
 
+;; A feed that a refresh brings anew is lean when its fetch leaned it, but
+;; one whose server answers 304 keeps its document as it was. Its new
+;; :changed-at names a new document, which the next write puts, deleting
+;; the one before.
+(defn leaned
+  "The `library` with the feed of each entry that it holds in memory as
+  resolve/lean gives it, changed at the instant `at` where that drops
+  notes, so that its document is written anew. It's the same `library`
+  when none does."
+  [library at]
+  (let [changed (into {}
+                      (keep (fn [[feed-guid {:keys [feed] :as entry}]]
+                              (when feed
+                                (let [lean (resolve/lean feed)]
+                                  (when-not (identical? lean feed)
+                                    [feed-guid (assoc entry
+                                                      :feed lean
+                                                      :changed-at at)])))))
+                      (:feeds library))]
+    (if (empty? changed)
+      library
+      (update library :feeds clojure.core/merge changed))))
+
 (defn feed-part
   "What shows takes of the feeds `entry` alone, or nil without a feed:
   - :episodes, how many distinct items it has
