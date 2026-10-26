@@ -1801,6 +1801,68 @@
           "a feed held in memory with the same document stays as it is")
       (is (identical? (:index library) (:index again)) "and so does the index"))))
 
+(deftest an-index-read-after-the-rest
+  (let [documents (atom {})
+        s         (store/memory documents)
+        brewed    (show-of brew "Brew" "en" [["Pour-over" "The future of the cone."]])
+        later     (assoc in-transit :load-index? false)
+        unloaded  (atom nil)
+        segment?  #(str/starts-with? % "segment-")]
+    (run #(library/write! transit-library s (assoc in-transit :if-version nil))
+         #(async/then (library/read! (made) s later)
+                      (fn [{lib :library :as r}]
+                        (reset! unloaded r)
+                        (is (library/index-unloaded? lib))
+                        (is (= (:feeds transit-library) (:feeds lib)) "the rest of the library")
+                        (is (nil? (library/recommend lib)) "and no picks without the index")))
+         ;; a subscription while the index is unloaded
+         #(let [{lib :library version :version} @unloaded]
+            (async/then (library/write! (library/subscribe lib (str "https://example.com/" brew ".xml")
+                                                           brewed {:at now})
+                                        s (assoc in-transit :if-version version :before lib))
+                        (fn [{:keys [version put delete]}]
+                          (is (= "2" version))
+                          (is (not-any? segment? put) "writes no segments")
+                          (is (not-any? segment? delete) "and keeps those of the index"))))
+         #(async/then (library/read! (made) s in-transit)
+                      (fn [{lib :library :as r}]
+                        (is (= [] (restored-report r)))
+                        (is (= 2 (count (found-ids lib)))
+                            "a read of the index indexes the show that the save noted")))
+         #(async/then (library/read! (made) s later)
+                      (fn [{lib :library version :version}]
+                        (async/then (library/load-index! lib s in-transit)
+                                    (fn [{loaded :library :keys [report]}]
+                                      (is (= [] report))
+                                      (is (not (library/index-unloaded? loaded)))
+                                      (is (= 2 (count (found-ids loaded))) "and so does load-index!")
+                                      (async/then (library/write! loaded s (assoc in-transit
+                                                                                  :if-version version
+                                                                                  :before     lib))
+                                                  (fn [_]
+                                                    (is (= (set (library.impl/segment-names (:index loaded)))
+                                                           (set (filter segment? (keys @documents))))
+                                                        "and a write after it keeps only its segments")))))))
+         #(async/then (library/read! (made) s later)
+                      (fn [{lib :library}]
+                        (let [asked (atom nil)
+                              read  (fn [names]
+                                      (reset! asked names)
+                                      (for [n names] {:name n :body (get @documents n)}))]
+                          (async/then (library/load-index! lib s (assoc in-transit :read-segments read))
+                                      (fn [{loaded :library}]
+                                        (is (seq @asked))
+                                        (is (every? segment? @asked) "asks for the segments")
+                                        (is (= 2 (count (found-ids loaded)))))))))
+         #(do (swap! documents (fn [docs] (into {} (remove (comp segment? key)) docs)))
+              (async/then (library/read! (made) s later)
+                          (fn [{lib :library}]
+                            (async/then (library/load-index! lib s in-transit)
+                                        (fn [{loaded :library :keys [report]}]
+                                          (is (= [:library/index-rebuilt] (map :id report)))
+                                          (is (= 2 (count (found-ids loaded)))
+                                              "built again from the feeds")))))))))
+
 (deftest a-catch-up-with-another-tab
   (let [s       (store/memory)
         fetched (atom [])

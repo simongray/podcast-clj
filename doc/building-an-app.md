@@ -807,6 +807,15 @@ version, e.g. on a BroadcastChannel, so that they read it too. Both read
 and write in the codec of `opts` alone, and `read!` reads a library that
 `save!` wrote. In ClojureScript, both return promises.
 
+The search index of a big library takes longer to read than the rest of
+it. With `{:load-index? false}`, `read!` leaves the index in its
+documents, e.g. so that a page shows sooner, and `library/load-index!`
+reads it later. Until then, `search` and `recommend` return nil. A change
+to a feed meanwhile is noted, and saved with the library, so the index
+takes it in when it loads. To decode the index in a web worker, give
+`load-index!` a function as `:read-segments` that fetches and decodes the
+segments there, with drop-in-search's `ciff/segment-parts`.
+
 Give the change the time of the listener's action, e.g. as the `:at` of
 `library/step`, so that it stamps the same time when it's made again.
 `library/documents` and `library/from-documents` are the pure halves of

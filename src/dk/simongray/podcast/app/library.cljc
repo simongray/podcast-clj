@@ -2237,7 +2237,8 @@
 
 (defn document-names
   "The names of the documents of `library`, as documents gives them, and of
-  those of the feeds that it holds in their documents alone."
+  those of the feeds and the search index that it holds in their
+  documents alone."
   [library]
   (let [naming (impl/naming library)]
     (-> #{(impl/library-name naming)}
@@ -2246,34 +2247,43 @@
                         (impl/entry-document feed-guid entry naming)
                         (:document entry))))
               (:feeds library))
-        (into (some-> (:index library) impl/segment-names)))))
+        (into (some-> (:index library) impl/segment-names))
+        (into (some-> (:unloaded-index library) :manifest impl/manifest-segments)))))
 
 (defn- needs
   "The names of the documents that from-saved reads for `library` from the
   `saved` map of its own document, and that `docs`, a map of names to
   bodies, lack: those of the feeds that `library` doesn't hold in memory as
   they are, and those of the segments of the search index that the index
-  of `library` doesn't hold, unless its manifest is the one of that index."
+  of `library` doesn't hold, unless its manifest is the one of that index.
+  Of an index that's unloaded, it's only the manifest, when the library's
+  own document doesn't hold it."
   [library saved docs]
-  (let [naming (impl/naming library)
-        same?  (fn [feed-guid document]
-                 (let [own (get-in library [:feeds feed-guid])]
-                   (and (:feed own)
-                        (= document (impl/entry-document feed-guid own naming)))))
-        feeds  (for [[feed-guid {:keys [document]}] (:feeds saved)
-                     :when (and document (not (same? feed-guid document)))]
-                 document)
-        index  (when-let [index (:index library)]
-                 (let [manifest (or (:index saved) (get docs ciff/manifest-name))]
-                   (cond
-                     (nil? manifest)
-                     [ciff/manifest-name]
+  (let [naming   (impl/naming library)
+        same?    (fn [feed-guid document]
+                   (let [own (get-in library [:feeds feed-guid])]
+                     (and (:feed own)
+                          (= document (impl/entry-document feed-guid own naming)))))
+        feeds    (for [[feed-guid {:keys [document]}] (:feeds saved)
+                       :when (and document (not (same? feed-guid document)))]
+                   document)
+        manifest (or (:index saved) (get docs ciff/manifest-name))
+        index    (cond
+                   (:unloaded-index library)
+                   (when (nil? manifest)
+                     [ciff/manifest-name])
 
-                     ;; e.g. after another tab's subscription, whose
-                     ;; segments are new, while the others are held
-                     (not= manifest (impl/manifest index))
-                     (remove (set (ciff/reusable manifest index))
-                             (impl/manifest-segments manifest)))))]
+                   (nil? (:index library))
+                   nil
+
+                   (nil? manifest)
+                   [ciff/manifest-name]
+
+                   ;; e.g. after another tab's subscription, whose
+                   ;; segments are new, while the others are held
+                   (not= manifest (impl/manifest (:index library)))
+                   (remove (set (ciff/reusable manifest (:index library)))
+                           (impl/manifest-segments manifest)))]
     (vec (remove #(contains? docs %) (concat feeds index)))))
 
 (defn- from-saved
@@ -2297,26 +2307,39 @@
                    (impl/read-feed codec document
                                    {:value (when-let [body (get docs document)]
                                              {:body body})})]))
-        index (fn [[lib _ :as step]]
+        ;; the feeds that changed while the index of the library saved was
+        ;; unloaded, which its manifest leaves out
+        changed (:index-changed saved)
+        index (fn [[lib report :as step]]
                 (let [manifest (:index saved)]
                   (cond
+                    (:unloaded-index lib)
+                    [(update lib :unloaded-index
+                             #(-> %
+                                  (assoc :manifest (impl/manifest-text
+                                                    (or manifest (get docs ciff/manifest-name))))
+                                  (update :changed (partial clojure.core/merge
+                                                            (zipmap changed (repeat nil))))))
+                     report]
+
                     (nil? (:index lib))
                     step
 
-                    (and manifest (= manifest (impl/manifest (:index lib))))
-                    step
-
                     :else
-                    (impl/with-index
-                     step
-                     {:value (if manifest
-                               (cons {:name ciff/manifest-name :body manifest}
-                                     (for [n (impl/manifest-segments manifest)
-                                           :when (contains? docs n)]
-                                       {:name n :body (get docs n)}))
-                               (for [[n body] docs
-                                     :when (impl/index-document? n)]
-                                 {:name n :body body}))}))))
+                    (let [[lib report]
+                          (if (and manifest (= manifest (impl/manifest (:index lib))))
+                            step
+                            (impl/with-index
+                             step
+                             {:value (if manifest
+                                       (cons {:name ciff/manifest-name :body manifest}
+                                             (for [n (impl/manifest-segments manifest)
+                                                   :when (contains? docs n)]
+                                               {:name n :body (get docs n)}))
+                                       (for [[n body] docs
+                                             :when (impl/index-document? n)]
+                                         {:name n :body body}))}))]
+                      [(reduce impl/reindexed lib changed) report]))))
         [lib report] (impl/with-saved-map library saved-keys name saved)]
     (if (:newer-format lib)
       {:library lib :report report}
@@ -2363,12 +2386,18 @@
   starts over when a document is missing because another context wrote the
   store meanwhile. A store without the library's document gives `library`
   as it is, with no version. When the store fails to give the library's
-  own document, it fails too, so that nothing writes over what it holds."
+  own document, it fails too, so that nothing writes over what it holds.
+
+  With :load-index? false in `opts`, it reads only the manifest of the
+  search index, and load-index! reads the index later, e.g. so that a page
+  shows before the index is read."
   ([library store]
    (read! library store {}))
   ([library store opts]
    {:pre [(map? opts)]}
-   (let [codec    (impl/codec library opts)
+   (let [library  (cond-> library
+                    (false? (:load-index? opts)) impl/index-unloaded)
+         codec    (impl/codec library opts)
          own      (impl/library-name codec)
          fetch!   (fn [name]
                     (let [opts (if (impl/index-document? name) {:as :bytes} {})]
@@ -2408,6 +2437,50 @@
                                             (attempt (dec tries))))
                              (done))))))))))]
        (attempt 3)))))
+
+(defn index-unloaded?
+  "Whether `library` holds its search index in its documents alone, as
+  read! leaves it with :load-index? false, until load-index! reads it."
+  [library]
+  (contains? library :unloaded-index))
+
+;; While the index is unloaded, each change to a feed notes the feed, and a
+;; save keeps the notes, so that the feed is indexed again however many
+;; saves and reads come before load-index!
+(defn load-index!
+  "The `library` with the search index that read! left in the documents of
+  `store`, read with the `opts` below, and the report of what didn't read,
+  as a map of the :library and the :report, in ClojureScript as a promise.
+
+  The feeds that changed while the index was unloaded are indexed again.
+  When its documents don't read, the index is built from the feeds again,
+  with :library/index-rebuilt in the report, as read! does. A library whose
+  index isn't unloaded stays as it is.
+
+  - :read-segments, a function of the names of the documents of the index's
+    segments that gives the files that ciff/read-files takes for them, or a
+    promise of them, e.g. to fetch and decode them in a web worker. By
+    default, they're fetched from `store`."
+  ([library store]
+   (load-index! library store {}))
+  ([library store {:keys [read-segments] :as opts}]
+   {:pre [(map? opts)]}
+   (if-let [{:keys [manifest changed]} (:unloaded-index library)]
+     (let [fetch! (fn [name]
+                    (async/then ((:fetch store) name {:as :bytes})
+                                (fn [doc] {:name name :body (:body doc)})))
+           read   (or read-segments #(async/all fetch! %))]
+       (async/then
+        (async/attempt #(when manifest
+                          (async/then (read (impl/manifest-segments manifest)) vec)))
+        (fn [{:keys [value error]}]
+          (let [files        (when manifest
+                               (cons {:name ciff/manifest-name :body manifest} value))
+                [lib report] (impl/with-index [(dissoc library :unloaded-index) []]
+                                              {:value files :error error})]
+            {:library (reduce-kv impl/reindexed lib changed)
+             :report  report}))))
+     (async/then {:library library :report []} identity))))
 
 (defn write!
   "Write `library` to `store` with the `opts` below, and give the :version

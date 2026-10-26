@@ -203,23 +203,48 @@
         docs (feed.search/feed-documents (guid/with-key (marked entry) feed-guid) url)]
     {:url url :documents (vec docs) :repeated (:repeated (meta docs))}))
 
+(defn index-unloaded
+  "The `library` with its search index left in its documents, so that a
+  read of a saved library takes the index's manifest alone, and
+  library/load-index! reads the index later. A library without an index
+  stays as it is."
+  [library]
+  (if (:index library)
+    (-> (dissoc library :index)
+        (assoc :unloaded-index {:manifest nil :changed {}}))
+    library))
+
+(defn- noted
+  "The `library`, whose index is unloaded, with the feed `feed-guid` noted
+  for library/load-index! to index again, from the search documents
+  `built`, if any."
+  [library feed-guid built]
+  (assoc-in library [:unloaded-index :changed feed-guid] built))
+
 (defn reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index, and the runs of words that its show repeats in the entry of its
   feed. The documents are those in `built`, as library/with-search-documents
   gives them, when they're the feed's own, or else built now. A feed that
-  isn't loaded keeps what the index has of it."
+  isn't loaded keeps what the index has of it, and while the index is
+  unloaded, the feed is noted for library/load-index! instead."
   ([library feed-guid]
    (reindexed library feed-guid nil))
   ([library feed-guid built]
    (let [index (:index library)]
-     (if (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
+     (cond
+       (:unloaded-index library)
+       (noted library feed-guid built)
+
+       (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
        (let [docs (or (some->> built (built-for library feed-guid))
                       (documents library feed-guid))]
          (cond-> (assoc library :index (apply search/add
                                               (feed.search/without-feed index feed-guid)
                                               docs))
            docs (assoc-in [:feeds feed-guid :repeated] (:repeated (meta docs)))))
+
+       :else
        library))))
 
 (defn alone?
@@ -256,7 +281,8 @@
 
       :else
       (cond-> (update library :feeds dissoc feed-guid)
-        (:index library) (update :index feed.search/without-feed feed-guid)))))
+        (:index library)          (update :index feed.search/without-feed feed-guid)
+        (:unloaded-index library) (noted feed-guid nil)))))
 
 (defn- held
   "The ids of the episodes that `profile` holds anything for: progress or
@@ -1136,16 +1162,21 @@
 (defn saved-map
   "The parts of `library` that `keys` names, as its saved document with
   `codec` holds them: with the :version, and each feeds entry with the
-  name of the document of its feed in place of its feed-keys."
+  name of the document of its feed in place of its feed-keys. A search
+  index that's unloaded keeps its manifest as the :index, and the feeds
+  that changed since as the :index-changed, for a read to index again."
   [library keys codec]
   (let [outlined (fn [[feed-guid entry]]
                    [feed-guid
                     (if (:feed entry)
                       (-> (without-feed-keys entry)
                           (assoc :document (entry-document feed-guid entry codec)))
-                      entry)])]
+                      entry)])
+        {:keys [manifest changed]} (:unloaded-index library)]
     (cond-> (assoc (select-keys library keys) :version version)
-      (some #{:feeds} keys) (update :feeds #(into {} (map outlined) %)))))
+      (some #{:feeds} keys) (update :feeds #(into {} (map outlined) %))
+      manifest              (assoc :index manifest)
+      (seq changed)         (assoc :index-changed (set (clojure.core/keys changed))))))
 
 (defn feeds-plan
   "The documents of the `feeds` of a library to put with `codec` into a
@@ -1311,12 +1342,20 @@
   [index]
   (:body (peek (index-files index (segment-names index)))))
 
+(defn manifest-text
+  "The `manifest` of a search index, as text or the bytes of UTF-8, as
+  text."
+  [manifest]
+  (if (or (nil? manifest) (string? manifest))
+    manifest
+    (bytes/decode manifest)))
+
 (defn manifest-segments
   "The names of the segments that the `manifest` of a search index lists,
   as text or the bytes of UTF-8, or none when it doesn't read."
   [manifest]
   (let [m (try
-            (edn/read-string (if (string? manifest) manifest (bytes/decode manifest)))
+            (edn/read-string (manifest-text manifest))
             (catch #?(:clj Exception :cljs :default) _
               nil))]
     (if (and (map? m) (sequential? (:segments m)))
