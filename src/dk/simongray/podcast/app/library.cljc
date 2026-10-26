@@ -1527,7 +1527,9 @@
     e.g. {:not {:explicit? true}}
   - :feeds, the shows that the library doesn't hold whole, whose episodes
     `ids` and :unlike can name, e.g. a show found in a search, as a map of
-    the feed guid of each to a map of its parsed :feed and its :url
+    the feed guid of each to a map of its parsed :feed and its :url, and
+    the :repeated runs of its notes, as feed.search/repeated-runs gives
+    them, which are worked out when they're left out
   - :unlike, ids of episodes whose words count against those of `ids`,
     e.g. the ones that the listener rated low
   - :weight-fn, a function of an id of `ids` or :unlike that gives how
@@ -1578,9 +1580,10 @@
            ;; only the episode that the listener played of it
            holding   (cond-> library
                        feeds (update :feeds clojure.core/merge
-                                     (update-vals feeds #(assoc % :repeated
-                                                                (feed.search/repeated-runs
-                                                                 (:feed %))))))
+                                     (update-vals feeds #(cond-> %
+                                                           (not (contains? % :repeated))
+                                                           (assoc :repeated (feed.search/repeated-runs
+                                                                             (:feed %)))))))
            seeds     (->> ids
                           (keep #(impl/seed holding %))
                           (filter #(from? (:feed %) (:item %))))

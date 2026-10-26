@@ -21,6 +21,7 @@
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.local :as local]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.profile.marks :as profile.marks]
@@ -437,7 +438,12 @@
         (is (= ["Espresso grinders" "Grinders compared" "Machines" "Roasting at home"]
                (titles (rec shelf [[grind "0"]]
                             {:feeds {grind {:feed feed
-                                            :url  "https://example.com/grind.xml"}}}))))))
+                                            :url  "https://example.com/grind.xml"}}}))
+               (titles (rec shelf [[grind "0"]]
+                            {:feeds {grind {:feed     feed
+                                            :url      "https://example.com/grind.xml"
+                                            :repeated (feed.search/repeated-runs feed)}}})))
+            "the same with the runs that its notes repeat worked out already, e.g. in a worker")))
     (testing "episodes unliked, and the weights of episodes"
       (let [weight (fn [ids opts]
                      (->> (rec shelf ids opts)
