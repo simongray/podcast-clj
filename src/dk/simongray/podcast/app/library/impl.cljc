@@ -702,15 +702,60 @@
                       [feed-guid websub]))))
           (:feeds library))))
 
+;; What's worked out once for a feed or a feed's entry is kept beside it,
+;; and goes when nothing else holds it, e.g. after a refresh replaces it.
+;; A WeakMap compares its keys by identity, while the JVM's WeakHashMap
+;; compares them by value, which hashes each key once.
+(defn weak-cache
+  "A cache of the values that are worked out of a key, which keeps each
+  only while its key is held elsewhere."
+  []
+  #?(:clj  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.))
+     :cljs (js/WeakMap.)))
+
+(defn cached
+  "The value in the `cache` of the key `k`, or else what `f` gives for it,
+  which the cache keeps. A nil key keeps nothing."
+  [cache k f]
+  (cond
+    (nil? k)
+    (f k)
+
+    #?(:clj  (.containsKey ^java.util.Map cache k)
+       :cljs (.has cache k))
+    #?(:clj  (.get ^java.util.Map cache k)
+       :cljs (.get cache k))
+
+    :else
+    (let [v (f k)]
+      #?(:clj  (.put ^java.util.Map cache k v)
+         :cljs (.set cache k v))
+      v)))
+
+(defn item-index
+  "The first item of `feed` of each guid, an episode or a live item, by
+  the guid."
+  [feed]
+  (reduce (fn [index item]
+            (let [g (guid/item-guid item)]
+              (cond-> index (not (contains? index g)) (assoc g item))))
+          {}
+          (concat (:rss/items feed) (:podcast/live-items feed))))
+
+;; The queue, the inbox, the picks and the player look up items by guid
+;; again at each change of the profile, which scanned the feed each time:
+;; up to 6.9 ms for a queue of 50 episodes
+(def item-indexes
+  "The item-index of each feed that item-of has looked in."
+  (weak-cache))
+
 (defn item-of
   "The entry of the feed `feed-guid` in `library` and its item
   `item-guid`, an episode or a live item, with its :retained fact, as a
   pair, or nil."
   [library [feed-guid item-guid]]
   (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
-    (when-let [item (some #(when (= item-guid (guid/item-guid %)) %)
-                          (concat (:rss/items feed)
-                                  (:podcast/live-items feed)))]
+    (when-let [item (get (cached item-indexes feed item-index) item-guid)]
       [entry (with-fact entry item)])))
 
 (defn where-pred

@@ -1213,12 +1213,11 @@
 
 ;; A screen of shows is worked out again at each change of the profile,
 ;; e.g. at each report of a position, while the feeds stay, so what it
-;; takes of a feed alone is kept while the feed's entry is the same. For a
-;; library of 54 shows and 27,831 episodes, that took 70 ms of 91.
+;; takes of a feed alone is kept beside the feed's entry. For a library of
+;; 54 shows and 27,831 episodes, that took 70 ms of 91.
 (def feed-parts
-  "What shows took of each feed alone at its last call, as a map of the
-  feed's guid to its entry and feed-part's result."
-  (atom {}))
+  "The feed-part of each feeds entry that shows has worked out."
+  (impl/weak-cache))
 
 ;; Only the episodes that the profile has an entry or a mark of, or that
 ;; the archive holds, can be anything but unplayed, so the counts take
@@ -1262,17 +1261,10 @@
         touched (update-vals (group-by first (concat (keys (:episodes profile))
                                                      (keys (:played profile))))
                              #(into #{} (map second) %))
-        kept    @feed-parts
-        parts   (into {}
-                      (for [feed-guid (profile/shows profile)
-                            :let [entry      (get-in library [:feeds feed-guid])
-                                  [was part] (get kept feed-guid)]]
-                        [feed-guid [entry (if (identical? was entry)
-                                            part
-                                            (feed-part entry))]]))
         summary
         (fn [feed-guid]
-          (let [[entry part] (get parts feed-guid)
+          (let [entry (get-in library [:feeds feed-guid])
+                part  (impl/cached feed-parts entry feed-part)
                 {:keys [episodes artwork newest]} part
                 counted (when part
                           (statuses profile feed-guid part
@@ -1291,7 +1283,6 @@
               artwork                (assoc :artwork artwork)
               newest                 (assoc :newest newest)
               (impl/unloaded? entry) (assoc :unloaded? true))))]
-    (reset! feed-parts parts)
     (mapv summary (profile/shows profile))))
 
 (defn fetch-linked-shows!

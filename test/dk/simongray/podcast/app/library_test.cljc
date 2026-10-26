@@ -717,6 +717,24 @@
              dates                          (assoc :newest (apply max-key inst-ms dates))
              (library.impl/unloaded? entry) (assoc :unloaded? true))))))
 
+(deftest an-item-by-its-guid
+  (let [ep      #(vector guid (str "https://example.com/ep000" %))
+        title   #(:rss/title (second (library.impl/item-of %1 %2)))
+        items   [:feeds guid :feed :rss/items]
+        first-g (feed.guid/item-guid (first (get-in library items)))
+        twice   (update-in library items
+                           #(conj (vec %) (assoc (first %) :rss/title "Again")
+                                  {:rss/title "No guid"} {:rss/title "Nor this"}))
+        live    (assoc-in library [:feeds guid :feed :podcast/live-items]
+                          [{:rss/guid {:content "live"} :rss/title "Live"}])]
+    (is (= "Episode 2 - The Present" (title library (ep 2))))
+    (is (not= "Again" (title twice [guid first-g])) "the first of two with one guid")
+    (is (= "No guid" (title twice [guid nil])) "and the first with none")
+    (is (= "Live" (title live [guid "live"])) "a live item too")
+    (is (nil? (library.impl/item-of library [guid "nothing"])))
+    (is (= "Changed" (title (assoc-in library (conj items 0 :rss/title) "Changed") [guid first-g]))
+        "from a feed that changed, rather than what was found in it before")))
+
 (deftest a-screen-of-shows-counted-as-each-episode-would-be
   (let [ep    #(vector guid (str "https://example.com/ep000" %))
         lib   (-> (library/subscribe library other-url {:status 200 :url other-url :feed other})
