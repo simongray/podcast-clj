@@ -1891,6 +1891,38 @@
                           (is (= runs (:repeated (transit/read-str body)))
                               "the document of the feed holds the runs of the feed it holds")))))))
 
+(deftest a-refresh-in-a-part-for-each-feed
+  (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) (str "The future, part " i ".")]))
+        url      #(str "https://example.com/" % ".xml")
+        lib      (-> (made)
+                     (library/subscribe (url coffee) (show-of coffee "Coffee Talk" "en" (episodes 2)) {:at now})
+                     (library/subscribe (url brew) (show-of brew "Brew" "en" (episodes 3)) {:at now}))
+        s        (store/memory)
+        later    (at 86400)
+        opts     (assoc in-transit :at later)
+        newer    {(url coffee) (show-of coffee "Coffee Talk" "en" (episodes 4))
+                  (url brew)   (show-of brew "Brew" "en" (episodes 5))}
+        fetch    (fn [u _] {:status 200 :url u :feed (get newer u)})
+        found    (fn [lib] (sort (map :id (library/search lib "future"))))]
+    (run #(library/write! lib s (assoc in-transit :if-version nil))
+         #(async/then (library/fetch-due! (library/due lib {:at later}) s (assoc in-transit :fetch fetch))
+                      (fn [f]
+                        (let [whole (library/refreshed lib f opts)
+                              parts (library/found-parts f 1)
+                              steps (rest (reductions (fn [{l :library} part] (library/refreshed l part opts))
+                                                      {:library lib}
+                                                      parts))
+                              last  (:library (last steps))]
+                          (is (= 3 (count parts)) "what didn't change, and a part for each feed that did")
+                          (is (= [[] [coffee] [brew]] (map :changed parts)))
+                          (is (= [(:profile (:library whole)) (:feeds (:library whole)) (found (:library whole))]
+                                 [(:profile last) (:feeds last) (found last)])
+                              "which give the library that the whole gives")
+                          (is (= 4 (count (:added whole))))
+                          (is (= (:added whole) (vec (mapcat :added steps))) "and the same new episodes")
+                          (is (= 2 (count (library/found-parts f 100)))
+                              "or one part of the feeds that changed, when they're few episodes")))))))
+
 (defn- zebras
   "What a refresh `found`, with notes of the first episode of the feed
   `feed-guid` in its search documents that the feed doesn't have."

@@ -851,6 +851,55 @@
                              (into report)
                              (into (:report done))))))))
 
+;; refreshed takes a feed only while the library has the entry that it was
+;; due with, so a feed can be applied apart from the others
+(defn found-parts
+  "What a refresh `found`, as fetch-due! gives it, in parts that refreshed
+  applies one after another to the same library as the whole, e.g. with a
+  pause between them in a page, so that it answers the listener.
+
+  The first part holds the lists, the report, the counts, the seconds and
+  the feeds that didn't change. Each of the others holds feeds that
+  changed, in the order of :changed, as many as come to `max-episodes`
+  episodes by their search documents, or one feed of more or without them,
+  with what `found` has of those feeds."
+  [{:keys [at feeds from documents search-documents changed moved] :as found}
+   max-episodes]
+  (let [episodes (fn [feed-guid]
+                   (if-let [docs (get-in search-documents [feed-guid :documents])]
+                     (dec (count docs))
+                     max-episodes))
+        groups   (reduce (fn [groups feed-guid]
+                           (let [n    (episodes feed-guid)
+                                 last (peek groups)]
+                             (if (and last (<= (+ (:episodes last) n) max-episodes))
+                               (conj (pop groups) (-> last
+                                                      (update :episodes + n)
+                                                      (update :feed-guids conj feed-guid)))
+                               (conj groups {:episodes n :feed-guids [feed-guid]}))))
+                         []
+                         changed)
+        part     (fn [feed-guids]
+                   {:at               at
+                    :from             (select-keys from feed-guids)
+                    :feeds            (select-keys feeds feed-guids)
+                    :documents        (select-keys documents
+                                                   (keep #(get-in feeds [% :document]) feed-guids))
+                    :search-documents (select-keys search-documents feed-guids)
+                    :changed          (vec feed-guids)
+                    :moved            (select-keys moved feed-guids)})
+        changed? (set changed)
+        rest-of  #(into {} (remove (comp changed? key)) %)]
+    (into [(assoc found
+                  :from             (rest-of from)
+                  :feeds            (rest-of feeds)
+                  :documents        {}
+                  :search-documents {}
+                  :changed          []
+                  :moved            (rest-of moved))]
+          (map (comp part :feed-guids))
+          groups)))
+
 ;; WebSub 5.1: a subscriber can subscribe at any of the hubs of a topic
 (defn hub-requests
   "The requests to send the WebSub hubs of the feeds in `library`, by feed
