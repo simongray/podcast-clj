@@ -548,6 +548,16 @@
       (is (not (found? (library/subscribe (make) url (assoc (marked built) :feed newer))))
           "e.g. one with another episode"))))
 
+(deftest the-urls-of-the-feeds
+  (let [unhashable #?(:clj  (reify Object (hashCode [_] (throw (ex-info "hashed" {}))))
+                      :cljs (reify IHash (-hash [_] (throw (ex-info "hashed" {})))))
+        lib        (assoc-in library [:feeds guid :feed :rss/description] unhashable)]
+    (is (= url ((library/urls lib) (library.impl/shown lib guid)))
+        "by the key that the library keeps a feed under, without hashing the feed")
+    (is (= url ((library/urls library) (with-meta (library.impl/shown library guid) nil)))
+        "or among all the feeds for one without a key")
+    (is (nil? ((library/urls library) other)) "and none for a feed that it doesn't keep")))
+
 (deftest the-cap-of-a-common-word
   (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) "Notes."]))
         lib      (-> (library/make "phone" {:config {:search? true}})

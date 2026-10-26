@@ -157,14 +157,23 @@
              :when (impl/unloaded? entry)]
          feed-guid)))
 
+;; A map keyed by the feeds hashed each of them whole, every item and its
+;; notes, which took 800 ms for 53 shows in Chrome after the library was
+;; read, so a feed with its key is looked up by that key instead
 (defn urls
-  "A map from each feed of `library`, with the episodes that it lists, to
-  its URL."
+  "A function of each feed of `library`, with the episodes that it lists,
+  that gives its URL, e.g. as the :url of criteria/where. It finds a feed
+  by the key that the library keeps it under, and one without a key among
+  all the feeds."
   [library]
-  (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
-                 :let  [feed (impl/shown library feed-guid)]
-                 :when feed]
-             [feed url])))
+  (let [by-feed (delay (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
+                                      :let  [feed (impl/shown library feed-guid)]
+                                      :when feed]
+                                  [feed url])))]
+    (fn [feed]
+      (if (guid/keyed? feed)
+        (get-in library [:feeds (guid/feed-key feed nil) :url])
+        (get @by-feed feed)))))
 
 (defn- key-of
   "The key that `library` keeps the feed that gives itself `feed-guid`
@@ -1009,7 +1018,7 @@
   ;; the feeds of the library have their keys, and the URLs of the others
   ;; cost a pass over every feed, each hashed as a key
   (guid/episode-id feed
-                   (when-not (guid/keyed? feed) (get (urls library) feed))
+                   (when-not (guid/keyed? feed) ((urls library) feed))
                    item))
 
 ;; The podcast namespace, podcast:liveItem: a status of pending, live or
