@@ -95,6 +95,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:feed/empty-attribute` | info | An optional attribute was blank, and is left out of the model. A required one that's blank is kept for the validator. |
 | `:feed/invalid-value` | warning | A value didn't read as its type, and stays a string. |
 | `:feed/string-value` | info | A feed built from data held a string where the model takes another type, e.g. a date, and it was read as that type, as parse reads the text of XML. The :value is the string, and the :type the type. |
+| `:feed/notes-left-out` | info | The feed was made lean: of the fields with notes, the channel and its items kept only the one that description reads. The :fields name those left out, and the :count is how many of the channel and its items had them. |
 | `:feed/markup-in-text` | info | Markup appeared where the registry expects text. It's kept as markup in HTML content, and flattened to text elsewhere. |
 | `:feed/unexpected-text` | info | Text inside an element that the spec leaves empty was dropped. |
 | `:feed/dropped-attributes` | info | Attributes that the model has no place for were dropped: those of an element read as a single value, those of rss other than its version, and those of channel. |

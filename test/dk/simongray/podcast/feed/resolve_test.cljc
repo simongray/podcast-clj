@@ -32,6 +32,9 @@
              (map resolve/description (:rss/items (resolve/lean @example))))
           "of a real feed")
       (is (= (resolve/lean @example) (resolve/lean (resolve/lean @example))))
+      (is (= [{:id :feed/notes-left-out :fields [:rss/description :itunes/summary] :count 3}]
+             (:podcast/report (meta lean)))
+          "with what it left out in the feed's report")
       (is (identical? lean (resolve/lean lean))
           "and a lean feed is given back as it is, so that a check of it is cheap")
       (is (= (feed.search/feed-documents @example "https://example.com/feed.xml")

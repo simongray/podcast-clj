@@ -179,6 +179,11 @@
            type, e.g. a date, and it was read as that type, as parse reads
            the text of XML. The :value is the string, and the :type the
            type."}
+    {:id :feed/notes-left-out :level :info
+     :doc "The feed was made lean: of the fields with notes, the channel and
+           its items kept only the one that description reads. The :fields
+           name those left out, and the :count is how many of the channel
+           and its items had them."}
     {:id :feed/markup-in-text :level :info
      :doc "Markup appeared where the registry expects text. It's kept as markup
            in HTML content, and flattened to text elsewhere."}

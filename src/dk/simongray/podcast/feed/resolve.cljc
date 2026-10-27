@@ -35,18 +35,26 @@
 (defn lean
   "The parsed `feed` with only the field that description reads of the
   notes of the channel and of each item, e.g. to keep it in less memory.
-  A feed with no other notes is given back as it is, the same value."
+  A feed with no other notes is given back as it is, the same value.
+
+  The fields that it leaves out go in the feed's report, under
+  :podcast/report in its metadata, as :feed/notes-left-out. A lean feed
+  doesn't write back whole, so keep the whole one where it's stored."
   [feed]
-  (let [extra? (fn [x]
-                 (< 1 (reduce (fn [n k] (cond-> n (get x k) inc)) 0 description-keys)))
-        only   (fn [x]
-                 (if-let [k (some #(when (get x %) %) description-keys)]
-                   (apply dissoc x (remove #{k} description-keys))
-                   x))]
-    (if (or (extra? feed) (some extra? (:rss/items feed)))
-      (cond-> (only feed)
-        (:rss/items feed) (update :rss/items #(mapv only %)))
-      feed)))
+  (let [left-out (fn [x]
+                   (when-let [k (some #(when (get x %) %) description-keys)]
+                     (seq (filter #(and (not= k %) (get x %)) description-keys))))
+        cut      (fn [x]
+                   (if-let [ks (left-out x)] (apply dissoc x ks) x))
+        dropped  (keep left-out (cons feed (:rss/items feed)))]
+    (if (empty? dropped)
+      feed
+      (-> (cut feed)
+          (cond-> (:rss/items feed) (update :rss/items #(mapv cut %)))
+          (vary-meta update :podcast/report (fnil conj [])
+                     {:id     :feed/notes-left-out
+                      :fields (filterv (into #{} cat dropped) description-keys)
+                      :count  (count dropped)})))))
 
 (defn author
   "Who made `x`, with the name picked out of an \"address (Name)\" field.
