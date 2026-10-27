@@ -183,25 +183,20 @@
                              (resolve/distinct-items (:rss/items feed))))))
       (with-meta documents {:repeated repeated}))))
 
-;; HTML, section 8.1.7.3: a timeout's callback is a task of its own, after
-;; those queued meanwhile, e.g. a message to a web worker, while promise
-;; callbacks run before them
-;; https://html.spec.whatwg.org/multipage/webappapis.html#event-loop-processing-model
-(defn yielded
-  "A promise in ClojureScript that resolves in a task after those queued
-  now, or nil on the JVM, where no task waits for another."
-  []
-  #?(:clj  nil
-     :cljs (js/Promise. (fn [resolve] (js/setTimeout resolve 0)))))
+(defn search-documents
+  "The search documents of the `feed`, which has its key, at `url`, as
+  library/with-search-documents gives them: a map of the :url, the
+  :documents and the :repeated runs of words that its show repeats."
+  [feed url]
+  (let [docs (feed.search/feed-documents feed url)]
+    {:url url :documents (vec docs) :repeated (:repeated (meta docs))}))
 
 (defn built-documents
   "The search documents of the feed of the feeds `entry` under the key
-  `feed-guid`, as library/with-search-documents gives them, e.g. for a
-  refresh to build where it fetched the feed."
+  `feed-guid`, as search-documents gives them, e.g. for a refresh to build
+  where it fetched the feed."
   [entry feed-guid]
-  (let [url  (:url entry)
-        docs (feed.search/feed-documents (guid/with-key (marked entry) feed-guid) url)]
-    {:url url :documents (vec docs) :repeated (:repeated (meta docs))}))
+  (search-documents (guid/with-key (marked entry) feed-guid) (:url entry)))
 
 (defn index-unloaded
   "The `library` with its search index left in its documents, so that a
@@ -214,7 +209,7 @@
         (assoc :unloaded-index {:manifest nil :changed {}}))
     library))
 
-(defn- noted
+(defn- deferred
   "The `library`, whose index is unloaded, with the feed `feed-guid` noted
   for library/load-index! to index again, from the search documents
   `built`, if any."
@@ -234,7 +229,7 @@
    (let [index (:index library)]
      (cond
        (:unloaded-index library)
-       (noted library feed-guid built)
+       (deferred library feed-guid built)
 
        (and index (not (unloaded? (get-in library [:feeds feed-guid]))))
        (let [docs (or (some->> built (built-for library feed-guid))
@@ -282,7 +277,7 @@
       :else
       (cond-> (update library :feeds dissoc feed-guid)
         (:index library)          (update :index feed.search/without-feed feed-guid)
-        (:unloaded-index library) (noted feed-guid nil)))))
+        (:unloaded-index library) (deferred feed-guid nil)))))
 
 (defn- held
   "The ids of the episodes that `profile` holds anything for: progress or
@@ -330,6 +325,69 @@
             (seq left)    (assoc :retained left)
             (empty? left) (dissoc :retained)))))))
 
+(defn item-index
+  "The first item of `feed` of each guid, an episode or a live item, by
+  the guid."
+  [feed]
+  (reduce (fn [index item]
+            (let [g (guid/item-guid item)]
+              (cond-> index (not (contains? index g)) (assoc g item))))
+          {}
+          (concat (:rss/items feed) (:podcast/live-items feed))))
+
+(defn feed-part
+  "What library/shows takes of the feeds `entry` alone, or nil without a
+  feed:
+  - :episodes, how many distinct items it has
+  - :guids, the set of their guids
+  - :anonymous, how many of them have no guid
+  - :artwork, and :newest, when its newest episode came out"
+  [entry]
+  (when-let [feed (some-> entry marked)]
+    (let [items (resolve/distinct-items (:rss/items feed))
+          guids (map guid/item-guid items)
+          dates (seq (keep resolve/published items))]
+      (cond-> {:episodes  (count items)
+               :guids     (into #{} (remove nil?) guids)
+               :anonymous (count (filter nil? guids))
+               :artwork   (resolve/artwork feed)}
+        dates (assoc :newest (apply max-key inst-ms dates))))))
+
+;; item-of and library/shows look up a feed's items and counts again at
+;; each change of the profile, e.g. at each report of a position, while the
+;; feed stays: up to 6.9 ms for a queue of 50 episodes, and 70 of the 91 ms
+;; of shows for 54 shows. So a feed's entry carries them in its metadata,
+;; each worked out at its first use, which leaves the library's equality
+;; and its documents as they are.
+(defn with-lookups
+  "The feeds `entry` with what item-of and library/shows look up in its
+  feed in its metadata, as lookups gives it."
+  [{:keys [feed] :as entry}]
+  (cond-> entry
+    feed (vary-meta assoc ::lookups {:feed  feed
+                                     :items (delay (item-index feed))
+                                     :part  (delay (feed-part entry))})))
+
+(defn lookups
+  "What item-of and library/shows look up in the feed of the feeds `entry`,
+  or nil without a feed: a map of a delay of its item-index as :items and
+  of its feed-part as :part. They're those that the entry carries while
+  they're of its feed, and else new ones."
+  [{:keys [feed] :as entry}]
+  (when feed
+    (let [kept (::lookups (meta entry))]
+      (if (identical? feed (:feed kept))
+        kept
+        (::lookups (meta (with-lookups entry)))))))
+
+(defn looked-up
+  "The `library` with the lookups of the feed `feed-guid` on its entry, if
+  it holds the feed."
+  [library feed-guid]
+  (cond-> library
+    (get-in library [:feeds feed-guid :feed])
+    (update-in [:feeds feed-guid] with-lookups)))
+
 (defn kept
   "The `library` with the feed `feed-guid` cut down to the :max-items of
   `opts`, as far as capped allows, and to what their :keep-fn gives of it,
@@ -350,14 +408,15 @@
 
 (defn settled
   "The `library` with the feed `feed-guid` indexed again, from the search
-  documents `built` if they're its own, and cut down as the `opts` say, as
-  after a fetch."
+  documents `built` if they're its own, cut down as the `opts` say, and
+  with its lookups, as after a fetch."
   ([library feed-guid opts]
    (settled library feed-guid opts nil))
   ([library feed-guid opts built]
    (-> library
        (reindexed feed-guid built)
-       (kept feed-guid opts))))
+       (kept feed-guid opts)
+       (looked-up feed-guid))))
 
 (defn fetch-result
   "The result of a fetch that `x` stands for: `x` itself, or a map with `x`
@@ -728,67 +787,40 @@
                       [feed-guid websub]))))
           (:feeds library))))
 
-;; What's worked out once for a feed or a feed's entry is kept beside it,
-;; and goes when nothing else holds it, e.g. after a refresh replaces it.
-;; A WeakMap compares its keys by identity, while the JVM's WeakHashMap
-;; compares them by value, which hashes each key once.
-(defn weak-cache
-  "A cache of the values that are worked out of a key, which keeps each
-  only while its key is held elsewhere."
-  []
-  #?(:clj  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.))
-     :cljs (js/WeakMap.)))
-
-(defn cached
-  "The value in the `cache` of the key `k`, or else what `f` gives for it,
-  which the cache keeps. A nil key keeps nothing."
-  [cache k f]
-  (cond
-    (nil? k)
-    (f k)
-
-    #?(:clj  (.containsKey ^java.util.Map cache k)
-       :cljs (.has cache k))
-    #?(:clj  (.get ^java.util.Map cache k)
-       :cljs (.get cache k))
-
-    :else
-    (let [v (f k)]
-      #?(:clj  (.put ^java.util.Map cache k v)
-         :cljs (.set cache k v))
-      v)))
-
-(defn item-index
-  "The first item of `feed` of each guid, an episode or a live item, by
-  the guid."
-  [feed]
-  (reduce (fn [index item]
-            (let [g (guid/item-guid item)]
-              (cond-> index (not (contains? index g)) (assoc g item))))
-          {}
-          (concat (:rss/items feed) (:podcast/live-items feed))))
-
-;; The queue, the inbox, the picks and the player look up items by guid
-;; again at each change of the profile, which scanned the feed each time:
-;; up to 6.9 ms for a queue of 50 episodes
-(def item-indexes
-  "The item-index of each feed that item-of has looked in."
-  (weak-cache))
-
 (defn item-of
   "The entry of the feed `feed-guid` in `library` and its item
   `item-guid`, an episode or a live item, with its :retained fact, as a
   pair, or nil."
   [library [feed-guid item-guid]]
-  (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
-    (when-let [item (get (cached item-indexes feed item-index) item-guid)]
+  (when-let [entry (get-in library [:feeds feed-guid])]
+    (when-let [item (some-> (lookups entry) :items deref (get item-guid))]
       [entry (with-fact entry item)])))
+
+;; Only the episodes that the profile has an entry or a mark of, or that
+;; the archive holds, can be anything but unplayed, so the counts take
+;; only those, rather than every episode of every show
+(defn statuses
+  "How many of the episodes of the show `feed-guid` in `profile`, of which
+  `part` is feed-part's result, are :unplayed, :in-progress and :played.
+  The profile has an entry or a mark of those whose guids `touched` holds,
+  and any other is played when the archive holds it."
+  [profile feed-guid {:keys [episodes guids anonymous]} touched]
+  (let [status   #(profile/status (profile/episode-entry profile [feed-guid %]))
+        heard    (filter guids touched)
+        archived (into #{}
+                       (comp (mapcat :items) (filter guids) (remove touched))
+                       (vals (get-in profile [:archive feed-guid])))]
+    (cond-> (merge-with + (frequencies (map status heard))
+                        {:played   (count archived)
+                         :unplayed (- episodes anonymous
+                                      (count heard) (count archived))})
+      (pos? anonymous) (update (status nil) (fnil + 0) anonymous))))
 
 (defn where-pred
   "The predicate of a feed and one of its items for the `criteria` of
   criteria/where, which read the profile of `library`, whose feeds have
-  the `urls` of library/urls, the :at of the `opts` or the time of its
-  clock, and their :scale."
+  the `urls` that library/url-fn returns, the :at of the `opts` or the
+  time of its clock, and their :scale."
   [library urls criteria opts]
   (criteria/where criteria (assoc (select-keys opts [:scale])
                                   :profile (:profile library)
@@ -798,7 +830,7 @@
 
 (defn index-opts
   "The `opts` of a query of the index of `library`, whose feeds have the
-  `urls` of library/urls, with their :where, the criteria of
+  `urls` that library/url-fn returns, with their :where, the criteria of
   criteria/where that an episode meets, and :filter-pred made one
   :filter-pred of a result with the :feed and :item that `locate` gives
   it. The criteria leave the shows out."
@@ -1384,11 +1416,19 @@
       (nil? value) {:reason "It isn't in the store"}
       :else        {:reason "It doesn't read as a feed"})))
 
+(defn lean-read
+  "The feeds `entry` of a feed read from its document, with the feed as
+  resolve/lean gives it when the :lean? of the `opts` asks for that."
+  [entry opts]
+  (cond-> entry
+    (and (:lean? opts) (:feed entry)) (update :feed resolve/lean)))
+
 (defn with-read-feeds
   "The `library` and its `report`, a pair, with each of the `reads`,
   triples of a feed guid, the name of its document and what read-feed gave
   for it, in the entry of its feed. Each feed has its key, as
-  guid/with-key gives it.
+  guid/with-key gives it, and is lean with the :lean? of the library's
+  config.
 
   An entry whose document didn't read keeps only its URL, so that the
   next refresh fetches it again, with :library/unreadable-document in the
@@ -1410,7 +1450,9 @@
         keyed   (fn [[feed-guid {:keys [feed] :as entry}]]
                   [feed-guid (cond-> entry
                                (and feed (not= feed-guid (::guid/key (meta feed))))
-                               (update :feed guid/with-key feed-guid))])
+                               (-> (update :feed guid/with-key feed-guid)
+                                   (lean-read (options library {}))
+                                   with-lookups))])
         [library report] (reduce applied [library report] reads)]
     [(update library :feeds #(into {} (map keyed) %))
      report]))
@@ -1442,7 +1484,7 @@
                error         {:error error}
                (empty? value) {:error nil}
                :else         (try
-                               {:index (ciff/read-files value {:held (:index library)})}
+                               {:index (ciff/read-files value {:reuse (:index library)})}
                                (catch #?(:clj Exception :cljs :default) e
                                  {:error e})))]
     (cond

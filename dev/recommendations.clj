@@ -55,7 +55,7 @@
   without the text that its show repeats."
   [lib [feed item]]
   (println (get-in (feed.search/item-document
-                    feed item {:url      (get (library/urls lib) feed)
+                    feed item {:url      ((library/url-fn lib) feed)
                                :repeated (feed.search/repeated-runs feed)})
                    [:fields :description])))
 

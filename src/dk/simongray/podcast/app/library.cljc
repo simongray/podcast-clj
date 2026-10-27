@@ -35,11 +35,18 @@
        :concurrency    8              ; how many feeds are fetched at once
        :max-pages      5              ; of a paged feed, at its first fetch
        :max-items      500            ; the most items of a feed, all by default
+       :lean?          true           ; feeds read in keep only the notes shown
        :archive-after  31536000000    ; when played episodes are archived, in ms
        :only-newer?    false          ; older episodes that appear are new too
        :new-episodes   :inbox         ; where every show's new episodes go
        :extension      \".transit\"     ; of the documents, as make takes it
        :timeout-seconds 15 :max-bytes … :user-agent …}
+
+  With :lean?, a feed read from its document keeps in memory only the
+  notes that resolve/description reads, as resolve/lean gives it, while
+  the document keeps the feed whole. A read and refreshed read feeds so,
+  while a feed that a subscription brings stays whole until the next read,
+  so that its document is written whole.
 
   Each function also takes the same keys as options, for one call, and
   :at, an instant to stamp each change with in place of the time of the
@@ -157,14 +164,14 @@
              :when (impl/unloaded? entry)]
          feed-guid)))
 
-;; A map keyed by the feeds hashed each of them whole, every item and its
-;; notes, which took 800 ms for 53 shows in Chrome after the library was
-;; read, so a feed with its key is looked up by that key instead
-(defn urls
-  "A function of each feed of `library`, with the episodes that it lists,
-  that gives its URL, e.g. as the :url of criteria/where. It finds a feed
-  by the key that the library keeps it under, and one without a key among
-  all the feeds."
+;; A map keyed by feeds hashes every feed whole, items and notes included,
+;; which took 800 ms for 53 shows in Chrome after a read, so a feed with a
+;; key is looked up by its key instead
+(defn url-fn
+  "A function that returns the URL of a feed of `library`, given the feed
+  with the episodes that it lists, e.g. as the :url of criteria/where. It
+  looks a feed up by the key that the library keeps it under, and a feed
+  without a key among all the feeds."
   [library]
   (let [by-feed (delay (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
                                       :let  [feed (impl/shown library feed-guid)]
@@ -254,12 +261,9 @@
   [fetched url]
   (let [result (impl/fetch-result fetched)
         feed   (impl/feed-of url result "build the search documents of")
-        at     (or (:permanent-url result) (:new-feed-url result) url)
-        docs   (feed.search/feed-documents (guid/with-key feed (guid/feed-key feed url))
-                                           at)]
-    (assoc result :search-documents {:url       at
-                                     :documents (vec docs)
-                                     :repeated  (:repeated (meta docs))})))
+        at     (or (:permanent-url result) (:new-feed-url result) url)]
+    (assoc result :search-documents
+           (impl/search-documents (guid/with-key feed (guid/feed-key feed url)) at))))
 
 (defn subscribe-local
   "The `library` subscribed to the show of local files `feed`, which
@@ -349,7 +353,8 @@
                  {:feed-url url} at)
          (cond-> fresh? (update :feeds feeds/add url result at cadence))
          (impl/reindexed feed-guid)
-         (cond-> fresh? (impl/kept feed-guid (impl/options library opts)))))))
+         (cond-> fresh? (-> (impl/kept feed-guid (impl/options library opts))
+                            (impl/looked-up feed-guid)))))))
 
 (defn remove-episode
   "The `library` without the remote item `id`, with the :at of `opts`. The
@@ -755,12 +760,9 @@
                              (if (get-in loaded [feed-guid :feed])
                                feed-guid
                                (or (:guid (get fetched feed-guid)) feed-guid)))
-                 ;; each feed in a task of its own, since a long feed's
-                 ;; documents take a while, so that a message to a web
-                 ;; worker, e.g. a listener's, waits for one feed at most
                  prepared  (fn [[feed-guid name]]
                              (async/then
-                              (impl/yielded)
+                              (async/yielded)
                               (fn [_]
                                 (let [entry (get fetched feed-guid)
                                       built (impl/built-documents entry (key-of feed-guid))]
@@ -777,17 +779,17 @@
                    (store/put-all! store (for [[name body] documents]
                                            {:name name :body body}))
                    (fn [_]
-                     {:at        at
-                      :from      from
-                      :feeds     (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
-                      :documents documents
+                     {:at               at
+                      :from             from
+                      :feeds            (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
+                      :documents        documents
                       :search-documents (into {} (map (juxt :feed-guid :built)) made)
-                      :changed   (:changed step)
-                      :moved     (:moved step)
-                      :lists     lists
-                      :counts    (impl/counted step)
-                      :seconds   (/ (- (inst-ms (clock)) (inst-ms started)) 1000.0)
-                      :report    (into report (:report step))})))))))))))))
+                      :changed          (:changed step)
+                      :moved            (:moved step)
+                      :lists            lists
+                      :counts           (impl/counted step)
+                      :seconds          (/ (- (inst-ms (clock)) (inst-ms started)) 1000.0)
+                      :report           (into report (:report step))})))))))))))))
 
 (defn refreshed
   "The `library` with what a refresh `found`, as fetch-due! gives it,
@@ -799,8 +801,8 @@
   feed that changed meanwhile, e.g. by a subscription in another tab,
   stays as it is, and so does a list that the listener no longer follows.
   The feeds that changed are read from the documents that `found` holds,
-  with the :codec of `opts`, and indexed from its search documents where
-  they're those of the feed that the library keeps."
+  with the :codec of `opts`, lean with :lean?, and indexed from its search
+  documents where they're those of the feed that the library keeps."
   ([library found]
    (refreshed library found {}))
   ([library {:keys [at from feeds documents search-documents changed moved lists counts
@@ -826,7 +828,8 @@
                           (when (:feed read)
                             (-> (dissoc entry :document)
                                 (clojure.core/merge read)
-                                (update :feed guid/with-key feed-guid))))
+                                (update :feed guid/with-key feed-guid)
+                                (impl/lean-read opts))))
 
                         (and document (:feed own))
                         (-> (dissoc entry :document)
@@ -867,50 +870,54 @@
 ;; due with, so a feed can be applied apart from the others
 (defn found-parts
   "What a refresh `found`, as fetch-due! gives it, in parts that refreshed
-  applies one after another to the same library as the whole, e.g. with a
-  pause between them in a page, so that it answers the listener.
+  applies one after another, to the same result as the whole, e.g. with a
+  pause between them so that a page stays responsive.
 
   The first part holds the lists, the report, the counts, the seconds and
-  the feeds that didn't change. Each of the others holds feeds that
-  changed, in the order of :changed, as many as come to `max-episodes`
-  episodes by their search documents, or one feed of more or without them,
-  with what `found` has of those feeds."
-  [{:keys [at feeds from documents search-documents changed moved] :as found}
-   max-episodes]
-  (let [episodes (fn [feed-guid]
-                   (if-let [docs (get-in search-documents [feed-guid :documents])]
-                     (dec (count docs))
-                     max-episodes))
-        groups   (reduce (fn [groups feed-guid]
-                           (let [n    (episodes feed-guid)
-                                 last (peek groups)]
-                             (if (and last (<= (+ (:episodes last) n) max-episodes))
-                               (conj (pop groups) (-> last
-                                                      (update :episodes + n)
-                                                      (update :feed-guids conj feed-guid)))
-                               (conj groups {:episodes n :feed-guids [feed-guid]}))))
-                         []
-                         changed)
-        part     (fn [feed-guids]
-                   {:at               at
-                    :from             (select-keys from feed-guids)
-                    :feeds            (select-keys feeds feed-guids)
-                    :documents        (select-keys documents
-                                                   (keep #(get-in feeds [% :document]) feed-guids))
-                    :search-documents (select-keys search-documents feed-guids)
-                    :changed          (vec feed-guids)
-                    :moved            (select-keys moved feed-guids)})
-        changed? (set changed)
-        rest-of  #(into {} (remove (comp changed? key)) %)]
-    (into [(assoc found
-                  :from             (rest-of from)
-                  :feeds            (rest-of feeds)
-                  :documents        {}
-                  :search-documents {}
-                  :changed          []
-                  :moved            (rest-of moved))]
-          (map (comp part :feed-guids))
-          groups)))
+  the feeds that didn't change. Each of the others holds what `found` has
+  of feeds that changed, in the order of :changed, up to the :max-episodes
+  of `opts`, 500 by default, by their search documents. A feed without
+  search documents counts as :max-episodes, and a feed of more gets a part
+  of its own."
+  ([found]
+   (found-parts found {}))
+  ([{:keys [at feeds from documents search-documents changed moved] :as found}
+    {:keys [max-episodes] :or {max-episodes 500} :as opts}]
+   {:pre [(map? opts)]}
+   (let [episodes (fn [feed-guid]
+                    (if-let [docs (get-in search-documents [feed-guid :documents])]
+                      (dec (count docs))
+                      max-episodes))
+         groups   (reduce (fn [groups feed-guid]
+                            (let [n    (episodes feed-guid)
+                                  last (peek groups)]
+                              (if (and last (<= (+ (:episodes last) n) max-episodes))
+                                (conj (pop groups) (-> last
+                                                       (update :episodes + n)
+                                                       (update :feed-guids conj feed-guid)))
+                                (conj groups {:episodes n :feed-guids [feed-guid]}))))
+                          []
+                          changed)
+         part     (fn [feed-guids]
+                    {:at               at
+                     :from             (select-keys from feed-guids)
+                     :feeds            (select-keys feeds feed-guids)
+                     :documents        (select-keys documents
+                                                    (keep #(get-in feeds [% :document]) feed-guids))
+                     :search-documents (select-keys search-documents feed-guids)
+                     :changed          (vec feed-guids)
+                     :moved            (select-keys moved feed-guids)})
+         changed? (set changed)
+         rest-of  #(into {} (remove (comp changed? key)) %)]
+     (into [(assoc found
+                   :from             (rest-of from)
+                   :feeds            (rest-of feeds)
+                   :documents        {}
+                   :search-documents {}
+                   :changed          []
+                   :moved            (rest-of moved))]
+           (map (comp part :feed-guids))
+           groups))))
 
 ;; WebSub 5.1: a subscriber can subscribe at any of the hubs of a topic
 (defn hub-requests
@@ -1079,7 +1086,7 @@
   ;; the feeds of the library have their keys, and the URLs of the others
   ;; cost a pass over every feed, each hashed as a key
   (guid/episode-id feed
-                   (when-not (guid/keyed? feed) ((urls library) feed))
+                   (when-not (guid/keyed? feed) ((url-fn library) feed))
                    item))
 
 ;; The podcast namespace, podcast:liveItem: a status of pending, live or
@@ -1194,79 +1201,6 @@
              (assoc :episodes (criteria/episodes feed {:profile profile
                                                        :url     url})))))))))
 
-;; A library whose :fetch leans each feed still holds the feeds from before
-;; as they were, and a feed whose server answers 304 too, since only a feed
-;; that changes is written again. A feed's document is named by its
-;; :changed-at, so a feed leaned in memory alone would never be written:
-;; the store holds a document of that name already. A new :changed-at
-;; names a new document, which the next write puts, deleting the one that
-;; its :before names. The episodes stay as they were, since lean drops only
-;; the notes that description doesn't read, so :changed-at here says when
-;; the kept copy changed, not the host's feed.
-(defn leaned
-  "The `library` with the feed of each entry that it holds in memory as
-  resolve/lean gives it, changed at the instant `at` where that drops
-  notes, so that its document is written anew. It's the same `library`
-  when none does."
-  [library at]
-  (let [changed (into {}
-                      (keep (fn [[feed-guid {:keys [feed] :as entry}]]
-                              (when feed
-                                (let [lean (resolve/lean feed)]
-                                  (when-not (identical? lean feed)
-                                    [feed-guid (assoc entry
-                                                      :feed lean
-                                                      :changed-at at)])))))
-                      (:feeds library))]
-    (if (empty? changed)
-      library
-      (update library :feeds clojure.core/merge changed))))
-
-(defn feed-part
-  "What shows takes of the feeds `entry` alone, or nil without a feed:
-  - :episodes, how many distinct items it has
-  - :guids, the set of their guids
-  - :anonymous, how many of them have no guid
-  - :artwork, and :newest, when its newest episode came out"
-  [entry]
-  (when-let [feed (some-> entry impl/marked)]
-    (let [items (resolve/distinct-items (:rss/items feed))
-          guids (map guid/item-guid items)
-          dates (seq (keep resolve/published items))]
-      (cond-> {:episodes  (count items)
-               :guids     (into #{} (remove nil?) guids)
-               :anonymous (count (filter nil? guids))
-               :artwork   (resolve/artwork feed)}
-        dates (assoc :newest (apply max-key inst-ms dates))))))
-
-;; A screen of shows is worked out again at each change of the profile,
-;; e.g. at each report of a position, while the feeds stay, so what it
-;; takes of a feed alone is kept beside the feed's entry. For a library of
-;; 54 shows and 27,831 episodes, that took 70 ms of 91.
-(def feed-parts
-  "The feed-part of each feeds entry that shows has worked out."
-  (impl/weak-cache))
-
-;; Only the episodes that the profile has an entry or a mark of, or that
-;; the archive holds, can be anything but unplayed, so the counts take
-;; only those, rather than every episode of every show
-(defn statuses
-  "How many of the episodes of the show `feed-guid` in `profile`, of which
-  `part` is feed-part's result, are :unplayed, :in-progress and :played.
-  The profile has an entry or a mark of those whose guids `touched` holds,
-  and any other is played when the archive holds it."
-  [profile feed-guid {:keys [episodes guids anonymous]} touched]
-  (let [status   #(profile/status (profile/episode-entry profile [feed-guid %]))
-        heard    (filter guids touched)
-        archived (into #{}
-                       (comp (mapcat :items) (filter guids) (remove touched))
-                       (vals (get-in profile [:archive feed-guid])))]
-    (cond-> (merge-with + (frequencies (map status heard))
-                        {:played   (count archived)
-                         :unplayed (- episodes anonymous
-                                      (count heard) (count archived))})
-      (pos? anonymous) (update (status nil) (fnil + 0) anonymous))))
-
 (defn shows
   "The subscriptions of `library` in the listener's order, as profile/shows
   gives it, each as a map for a screen of shows:
@@ -1291,25 +1225,24 @@
                              #(into #{} (map second) %))
         summary
         (fn [feed-guid]
-          (let [entry (get-in library [:feeds feed-guid])
-                part  (impl/cached feed-parts entry feed-part)
-                {:keys [episodes artwork newest]} part
+          (let [entry   (get-in library [:feeds feed-guid])
+                part    (some-> entry impl/lookups :part deref)
                 counted (when part
-                          (statuses profile feed-guid part
-                                    (get touched feed-guid #{})))
+                          (impl/statuses profile feed-guid part
+                                         (get touched feed-guid #{})))
                 title   (profile/title profile feed-guid)
-                artwork (or artwork
+                artwork (or (:artwork part)
                             (get-in profile [:subscriptions feed-guid :image]))
                 counts  (cond-> {:inbox  (get inbox feed-guid 0)
                                  :queued (get queued feed-guid 0)}
-                          part (assoc :episodes    episodes
+                          part (assoc :episodes    (:episodes part)
                                       :unplayed    (get counted :unplayed 0)
                                       :in-progress (get counted :in-progress 0)
                                       :played      (get counted :played 0)))]
             (cond-> {:feed-guid feed-guid :counts counts}
               title                  (assoc :title title)
               artwork                (assoc :artwork artwork)
-              newest                 (assoc :newest newest)
+              (:newest part)         (assoc :newest (:newest part))
               (impl/unloaded? entry) (assoc :unloaded? true))))]
     (mapv summary (profile/shows profile))))
 
@@ -1534,7 +1467,7 @@
                                      :where   (criteria/visible (:where opts))
                                      :profile (:profile library)
                                      :files   (:files library {})
-                                     :url     (urls library)
+                                     :url     (url-fn library)
                                      :at      (impl/time-of library opts))
                         (:index library) (assoc :index (:index library))))))
 
@@ -1555,7 +1488,8 @@
   ([library ids criteria {:keys [feeds] :as opts}]
    {:pre [(map? opts)]}
    (let [holding (cond-> library
-                   feeds (update :feeds clojure.core/merge feeds))
+                   feeds (update :feeds clojure.core/merge
+                                 (update-vals feeds impl/with-lookups)))
          pairs   (keep #(impl/item-of holding %) ids)
          urls    (into {} (map (fn [[{:keys [feed url]}]] [feed url])) pairs)
          meets?  (impl/where-pred holding urls criteria opts)]
@@ -1579,7 +1513,7 @@
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
      (let [locate (feed.search/located (update-vals (:feeds library) :feed))
-           found  (->> (impl/index-opts library (urls library) locate opts)
+           found  (->> (impl/index-opts library (url-fn library) locate opts)
                        (search/query index q))]
        (with-meta (mapv locate found) (meta found))))))
 
@@ -1654,7 +1588,7 @@
                  :as   opts}]
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
-     (let [feed-urls (urls library)
+     (let [feed-urls (url-fn library)
            from?     (if from
                        (impl/where-pred library feed-urls from opts)
                        (constantly true))
@@ -1664,10 +1598,11 @@
            ;; only the episode that the listener played of it
            holding   (cond-> library
                        feeds (update :feeds clojure.core/merge
-                                     (update-vals feeds #(cond-> %
-                                                           (not (contains? % :repeated))
-                                                           (assoc :repeated (feed.search/repeated-runs
-                                                                             (:feed %)))))))
+                                     (update-vals feeds #(-> %
+                                                             (cond-> (not (contains? % :repeated))
+                                                               (assoc :repeated (feed.search/repeated-runs
+                                                                                 (:feed %))))
+                                                             impl/with-lookups))))
            seeds     (->> ids
                           (keep #(impl/seed holding %))
                           (filter #(from? (:feed %) (:item %))))
@@ -2611,7 +2546,7 @@
                                                       %)))
                      (into {} (map kept) (or files (:files library)))
                      (impl/time-of library opts)
-                     (assoc opts :url (urls library))))))
+                     (assoc opts :url (url-fn library))))))
 
 (defn start-download
   "The `library` with the download of `entry`, one of the :download of

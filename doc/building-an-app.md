@@ -327,8 +327,14 @@ instead of a feed, find the feeds with `discovery/find-feeds!`:
 
 The podcasts come first, so you can subscribe to a single one at once and
 let the listener choose among several. Each comes with its parsed `:feed`,
-which `library/subscribe` takes in place of the result of `fetch!`. Give
-`:known (library/urls @lib)` to put the shows that the listener has first.
+which `library/subscribe` takes in place of the result of `fetch!`. To put
+the shows that the listener has first, give `:known` the pairs of each
+feed and its URL:
+
+```clojure
+:known (for [{:keys [feed url]} (vals (:feeds @lib)) :when feed]
+         [feed url])
+```
 
 A page can name several feeds of megabytes each, as Freak Show's does, and
 `:heads? true` fetches only the start of each, most often 64 KB. For one
@@ -586,6 +592,11 @@ that only syncs and refreshes, can keep a small part of each with the
 option `:keep-fn feeds/slim`, given to each call that fetches or
 subscribes. That part still tells when to check the feed and which
 episodes are new.
+
+Hosts often put an episode's notes in three or four fields at once. If
+you show only the notes that `resolve/description` reads, put
+`:lean? true` in the config. A feed read from its document then keeps
+only those notes in memory, while its document keeps the feed whole.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 On the JVM, keep the last block that you read and the writers, and poll

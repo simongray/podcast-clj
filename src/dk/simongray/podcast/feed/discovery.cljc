@@ -186,7 +186,8 @@
 
 (defn known-matches
   "The candidates among the `known` feeds that the web page `url` names.
-  The `known` feeds are a map of each parsed feed to its URL.
+  The `known` feeds are pairs of a parsed feed and its URL, e.g. a map of
+  each feed to its URL.
 
   A feed is named by its URL, without the scheme, trailing slashes and
   case, or by its website."
@@ -458,7 +459,8 @@
 
   The `opts` are:
 
-  - :known, the feeds you already have, as a map of each to its URL
+  - :known, the feeds you already have, as pairs of each and its URL, e.g.
+    a map of each to its URL
   - :search, the directories to search by a page's name, none by default
   - :lookup, the directories that look up the id in an app's link
   - :index, the Podcast Index credentials, and :now-fn, the clock to sign with

@@ -555,15 +555,29 @@
       (is (not (found? (library/subscribe (make) url (assoc (marked built) :feed newer))))
           "e.g. one with another episode"))))
 
+(deftest the-lookups-of-a-feed
+  (let [entry  (get-in library [:feeds guid])
+        kept   (library.impl/lookups entry)
+        item   (first (:rss/items show))
+        played (stepped library [:play [guid (feed.guid/item-guid item)]] {:at now})]
+    (is (= item (get @(:items kept) (feed.guid/item-guid item))))
+    (is (= (library.impl/feed-part entry) @(:part kept)))
+    (is (identical? kept (library.impl/lookups (get-in played [:feeds guid])))
+        "stay on the feed's entry while the profile changes")
+    (is (not (identical? kept (library.impl/lookups (assoc-in entry [:feed :rss/title] "Another"))))
+        "but not past a change to the feed")
+    (is (= (get-in library [:feeds guid]) (with-meta entry nil))
+        "and leave the entry's equality as it is")))
+
 (deftest the-urls-of-the-feeds
   (let [unhashable #?(:clj  (reify Object (hashCode [_] (throw (ex-info "hashed" {}))))
                       :cljs (reify IHash (-hash [_] (throw (ex-info "hashed" {})))))
         lib        (assoc-in library [:feeds guid :feed :rss/description] unhashable)]
-    (is (= url ((library/urls lib) (library.impl/shown lib guid)))
+    (is (= url ((library/url-fn lib) (library.impl/shown lib guid)))
         "by the key that the library keeps a feed under, without hashing the feed")
-    (is (= url ((library/urls library) (with-meta (library.impl/shown library guid) nil)))
+    (is (= url ((library/url-fn library) (with-meta (library.impl/shown library guid) nil)))
         "or among all the feeds for one without a key")
-    (is (nil? ((library/urls library) other)) "and none for a feed that it doesn't keep")))
+    (is (nil? ((library/url-fn library) other)) "and none for a feed that it doesn't keep")))
 
 (deftest the-cap-of-a-common-word
   (let [episodes (fn [n] (for [i (range n)] [(str "Episode " i) "Notes."]))
@@ -1886,28 +1900,34 @@
                                       (is (= (found-ids whole) (found-ids lib))
                                           "and finds what a read of the whole index finds"))))))))
 
-(deftest feeds-leaned-and-written-anew
-  (let [s       (store/memory)
-        later   #inst "2026-10-26T12:00:00Z"
-        notes   #(select-keys % resolve/description-keys)
-        doubled (update-in transit-library [:feeds guid :feed :rss/items]
-                           (fn [items]
-                             (mapv #(assoc % :content/encoded "<p>Notes</p>" :rss/description "Notes")
-                                   items)))
-        lean    (library/leaned doubled later)
-        before  (feed-document (get-in doubled [:feeds guid :changed-at]))]
-    (is (= #{{:content/encoded "<p>Notes</p>"}}
-           (set (map notes (get-in lean [:feeds guid :feed :rss/items]))))
-        "only the notes that description reads")
-    (is (= later (get-in lean [:feeds guid :changed-at])) "changed now, under a new name")
-    (is (identical? lean (library/leaned lean later)) "and a lean library is the same one again")
-    (run #(async/then (library/write! doubled s (assoc in-transit :if-version nil))
-                      (fn [{:keys [version]}] (is (= "1" version))))
-         #(async/then (library/write! lean s (assoc in-transit :if-version "1" :before doubled))
-                      (fn [{:keys [put delete]}]
-                        (is (= [(feed-document later) "library.transit.json"] put)
-                            "the leaned feed's document, written once")
-                        (is (= [before] delete) "in place of the one before"))))))
+(deftest feeds-read-lean
+  (let [s        (store/memory)
+        notes    #(set (map (fn [item] (select-keys item resolve/description-keys)) %))
+        doubled  (update-in transit-library [:feeds guid :feed :rss/items]
+                            (fn [items]
+                              (mapv #(assoc % :content/encoded "<p>Notes</p>" :rss/description "Notes")
+                                    items)))
+        document (feed-document (get-in doubled [:feeds guid :changed-at]))
+        whole    #{{:content/encoded "<p>Notes</p>" :rss/description "Notes"}}]
+    (run #(library/write! doubled s (assoc in-transit :if-version nil))
+         #(async/then (library/read! (library/make "phone" {:at     now
+                                                            :codec  transit/codec
+                                                            :config {:lean? true}})
+                                     s in-transit)
+                      (fn [{lib :library}]
+                        (let [feed (get-in lib [:feeds guid :feed])]
+                          (is (= #{{:content/encoded "<p>Notes</p>"}} (notes (:rss/items feed)))
+                              "keep only the notes that description reads in memory, with :lean?")
+                          (is (= [:feed/notes-left-out] (map :id (:podcast/report (meta feed))))
+                              "and say so in the feed's report")
+                          (async/then (library/write! lib s (assoc in-transit :if-version "1"))
+                                      (fn [{:keys [put]}]
+                                        (is (not-any? #{document} put) "and write no feed anew"))))))
+         #(async/then ((:fetch s) document {})
+                      (fn [doc]
+                        (is (= whole (notes (get-in (library.impl/read-feed transit/codec document {:value doc})
+                                                    [:feed :rss/items])))
+                            "while its document keeps the feed whole"))))))
 
 (deftest a-library-written-and-read
   (let [documents (atom {})
@@ -2092,7 +2112,7 @@
          #(async/then (library/fetch-due! (library/due lib {:at later}) s (assoc in-transit :fetch fetch))
                       (fn [f]
                         (let [whole (library/refreshed lib f opts)
-                              parts (library/found-parts f 1)
+                              parts (library/found-parts f {:max-episodes 1})
                               steps (rest (reductions (fn [{l :library} part] (library/refreshed l part opts))
                                                       {:library lib}
                                                       parts))
@@ -2104,7 +2124,7 @@
                               "which give the library that the whole gives")
                           (is (= 4 (count (:added whole))))
                           (is (= (:added whole) (vec (mapcat :added steps))) "and the same new episodes")
-                          (is (= 2 (count (library/found-parts f 100)))
+                          (is (= 2 (count (library/found-parts f)))
                               "or one part of the feeds that changed, when they're few episodes")))))))
 
 #?(:cljs
