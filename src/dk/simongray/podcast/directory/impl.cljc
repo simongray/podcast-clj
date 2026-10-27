@@ -235,9 +235,10 @@
 ;; https://bendodson.com/weblog/2013/02/19/itunes-artwork-finder
 (defn- apple-sizes
   "The sizes of Apple's artwork as hrefs by width: the 100 and 600 pixels
-  that the result gives as `artworkUrl100` and `artworkUrl600`, and WebP
-  sizes beside them when the URL of 600 names its size in its path."
-  [artworkUrl100 artworkUrl600]
+  that the result gives as `artworkUrl100` and `artworkUrl600`, and the
+  `widths` in WebP beside them when the URL of 600 names its size in its
+  path."
+  [artworkUrl100 artworkUrl600 widths]
   (let [suffix "/600x600bb.jpg"
         base   (when (some-> artworkUrl600 (str/ends-with? suffix))
                  (subs artworkUrl600 0 (- (count artworkUrl600) (dec (count suffix)))))]
@@ -245,20 +246,21 @@
           (concat (keep (fn [[href width]] (when href [width href]))
                         [[artworkUrl100 100] [artworkUrl600 600]])
                   (when base
-                    (for [width [64 128 256 512]]
+                    (for [width widths]
                       [width (str base width "x" width "bb.webp")]))))))
 
 (defn- apple-show
   "The show of the result `r` of a search or lookup at Apple. Apple gives
-  the artwork at 100 and at 600 pixels, and its CDN serves other sizes,
-  which become podcast:images with their widths, so that an app can load
-  the size that fits."
+  the artwork at 100 and at 600 pixels, and its CDN serves the `widths`
+  too, which become podcast:images with their widths, so that an app can
+  load the size that fits."
   [{:strs [collectionId collectionName artistName feedUrl artworkUrl600
            artworkUrl100 collectionViewUrl genres releaseDate trackCount
            contentAdvisoryRating]
-    :as   r}]
+    :as   r}
+   widths]
   (let [artwork    (or artworkUrl600 artworkUrl100)
-        sizes      (for [[width href] (apple-sizes artworkUrl100 artworkUrl600)]
+        sizes      (for [[width href] (apple-sizes artworkUrl100 artworkUrl600 widths)]
                      {:href href :width width :height width :purpose "artwork"})
         explicit   (apple-explicit contentAdvisoryRating)
         categories (for [g genres :when (not= "Podcasts" g)] {:text g})
@@ -373,15 +375,16 @@
       (map #(podcastindex-show % pages) (or feeds (when feed [feed]))))))
 
 (defn apple-shows
-  "The shows in the JSON value `raw` that Apple answered for `call`. A
-  chart holds the entries of one of the two kinds of charts of Apple."
-  [raw call]
+  "The shows in the JSON value `raw` that Apple answered for `call`, with
+  their artwork at the WebP `widths` too. A chart holds the entries of one
+  of the two kinds of charts of Apple."
+  [raw call widths]
   (if (= :trending call)
     (concat (map apple-chart-show (get-in raw ["feed" "results"]))
             (map apple-genre-show (records (get-in raw ["feed" "entry"]))))
     (->> (get raw "results")
          (filter #(= "podcast" (get % "kind")))
-         (map apple-show))))
+         (map #(apple-show % widths)))))
 
 (defn- apple-episode
   "The episode of the result `r` of a lookup of episodes at Apple, with
@@ -408,10 +411,11 @@
 
 (defn- apple-episodes
   "The episodes in the JSON value `raw` of a lookup of episodes at Apple,
-  each with the show that the answer describes too."
-  [raw]
+  each with the show that the answer describes too, with its artwork at
+  the WebP `widths`."
+  [raw widths]
   (let [results (get raw "results")
-        show    (some #(when (= "podcast" (get % "kind")) (apple-show %))
+        show    (some #(when (= "podcast" (get % "kind")) (apple-show % widths))
                       results)]
     (for [r     results
           :when (= "podcastEpisode" (get r "wrapperType"))]
@@ -475,14 +479,14 @@
                     :directory/raw  (:index/raw m)))))
 
 (defn episodes
-  "The episodes in the JSON `body` that a source with the `api` answered,
-  or none when the body tells of a failure."
-  [api body]
+  "The episodes in the JSON `body` that the source of the entry `e`
+  answered, or none when the body tells of a failure."
+  [{:keys [api artwork-sizes] :as e} body]
   (case api
     :podcastindex (let [{:keys [status items live-items]} (index/response body)]
                     (when status
                       (map index-episode (concat items live-items))))
-    :apple        (apple-episodes (json/read-str body))
+    :apple        (apple-episodes (json/read-str body) artwork-sizes)
     :fyyd         (fyyd-episodes (json/read-str body))))
 
 (defn- name-of

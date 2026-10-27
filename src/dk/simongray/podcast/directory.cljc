@@ -122,18 +122,24 @@
              :id :mirror :root \"https://fyyd.example.org/0.2/\")
 
   The :id of such an entry names the source in the results. Without an
-  :id, the name of its API does."
-  {:apple        {:api          :apple
-                  :name         "Apple Podcasts"
-                  :credentials? false
-                  :calls        #{:search :lookup :trending :episodes}
-                  :search       "https://itunes.apple.com/search"
-                  :lookup       "https://itunes.apple.com/lookup"
-                  :trending     "https://rss.marketingtools.apple.com/api/v2/"
-                  :genre-charts "https://itunes.apple.com/"
-                  :genres       apple-genres
-                  :genre-names  (str "https://itunes.apple.com/WebObjects/"
-                                     "MZStoreServices.woa/ws/genres")}
+  :id, the name of its API does.
+
+  Apple's entry also has the :artwork-sizes in pixels that its image
+  server makes of a show's artwork in WebP. Apple doesn't document them,
+  so an entry without them offers only the 100 and 600 pixels that a
+  result names."
+  {:apple        {:api           :apple
+                  :name          "Apple Podcasts"
+                  :credentials?  false
+                  :calls         #{:search :lookup :trending :episodes}
+                  :search        "https://itunes.apple.com/search"
+                  :lookup        "https://itunes.apple.com/lookup"
+                  :trending      "https://rss.marketingtools.apple.com/api/v2/"
+                  :genre-charts  "https://itunes.apple.com/"
+                  :genres        apple-genres
+                  :genre-names   (str "https://itunes.apple.com/WebObjects/"
+                                      "MZStoreServices.woa/ws/genres")
+                  :artwork-sizes [64 128 256 512]}
    :fyyd         {:api          :fyyd
                   :name         "fyyd"
                   :credentials? false
@@ -252,16 +258,16 @@
   :directory/source, and the show that it's an episode of as
   :directory/show, as much as the source tells of the show."
   [source call body]
-  (let [{:keys [api id pages]} (entry source)
+  (let [{:keys [api id pages artwork-sizes] :as e} (entry source)
         named #(assoc % :directory/source id)]
     (if (contains? impl/episode-calls call)
       (mapv #(-> % named (update :directory/show named))
-            (impl/episodes api body))
+            (impl/episodes e body))
       (let [shows (if (= :podcastindex api)
                     (impl/index-shows body pages)
                     (let [raw (json/read-str body)]
                       (case api
-                        :apple   (impl/apple-shows raw call)
+                        :apple   (impl/apple-shows raw call artwork-sizes)
                         :fyyd    (when (= 1 (get raw "status"))
                                    (map impl/fyyd-show
                                         (impl/records (get raw "data"))))

@@ -277,6 +277,12 @@
                   "mza_1841916608920311766.jpg/64x64bb.webp")
              (:href (first (resolve/artwork-sizes show))))
           "as WebP")
+      (is (= [100 600] (->> apple-search
+                            (directory/response (dissoc (:apple directory/sources) :artwork-sizes) :search)
+                            first
+                            resolve/artwork-sizes
+                            (map :width)))
+          "unless an entry of Apple leaves its :artwork-sizes out")
       (is (= (:href (:itunes/image show)) (resolve/artwork show)) "and the largest is the artwork")
       (is (= [600] (->> (str "{\"resultCount\":1,\"results\":[{\"kind\":\"podcast\",\"collectionId\":1,\"collectionName\":\"A\","
                              "\"feedUrl\":\"https://example.com/feed.xml\","
