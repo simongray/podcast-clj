@@ -836,12 +836,7 @@
                     (let [own (get-in library [:feeds feed-guid])]
                       (cond
                         (contains? documents document)
-                        (let [notes (impl/notes-document document)
-                              read  (cond-> (impl/read-feed codec document
-                                                            {:value {:body (get documents document)}})
-                                      (contains? documents notes)
-                                      (impl/with-read-notes codec document
-                                                            {:value {:body (get documents notes)}}))]
+                        (let [read (impl/read-docs codec documents document)]
                           (when (:feed read)
                             (-> (dissoc entry :document)
                                 (clojure.core/merge read)
@@ -2229,9 +2224,9 @@
                         (let [document (if (:feed entry)
                                          (impl/entry-document feed-guid entry naming)
                                          (:document entry))]
-                          (cond-> []
-                            document                       (conj document)
-                            (and document (:notes? entry)) (conj (impl/notes-document document))))))
+                          (when document
+                            (cond-> [document]
+                              (:notes? entry) (conj (impl/notes-document document)))))))
               (:feeds library))
         (into (some-> (:index library) impl/segment-names))
         (into (some-> (:unloaded-index library) :manifest impl/manifest-segments)))))
@@ -2293,11 +2288,7 @@
                      entry)]))
         read  (fn [[feed-guid {:keys [document] :as entry}]]
                 (when (impl/unloaded? entry)
-                  (let [attempt #(hash-map :value (when-let [body (get docs %)] {:body body}))
-                        notes   (impl/notes-document document)]
-                    [feed-guid document
-                     (cond-> (impl/read-feed codec document (attempt document))
-                       (contains? docs notes) (impl/with-read-notes codec document (attempt notes)))])))
+                  [feed-guid document (impl/read-docs codec docs document)]))
         ;; the feeds that changed while the index of the library saved was
         ;; unloaded, which its manifest leaves out
         changed (:index-changed saved)

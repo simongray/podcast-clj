@@ -445,10 +445,10 @@
       (update-in [:feeds feed-guid :feed] keep-fn))))
 
 (defn notes-flagged
-  "The `library` with :notes? on the entry of the feed `feed-guid` when the
-  feed that it holds has notes for a document of their own, as
-  split-notes leaves them out of a library with the :lean? of `opts`, and
-  without it in another library, which keeps a feed in one document."
+  "The `library` with :notes? on the entry of the feed `feed-guid` when
+  the :lean? of `opts` splits notes off the feed that it holds, as
+  split-notes does, and without it in a library that isn't lean. A feed
+  that's lean already keeps the :notes? that it has."
   [library feed-guid opts]
   (cond
     (not (get-in library [:feeds feed-guid]))
@@ -1509,6 +1509,16 @@
                 (read-map value (codec-of codec (notes-document document))))]
     (cond-> read
       notes (update :feed with-notes notes))))
+
+(defn read-docs
+  "What read-feed reads of the feed's `document` in `docs`, a map of names
+  to bodies, with `codec`, and with the notes of its notes document put
+  back when `docs` holds it."
+  [codec docs document]
+  (let [attempt #(hash-map :value (when-let [body (get docs %)] {:body body}))
+        notes   (notes-document document)]
+    (cond-> (read-feed codec document (attempt document))
+      (contains? docs notes) (with-read-notes codec document (attempt notes)))))
 
 (defn lean-read
   "The feeds `entry` of a feed read from its document, with the feed as
