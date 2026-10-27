@@ -116,6 +116,7 @@
   "The `segments` with the speakers of their prefixes, or without them when
   the `stats` of the file say that its colons belong to its sentences."
   [stats segments]
+  ;; the stats count as the lazy segments are made, so all are made first
   (let [segments (vec segments)
         prose    (prose? @stats)]
     (mapv #(dissoc (cond-> % prose as-written) ::transcript/prefix)

@@ -26,8 +26,9 @@
   - the \"Name:\" or \"[Name]:\" prefixes of caption files, which mark a
     change of speaker, so the name carries over the cues that follow. A
     name has at most four words and starts with a letter that isn't lower
-    case. A file whose cues start with other words before a colon as often
-    names no speaker by prefix, since its colons are in its sentences.
+    case. A file whose cues start with other words before a colon at least
+    as often as with a name gets no speakers from prefixes, since its
+    colons belong to its sentences.
 
   Reading is lenient and never throws on content. The report says what it
   had to forgive, e.g. times written as strings, an SRT wrapped in HTML or
