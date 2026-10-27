@@ -42,12 +42,12 @@
        :extension      \".transit\"     ; of the documents, as make takes it
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
-  A feed's document holds only the notes that resolve/description reads,
-  and a notes document beside it holds the others. With :lean?, a read and
-  refreshed read the feed's document alone, so the feed keeps only those
-  notes in memory, while a feed that a subscription brings stays whole
-  until the next read. Without it, they read both. whole-feed! reads a
-  feed whole either way.
+  With :lean?, a feed's document holds only the notes that
+  resolve/description reads, and a notes document beside it holds the
+  others. A read and refreshed read the feed's document alone, so the feed
+  keeps only those notes in memory, while a feed that a subscription
+  brings stays whole until the next read. Without it, a feed is one
+  document. whole-feed! reads a feed whole either way.
 
   Each function also takes the same keys as options, for one call, and
   :at, an instant to stamp each change with in place of the time of the
@@ -355,7 +355,7 @@
          (cond-> fresh? (update :feeds feeds/add url result at cadence))
          (impl/reindexed feed-guid)
          (cond-> fresh? (-> (impl/kept feed-guid (impl/options library opts))
-                            (impl/notes-flagged feed-guid)
+                            (impl/notes-flagged feed-guid (impl/options library opts))
                             (impl/looked-up feed-guid)))))))
 
 (defn remove-episode
@@ -772,7 +772,8 @@
                                    :built     built
                                    :files     (impl/feed-files name
                                                                (assoc entry :repeated (:repeated built))
-                                                               codec)}))))]
+                                                               codec
+                                                               opts)}))))]
              (async/then
               (async/in-groups prepared 1 named)
               (fn [made]
@@ -1976,7 +1977,8 @@
                                 (ciff/plan index names)
                                 none)
                         feeds (if (some #{:feeds} keys)
-                                (impl/feeds-plan (:feeds library) names codec)
+                                (impl/feeds-plan (:feeds library) names codec
+                                                 (impl/options library opts))
                                 none)
                         older (filter #(and (impl/library-document? %) (not= name %))
                                       names)]
@@ -2151,7 +2153,8 @@
                                     (assoc :document name))))]
      (async/then
       (async/attempt
-       #(store/put-all! store (mapcat (fn [[_ entry name]] (impl/feed-files name entry codec))
+       #(store/put-all! store (mapcat (fn [[_ entry name]]
+                                        (impl/feed-files name entry codec (impl/options library opts)))
                                       chosen)))
       (fn [{:keys [error]}]
         (if error
@@ -2210,7 +2213,7 @@
                      :when (:feed entry)
                      :let  [name (impl/entry-document feed-guid entry codec)]
                      :when (not (contains? except name))
-                     file  (impl/feed-files name entry codec)]
+                     file  (impl/feed-files name entry codec (impl/options library opts))]
                  [(:name file) (:body file)]))
          (into (map (juxt :name :body)) (some-> files pop))
          (assoc (impl/library-name codec) ((:encode codec) saved))))))

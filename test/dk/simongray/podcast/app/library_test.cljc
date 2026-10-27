@@ -1923,11 +1923,15 @@
                                                          :rss/description "Notes")
                                                  items)))
         made     #(library/make "phone" {:at now :codec transit/codec :config %})
-        lib      (library/subscribe (made {}) url (assoc fresh :feed doubled) {:at now})
+        lib      (library/subscribe (made {:lean? true}) url (assoc fresh :feed doubled) {:at now})
+        other    (library/subscribe (made {}) url (assoc fresh :feed doubled) {:at now})
         document (feed-document (get-in lib [:feeds guid :changed-at]))
         lean     #{{:content/encoded "<p>Notes</p>"}}
         whole    #{{:content/encoded "<p>Notes</p>" :rss/description "Notes"}}]
-    (is (true? (get-in lib [:feeds guid :notes?])))
+    (is (true? (get-in lib [:feeds guid :notes?])) "by a lean library")
+    (is (= [document] (filter library.impl/feed-document? (keys (library/documents other in-transit))))
+        "while another keeps a feed in one document")
+    (is (nil? (get-in other [:feeds guid :notes?])))
     (run #(async/then (library/write! lib s (assoc in-transit :if-version nil))
                       (fn [{:keys [put]}]
                         (is (= #{document (library.impl/notes-document document)}

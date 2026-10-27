@@ -447,11 +447,21 @@
 (defn notes-flagged
   "The `library` with :notes? on the entry of the feed `feed-guid` when the
   feed that it holds has notes for a document of their own, as
-  split-notes leaves them out."
-  [library feed-guid]
-  (cond-> library
+  split-notes leaves them out of a library with the :lean? of `opts`, and
+  without it in another library, which keeps a feed in one document."
+  [library feed-guid opts]
+  (cond
+    (not (get-in library [:feeds feed-guid]))
+    library
+
+    (not (:lean? opts))
+    (update-in library [:feeds feed-guid] dissoc :notes?)
+
     (some-> (get-in library [:feeds feed-guid :feed]) notes-left-out?)
-    (assoc-in [:feeds feed-guid :notes?] true)))
+    (assoc-in library [:feeds feed-guid :notes?] true)
+
+    :else
+    library))
 
 (defn settled
   "The `library` with the feed `feed-guid` indexed again, from the search
@@ -463,7 +473,7 @@
    (-> library
        (reindexed feed-guid built)
        (kept feed-guid opts)
-       (notes-flagged feed-guid)
+       (notes-flagged feed-guid opts)
        (looked-up feed-guid))))
 
 (defn fetch-result
@@ -1249,14 +1259,16 @@
 
 (defn feed-files
   "The documents of the feeds `entry` with `codec`, as maps of :name and
-  :body: its `document`, of its feed-keys, whose feed holds the notes that
-  resolve/description reads, and beside it the document of the others,
-  when there are any, which marks it with :notes?. A lean feed of an
-  entry with :notes? has its other notes in that document already."
-  [document entry codec]
-  (let [[feed notes] (split-notes (:feed entry))
+  :body: its `document`, of its feed-keys, and with the :lean? of `opts`,
+  the document of the notes that resolve/description doesn't read beside
+  it, when there are any, which marks the first with :notes?. A lean
+  feed of an entry with :notes? has its other notes in that document
+  already."
+  [document entry codec opts]
+  (let [lean?        (:lean? opts)
+        [feed notes] (if lean? (split-notes (:feed entry)) [(:feed entry) nil])
         own          (cond-> (assoc (select-keys entry feed-keys) :feed feed)
-                       (or notes (:notes? entry)) (assoc :notes? true))]
+                       (and lean? (or notes (:notes? entry))) (assoc :notes? true))]
     (cond-> [{:name document :body ((:encode codec) own)}]
       notes (conj {:name (notes-document document) :body ((:encode codec) notes)}))))
 
@@ -1281,14 +1293,15 @@
 
 (defn feeds-plan
   "The documents of the `feeds` of a library to put with `codec` into a
-  store that holds the documents of the `names`, and the names to delete
-  from it, as a map of :put and :delete.
+  store that holds the documents of the `names`, as feed-files gives them
+  with `opts`, and the names to delete from it, as a map of :put and
+  :delete.
 
   A feed's documents are put when the store doesn't hold its name, and a
   feed document or notes document that no feed names is deleted, that of
   another codec too. Without `names`, as of a store that can't list, it's
   every document and no deletes."
-  [feeds names codec]
+  [feeds names codec opts]
   (let [held   (set names)
         wanted (into {}
                      (for [[feed-guid entry] feeds
@@ -1300,7 +1313,7 @@
                              (keep #(when (unloaded? %) (:document %)) (vals feeds))))]
     {:put    (for [[name entry] wanted
                    :when (not (contains? held name))
-                   file  (feed-files name entry codec)]
+                   file  (feed-files name entry codec opts)]
                file)
      :delete (->> held
                   (filter #(and (feed-document? %) (not (contains? named %))))
