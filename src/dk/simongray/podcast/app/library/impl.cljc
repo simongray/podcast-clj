@@ -325,6 +325,44 @@
             (seq left)    (assoc :retained left)
             (empty? left) (dissoc :retained)))))))
 
+(defn- left-out
+  "The notes of `x`, a channel or an item, that resolve/description doesn't
+  read, by their keys, or nil without any."
+  [x]
+  (when-let [k (some #(when (get x %) %) resolve/description-keys)]
+    (not-empty (into {}
+                     (keep #(when (and (not= k %) (get x %)) [% (get x %)]))
+                     resolve/description-keys))))
+
+(defn notes-left-out?
+  "Whether the `feed` has notes that resolve/description doesn't read."
+  [feed]
+  (boolean (or (left-out feed) (some left-out (:rss/items feed)))))
+
+;; Hosts often put an episode's notes in three or four fields at once, and
+;; a feed's document holds only the one that resolve/description reads, so
+;; that a library that keeps no others needn't read them. The others go in
+;; a document beside it, so that the feed reads back whole.
+(defn split-notes
+  "The `feed` with only the notes that resolve/description reads, and the
+  notes that it leaves out, as a map of the :channel's and of the :items'
+  in their order, or nil when it leaves out none, as a pair."
+  [feed]
+  (let [channel (left-out feed)
+        items   (mapv left-out (:rss/items feed))
+        cut     (fn [x notes] (apply dissoc x (keys notes)))]
+    (if (or channel (some some? items))
+      [(cond-> (cut feed channel)
+         (:rss/items feed) (assoc :rss/items (mapv cut (:rss/items feed) items)))
+       {:channel channel :items items}]
+      [feed nil])))
+
+(defn with-notes
+  "The `feed` with the `notes` that split-notes left out of it put back."
+  [feed {:keys [channel items]}]
+  (cond-> (clojure.core/merge feed channel)
+    (seq items) (update :rss/items #(mapv clojure.core/merge % (concat items (repeat nil))))))
+
 (defn item-index
   "The first item of `feed` of each guid, an episode or a live item, by
   the guid."
@@ -406,6 +444,15 @@
       (and keep-fn feed?)
       (update-in [:feeds feed-guid :feed] keep-fn))))
 
+(defn notes-flagged
+  "The `library` with :notes? on the entry of the feed `feed-guid` when the
+  feed that it holds has notes for a document of their own, as
+  split-notes leaves them out."
+  [library feed-guid]
+  (cond-> library
+    (some-> (get-in library [:feeds feed-guid :feed]) notes-left-out?)
+    (assoc-in [:feeds feed-guid :notes?] true)))
+
 (defn settled
   "The `library` with the feed `feed-guid` indexed again, from the search
   documents `built` if they're its own, cut down as the `opts` say, and
@@ -416,6 +463,7 @@
    (-> library
        (reindexed feed-guid built)
        (kept feed-guid opts)
+       (notes-flagged feed-guid)
        (looked-up feed-guid))))
 
 (defn fetch-result
@@ -1160,9 +1208,22 @@
      (str "feed-" id "-" (inst-ms changed-at) (:extension codec)))))
 
 (defn feed-document?
-  "Whether `name` is that of the document of a feed, in any codec."
+  "Whether `name` is that of the document of a feed, or of its notes, in
+  any codec."
   [name]
   (boolean (re-matches #"feed-[0-9a-f-]{36}-\d+\.[a-z.]+" (str name))))
+
+(defn notes-document
+  "The name of the document of the notes that the feed's `document` leaves
+  out, e.g. feed-<id>-<milliseconds>.notes.edn."
+  [document]
+  (str/replace-first document #"^(feed-[0-9a-f-]{36}-\d+)\." "$1.notes."))
+
+(defn notes-document?
+  "Whether `name` is that of the document of a feed's notes, as
+  notes-document names it, in any codec."
+  [name]
+  (boolean (re-matches #"feed-[0-9a-f-]{36}-\d+\.notes\.[a-z.]+" (str name))))
 
 (defn entry-document
   "The name of the document of the feeds entry `entry` of `feed-guid` with
@@ -1186,10 +1247,18 @@
   [entry]
   (apply dissoc entry feed-keys))
 
-(defn feed-body
-  "The document of the feeds `entry` with `codec`, of its feed-keys."
-  [entry codec]
-  ((:encode codec) (select-keys entry feed-keys)))
+(defn feed-files
+  "The documents of the feeds `entry` with `codec`, as maps of :name and
+  :body: its `document`, of its feed-keys, whose feed holds the notes that
+  resolve/description reads, and beside it the document of the others,
+  when there are any, which marks it with :notes?. A lean feed of an
+  entry with :notes? has its other notes in that document already."
+  [document entry codec]
+  (let [[feed notes] (split-notes (:feed entry))
+        own          (cond-> (assoc (select-keys entry feed-keys) :feed feed)
+                       (or notes (:notes? entry)) (assoc :notes? true))]
+    (cond-> [{:name document :body ((:encode codec) own)}]
+      notes (conj {:name (notes-document document) :body ((:encode codec) notes)}))))
 
 (defn saved-map
   "The parts of `library` that `keys` names, as its saved document with
@@ -1215,27 +1284,26 @@
   store that holds the documents of the `names`, and the names to delete
   from it, as a map of :put and :delete.
 
-  A feed's document is put when the store doesn't hold its name, and a
-  feed document that no feed names is deleted, that of another codec too.
-  Without `names`, as of a store that can't list, it's every document and
-  no deletes."
+  A feed's documents are put when the store doesn't hold its name, and a
+  feed document or notes document that no feed names is deleted, that of
+  another codec too. Without `names`, as of a store that can't list, it's
+  every document and no deletes."
   [feeds names codec]
   (let [held   (set names)
         wanted (into {}
                      (for [[feed-guid entry] feeds
                            :when (:feed entry)]
                        [(entry-document feed-guid entry codec) entry]))
-        asleep (into #{}
-                     (keep #(when (unloaded? %) (:document %)))
-                     (vals feeds))]
+        named  (into #{}
+                     (mapcat (juxt identity notes-document))
+                     (concat (keys wanted)
+                             (keep #(when (unloaded? %) (:document %)) (vals feeds))))]
     {:put    (for [[name entry] wanted
-                   :when (not (contains? held name))]
-               {:name name
-                :body (feed-body entry codec)})
+                   :when (not (contains? held name))
+                   file  (feed-files name entry codec)]
+               file)
      :delete (->> held
-                  (filter #(and (feed-document? %)
-                                (not (contains? wanted %))
-                                (not (contains? asleep %))))
+                  (filter #(and (feed-document? %) (not (contains? named %))))
                   sort
                   vec)}))
 
@@ -1403,18 +1471,31 @@
 (defn read-feed
   "What the `attempt` to fetch the `document` of a feed read, with the
   `codec` of a library or EDN's, by its extension: a map of the :feed, its
-  :retained facts and the runs of words that its show :repeated, or of
-  the :reason that it doesn't read."
+  :retained facts, the runs of words that its show :repeated and :notes?
+  when the feed's other notes are in a document of their own, or of the
+  :reason that it doesn't read."
   [codec document {:keys [value error]}]
-  (let [{:keys [feed retained repeated]} (when-not error
-                                           (read-map value (codec-of codec document)))]
+  (let [{:keys [feed retained repeated notes?]} (when-not error
+                                                  (read-map value (codec-of codec document)))]
     (cond
       (map? feed)  (cond-> {:feed feed}
                      (map? retained) (assoc :retained retained)
-                     (set? repeated) (assoc :repeated repeated))
+                     (set? repeated) (assoc :repeated repeated)
+                     (true? notes?)  (assoc :notes? true))
       error        {:reason (async/explain error)}
       (nil? value) {:reason "It isn't in the store"}
       :else        {:reason "It doesn't read as a feed"})))
+
+(defn with-read-notes
+  "The `read` of a feed's `document`, as read-feed gives it, with the notes
+  that the attempt to fetch its notes document read put back, with the
+  `codec` of a library or EDN's. A notes document that's missing or
+  doesn't read leaves the feed as it is."
+  [read codec document {:keys [value error]}]
+  (let [notes (when (and (:feed read) value (not error))
+                (read-map value (codec-of codec (notes-document document))))]
+    (cond-> read
+      notes (update :feed with-notes notes))))
 
 (defn lean-read
   "The feeds `entry` of a feed read from its document, with the feed as
@@ -1461,15 +1542,23 @@
   "The `library` and its `report`, a pair, with the feed and the retained
   facts of each feeds entry that names a document read from `store` with
   `codec`, of the feeds that `wanted?` holds for, in a future or a
-  promise, as with-read-feeds has them."
+  promise, as with-read-feeds has them. A feed's other notes are read too
+  unless the library's config has :lean?, e.g. in a refresh, which tells a
+  changed feed by comparing it whole."
   [[library report] store wanted? codec]
-  (let [outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
+  (let [whole?   (not (:lean? (options library {})))
+        outlined (for [[feed-guid {:keys [document] :as entry}] (:feeds library)
                        :when (and (unloaded? entry) (wanted? feed-guid))]
-                   [feed-guid document])
-        fetch!   (fn [[feed-guid document]]
-                   (async/then (async/attempt #((:fetch store) document {}))
-                               #(vector feed-guid document
-                                        (read-feed codec document %))))]
+                   [feed-guid document (and whole? (:notes? entry))])
+        attempt! #(async/attempt (fn [] ((:fetch store) % {})))
+        fetch!   (fn [[feed-guid document notes?]]
+                   (async/then
+                    (async/all (cond-> [(attempt! document)]
+                                 notes? (conj (attempt! (notes-document document)))))
+                    (fn [[read notes]]
+                      [feed-guid document
+                       (cond-> (read-feed codec document read)
+                         notes (with-read-notes codec document notes))])))]
     (async/then (async/all fetch! outlined)
                 #(with-read-feeds [library report] %))))
 

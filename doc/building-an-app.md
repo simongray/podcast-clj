@@ -593,10 +593,12 @@ option `:keep-fn feeds/slim`, given to each call that fetches or
 subscribes. That part still tells when to check the feed and which
 episodes are new.
 
-Hosts often put an episode's notes in three or four fields at once. If
-you show only the notes that `resolve/description` reads, put
-`:lean? true` in the config. A feed read from its document then keeps
-only those notes in memory, while its document keeps the feed whole.
+Hosts often put an episode's notes in three or four fields at once. A
+feed's document holds only the notes that `resolve/description` reads,
+and a notes document beside it holds the others. If you show only those
+notes, put `:lean? true` in the config, and the library reads a feed's
+document alone, which keeps less in memory and decodes less at each
+start. `library/whole-feed!` reads a feed with all its notes.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 On the JVM, keep the last block that you read and the writers, and poll

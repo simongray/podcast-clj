@@ -1900,34 +1900,63 @@
                                       (is (= (found-ids whole) (found-ids lib))
                                           "and finds what a read of the whole index finds"))))))))
 
-(deftest feeds-read-lean
-  (let [s        (store/memory)
+(deftest a-feed-and-its-notes-apart
+  (let [doubled (update show :rss/items (fn [items]
+                                          (mapv #(assoc % :content/encoded "<p>Notes</p>"
+                                                        :rss/description "Notes")
+                                                items)))
+        [lean notes] (library.impl/split-notes doubled)]
+    (is (= #{{:content/encoded "<p>Notes</p>"}}
+           (set (map #(select-keys % resolve/description-keys) (:rss/items lean))))
+        "only the notes that description reads")
+    (is (= doubled (library.impl/with-notes lean notes)) "and the others back")
+    (is (= [lean nil] (library.impl/split-notes lean))
+        "and none of a feed with no others")))
+
+(deftest feeds-written-in-two-documents
+  (let [fetched  (atom [])
+        s        (update (store/memory) :fetch
+                         (fn [f] (fn [name opts] (swap! fetched conj name) (f name opts))))
         notes    #(set (map (fn [item] (select-keys item resolve/description-keys)) %))
-        doubled  (update-in transit-library [:feeds guid :feed :rss/items]
-                            (fn [items]
-                              (mapv #(assoc % :content/encoded "<p>Notes</p>" :rss/description "Notes")
-                                    items)))
-        document (feed-document (get-in doubled [:feeds guid :changed-at]))
+        doubled  (update show :rss/items (fn [items]
+                                           (mapv #(assoc % :content/encoded "<p>Notes</p>"
+                                                         :rss/description "Notes")
+                                                 items)))
+        made     #(library/make "phone" {:at now :codec transit/codec :config %})
+        lib      (library/subscribe (made {}) url (assoc fresh :feed doubled) {:at now})
+        document (feed-document (get-in lib [:feeds guid :changed-at]))
+        lean     #{{:content/encoded "<p>Notes</p>"}}
         whole    #{{:content/encoded "<p>Notes</p>" :rss/description "Notes"}}]
-    (run #(library/write! doubled s (assoc in-transit :if-version nil))
-         #(async/then (library/read! (library/make "phone" {:at     now
-                                                            :codec  transit/codec
-                                                            :config {:lean? true}})
-                                     s in-transit)
-                      (fn [{lib :library}]
-                        (let [feed (get-in lib [:feeds guid :feed])]
-                          (is (= #{{:content/encoded "<p>Notes</p>"}} (notes (:rss/items feed)))
-                              "keep only the notes that description reads in memory, with :lean?")
-                          (is (= [:feed/notes-left-out] (map :id (:podcast/report (meta feed))))
-                              "and say so in the feed's report")
-                          (async/then (library/write! lib s (assoc in-transit :if-version "1"))
-                                      (fn [{:keys [put]}]
-                                        (is (not-any? #{document} put) "and write no feed anew"))))))
+    (is (true? (get-in lib [:feeds guid :notes?])))
+    (run #(async/then (library/write! lib s (assoc in-transit :if-version nil))
+                      (fn [{:keys [put]}]
+                        (is (= #{document (library.impl/notes-document document)}
+                               (set (filter library.impl/feed-document? put)))
+                            "the feed's document, and that of the notes that description doesn't read")))
          #(async/then ((:fetch s) document {})
                       (fn [doc]
-                        (is (= whole (notes (get-in (library.impl/read-feed transit/codec document {:value doc})
-                                                    [:feed :rss/items])))
-                            "while its document keeps the feed whole"))))))
+                        (is (= lean (notes (get-in (library.impl/read-feed transit/codec document {:value doc})
+                                                   [:feed :rss/items]))))))
+         #(reset! fetched [])
+         #(async/then (library/read! (made {:lean? true}) s in-transit)
+                      (fn [{lib :library}]
+                        (is (= lean (notes (get-in lib [:feeds guid :feed :rss/items])))
+                            "a lean library reads the feed's document")
+                        (is (not-any? library.impl/notes-document? @fetched) "alone")
+                        (async/then (library/whole-feed! lib s guid in-transit)
+                                    (fn [feed]
+                                      (is (= whole (notes (:rss/items feed)))
+                                          "and whole-feed! reads the feed whole")
+                                      (async/then (library/write! lib s (assoc in-transit :if-version "1"))
+                                                  (fn [{:keys [put delete]}]
+                                                    (is (not-any? library.impl/feed-document? put)
+                                                        "while a write puts neither anew")
+                                                    (is (not-any? library.impl/feed-document? delete)
+                                                        "and keeps both")))))))
+         #(async/then (library/read! (made {}) s in-transit)
+                      (fn [{lib :library}]
+                        (is (= whole (notes (get-in lib [:feeds guid :feed :rss/items])))
+                            "and another library reads both"))))))
 
 (deftest a-library-written-and-read
   (let [documents (atom {})

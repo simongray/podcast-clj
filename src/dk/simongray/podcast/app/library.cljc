@@ -42,11 +42,12 @@
        :extension      \".transit\"     ; of the documents, as make takes it
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
-  With :lean?, a feed read from its document keeps in memory only the
-  notes that resolve/description reads, as resolve/lean gives it, while
-  the document keeps the feed whole. A read and refreshed read feeds so,
-  while a feed that a subscription brings stays whole until the next read,
-  so that its document is written whole.
+  A feed's document holds only the notes that resolve/description reads,
+  and a notes document beside it holds the others. With :lean?, a read and
+  refreshed read the feed's document alone, so the feed keeps only those
+  notes in memory, while a feed that a subscription brings stays whole
+  until the next read. Without it, they read both. whole-feed! reads a
+  feed whole either way.
 
   Each function also takes the same keys as options, for one call, and
   :at, an instant to stamp each change with in place of the time of the
@@ -354,6 +355,7 @@
          (cond-> fresh? (update :feeds feeds/add url result at cadence))
          (impl/reindexed feed-guid)
          (cond-> fresh? (-> (impl/kept feed-guid (impl/options library opts))
+                            (impl/notes-flagged feed-guid)
                             (impl/looked-up feed-guid)))))))
 
 (defn remove-episode
@@ -768,20 +770,30 @@
                                       built (impl/built-documents entry (key-of feed-guid))]
                                   {:feed-guid feed-guid
                                    :built     built
-                                   :name      name
-                                   :body      (impl/feed-body (assoc entry :repeated (:repeated built))
-                                                              codec)}))))]
+                                   :files     (impl/feed-files name
+                                                               (assoc entry :repeated (:repeated built))
+                                                               codec)}))))]
              (async/then
               (async/in-groups prepared 1 named)
               (fn [made]
-                (let [documents (into {} (map (juxt :name :body)) made)]
+                (let [files     (mapcat :files made)
+                      notes?    (into {} (map (juxt :feed-guid #(< 1 (count (:files %))))) made)
+                      ;; a lean library reads a feed's document alone
+                      documents (into {}
+                                      (comp (remove #(and (:lean? opts)
+                                                          (impl/notes-document? (:name %))))
+                                            (map (juxt :name :body)))
+                                      files)
+                      flagged   (fn [k entry]
+                                  (cond-> entry
+                                    (contains? notes? k) (dissoc :notes?)
+                                    (notes? k)           (assoc :notes? true)))]
                   (async/then
-                   (store/put-all! store (for [[name body] documents]
-                                           {:name name :body body}))
+                   (store/put-all! store files)
                    (fn [_]
                      {:at               at
                       :from             from
-                      :feeds            (into {} (map (fn [[k e]] [k (outlined k e)])) fetched)
+                      :feeds            (into {} (map (fn [[k e]] [k (flagged k (outlined k e))])) fetched)
                       :documents        documents
                       :search-documents (into {} (map (juxt :feed-guid :built)) made)
                       :changed          (:changed step)
@@ -823,8 +835,12 @@
                     (let [own (get-in library [:feeds feed-guid])]
                       (cond
                         (contains? documents document)
-                        (let [read (impl/read-feed codec document
-                                                   {:value {:body (get documents document)}})]
+                        (let [notes (impl/notes-document document)
+                              read  (cond-> (impl/read-feed codec document
+                                                            {:value {:body (get documents document)}})
+                                      (contains? documents notes)
+                                      (impl/with-read-notes codec document
+                                                            {:value {:body (get documents notes)}}))]
                           (when (:feed read)
                             (-> (dissoc entry :document)
                                 (clojure.core/merge read)
@@ -903,7 +919,9 @@
                      :from             (select-keys from feed-guids)
                      :feeds            (select-keys feeds feed-guids)
                      :documents        (select-keys documents
-                                                    (keep #(get-in feeds [% :document]) feed-guids))
+                                                    (mapcat #(some-> (get-in feeds [% :document])
+                                                                     ((juxt identity impl/notes-document)))
+                                                            feed-guids))
                      :search-documents (select-keys search-documents feed-guids)
                      :changed          (vec feed-guids)
                      :moved            (select-keys moved feed-guids)})
@@ -2133,13 +2151,39 @@
                                     (assoc :document name))))]
      (async/then
       (async/attempt
-       #(store/put-all! store (for [[_ entry name] chosen]
-                                {:name name :body (impl/feed-body entry codec)})))
+       #(store/put-all! store (mapcat (fn [[_ entry name]] (impl/feed-files name entry codec))
+                                      chosen)))
       (fn [{:keys [error]}]
         (if error
           {:library library
            :report  [(diagnostics/describe (impl/save-failure error))]}
           {:library (reduce outlined library chosen) :report []}))))))
+
+(defn whole-feed!
+  "The feed `feed-guid` of `library` as its documents in `store` hold it,
+  with the notes that a lean library leaves out of memory, or nil when the
+  store holds none, in ClojureScript as a promise. It reads them with the
+  :codec of `opts`.
+
+  The documents hold a feed as it was fetched or subscribed to, so their
+  episodes can differ from those in memory, e.g. after the cuts of
+  :keep-fn and :max-items."
+  ([library store feed-guid]
+   (whole-feed! library store feed-guid {}))
+  ([library store feed-guid opts]
+   {:pre [(map? opts)]}
+   (let [codec    (impl/codec library opts)
+         entry    (get-in library [:feeds feed-guid])
+         document (if (:feed entry)
+                    (impl/entry-document feed-guid entry codec)
+                    (:document entry))
+         attempt! #(async/attempt (fn [] ((:fetch store) % {})))]
+     (if document
+       (async/then (async/all [(attempt! document) (attempt! (impl/notes-document document))])
+                   (fn [[read notes]]
+                     (:feed (impl/with-read-notes (impl/read-feed codec document read)
+                                                  codec document notes))))
+       (async/then nil (constantly nil))))))
 
 (defn documents
   "The documents of `library` as a map of their names to their bodies, in
@@ -2147,10 +2191,10 @@
   e.g. those that a store holds already.
 
   They're the library's own document, which holds the parts that
-  saved-keys names and the manifest of the search index, the document of
+  saved-keys names and the manifest of the search index, the documents of
   each feed that it holds in memory, and the segments of the index. The
   library's own document is always among them, since every change of the
-  library changes it. A feed's document and a segment are named by what
+  library changes it. A feed's documents and a segment are named by what
   they hold, so a store that holds one never needs it again."
   ([library]
    (documents library {}))
@@ -2165,8 +2209,9 @@
                (for [[feed-guid entry] (:feeds library)
                      :when (:feed entry)
                      :let  [name (impl/entry-document feed-guid entry codec)]
-                     :when (not (contains? except name))]
-                 [name (impl/feed-body entry codec)]))
+                     :when (not (contains? except name))
+                     file  (impl/feed-files name entry codec)]
+                 [(:name file) (:body file)]))
          (into (map (juxt :name :body)) (some-> files pop))
          (assoc (impl/library-name codec) ((:encode codec) saved))))))
 
@@ -2177,10 +2222,13 @@
   [library]
   (let [naming (impl/naming library)]
     (-> #{(impl/library-name naming)}
-        (into (keep (fn [[feed-guid entry]]
-                      (if (:feed entry)
-                        (impl/entry-document feed-guid entry naming)
-                        (:document entry))))
+        (into (mapcat (fn [[feed-guid entry]]
+                        (let [document (if (:feed entry)
+                                         (impl/entry-document feed-guid entry naming)
+                                         (:document entry))]
+                          (cond-> []
+                            document                       (conj document)
+                            (and document (:notes? entry)) (conj (impl/notes-document document))))))
               (:feeds library))
         (into (some-> (:index library) impl/segment-names))
         (into (some-> (:unloaded-index library) :manifest impl/manifest-segments)))))
@@ -2189,19 +2237,23 @@
   "The names of the documents that from-saved reads for `library` from the
   `saved` map of its own document, and that `docs`, a map of names to
   bodies, lack: those of the feeds that `library` doesn't hold in memory as
-  they are, and those of the segments of the search index that the index
-  of `library` doesn't hold, unless its manifest is the one of that index.
-  Of an index that's unloaded, it's only the manifest, when the library's
-  own document doesn't hold it."
+  they are, with their notes documents unless its config has :lean?, and
+  those of the segments of the search index that the index of `library`
+  doesn't hold, unless its manifest is the one of that index. Of an index
+  that's unloaded, it's only the manifest, when the library's own document
+  doesn't hold it."
   [library saved docs]
   (let [naming   (impl/naming library)
+        whole?   (not (:lean? (impl/options library {})))
         same?    (fn [feed-guid document]
                    (let [own (get-in library [:feeds feed-guid])]
                      (and (:feed own)
                           (= document (impl/entry-document feed-guid own naming)))))
-        feeds    (for [[feed-guid {:keys [document]}] (:feeds saved)
-                       :when (and document (not (same? feed-guid document)))]
-                   document)
+        feeds    (for [[feed-guid {:keys [document notes?]}] (:feeds saved)
+                       :when (and document (not (same? feed-guid document)))
+                       name  (cond-> [document]
+                               (and whole? notes?) (conj (impl/notes-document document)))]
+                   name)
         manifest (or (:index saved) (get docs ciff/manifest-name))
         index    (cond
                    (:unloaded-index library)
@@ -2238,10 +2290,11 @@
                      entry)]))
         read  (fn [[feed-guid {:keys [document] :as entry}]]
                 (when (impl/unloaded? entry)
-                  [feed-guid document
-                   (impl/read-feed codec document
-                                   {:value (when-let [body (get docs document)]
-                                             {:body body})})]))
+                  (let [attempt #(hash-map :value (when-let [body (get docs %)] {:body body}))
+                        notes   (impl/notes-document document)]
+                    [feed-guid document
+                     (cond-> (impl/read-feed codec document (attempt document))
+                       (contains? docs notes) (impl/with-read-notes codec document (attempt notes)))])))
         ;; the feeds that changed while the index of the library saved was
         ;; unloaded, which its manifest leaves out
         changed (:index-changed saved)
