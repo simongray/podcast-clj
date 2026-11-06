@@ -212,3 +212,14 @@
     (is (= "The Sequel"
            (:name (:season (place [{:rss/guid {:content "x"} :podcast/season {:content 1 :name "The Sequel"}}] {}))))
         "with the name that the feed gives it")))
+
+(deftest the-episodes-earlier-in-a-season
+  (let [item    (fn [g season more]
+                  (merge {:rss/guid {:content g} :itunes/season season} more))
+        trailer {:itunes/episode-type "trailer"}
+        items   [(item "a1" 1 {}) (item "t2" 2 trailer) (item "b1" 2 {}) (item "b2" 2 {}) (item "b3" 2 {})]
+        guids   #(map (comp :content :rss/guid) (show/earlier-in-season items %))]
+    (is (= ["b1" "b2"] (guids "b3")) "the full ones of its own season, not a trailer or an earlier season")
+    (is (empty? (guids "a1")) "none before the first")
+    (is (nil? (show/earlier-in-season items "t2")) "and nothing for a trailer")
+    (is (nil? (show/earlier-in-season items "gone")) "or an episode that isn't there")))

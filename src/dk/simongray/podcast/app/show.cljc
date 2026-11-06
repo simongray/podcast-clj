@@ -177,6 +177,17 @@
                        :seasons  (count (distinct (map (comp season-of first) episodes))))
           item (assoc :next item :season (season-facts episodes item)))))))
 
+;; Within a season, since the seasons of an anthology don't follow from each
+;; other, as with the place
+(defn earlier-in-season
+  "The full episodes before the one with the guid `item-guid` in its season,
+  by the `items` in listening order, or nil when that one isn't a full
+  episode among them."
+  [items item-guid]
+  (let [[before [item]] (split-with #(not= item-guid (guid/item-guid %)) items)]
+    (when (some-> item resolve/full?)
+      (filter (every-pred resolve/full? #(= (season-of item) (season-of %))) before))))
+
 (defn- look-up-show!
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
   and give the item with it, in a future or a promise. Without an answer,

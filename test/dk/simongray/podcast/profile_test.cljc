@@ -257,6 +257,10 @@
       (is (every? #(profile/played? played %) [a b c]))
       (is (= 1 (count (set (map :updated-at (vals (:played played)))))) "with one stamp")
       (is (not-any? #(profile/played? (profile/mark-all-unplayed played [a b] t2) %) [a b]))
+      (let [begun (profile/mark-all-played (profile/progress s a 5 3600 t0) [a b] t1)
+            taken (profile/unmark-all-played begun [a b] t2)]
+        (is (not-any? #(profile/played? taken %) [a b]))
+        (is (= 5 (:position (profile/episode-entry taken a))) "and with their marks taken off, the positions stay"))
       (is (identical? s (profile/mark-all-played s [] t1)) "and nothing for none, not even the clock"))))
 
 (deftest preferences-and-settings-field-by-field

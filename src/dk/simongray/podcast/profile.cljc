@@ -758,6 +758,12 @@
   [profile ids at]
   (impl/written profile (mapcat #(impl/unplayed profile % at) ids) at))
 
+(defn unmark-all-played
+  "Take the played marks off the episodes `ids` in `profile` at `at` with
+  one stamp, leaving their positions, e.g. to undo mark-all-played."
+  [profile ids at]
+  (impl/written profile (mapcat #(impl/marked-as profile % false at) ids) at))
+
 (defn hidden
   "Whether the listener hid the episode `id` in `profile`: true, false when
   they unhid it, or nil when they did neither, and the :hide-where of its
