@@ -860,18 +860,20 @@
     (when (and (number? duration) (number? outro) (< 0 outro duration))
       (- duration outro))))
 
+(defn touched-ms
+  "When the episode with the entry `e` was last played or touched, in
+  milliseconds, or 0 if it never was."
+  [e]
+  (or (some-> (crdt/later-inst (:played-at e) (:updated-at e)) inst-ms) 0))
+
 (defn history
   "The episode ids in `profile`, most recently played or touched first: an
   episode heard again comes first again, and a forgotten one is left out
   until then."
   [profile]
-  (let [touched (fn [[_ e]]
-                  (or (some-> (crdt/later-inst (:played-at e) (:updated-at e))
-                              inst-ms)
-                      0))]
-    (->> (episode-entries profile)
-         (sort-by #(- (touched %)))
-         (map key))))
+  (->> (episode-entries profile)
+       (sort-by #(- (touched-ms (val %))))
+       (map key)))
 
 (defn merge
   "Reconcile the profiles `a` and `b` of a listener's devices, as

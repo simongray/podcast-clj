@@ -1446,7 +1446,27 @@
            (effects (library/update-profile serial profile/mark-played [k "One"]) "Two"))
         "and nothing when only the trailer and the bonus are left")
     (is (= [[:play [k "Two"]]] (effects (on episodic) "One"))
-        "an episodic show too")))
+        "an episodic show too"))
+  (let [episode (fn [title season]
+                  {:rss/title title :rss/guid {:content title} :itunes/season season})
+        lib     (-> (library/make "test")
+                    (library/subscribe url {:status 200
+                                            :url    url
+                                            :feed   {:rss/title   "An Anthology"
+                                                     :itunes/type "serial"
+                                                     :rss/items   [(episode "A1" 1) (episode "A2" 1)
+                                                                   (episode "B1" 2) (episode "B2" 2)]}})
+                    (library/update-profile profile/prefer {:continuous? true}))
+        k       (first (keys (:feeds lib)))
+        effects (fn [lib title]
+                  (:effects (library/step lib [:ended [k title]] {:at (at 60)})))
+        heard   #(update lib :profile profile/mark-played [k %] now)]
+    (is (= [[:play [k "B2"]]] (effects lib "B1"))
+        "a serial stays in the season that the listener chose")
+    (is (= [[:play [k "A2"]]] (effects (heard "B1") "A1"))
+        "the one of the episode that ended, not of any heard before it")
+    (is (= [[:play [k "A1"]]] (effects (heard "B1") "B2"))
+        "and goes on to another once that's heard")))
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})

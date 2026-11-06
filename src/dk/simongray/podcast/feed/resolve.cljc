@@ -266,6 +266,11 @@
       (number? e)        (assoc :episode e)
       (:display episode) (assoc :episode-display (:display episode)))))
 
+(defn full?
+  "Whether `item` is a full episode, not a trailer or a bonus."
+  [item]
+  (= "full" (:type (numbering item))))
+
 ;; Media RSS 1.5.1 (2009), media:content: the medium is image, audio,
 ;; video, document or executable
 (defn- playable?

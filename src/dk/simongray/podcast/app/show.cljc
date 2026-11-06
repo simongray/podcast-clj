@@ -7,6 +7,7 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.client :as client]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]))
@@ -85,6 +86,96 @@
 
        (wanted? :links)
        (assoc :links (links/links (links/ids feed nil {:url url})))))))
+
+(defn- season-of
+  "The number of the season of `item`, or nil."
+  [item]
+  (:season (resolve/numbering item)))
+
+(defn- time-left
+  "The seconds of `item` left to hear by its `entry` in a profile, or nil
+  when its length is unknown."
+  [item {:keys [position] :as entry}]
+  (when-let [length (or (:duration entry) (resolve/duration item))]
+    (max 0 (- length (or position 0)))))
+
+(defn- counts
+  "How far the listener is in the `episodes`, pairs of an item and its entry
+  in a profile: the :total, how many are :heard, the seconds :left in the
+  rest, and how many of those have an :unknown length."
+  [episodes]
+  (let [unheard (remove (comp :played? second) episodes)
+        lefts   (map #(apply time-left %) unheard)]
+    {:total   (count episodes)
+     :heard   (- (count episodes) (count unheard))
+     :left    (reduce + (remove nil? lefts))
+     :unknown (count (filter nil? lefts))}))
+
+(defn- heard-last
+  "The item of the `pairs` of an item and its entry in a profile that the
+  listener played or touched last, or nil when they did neither to any."
+  [pairs]
+  (when-let [begun (seq (remove #(= :unplayed (profile/status (second %))) pairs))]
+    (first (apply max-key (comp profile/touched-ms second) begun))))
+
+(defn- next-unheard
+  "The first item of the `episodes`, pairs of an item and its entry in a
+  profile, that isn't heard, from the first of `season` on and then among
+  those before it, or nil."
+  [episodes season]
+  (let [[before after] (split-with #(not= season (season-of (first %))) episodes)]
+    (ffirst (remove (comp :played? second) (concat after before)))))
+
+(defn- season-facts
+  "The season of `item` among the `episodes`, pairs of an item and its entry
+  in a profile: its :season and :name, if any, the :number of `item` in it
+  from 1, and its counts."
+  [episodes item]
+  (let [season (season-of item)
+        its    (filterv #(= season (season-of (first %))) episodes)
+        name   (some (comp :season-name resolve/numbering first) its)]
+    (cond-> (assoc (counts its)
+                   :number (inc (count (take-while #(not (identical? item (first %))) its))))
+      season (assoc :season season)
+      name   (assoc :name name))))
+
+;; A show of many seasons is often an anthology, so the place follows the
+;; season heard last, as Apple shows a follower the season they're listening
+;; to. Libby gives the time left in a book.
+;; https://podcasters.apple.com/864-best-practices-for-episode-numbering
+;; https://help.libbyapp.com/en-us/6047.htm
+(defn place
+  "Where the listener is in a serial show, by its `items` in listening order
+  and `entry-of`, a function of an item that returns its entry in a profile,
+  or nil when the show has no full episodes, e.g.
+
+      {:total    19
+       :heard    3
+       :left     44000
+       :unknown  0
+       :started? true
+       :seasons  7
+       :next     item
+       :season   {:season 2 :number 2 :total 3 :heard 1 :left 3600 :unknown 0}}
+
+  Only full episodes count, since trailers and bonuses stand aside from the
+  story, though hearing one moves the listener to its season. The :left is
+  in seconds, and :unknown counts the episodes not yet heard that have no
+  length.
+
+  The :next is the first not yet heard in the season heard last, or else in
+  the seasons after it and then before it. Its :season has the :number of
+  :next from 1 and the :name that the feed gives it, if any. Neither is there
+  once all are heard."
+  [items entry-of]
+  (let [pairs    (mapv (juxt identity entry-of) items)
+        episodes (filterv (comp resolve/full? first) pairs)]
+    (when (seq episodes)
+      (let [item (next-unheard episodes (some-> (heard-last pairs) season-of))]
+        (cond-> (assoc (counts episodes)
+                       :started? (some? (heard-last episodes))
+                       :seasons  (count (distinct (map (comp season-of first) episodes))))
+          item (assoc :next item :season (season-facts episodes item)))))))
 
 (defn- look-up-show!
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,

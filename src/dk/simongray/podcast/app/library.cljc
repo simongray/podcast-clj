@@ -1679,19 +1679,22 @@
                             (assoc opts :repeated (get-in library [:feeds feed-guid
                                                                    :repeated])))))))
 
-;; Only full episodes, since the listening order has a show's trailers
-;; before its episodes, and an unplayed one would be played after any of them
 (defn- next-of-show
-  "The first full episode of the show of the episode `id` in `library` that
-  isn't played, in its listening order, but for `id` itself, or nil."
-  [library [feed-guid :as id]]
-  (let [profile (:profile library)]
-    (->> (episodes library {:feed-guids [feed-guid]
-                            :order      :listening
-                            :where      {:type "full"}})
-         (map (fn [[feed item]] (episode-id library feed item)))
-         (remove #(or (= id %) (profile/played? profile %)))
-         first)))
+  "The episode to play after the episode `id` in `library` ended at `at`, or
+  nil. For a serial show it's the next of the listener's place, as
+  show/place gives it, and for an episodic one the first full episode not
+  yet played in its listening order."
+  [library [feed-guid :as id] at]
+  (let [profile  (profile/mark-played (:profile library) id at)
+        pairs    (episodes library {:feed-guids [feed-guid] :order :listening})
+        feed     (ffirst pairs)
+        items    (map second pairs)
+        id-of    #(episode-id library feed %)
+        entry-of #(profile/episode-entry profile (id-of %))]
+    (some-> (if (resolve/serial? feed)
+              (:next (show/place items entry-of))
+              (first (remove (comp :played? entry-of) (filter resolve/full? items))))
+            id-of)))
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as
@@ -1702,10 +1705,10 @@
   this device. The `opts` go over the :sleep of the library. The next or
   earlier episode is always one that the app can play, i.e. one whose
   feed the library holds in memory. With the listener's :continuous?, an
-  episode that ends with no other queued is followed by the first
-  unplayed full episode of its show in the listening order, so never a
-  trailer or a bonus: the next of a serial show, and the newest of an
-  episodic one. When that gives none, the effects have
+  episode that ends with no other queued is followed by a full episode of
+  its show, so never a trailer or a bonus: the next of the listener's place
+  in a serial show, as show/place gives it, and the newest not yet played in
+  an episodic one. When that gives none, the effects have
   [:nothing-next id], e.g. for an app to play the first
   of recommend's episodes like it, with the event [:play id]."
   ([library event]
@@ -1713,7 +1716,7 @@
   ([library event opts]
    {:pre [(map? opts)]}
    (let [at   (impl/time-of library opts)
-         opts (clojure.core/merge {:continue-fn #(next-of-show library %)
+         opts (clojure.core/merge {:continue-fn #(next-of-show library % at)
                                    :can-play-pred #(some? (impl/item-of library %))}
                                   (select-keys library [:sleep])
                                   opts)

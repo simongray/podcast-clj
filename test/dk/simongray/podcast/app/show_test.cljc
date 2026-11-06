@@ -9,6 +9,7 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [example-guid fixture ranges run]]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.secret :as secret]
             [dk.simongray.webcrypto.bytes :as bytes]))
@@ -141,3 +142,73 @@
                      (testing "and from more, when the channel goes on past them"
                        (is (= "Recommended" (:rss/title (:show (first (:podroll v))))))
                        (is (= 2 (count @long))))))))))
+
+(defn- place
+  "The place in the `items` by the `entries`, a map of their guids to their
+  entries in a profile."
+  [items entries]
+  (show/place items (comp entries :content :rss/guid)))
+
+(deftest the-place-in-a-serial
+  (let [item    (fn [g more] (merge {:rss/guid {:content g} :itunes/duration 1800} more))
+        items   [(item "t" {:itunes/episode-type "trailer" :itunes/duration 60})
+                 (item "1" {})
+                 (item "2" {})
+                 (item "b" {:itunes/episode-type "bonus" :itunes/duration 600})
+                 (item "3" {:itunes/duration 3600})]
+        entries {"1" {:played? true} "2" {:position 600}}]
+    (is (= {:total    3
+            :heard    1
+            :left     4800
+            :unknown  0
+            :started? true
+            :seasons  1
+            :next     (items 2)
+            :season   {:number 2 :total 3 :heard 1 :left 4800 :unknown 0}}
+           (place items entries))
+        "the first full episode not yet heard, and the time left from where it was left")
+    (is (= {:total    3
+            :heard    0
+            :left     7200
+            :unknown  0
+            :started? false
+            :seasons  1
+            :next     (items 1)
+            :season   {:number 1 :total 3 :heard 0 :left 7200 :unknown 0}}
+           (place items {}))
+        "the first, before any is heard, with neither the trailer nor the bonus")
+    (is (= {:total 3 :heard 3 :left 0 :unknown 0 :started? true :seasons 1}
+           (place items (zipmap ["1" "2" "3"] (repeat {:played? true}))))
+        "no next once all are heard")
+    (is (= 2 (:number (:season (place items {"1" {:played? true} "3" {:played? true}}))))
+        "an earlier one that was skipped comes first")
+    (is (= 6600 (:left (place items {"1" {:duration 1200}})))
+        "the length that the player measured over the feed's")
+    (is (= {:left 5400 :unknown 1}
+           (select-keys (place (update-in items [1] dissoc :itunes/duration) {}) [:left :unknown]))
+        "the lengths that are missing counted apart")
+    (is (false? (:started? (place items {"t" {:played? true}}))) "a trailer doesn't start the show")
+    (is (nil? (place [(first items)] {})) "and no place without full episodes"))
+  (let [item    (fn [g season]
+                  {:rss/guid {:content g} :itunes/duration 1800 :itunes/season season})
+        trailer (assoc (item "t2" 2) :itunes/episode-type "trailer")
+        items   [(item "a1" 1) (item "a2" 1) trailer (item "b1" 2) (item "b2" 2) (item "b3" 2)]
+        heard   (fn [ms] {:played? true :updated-at (time/->inst ms)})
+        at      (fn [entries] (:season (place items entries)))]
+    (is (= {:season 2 :number 2 :total 3 :heard 1 :left 3600 :unknown 0}
+           (at {"b1" (heard 2000)}))
+        "the season that the listener chose, with the counts of that season")
+    (is (= 2 (:seasons (place items {}))) "of the seasons there are")
+    (is (= (items 4) (:next (place items {"b1" (heard 2000)}))))
+    (is (= 2 (:number (at {"b1" (heard 1000) "a1" (heard 2000)})))
+        "and of the one heard last, when they've heard from several")
+    (is (= {:season 2 :number 1} (select-keys (at {"a1" (heard 1000) "a2" (heard 2000)}) [:season :number]))
+        "the next season, once that one is heard")
+    (is (= {:season 1 :number 1}
+           (select-keys (at (zipmap ["b1" "b2" "b3"] (repeat (heard 2000)))) [:season :number]))
+        "or else an earlier one")
+    (is (= {:season 2 :number 1} (select-keys (at {"a1" (heard 1000) "t2" (heard 2000)}) [:season :number]))
+        "and a season's trailer leads to that season")
+    (is (= "The Sequel"
+           (:name (:season (place [{:rss/guid {:content "x"} :podcast/season {:content 1 :name "The Sequel"}}] {}))))
+        "with the name that the feed gives it")))
