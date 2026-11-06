@@ -1466,7 +1466,24 @@
     (is (= [[:play [k "A2"]]] (effects (heard "B1") "A1"))
         "the one of the episode that ended, not of any heard before it")
     (is (= [[:play [k "A1"]]] (effects (heard "B1") "B2"))
-        "and goes on to another once that's heard")))
+        "and goes on to another once that's heard"))
+  (let [episode (fn [title day]
+                  {:rss/title title :rss/guid {:content title} :rss/pub-date (at (* day 86400))})
+        items   [(episode "One" 1) (episode "Two" 2) (episode "Three" 3)]
+        on      (fn [feed order]
+                  (let [lib (library/subscribe (library/make "test") url {:status 200 :url url :feed feed})
+                        k   (first (keys (:feeds lib)))]
+                    [(cond-> (library/update-profile lib profile/prefer {:continuous? true})
+                       order (library/update-profile profile/configure k {:order order}))
+                     k]))
+        next-of (fn [[lib k]]
+                  (:effects (library/step lib [:ended [k "One"]] {:at (at 60)})))
+        k       (second (on {:rss/items items} nil))]
+    (is (= [[:play [k "Three"]]] (next-of (on {:rss/items items} nil))) "an episodic show, the newest")
+    (is (= [[:play [k "Two"]]] (next-of (on {:rss/items items} :oldest))) "and from the first by the listener's order")
+    (is (= [[:play [k "Two"]]] (next-of (on {:rss/items items :itunes/type "serial"} nil))) "a serial, from the first")
+    (is (= [[:play [k "Three"]]] (next-of (on {:rss/items items :itunes/type "serial"} :newest)))
+        "and the newest by the listener's order")))
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})

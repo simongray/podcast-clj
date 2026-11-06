@@ -1228,9 +1228,10 @@ episode of the queue and go back to the one heard before.
 
 With the listener's preference `:continuous?`, an episode that ends with
 nothing else queued is followed by a full episode of its show, so never a
-trailer or a bonus. In a serial show it's the next of the listener's place,
-which `show/place` returns for the show's page, and in an episodic show it's
-the newest not yet played. When nothing plays next, the effects of
+trailer or a bonus. In a show heard in order, as `show/in-order?` tells from
+its feed and its `:order` setting, it's the next of the listener's place,
+which `show/place` returns for the show's page. In any other it's the newest
+not yet played. When nothing plays next, the effects of
 `library/step` have `[:nothing-next id]`, so you can play an episode of
 your own choosing with `[:play id]`, e.g. the first that
 `library/recommend` finds like the one that ended. A sleep timer still

@@ -87,6 +87,16 @@
        (wanted? :links)
        (assoc :links (links/links (links/ids feed nil {:url url})))))))
 
+(defn in-order?
+  "Whether a show with the `feed` is heard from its first episode, by the
+  listener's `order` of its episodes, as profile/default-settings has it,
+  or else by the feed."
+  [feed order]
+  (case order
+    :oldest          true
+    (nil :listening) (resolve/serial? feed)
+    false))
+
 (defn- season-of
   "The number of the season of `item`, or nil."
   [item]

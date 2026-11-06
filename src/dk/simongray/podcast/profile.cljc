@@ -337,7 +337,9 @@
   - :video?, whether to watch the video of its episodes that offer audio
     and video
   - :notify?, whether its new episodes are announced
-  - :downloads, its rule for dk.simongray.podcast.downloads"
+  - :downloads, its rule for dk.simongray.podcast.downloads
+  - :hide-later?, whether the episodes after the listener's place stay out
+    of its list until they ask for them"
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
     ;; field by field, so two devices that change different settings both

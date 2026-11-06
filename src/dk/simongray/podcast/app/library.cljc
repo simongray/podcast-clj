@@ -1681,9 +1681,9 @@
 
 (defn- next-of-show
   "The episode to play after the episode `id` in `library` ended at `at`, or
-  nil. For a serial show it's the next of the listener's place, as
-  show/place gives it, and for an episodic one the first full episode not
-  yet played in its listening order."
+  nil. For a show heard in order it's the next of the listener's place, as
+  show/place gives it, and for any other the first full episode not yet
+  played in its listening order."
   [library [feed-guid :as id] at]
   (let [profile  (profile/mark-played (:profile library) id at)
         pairs    (episodes library {:feed-guids [feed-guid] :order :listening})
@@ -1691,7 +1691,7 @@
         items    (map second pairs)
         id-of    #(episode-id library feed %)
         entry-of #(profile/episode-entry profile (id-of %))]
-    (some-> (if (resolve/serial? feed)
+    (some-> (if (show/in-order? feed (:order (profile/settings profile feed-guid)))
               (:next (show/place items entry-of))
               (first (remove (comp :played? entry-of) (filter resolve/full? items))))
             id-of)))
@@ -1707,8 +1707,8 @@
   feed the library holds in memory. With the listener's :continuous?, an
   episode that ends with no other queued is followed by a full episode of
   its show, so never a trailer or a bonus: the next of the listener's place
-  in a serial show, as show/place gives it, and the newest not yet played in
-  an episodic one. When that gives none, the effects have
+  in a show heard in order, as show/place gives it, and the newest not yet
+  played in any other. When that gives none, the effects have
   [:nothing-next id], e.g. for an app to play the first
   of recommend's episodes like it, with the event [:play id]."
   ([library event]

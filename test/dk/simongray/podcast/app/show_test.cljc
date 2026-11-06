@@ -149,6 +149,16 @@
   [items entries]
   (show/place items (comp entries :content :rss/guid)))
 
+(deftest a-show-heard-in-order
+  (let [episodic {:rss/title "A Show"}
+        serial   {:rss/title "A Serial" :itunes/type "serial"}]
+    (is (show/in-order? serial nil) "by what its feed says")
+    (is (show/in-order? serial :listening))
+    (is (not (show/in-order? episodic nil)))
+    (is (show/in-order? episodic :oldest) "or what the listener chose")
+    (is (not (show/in-order? serial :newest)))
+    (is (not (show/in-order? serial :shortest)) "and by no other order")))
+
 (deftest the-place-in-a-serial
   (let [item    (fn [g more] (merge {:rss/guid {:content g} :itunes/duration 1800} more))
         items   [(item "t" {:itunes/episode-type "trailer" :itunes/duration 60})
