@@ -1424,6 +1424,30 @@
                                 (map (fn [[feed item]] (library/episode-id lib feed item)) (library/episodes lib))))))
         (is (= [] (library/episodes caught-up {:where {:status :unplayed}})))))))
 
+(deftest what-continuous-play-goes-on-with
+  (let [item     (fn [title type]
+                   {:rss/title title :rss/guid {:content title} :itunes/episode-type type})
+        episodic {:rss/title "A Show"
+                  :rss/items [(item "Trailer" "trailer") (item "One" "full")
+                              (item "Bonus" "bonus") (item "Two" "full")]}
+        on       (fn [feed]
+                   (-> (library/make "test")
+                       (library/subscribe url {:status 200 :url url :feed feed})
+                       (library/update-profile profile/prefer {:continuous? true})))
+        serial   (on (assoc episodic :itunes/type "serial"))
+        k        (first (keys (:feeds serial)))
+        effects  (fn [lib title]
+                   (:effects (library/step lib [:ended [k title]])))]
+    (is (= [[:play [k "Two"]]] (effects serial "One"))
+        "a serial's next full episode, not its trailer or its bonus")
+    (is (= [[:play [k "One"]]] (effects serial "Trailer"))
+        "its first, after its trailer")
+    (is (= [[:nothing-next [k "Two"]]]
+           (effects (library/update-profile serial profile/mark-played [k "One"]) "Two"))
+        "and nothing when only the trailer and the bonus are left")
+    (is (= [[:play [k "Two"]]] (effects (on episodic) "One"))
+        "an episodic show too")))
+
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
         backend   (library/backend (store/memory documents) {:app "test"})

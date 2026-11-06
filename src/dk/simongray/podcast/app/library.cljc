@@ -1679,12 +1679,16 @@
                             (assoc opts :repeated (get-in library [:feeds feed-guid
                                                                    :repeated])))))))
 
+;; Only full episodes, since the listening order has a show's trailers
+;; before its episodes, and an unplayed one would be played after any of them
 (defn- next-of-show
-  "The first episode of the show of the episode `id` in `library` that
+  "The first full episode of the show of the episode `id` in `library` that
   isn't played, in its listening order, but for `id` itself, or nil."
   [library [feed-guid :as id]]
   (let [profile (:profile library)]
-    (->> (episodes library {:feed-guids [feed-guid] :order :listening})
+    (->> (episodes library {:feed-guids [feed-guid]
+                            :order      :listening
+                            :where      {:type "full"}})
          (map (fn [[feed item]] (episode-id library feed item)))
          (remove #(or (= id %) (profile/played? profile %)))
          first)))
@@ -1699,9 +1703,10 @@
   earlier episode is always one that the app can play, i.e. one whose
   feed the library holds in memory. With the listener's :continuous?, an
   episode that ends with no other queued is followed by the first
-  unplayed episode of its show in the listening order: the next of a
-  serial show, and the newest of an episodic one. When that gives none,
-  the effects have [:nothing-next id], e.g. for an app to play the first
+  unplayed full episode of its show in the listening order, so never a
+  trailer or a bonus: the next of a serial show, and the newest of an
+  episodic one. When that gives none, the effects have
+  [:nothing-next id], e.g. for an app to play the first
   of recommend's episodes like it, with the event [:play id]."
   ([library event]
    (step library event {}))

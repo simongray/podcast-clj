@@ -1227,9 +1227,10 @@ with `:queue`, or to the queue once no chapter is left, with
 episode of the queue and go back to the one heard before.
 
 With the listener's preference `:continuous?`, an episode that ends with
-nothing else queued is followed by the first unplayed episode of its
-show in its listening order: the next of a serial show, and the newest
-of an episodic one. When nothing plays next, the effects of
+nothing else queued is followed by the first unplayed full episode of its
+show in its listening order, so never a trailer or a bonus: the next of a
+serial show, and the newest of an episodic one. When nothing plays next,
+the effects of
 `library/step` have `[:nothing-next id]`, so you can play an episode of
 your own choosing with `[:play id]`, e.g. the first that
 `library/recommend` finds like the one that ended. A sleep timer still
